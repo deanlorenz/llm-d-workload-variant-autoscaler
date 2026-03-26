@@ -1,14 +1,13 @@
-# Analyzer K3 — Implementation Plan
+# Throughput Analyzer — Implementation Plan
 
 ## Overview
 
-Analyzer K3 computes a per-variant **supply/demand ratio** that accounts for
-workload composition, KV-cache capacity, and latency behavior.  It complements
-the existing K1 (KV-saturation) and K2 (queueing-model) analyzers.
+The **Throughput Analyzer** computes a per-variant **supply/demand ratio** that
+accounts for workload composition, KV-cache capacity, and latency behavior.  It
+complements the existing Saturation Analyzer (K1/K2) and Queueing Model Analyzer.
 
 **Key idea**: normalize concurrency by end-to-end latency to obtain a
-latency-weighted load index.  Scale variant $v$ so that
-$D_v / S_v \approx 1$.
+latency-weighted load index.  Scale variant $v$ so that $D_v / S_v \approx 1$.
 
 ---
 
@@ -68,6 +67,29 @@ registry entry.
 
 Workload types $w$ are **not directly observable** from vLLM metrics.  They must
 be **inferred** from per-pod aggregate statistics using the approach below.
+
+### 2.4 How Metric Registration Works in This Codebase
+
+Registration is **centralized** — there is no per-analyzer self-registration.
+All `Register*Queries()` calls happen in a single place: `NewEngine()` in
+`internal/engines/saturation/engine.go`:
+
+```go
+registration.RegisterSaturationQueries(metricsRegistry)    // KV, queue, cache config, tokens, prefix cache, scheduler queue
+registration.RegisterScaleToZeroQueries(metricsRegistry)   // model request count
+registration.RegisterQueueingModelQueries(metricsRegistry) // scheduler dispatch rate, avg TTFT, avg ITL
+```
+
+Analyzers **never call query constants directly**.  The collector
+(`internal/collector/replica_metrics.go`) executes all registered queries and
+populates `interfaces.ReplicaMetrics` fields.  Analyzers then read those
+pre-populated struct fields.
+
+**Cross-dependency note**: the Queueing Model Analyzer uses `rm.AvgInputTokens`
+and `rm.AvgOutputTokens`, which are registered by `RegisterSaturationQueries()`
+not by `RegisterQueueingModelQueries()`.  The Throughput Analyzer follows the
+same pattern — it will have its own `RegisterThroughputAnalyzerQueries()` called
+from `NewEngine()`.
 
 ---
 
@@ -141,7 +163,7 @@ Edge cases:
 - If `PrefixCacheHitRate == 0` (no prefix cache), use `H%(v) = 1.0` (full KV
   consumption, conservative estimate).
 - If `TotalKvCapacityTokens == 0` (cache config info unavailable), fall back to
-  `KV_max(v) = BlockSize × NumGpuBlocks` or skip K3 for that variant.
+`KV_max(v) = BlockSize × NumGpuBlocks` or skip the Throughput Analyzer for that variant.
 
 ---
 
@@ -185,7 +207,7 @@ DefaultExpectedITL  = 5.0    // ms
 
 ---
 
-## 6. K3 Supply and Demand Signals
+## 6. Throughput Analyzer Supply and Demand Signals
 
 Using per-variant aggregates across all pods of variant $v$:
 
@@ -206,62 +228,46 @@ with existing engines via `internal/actuator/`).
 
 ---
 
-## 7. Concrete PromQL Queries Needed
+## 7. Metric Registration for the Throughput Analyzer
 
-All queries below use the **same label selectors** as the existing saturation
-queries in `internal/collector/registration/saturation.go`.
+All queries use the same label selectors as existing queries
+(`namespace`, `model_name` / `modelID` template params).
 
-New registrations required in a new file
-`internal/collector/registration/k3.go`:
+### 7.1 Queries already registered — reused at no cost
 
-```go
-// N(v): running concurrency proxy — not yet collected
-// Query: max by (pod) (vllm:num_requests_running{namespace=...,model_name=...})
-QueryRunningRequests = "running_requests"
+| Query constant | Registered in | PromQL (abbreviated) | `ReplicaMetrics` field |
+|---|---|---|---|
+| `QueryKvCacheUsage` | `saturation.go` | `max_over_time(vllm:kv_cache_usage_perc[1m])` | `KvCacheUsage` |
+| `QueryCacheConfigInfo` | `saturation.go` | `max by (pod, num_gpu_blocks, block_size)(vllm:cache_config_info)` | `NumGpuBlocks`, `BlockSize`, `TotalKvCapacityTokens` |
+| `QueryAvgInputTokens` | `saturation.go` | `rate(prompt_tokens_sum[5m]) / rate(prompt_tokens_count[5m])` | `AvgInputTokens` |
+| `QueryAvgOutputTokens` | `saturation.go` | `rate(generation_tokens_sum[5m]) / rate(generation_tokens_count[5m])` | `AvgOutputTokens` |
+| `QueryPrefixCacheHitRate` | `saturation.go` | `rate(prefix_cache_hits[5m]) / rate(prefix_cache_queries[5m])` | `PrefixCacheHitRate` |
+| `QueryAvgTTFT` | `queueing_model.go` | `rate(time_to_first_token_seconds_sum[1m]) / rate(..._count[1m])` | `AvgTTFT` |
+| `QueryAvgITL` | `queueing_model.go` | `rate(time_per_output_token_seconds_sum[1m]) / rate(..._count[1m])` | `AvgITL` |
+| `QuerySchedulerDispatchRate` | `queueing_model.go` | `rate(inference_extension_scheduler_attempts_total{status="success"}[5m])` | `ArrivalRate` |
+| `QuerySchedulerQueueSize` | `saturation.go` | `inference_extension_flow_control_queue_size` | used as EPP leading indicator |
 
-// avg TTFT — already registered as QueryAvgTTFT in queueing_model.go
-// avg ITL  — already registered as QueryAvgITL in queueing_model.go
-// avg input tokens  — already registered as QueryAvgInputTokens in saturation.go
-// avg output tokens — already registered as QueryAvgOutputTokens in saturation.go
-// prefix cache hit rate — already registered as QueryPrefixCacheHitRate in saturation.go
-// KV cache config — already registered as QueryCacheConfigInfo in saturation.go
-// KV cache usage  — already registered as QueryKvCacheUsage in saturation.go
-```
+### 7.2 New query — register in `RegisterThroughputAnalyzerQueries()`
 
-The only **new** query needed is `running_requests`:
-
-```promql
-max by (pod) (
-  vllm:num_requests_running{namespace="{{.namespace}}",model_name="{{.modelID}}"}
-)
-```
-
-This provides a direct $N(v)$ without relying on the Little's Law approximation.
-
-### EPP queue metrics (already collected for scale-from-zero)
-
-```
-inference_extension_flow_control_queue_size{model_name=..., inference_pool=...}
-```
-
-These can supplement $N(v)$ as a leading indicator: if EPP queue is non-zero,
-$D_v$ is underestimated by in-flight metrics alone.
-
----
-
-## 8. Implementation Steps
-
-### Step 1 — Add `running_requests` query registration
-
-File: `internal/collector/registration/k3.go`
+File: `internal/collector/registration/throughput_analyzer.go`
 
 ```go
 package registration
 
-const QueryRunningRequests = "running_requests"
+import "github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 
-func RegisterK3Queries(sourceRegistry *source.SourceRegistry) {
+const (
+    // QueryRunningRequests is the number of requests currently being processed
+    // on a pod. Used by the Throughput Analyzer as a direct N(v) estimate.
+    // Source: vllm:num_requests_running
+    QueryRunningRequests = "running_requests"
+)
+
+// RegisterThroughputAnalyzerQueries registers queries used by the Throughput Analyzer.
+func RegisterThroughputAnalyzerQueries(sourceRegistry *source.SourceRegistry) {
     registry := sourceRegistry.Get("prometheus").QueryList()
+
+    // Running (in-flight) requests per pod — direct N(v) without Little's Law
     registry.MustRegister(source.QueryTemplate{
         Name:     QueryRunningRequests,
         Type:     source.QueryTypePromQL,
@@ -273,26 +279,59 @@ func RegisterK3Queries(sourceRegistry *source.SourceRegistry) {
 }
 ```
 
-### Step 2 — Extend `ReplicaMetrics` with `RunningRequests`
+Then add one call in `NewEngine()` in `internal/engines/saturation/engine.go`:
+
+```go
+registration.RegisterThroughputAnalyzerQueries(metricsRegistry)
+```
+
+### 7.3 Extend `ReplicaMetrics` with `RunningRequests`
 
 File: `internal/interfaces/saturation_analyzer.go`
 
 ```go
 // RunningRequests is the number of requests currently being processed.
 // Sourced from vllm:num_requests_running.
-// Used by K3 as a direct N(v) estimate without Little's Law.
-// Zero when metric is unavailable.
+// Used by the Throughput Analyzer as a direct N(v) estimate.
+// Falls back to Little's Law when zero.
 RunningRequests int64
 ```
 
-### Step 3 — Populate `RunningRequests` in `replica_metrics.go`
+Populate in `internal/collector/replica_metrics.go` following the same pattern
+used for `QueryKvCacheUsage` and `QueryAvgTTFT`.
+
+### 7.4 EPP queue as leading indicator
+
+`QuerySchedulerQueueSize` (`inference_extension_flow_control_queue_size`) is
+already registered by `RegisterSaturationQueries()` and already fetched.  The
+Throughput Analyzer reads it from the model-level `SchedulerQueueMetrics` input
+(same as the existing analyzers) to supplement $D_v$ when EPP backlog is
+non-zero.
+
+---
+
+## 8. Implementation Steps
+
+### Step 1 — Add `RegisterThroughputAnalyzerQueries()` and call it from `NewEngine()`
+
+Create `internal/collector/registration/throughput_analyzer.go` (see §7.2).
+Add `registration.RegisterThroughputAnalyzerQueries(metricsRegistry)` in
+`internal/engines/saturation/engine.go`'s `NewEngine()`, alongside the existing
+three `Register*Queries()` calls.
+
+### Step 2 — Extend `ReplicaMetrics` with `RunningRequests`
+
+File: `internal/interfaces/saturation_analyzer.go` (see §7.3).
+
+### Step 3 — Populate `RunningRequests` in the collector
 
 In `internal/collector/replica_metrics.go`, follow the existing pattern for
-`QueryKvCacheUsage` / `QueryAvgTTFT` to fetch and populate the new field.
+`QueryKvCacheUsage` / `QueryAvgTTFT` to fetch `QueryRunningRequests` and
+populate the new `RunningRequests` field.
 
-### Step 4 — Implement the K3 analyzer
+### Step 4 — Implement the Throughput Analyzer
 
-File: `internal/engines/analyzers/k3/analyzer.go`
+File: `internal/engines/analyzers/throughput/analyzer.go`
 
 Key inputs per control window (all from `[]interfaces.ReplicaMetrics` grouped by variant):
 
@@ -304,9 +343,10 @@ type Input struct {
 }
 
 type WorkloadBin struct {
-    IL float64  // representative input length (tokens)
-    OL float64  // representative output length (tokens)
-    Pi float64  // mixture weight π_w (from system-wide N(w)/total)
+    Name string
+    IL   float64  // representative input length (tokens)
+    OL   float64  // representative output length (tokens)
+    Pi   float64  // mixture weight π_w (from system-wide N(w)/total)
 }
 ```
 
@@ -320,19 +360,19 @@ type Result struct {
 }
 ```
 
-### Step 5 — Wire K3 into the controller loop
+### Step 5 — Wire into the controller loop
 
 Register as a new `AnalyzerEngine` in `internal/engines/` alongside the
 existing saturation and queueing-model engines.  The `VariantAutoscaling` CRD
-spec should include a field to select K3 (or combine signals, e.g., max of K1,
-K2, K3 deltas).
+spec should include a field to select the Throughput Analyzer (or combine
+signals — see §12).
 
 ### Step 6 — Workload bin configuration
 
-Add a `k3` section to the existing `config.yaml` / `ConfigMap`:
+Add a `throughputAnalyzer` section to the existing `config.yaml` / `ConfigMap`:
 
 ```yaml
-k3:
+throughputAnalyzer:
   enabled: false
   workloadBins:
     - name: short
@@ -363,7 +403,7 @@ k3:
 | Concern | Mitigation |
 |---|---|
 | `E2E(w,v) ≈ 0` | Guard: `max(E2E, 1e-3)` in denominator |
-| `S_v ≈ 0` (no capacity info) | Guard: `max(S_v, 1e-6)`; skip K3 and log |
+| `S_v ≈ 0` (no capacity info) | Guard: `max(S_v, 1e-6)`; skip Throughput Analyzer and log |
 | Stale metrics | Use existing `ReplicaMetricsMetadata.Age` freshness check; skip pods with stale data |
 | Noisy `AvgITL` | Apply EMA: `AvgITL_smooth = α · AvgITL + (1-α) · prev` |
 | $\pi_w$ degenerate (single workload type) | Works correctly; $D_v / S_v$ reduces to concurrency ratio |
@@ -396,7 +436,7 @@ All other inputs reuse existing `ReplicaMetrics` fields.
 ## 11. Pseudocode (controller-side)
 
 ```go
-func (k3 *K3Analyzer) Analyze(
+func (ta *ThroughputAnalyzer) Analyze(
     ctx context.Context,
     replicas []interfaces.ReplicaMetrics,
     currentInstances int,
@@ -474,13 +514,13 @@ func (k3 *K3Analyzer) Analyze(
     }
 
     if Sv <= 0 {
-        return 0, fmt.Errorf("K3: S_v is zero, skipping scaling decision")
+        return 0, fmt.Errorf("ThroughputAnalyzer: S_v is zero, skipping scaling decision")
     }
 
     target := int(math.Ceil(Dv / Sv))
     raw    := target - currentInstances
-    delta   = applyHysteresis(raw, k3.cfg.HysteresisThreshold)
-    delta   = clamp(delta, -k3.cfg.MaxDelta, k3.cfg.MaxDelta)
+    delta   = applyHysteresis(raw, ta.cfg.HysteresisThreshold)
+    delta   = clamp(delta, -ta.cfg.MaxDelta, ta.cfg.MaxDelta)
     return delta, nil
 }
 ```
@@ -489,16 +529,17 @@ func (k3 *K3Analyzer) Analyze(
 
 ## 12. Integration with Existing Engines
 
-K3 should be **additive** to K1 and K2, not a replacement.  Recommended
-combination in the controller reconciliation loop:
+The Throughput Analyzer should be **additive** to the Saturation and Queueing
+Model analyzers, not a replacement.  Recommended combination in the controller
+reconciliation loop:
 
 ```
-delta_final(v) = max(delta_K1(v), delta_K2(v), delta_K3(v))
+delta_final(v) = max(delta_saturation(v), delta_queueingmodel(v), delta_throughput(v))
 ```
 
 This ensures the most conservative (largest scale-out / smallest scale-in) wins.
 
-K3 is particularly valuable when:
+The Throughput Analyzer is particularly valuable when:
 - Workload mix shifts (long-context bursts that inflate KV cost)
 - Prefix cache hit rate changes (warm vs cold cache transitions)
 - Variants differ in GPU memory capacity (heterogeneous deployments)
