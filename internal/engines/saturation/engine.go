@@ -170,6 +170,10 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	// estimate per-replica arrival rate and model queue behavior.
 	registration.RegisterQueueingModelQueries(metricsRegistry)
 
+	// Register throughput analyzer queries (running requests per pod).
+	// Provides a direct N(v) estimate without relying on Little's Law.
+	registration.RegisterThroughputAnalyzerQueries(metricsRegistry)
+
 	return &engine
 }
 

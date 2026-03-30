@@ -96,6 +96,13 @@ type ReplicaMetrics struct {
 	// Used by queueing model tuner as observed ITL for Kalman filter parameter learning.
 	// Zero when metrics are unavailable.
 	AvgITL float64
+
+	// RunningRequests is the number of requests currently being processed
+	// (in-flight) on this replica.
+	// Sourced from vllm:num_requests_running.
+	// Used by the Throughput Analyzer as a direct N(v) estimate.
+	// Falls back to Little's Law (ArrivalRate × E2E) when zero.
+	RunningRequests int64
 }
 
 // ReplicaMetricsMetadata contains freshness information for replica metrics

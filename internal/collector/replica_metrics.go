@@ -99,6 +99,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 	// - Saturation: KV cache, queue length, cache config, prefix cache hit rate
 	// - Shared (saturation + queueing model): avg input tokens, avg output tokens
 	// - Queueing model: scheduler dispatch rate, avg TTFT, avg ITL
+	// - Throughput analyzer: running requests (direct N(v) estimate)
 	queries := []string{
 		registration.QueryKvCacheUsage,
 		registration.QueryQueueLength,
@@ -109,6 +110,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		registration.QuerySchedulerDispatchRate,
 		registration.QueryAvgTTFT,
 		registration.QueryAvgITL,
+		registration.QueryRunningRequests,
 	}
 
 	results, err := c.source.Refresh(ctx, source.RefreshSpec{
@@ -139,6 +141,8 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		hasArrivalRate bool
 		avgTTFT        float64
 		avgITL         float64
+		// Throughput analyzer fields
+		runningRequests int64
 	}
 
 	// Extract per-pod metrics from results
@@ -391,6 +395,58 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		}
 	}
 
+	// Process running requests results (Throughput Analyzer: direct N(v) estimate)
+	if result := results[registration.QueryRunningRequests]; result != nil {
+		if !result.HasError() {
+			for _, value := range result.Values {
+				podName := value.Labels["pod"]
+				if podName == "" {
+					podName = value.Labels["pod_name"]
+				}
+				if podName == "" {
+					continue
+				}
+
+				if podData[podName] == nil {
+					podData[podName] = &podMetricData{}
+				}
+				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
+					podData[podName].runningRequests = int64(math.Round(value.Value))
+
+					logger.V(logging.DEBUG).Info("Running requests metric",
+						"pod", podName,
+						"runningRequests", podData[podName].runningRequests)
+				}
+			}
+		}
+	}
+
+	// Process running requests results (Throughput Analyzer: direct N(v) estimate)
+	if result := results[registration.QueryRunningRequests]; result != nil {
+		if !result.HasError() {
+			for _, value := range result.Values {
+				podName := value.Labels["pod"]
+				if podName == "" {
+					podName = value.Labels["pod_name"]
+				}
+				if podName == "" {
+					continue
+				}
+
+				if podData[podName] == nil {
+					podData[podName] = &podMetricData{}
+				}
+				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
+					podData[podName].runningRequests = int64(math.Round(value.Value))
+
+					logger.V(logging.DEBUG).Info("Running requests metric",
+						"pod", podName,
+						"runningRequests", podData[podName].runningRequests)
+				}
+			}
+		}
+	}
+
 	// Pre-compute MaxBatchSize per scale target from container args.
 	// MaxBatchSize (--max-num-seqs) is not a Prometheus metric; it is parsed
 	// from the Deployment/LWS spec using the vLLM argument parser.
@@ -514,6 +570,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 			MaxBatchSize:          maxBatchSize,
 			AvgTTFT:               data.avgTTFT,
 			AvgITL:                data.avgITL,
+			RunningRequests:       data.runningRequests,
 			Metadata: &interfaces.ReplicaMetricsMetadata{
 				CollectedAt:     collectedAt,
 				Age:             0, // Fresh
