@@ -6,7 +6,55 @@ per-$(IL, OL)$ requirements without simplifying assumptions.
 
 ---
 
-## 1. Delay Symbols ($T$ and ITL)
+## 1. Request / Workload Characterization Symbols
+
+| Symbol | Name | Unit | Description |
+|--------|------|------|-------------|
+| $IL$ | Input Length | tokens | Prompt (input) tokens per request. Observable before or at dispatch time. Characterized by its distribution across requests. |
+| $OL$ | Output Length | tokens | Generated (output) tokens per request. Only observable after request completion. Characterized by its distribution. |
+| $TL$ | Total Length | tokens | $TL = IL + OL$. |
+| $TL^{max}$ | Max Context Length | tokens | Model's maximum context window: $IL + OL \leq TL^{max}$. Configured via `--max-model-len`. |
+| $IL_{eff}$ | Effective Input Length | tokens | Input tokens requiring actual prefill computation after prefix cache adjustment: $IL_{eff} = IL \cdot (1 - H\text{\\\%})$. |
+| $H\text{\\\%}$ | Prefix Cache Hit Rate | 0–1 | Fraction of input token lookups served from the KV prefix cache, avoiding recomputation. |
+| $w$ | Workload Type | — | A workload category characterized by representative $(IL, OL)$ values. Used to bucket requests with similar compute profiles. |
+
+### 1.1 Workload Relationships
+
+$$IL_{eff} = IL \cdot (1 - H\text{\\\%})$$
+
+$$TL = IL + OL$$
+
+**KV cost per request** (tokens consumed from $KV^{max}$):
+
+$$\overline{KV}_{req} = IL_{eff} + \frac{OL}{2} \quad \text{(time-averaged over request lifetime)}$$
+
+$$KV_{req}^{peak} = IL_{eff} + OL \quad \text{(at end of decode phase)}$$
+
+**Prefill time dependency** (proportional model):
+
+$$T_{pre} \approx \frac{IL_{eff}}{\text{prefill tokens per second at current batch size}}$$
+
+The denominator depends on the batch of other requests co-scheduled in the same prefill iteration.
+$T_{pre}$ is linear in $IL_{eff}$ in isolation, but non-linear under heavy batching.
+
+**$T_{tft}$ dependency on workload:**
+
+$$T_{tft} \approx W_{epp} + W_{vllm} + T_{pre} \propto IL_{eff} \quad \text{(in isolation)}$$
+
+Under batched prefill, $T_{tft}$ also depends on other requests in the same prefill batch, so the
+linear approximation holds only for per-$(IL, OL)$ bin analysis, not across a mixed workload.
+
+**ITL dependency on workload** (longer-$IL$ requests have larger KV footprints):
+
+$$\text{ITL} = f\!\left(N_{dec},\ \sum_r KV_r,\ \text{hardware}\right)$$
+
+For fixed $N_{dec}$, longer-$IL$ requests increase the aggregate KV size and thus attention memory
+bandwidth requirements, raising ITL for all co-scheduled requests.
+
+
+---
+
+## 2. Delay Symbols ($T$ and ITL)
 
 All delays are measured in **seconds**.
 
@@ -18,14 +66,14 @@ All delays are measured in **seconds**.
 | $T_{dec}$ | Request Decode Time | Total decode phase duration for one request: elapsed time from the first output token to the last. $T_{dec} = \text{ITL} \cdot (OL - 1) \approx \text{ITL} \cdot OL$ for large $OL$. |
 | $T_{e2e}$ | End-to-End Latency | Total elapsed time from request submission to the final output token. |
 
-### 1.1 Wait Times ($W$)
+### 2.1 Wait Times ($W$)
 
 | Symbol | Name | Description |
 |--------|------|-------------|
 | $W_{epp}$ | EPP Queue Wait | Time a request spends waiting in the llm-d EPP flow control queue before being dispatched to a backend pod. |
 | $W_{vllm}$ | vLLM Admission Wait | Time a request spends in vLLM's internal waiting queue after being dispatched but before being admitted to the running batch (i.e., before a free KV slot is granted). Also referred to as $W_{admit}$ in supply-side analysis when $W_{epp} = 0$ is assumed. |
 
-### 1.2 Delay Relationships (General — No Simplifying Assumptions)
+### 2.2 Delay Relationships (General — No Simplifying Assumptions)
 
 $$T_{tft} = W_{epp} + W_{vllm} + T_{pre} + \text{ITL}$$
 
@@ -54,9 +102,10 @@ $T_{pre}$ for new workloads on the same hardware (TA-supply.md §4.3).
 requests, ITL experienced by a single request is the wall time of one decode iteration for
 the whole batch. As $N_{dec}$ increases or the aggregate KV footprint grows, ITL rises.
 
+
 ---
 
-## 2. Rate Symbols ($\lambda$, $\mu$)
+## 3. Rate Symbols ($\lambda$, $\mu$)
 
 All rates are measured in **units per second**.
 
@@ -69,10 +118,10 @@ All rates are measured in **units per second**.
 | $\mu$ | Successful Completion Rate | req/s | Rate of requests that complete successfully (last output token delivered). $\mu \leq \lambda$ at steady state (due to queueing); $\mu = \lambda$ when the system is not dropping requests. Used in supply analysis. |
 | $\mu_{err}$ | Error Rate | req/s | Rate of requests that fail (context-length exceeded, OOM, model error, etc.). |
 | $\mu_{tok}$ | Output Token Throughput | tokens/s | Output (decode) tokens generated per second, as observed from vLLM counters. Also called GPS (Generated Tokens Per Second). Supply-side metric; equals $\lambda_{dec}$ at steady state. |
-| $\mu_{pre,cap}$ | Prefill Admission Capacity | tokens/s | Hardware-limited rate at which a replica can sustain prefill: $\mu_{pre,cap}(k) \approx \overline{IL}_{eff} / \text{ITL}(k) = \overline{IL}_{eff} / (A \cdot k + B)$. Not a Prometheus metric; estimated from $\hat{T}_{pre}$ at small-queue conditions (see §1.2 and TA-supply.md §4.3). |
-| $\mu_{RPS}$ | Request Completion Rate | req/s | Little's Law for the full system: $\min(N(k), N_{max}) / E2E(k)$, where $N(k) = N_{dec}(k) + 1$ and $E2E(k) = T_{pre}(k) + \overline{OL} \cdot \text{ITL}(k)$. Reduces to $\mu_{dec} / \overline{OL}$ when $T_{pre} \ll T_{dec}$ and $N(k) < N_{max}$ (typical non-chunked case). See TA-supply.md §5. |
+| $\mu_{pre}^{cap}$ | Prefill Admission Capacity | tokens/s | Hardware-limited rate at which a replica can sustain prefill: $\mu_{pre}^{cap}(k) \approx \overline{IL}_{eff} / \text{ITL}(k) = \overline{IL}_{eff} / (A \cdot k + B)$. Not a Prometheus metric; estimated from $\hat{T}_{pre}$ at small-queue conditions (see §2.2 and TA-supply.md §4.3). |
+| $\mu_{RPS}$ | Request Completion Rate | req/s | Little's Law for the full system: $\min(N(k), N^{max}) / E2E(k)$, where $N(k) = N_{dec}(k) + 1$ and $E2E(k) = T_{pre}(k) + \overline{OL} \cdot \text{ITL}(k)$. Reduces to $\mu_{dec} / \overline{OL}$ when $T_{pre} \ll T_{dec}$ and $N(k) < N^{max}$ (typical non-chunked case). See TA-supply.md §5. |
 
-### 2.1 Rate Relationships
+### 3.1 Rate Relationships
 
 **Demand-side rates** (what the arrival stream requires from the system):
 
@@ -99,29 +148,30 @@ $$\lambda_{pre} = \lambda \cdot \sum_{w} \pi_w \cdot IL(w) \cdot (1 - H\text{\\\
 individual pods; use `inference_extension_scheduler_attempts_total{status="success"}` per pod. This
 is dispatched rate, equal to arrival rate when the EPP has no queue ($W_{epp} = 0$).
 
+
 ---
 
-## 3. vLLM Runtime State Symbols
+## 4. vLLM Runtime State Symbols
 
 | Symbol | Name | Unit | Description |
 |--------|------|------|-------------|
 | $N$ | Running Requests | count | Total requests currently being processed by vLLM (in either prefill or decode phase). $N = N_{pre} + N_{dec}$. |
-| $N_{pre}$ | Prefill Requests | count | Requests currently in the prefill phase (computing KV cache from prompt tokens). **Not available as a Prometheus metric in any released vLLM version** (see §3.2). |
-| $N_{dec}$ | Decode Requests | count | Requests currently in the decode phase (generating output tokens). **Not available as a Prometheus metric in any released vLLM version** (see §3.2). |
+| $N_{pre}$ | Prefill Requests | count | Requests currently in the prefill phase (computing KV cache from prompt tokens). **Not available as a Prometheus metric in any released vLLM version** (see §4.2). |
+| $N_{dec}$ | Decode Requests | count | Requests currently in the decode phase (generating output tokens). **Not available as a Prometheus metric in any released vLLM version** (see §4.2). |
 | $N_{wait}$ | Waiting Requests | count | Requests accepted by vLLM but queued waiting for a free KV memory slot. Distinct from $W_{epp}$ (EPP queue), which is upstream of vLLM. |
-| $N_{max}$ | Max Concurrent Sequences | count | Maximum sequences vLLM will process concurrently. Configured via `--max-num-seqs`. When $N = N_{max}$, new requests enter $N_{wait}$. |
-| $KV$ | KV Cache Tokens In Use | tokens | Current KV cache token slots occupied across all running requests. $KV = KV\text{\\\%} \cdot KV_{max}$. |
-| $KV_{max}$ | KV Cache Capacity | tokens | Total KV token slots available on GPU. $KV_{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
-| $KV\text{\\\%}$ | KV Cache Utilization | 0–1 | Fraction of KV cache currently occupied. $KV\text{\\\%} = KV / KV_{max}$. |
+| $N^{max}$ | Max Concurrent Sequences | count | Maximum sequences vLLM will process concurrently. Configured via `--max-num-seqs`. When $N = N^{max}$, new requests enter $N_{wait}$. |
+| $KV$ | KV Cache Tokens In Use | tokens | Current KV cache token slots occupied across all running requests. $KV = KV\text{\\\%} \cdot KV^{max}$. |
+| $KV^{max}$ | KV Cache Capacity | tokens | Total KV token slots available on GPU. $KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
+| $KV\text{\\\%}$ | KV Cache Utilization | 0–1 | Fraction of KV cache currently occupied. $KV\text{\\\%} = KV / KV^{max}$. |
 | $\overline{KV}_{req}$ | Mean KV Footprint per Request | tokens | Time-averaged KV token slots occupied by a single request over its lifetime: $\overline{KV}_{req} = \overline{IL}_{eff} + \overline{OL}/2$. The $\overline{OL}/2$ term reflects that decode tokens accumulate from 0 to $OL$ uniformly. Also written `kv_per_req` in pseudocode. Used in $N_{dec}$ estimation and the $k_{knee}$ formula. **Not** the peak footprint $\overline{IL}_{eff} + \overline{OL}$, which is only reached at the final decode step. |
 
-### 3.1 vLLM State Relationships
+### 4.1 vLLM State Relationships
 
 $$N = N_{pre} + N_{dec}$$
 
-$$KV_{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$$
+$$KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$$
 
-$$KV = KV\text{\\\%} \cdot KV_{max}$$
+$$KV = KV\text{\\\%} \cdot KV^{max}$$
 
 **KV occupancy of a single request $r$ at time $t$** (decode tokens produced so far = $k_r(t) \in [0, OL_r]$):
 
@@ -150,11 +200,11 @@ $$N = \mu \cdot T_{e2e}$$
 
 $$N_{wait} = \lambda \cdot W_{vllm}$$
 
-**Binding constraint** ($N_{max}$ vs $KV_{max}$):
-- Long-context workloads: $KV_{max}$ binds first (large KV footprint per request)
-- Short-context workloads: $N_{max}$ often binds first
+**Binding constraint** ($N^{max}$ vs $KV^{max}$):
+- Long-context workloads: $KV^{max}$ binds first (large KV footprint per request)
+- Short-context workloads: $N^{max}$ often binds first
 
-### 3.2 Availability of $N_{pre}$ and $N_{dec}$ in vLLM
+### 4.2 Availability of $N_{pre}$ and $N_{dec}$ in vLLM
 
 As of **vLLM v0.14.1** (the version bundled in llm-d v0.5.0), the Prometheus metrics
 `vllm:num_requests_prefill` and `vllm:num_requests_decode` **do not exist** in any released vLLM
@@ -165,7 +215,7 @@ not yet merged. Until that PR lands, these counts must be estimated:
 - $N_{pre} = N - N_{dec}$ (residual)
 - Or: treat $N \approx N_{dec}$ when the system is not under heavy prefill load (decode-dominated)
 
-### 3.3 Autoscaler KV% Operating-Point Parameters
+### 4.3 Autoscaler KV% Operating-Point Parameters
 
 These are not Prometheus metrics but derived thresholds used by the autoscaler
 to determine when to scale up.
@@ -173,12 +223,13 @@ to determine when to scale up.
 | Symbol | Name | Description |
 |--------|------|-------------|
 | $k_{sat}$ | Decode Saturation Threshold | Target KV% at which the autoscaler aims to operate. Above this point, $\mu_{dec}$ grows negligibly and TTFT/GPS SLOs are at risk. Typical value: 0.75–0.80. Used to compute per-replica supply capacity $\mu_{dec}^{sat}$ (TA-supply.md §3.3). |
-| $k_{knee}$ | TTFT Knee KV% | KV% at which admission wait $W_{vllm}$ begins to dominate TTFT, causing TTFT SLO violations before KV cache fills. Derived from the rate-balance condition $\lambda = \mu_{RPS}(k)$: $k_{knee} = \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B \; / \; (KV_{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A)$. Per-workload: short-OL workloads ($\overline{OL} \lesssim 150$) have $k_{knee} \ll k_{sat}$. |
-| $k_{N_{max}}$ | Batch Concurrency KV% Cap | KV% at which the number of decode-phase requests $N_{dec}$ would equal the scheduler concurrency limit $N_{max}$. $k_{N_{max}} = N_{max} \cdot \overline{KV}_{req} / KV_{max}$. For $k < k_{N_{max}}$, the KV cache fills before the batch saturates ($\mu_{RPS}^{dec}$ is binding). For $k > k_{N_{max}}$, $N_{max}$ is hit first and $\mu_{RPS}^{N_{max}}$ caps throughput. |
+| $N_{dec}^{sat}$ | Decode Concurrency at $k_{sat}$ | Number of decode-phase requests at the saturation operating point: $N_{dec}^{sat} = k_{sat} \cdot KV^{max} / \overline{KV}_{req}$. Used in the $\mu^{sat}_{RPS}$ formula (TA-supply.md §5.4). Pseudocode: `N_dec_sat`. |
+| $k_{knee}$ | TTFT Knee KV% | KV% at which admission wait $W_{vllm}$ begins to dominate TTFT, causing TTFT SLO violations before KV cache fills. Derived from the rate-balance condition $\lambda = \mu_{RPS}(k)$: $k_{knee} = \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B \; / \; (KV^{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A)$. Per-workload: short-OL workloads ($\overline{OL} \lesssim 150$) have $k_{knee} \ll k_{sat}$. |
+| $k_{N^{max}}$ | Batch Concurrency KV% Cap | KV% at which the number of decode-phase requests $N_{dec}$ would equal the scheduler concurrency limit $N^{max}$. $k_{N^{max}} = N^{max} \cdot \overline{KV}_{req} / KV^{max}$. For $k < k_{N^{max}}$, the KV cache fills before the batch saturates ($\mu_{RPS}^{dec}$ is binding). For $k > k_{N^{max}}$, $N^{max}$ is hit first and $\mu_{RPS}^{N^{max}}$ caps throughput. |
 | $k_{threshold}$ | Effective Scale-Up Threshold | $k_{threshold} = \min(k_{knee},\, k_{sat})$. The KV% at which the autoscaler should trigger scale-up. For long-output workloads $k_{threshold} \approx k_{sat}$; for short-output workloads $k_{threshold}$ may be substantially lower. |
 
 **Relationship between $k_{knee}$ and workload output length.** Because $\overline{OL}$ appears in
-the denominator of $\mu_{RPS}(k) = k \cdot KV_{max} / (\overline{KV}_{req} \cdot \overline{OL} \cdot (Ak+B))$,
+the denominator of $\mu_{RPS}(k) = k \cdot KV^{max} / (\overline{KV}_{req} \cdot \overline{OL} \cdot (Ak+B))$,
 short-output workloads saturate at lower $KV\text{\%}$:
 
 | $\overline{IL}$ | $\overline{OL}$ | Observed $k_{knee}$ (H100) |
@@ -190,52 +241,6 @@ short-output workloads saturate at lower $KV\text{\%}$:
 At $k_{knee}$, $W_{vllm}$ is approximately 10–11 decode steps regardless of workload, and
 $N_{wait}$ is typically 2–5. See TA-supply.md §4.2 for derivation and empirical data.
 
----
-
-## 4. Request / Workload Characterization Symbols
-
-| Symbol | Name | Unit | Description |
-|--------|------|------|-------------|
-| $IL$ | Input Length | tokens | Prompt (input) tokens per request. Observable before or at dispatch time. Characterized by its distribution across requests. |
-| $OL$ | Output Length | tokens | Generated (output) tokens per request. Only observable after request completion. Characterized by its distribution. |
-| $TL$ | Total Length | tokens | $TL = IL + OL$. |
-| $TL_{max}$ | Max Context Length | tokens | Model's maximum context window: $IL + OL \leq TL_{max}$. Configured via `--max-model-len`. |
-| $IL_{eff}$ | Effective Input Length | tokens | Input tokens requiring actual prefill computation after prefix cache adjustment: $IL_{eff} = IL \cdot (1 - H\text{\\\%})$. |
-| $H\text{\\\%}$ | Prefix Cache Hit Rate | 0–1 | Fraction of input token lookups served from the KV prefix cache, avoiding recomputation. |
-| $w$ | Workload Type | — | A workload category characterized by representative $(IL, OL)$ values. Used to bucket requests with similar compute profiles. |
-
-### 4.1 Workload Relationships
-
-$$IL_{eff} = IL \cdot (1 - H\text{\\\%})$$
-
-$$TL = IL + OL$$
-
-**KV cost per request** (tokens consumed from $KV_{max}$):
-
-$$KV_{\text{req,avg}} = IL_{eff} + \frac{OL}{2} \quad \text{(time-averaged over request lifetime)}$$
-
-$$KV_{\text{req,peak}} = IL_{eff} + OL \quad \text{(at end of decode phase)}$$
-
-**Prefill time dependency** (proportional model):
-
-$$T_{pre} \approx \frac{IL_{eff}}{\text{prefill tokens per second at current batch size}}$$
-
-The denominator depends on the batch of other requests co-scheduled in the same prefill iteration.
-$T_{pre}$ is linear in $IL_{eff}$ in isolation, but non-linear under heavy batching.
-
-**$T_{tft}$ dependency on workload:**
-
-$$T_{tft} \approx W_{epp} + W_{vllm} + T_{pre} \propto IL_{eff} \quad \text{(in isolation)}$$
-
-Under batched prefill, $T_{tft}$ also depends on other requests in the same prefill batch, so the
-linear approximation holds only for per-$(IL, OL)$ bin analysis, not across a mixed workload.
-
-**ITL dependency on workload** (longer-$IL$ requests have larger KV footprints):
-
-$$\text{ITL} = f\!\left(N_{dec},\ \sum_r KV_r,\ \text{hardware}\right)$$
-
-For fixed $N_{dec}$, longer-$IL$ requests increase the aggregate KV size and thus attention memory
-bandwidth requirements, raising ITL for all co-scheduled requests.
 
 ---
 
@@ -275,13 +280,13 @@ high-priority metrics to add to the WVA collector.
 | Symbol | Prometheus Metric | PromQL Pattern | Currently Collected? | Notes |
 |--------|------------------|---------------|----------------------|-------|
 | $N$ | `vllm:num_requests_running` | instant value per pod | Yes (`RunningRequests`) | Total in-flight ($N_{pre} + N_{dec}$). |
-| $N_{pre}$ | — | — | **N/A** | **Does not exist in any released vLLM version.** See §3.2. |
-| $N_{dec}$ | — | — | **N/A** | **Does not exist in any released vLLM version.** Estimate: $N_{dec} \approx \mu_{tok} \cdot \text{ITL}$. See §3.2. |
+| $N_{pre}$ | — | — | **N/A** | **Does not exist in any released vLLM version.** See §4.2. |
+| $N_{dec}$ | — | — | **N/A** | **Does not exist in any released vLLM version.** Estimate: $N_{dec} \approx \mu_{tok} \cdot \text{ITL}$. See §4.2. |
 | $N_{wait}$ | `vllm:num_requests_waiting` | `max_over_time([1m])` per pod | Yes (`QueueLength`) | vLLM internal queue; distinct from $W_{epp}$. |
-| $N_{max}$ | (not a Prometheus metric) | Parsed from `--max-num-seqs` in Deployment args | Yes (`MaxBatchSize`) | Default 256 in vLLM v0.8+. |
+| $N^{max}$ | (not a Prometheus metric) | Parsed from `--max-num-seqs` in Deployment args | Yes (`MaxBatchSize`) | Default 256 in vLLM v0.8+. |
 | $KV\text{\\\%}$ | `vllm:kv_cache_usage_perc` | `max_over_time([1m])` per pod | Yes (`KvCacheUsage`) | 0.0–1.0. |
-| $KV_{max}$ | `vllm:cache_config_info{num_gpu_blocks, block_size}` | static labels | Yes (`TotalKvCapacityTokens`) | $KV_{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
-| $KV$ | derived | $KV\text{\\\%} \cdot KV_{max}$ | Yes (`TokensInUse`) | Derived by collector. |
+| $KV^{max}$ | `vllm:cache_config_info{num_gpu_blocks, block_size}` | static labels | Yes (`TotalKvCapacityTokens`) | $KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
+| $KV$ | derived | $KV\text{\\\%} \cdot KV^{max}$ | Yes (`TokensInUse`) | Derived by collector. |
 
 ### 5.4 Workload / Request Metrics
 
@@ -292,7 +297,7 @@ high-priority metrics to add to the WVA collector.
 | $IL$ (distribution) | `vllm:request_prompt_tokens_bucket` | histogram | No | Required for per-bin workload analysis. High priority to add. |
 | $OL$ (distribution) | `vllm:request_generation_tokens_bucket` | histogram | No | Required for per-bin workload analysis. High priority to add. |
 | $H\text{\\\%}$ | `vllm:prefix_cache_hits`, `vllm:prefix_cache_queries` | `rate(hits[5m]) / rate(queries[5m])` per pod | Yes (`PrefixCacheHitRate`) | Ratio from counters. |
-| $TL_{max}$ | (not a Prometheus metric) | Parsed from `--max-model-len` in Deployment args | No | Static; useful for rejection rate estimation. |
+| $TL^{max}$ | (not a Prometheus metric) | Parsed from `--max-model-len` in Deployment args | No | Static; useful for rejection rate estimation. |
 
 ---
 
@@ -316,7 +321,7 @@ These can be computed as pod-level or model-level averages without losing accura
 | Metric | Aggregation | Rationale |
 |--------|------------|-----------|
 | $KV\text{\\\%}$ | Average or max across pods | Directly observable; max is meaningful for saturation detection |
-| $KV_{max}$ | Sum across pods (model capacity) or per-pod (per-replica) | Static hardware property |
+| $KV^{max}$ | Sum across pods (model capacity) or per-pod (per-replica) | Static hardware property |
 | $N$, $N_{wait}$ | Sum across pods | Additive; model-level $N = \sum N_{\text{pod}}$ |
 | $\lambda_{pre}$, $\lambda_{dec}$, $\lambda_{tok}$ | Sum across pods | Demand rates are additive |
 | $\mu_{tok}$ | Sum across pods | Supply throughput is additive |
@@ -336,8 +341,8 @@ misleads:
 | $T_{pre}$ | $T_{pre} \propto IL_{eff}$ directly | Same as $T_{tft}$: aggregate underestimates for long-$IL$, overestimates for short-$IL$ |
 | ITL | Depends on $N_{dec}$ and total KV size; long-$IL$ requests occupy more KV per sequence → higher ITL at same $N_{dec}$ | Aggregate ITL is only valid when $IL$ distribution is stable |
 | $T_{e2e}$ | Derived from $T_{tft}$ and $\text{ITL} \cdot OL$; both components depend on $(IL, OL)$ | Aggregate $T_{e2e}$ weights short (fast) requests more than long (slow) ones; underestimates long-tail latency |
-| $KV_{\text{req,avg}}$ | $KV_{\text{req}} = IL_{eff} + OL/2$; proportional to both $IL$ and $OL$ | Aggregate gives correct $N_{max}$ only when workload mix is stable; a shift to longer requests tightens $KV_{max}$-derived capacity unexpectedly |
-| $k_{knee}$ | Derived from $(IL, OL, \lambda, A, B)$ via rate-balance formula (§3.3); $\overline{OL}$ in denominator of $\mu_{RPS}$ means short-output workloads hit the knee at much lower KV% | Aggregate $\overline{OL}$ produces a single $k_{knee}$ that is too optimistic for short-OL traffic and too conservative for long-OL traffic in a mixed workload; per-bin $k_{knee}$ is required to correctly set $k_{threshold}$ |
+| $\overline{KV}_{req}$ | $\overline{KV}_{req} = IL_{eff} + OL/2$; proportional to both $IL$ and $OL$ | Aggregate gives correct $N^{max}$ only when workload mix is stable; a shift to longer requests tightens $KV^{max}$-derived capacity unexpectedly |
+| $k_{knee}$ | Derived from $(IL, OL, \lambda, A, B)$ via rate-balance formula (§4.3); $\overline{OL}$ in denominator of $\mu_{RPS}$ means short-output workloads hit the knee at much lower KV% | Aggregate $\overline{OL}$ produces a single $k_{knee}$ that is too optimistic for short-OL traffic and too conservative for long-OL traffic in a mixed workload; per-bin $k_{knee}$ is required to correctly set $k_{threshold}$ |
 
 ### 7.3 How to Obtain Per-$(IL, OL)$ Data
 
@@ -387,13 +392,13 @@ ITL. Strategies in decreasing order of accuracy:
 | $\mu$ (SRPS) | `vllm:request_success_total` | Low | Currently proxied via token rate counters. |
 | $\mu_{tok}$ (GPS, supply rate) | `rate(vllm:request_generation_tokens_sum[1m])` | Low | Supply-side observed throughput. Token averages collected; raw rate is not. Equals $\lambda_{dec}$ at steady state. |
 | $\lambda_{pre}$ (prefill demand, direct) | `rate(vllm:request_prompt_tokens_sum[1m])` | Low | Demand-side direct rate. Currently derived from $\lambda_v \cdot \overline{IL} \cdot (1 - H\text{\\\%})$ using collected scalars. |
-| $TL_{max}$ | `--max-model-len` Deployment arg | Low | Static; useful for rejection rate estimation. |
+| $TL^{max}$ | `--max-model-len` Deployment arg | Low | Static; useful for rejection rate estimation. |
 | $N_{pre}$, $N_{dec}$ | — | **N/A** | **Do not exist in any released vLLM version** (as of v0.14.1). Tracked in open PR #33845. Estimate $N_{dec} \approx \mu_{tok} \cdot \text{ITL}$ (supply-side, using observed GPS). |
 | $IL$ distribution | `vllm:request_prompt_tokens_bucket` | **High** | Needed for per-$(IL, OL)$ bin workload analysis. |
 | $OL$ distribution | `vllm:request_generation_tokens_bucket` | **High** | Same. |
 | $\overline{IL}$ at EPP | `inference_extension_input_tokens` histogram | **High** | Demand estimation including queued requests. |
 | $\lambda$ (arrival, model) | `inference_extension_request_total` | Medium | Pre-queue arrival rate; currently only dispatched $\lambda_v$ is collected. |
-| $T_{pre}$ / $\overline{IL}_{eff}$ (hardware constant) | `vllm:request_prefill_time_seconds` | **High** | Portable prefill cost per token; estimated from `AvgTTFT / AvgInputTokens` at small-queue conditions when metric unavailable. Required for $k_{knee}$ and $\mu_{pre,cap}$ computation. |
+| $T_{pre}$ / $\overline{IL}_{eff}$ (hardware constant) | `vllm:request_prefill_time_seconds` | **High** | Portable prefill cost per token; estimated from `AvgTTFT / AvgInputTokens` at small-queue conditions when metric unavailable. Required for $k_{knee}$ and $\mu_{pre}^{cap}$ computation. |
 | $k_{sat}$ | — (operator config) | **High** | Target KV% operating point; should be a first-class autoscaler config field. Default 0.75. |
 | $k_{knee}$ | — (derived) | **High** | Computed from current $(\lambda, \overline{IL}, \overline{OL}, A, B)$; needs to be tracked per variant and per workload bin. |
 
@@ -407,10 +412,10 @@ The following maps mathematical symbols to their corresponding field names in
 | Symbol | Go Field / Derived Name | Source |
 |--------|------------------------|--------|
 | $KV\text{\\\%}$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` |
-| $KV_{max}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` |
+| $KV^{max}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` |
 | $KV$ | `TokensInUse` | `KvCacheUsage × TotalKvCapacityTokens` |
 | $N_{wait}$ | `QueueLength` | `vllm:num_requests_waiting` |
-| $N_{max}$ | `MaxBatchSize` | `--max-num-seqs` arg |
+| $N^{max}$ | `MaxBatchSize` | `--max-num-seqs` arg |
 | $N$ | `RunningRequests` | `vllm:num_requests_running` |
 | $\lambda_v$ = $\lambda_{req,v}$ | `ArrivalRate` | `inference_extension_scheduler_attempts_total` |
 | $\overline{IL}$ | `AvgInputTokens` | `rate(prompt_tokens_sum/count)` |
@@ -423,8 +428,8 @@ The following maps mathematical symbols to their corresponding field names in
 | ITL | `AvgITL` | `rate(time_per_output_token_seconds_sum/count)` |
 | $N_{epp,wait}$ | `SchedulerQueue.QueueSize` | `inference_extension_flow_control_queue_size` |
 | $k_{sat}$ | `KSat` (config, default 0.75) | operator-configured KV% target |
-| $k_{knee}$ | `KKnee` (derived) | $\lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B \;/\; (KV_{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A)$ |
-| $k_{N_{max}}$ | `KNMax` (derived) | $N_{max} \cdot \overline{KV}_{req} / KV_{max}$ |
+| $k_{knee}$ | `KKnee` (derived) | $\lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B \;/\; (KV^{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A)$ |
+| $k_{N^{max}}$ | `KNMax` (derived) | $N^{max} \cdot \overline{KV}_{req} / KV^{max}$ |
 | $k_{threshold}$ | `KThreshold` (derived) | $\min(k_{knee},\, k_{sat})$ |
-| $\mu_{pre,cap}$ | `MuPreCap` (derived) | `AvgInputTokens × (1-PrefixCacheHitRate) / AvgTTFT` (valid only when `QueueLength` = 2–5) |
+| $\mu_{pre}^{cap}$ | `MuPreCap` (derived) | `AvgInputTokens × (1-PrefixCacheHitRate) / AvgTTFT` (valid only when `QueueLength` = 2–5) |
 | $T_{pre} / \overline{IL}_{eff}$ | `TPre_per_tok` (derived, hardware constant) | `AvgTTFT / AvgInputTokens` at small-queue conditions |
