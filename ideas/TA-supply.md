@@ -205,9 +205,80 @@ yet at steady state.
 
 ---
 
-## 4. Estimating $\mu_{pre}$ (PPS / Prefill Supply)
+## 4. Estimating $\mu_{RPS}$ (RPS / Request Completion Rate)
 
-### 4.1 Why $\mu_{pre}$ is not an independent constraint for long-output workloads
+The request completion rate $\mu_{RPS}$ is derived from Little's Law applied to vLLM as a closed system. It represents the maximum rate at which the engine can complete requests given current operating conditions.
+
+### 4.1 Derivation from Little's Law
+
+At operating point $k = KV\%$, with $N_{pre} \approx 1$ (non-chunked prefill) and $N_{dec}(k)$ from §3.1:
+
+$$N(k) = N_{dec}(k) + 1 = \frac{k \cdot KV^{max}}{\overline{KV}_{req}} + 1$$
+
+Each request spends $E2E(k) = T_{pre}(k) + \overline{OL} \cdot \text{ITL}(k)$ seconds in the system (steady state, $W_{vllm} = 0$). The scheduler concurrency limit $N^{max}$ caps total in-flight count.
+
+Applying Little's Law ($\mu = N / E2E$) with the $N^{max}$ cap:
+
+$$\boxed{
+\mu_{RPS}(k) = \frac{\min\!\bigl(N(k),\; N^{max}\bigr)}{T_{pre}(k) + \overline{OL} \cdot \text{ITL}(k)}
+}
+$$
+
+**Intuition.** The numerator counts concurrent requests (grows with $k$); the denominator is mean slot occupancy time. The ratio is the maximum arrival rate sustainable without queue build-up.
+
+The full expression in terms of fundamental quantities:
+
+$$\mu_{RPS}(k) = \frac{\min\!\left(\frac{k \cdot KV^{max}}{\overline{KV}_{req}} + 1,\; N^{max}\right)}{T_{pre}(k) + \overline{OL} \cdot (A \cdot k + B)}$$
+
+### 4.2 Relationship to $\mu_{dec}$
+
+For non-chunked prefill with $T_{pre} \ll \overline{OL} \cdot \text{ITL}$ and $N(k) < N^{max}$:
+
+$$\boxed{
+\mu_{RPS}(k) \approx \frac{\mu_{dec}(k)}{\overline{OL}}
+}
+$$
+
+This approximation connects the request rate to the token rate: each completed request generates $\overline{OL}$ tokens on average.
+
+The full multiplicative correction accounting for prefill overhead and the $N^{max}$ cap:
+
+$$\frac{\mu_{RPS}}{\mu_{dec}/\overline{OL}} = \underbrace{\frac{N_{dec}+1}{N_{dec}}}_{\text{prefill slot}} \cdot \underbrace{\frac{\overline{OL} \cdot \text{ITL}}{T_{pre} + \overline{OL} \cdot \text{ITL}}}_{\text{prefill time fraction}} \cdot \underbrace{\mathbb{1}_{[N(k) \leq N^{max}]}}_{\text{cap indicator}}$$
+
+The first term accounts for the single prefill request (typically $+1/N_{dec} \approx 5\%$ correction); the second adjusts for time spent in prefill vs. decode; the third enforces the $N^{max}$ bound.
+
+### 4.3 The $N^{max}$ cap
+
+The cap $N^{max}$ binds when the KV cache would otherwise sustain more concurrent requests than the scheduler allows:
+
+$$\boxed{
+k_{N^{max}} = \frac{N^{max} \cdot \overline{KV}_{req}}{KV^{max}}
+}
+$$
+
+| Regime | Condition | $\mu_{RPS}$ formula |
+|--------|-----------|---------------------|
+| KV-limited | $k < k_{N^{max}}$ | $\mu_{RPS} = N(k) / E2E(k)$ — KV cache fills first |
+| Batch-limited | $k \geq k_{N^{max}}$ | $\mu_{RPS} = N^{max} / E2E(k)$ — $N^{max}$ binds |
+
+For typical configurations, $k_{N^{max}} > 0.90$, so the KV-limited regime dominates operational interest.
+
+### 4.4 Supply at the target operating point
+
+$$\boxed{
+\mu^{sat}_{RPS} = \frac{\min\!\bigl(N_{dec}^{sat}+1,\; N^{max}\bigr)}{T_{pre}(k_{sat}) + \overline{OL} \cdot (A \cdot k_{sat} + B)}
+}
+$$
+
+For the typical case ($N_{dec}^{sat} + 1 < N^{max}$, non-chunked prefill, $T_{pre} \ll T_{dec}$), this reduces to:
+
+$$\mu^{sat}_{RPS} \approx \frac{\mu_{dec}^{sat}}{\overline{OL}} = \frac{k_{sat} \cdot KV^{max}}{\overline{KV}_{req} \cdot \overline{OL} \cdot (A \cdot k_{sat} + B)}$$
+
+---
+
+## 5. Estimating $\mu_{pre}$ (PPS / Prefill Supply)
+
+### 5.1 Why $\mu_{pre}$ is not an independent constraint for long-output workloads
 
 Unlike $\mu_{dec}$, prefill supply does not impose a separate bottleneck for
 workloads with moderate-to-long output ($\overline{OL} \gtrsim 150$). In
@@ -231,7 +302,7 @@ The prefill capacity constraint never binds before the KV / decode constraint.
 $\mu_{pre}$ tracks $\lambda_{pre}$ in steady state, and both saturate at the
 same KV% where $\mu_{dec}$ saturates.
 
-### 4.2 The TTFT knee for short-output and heavy-prefill workloads
+### 5.2 The TTFT knee for short-output and heavy-prefill workloads
 
 For short-output workloads ($\overline{OL} \lesssim 150$) or heavy-prefill
 workloads (large $\overline{IL}$), TTFT degrades significantly **before** the
@@ -252,7 +323,7 @@ completion rate:
 $$W_{vllm} \gg 0 \quad \Longleftrightarrow \quad \lambda \gtrsim \mu_{RPS}(k)
 = \frac{k \cdot KV^{max}}{\overline{KV}_{req} \cdot \overline{OL} \cdot (A \cdot k + B)}$$
 
-This is the request completion rate derived from Little's Law in §5.1: the
+This is the request completion rate derived from Little's Law in §4.1: the
 numerator is the number of concurrent decode requests $N_{dec}(k)$ (each
 occupying $\overline{KV}_{req}$ tokens of KV cache at utilization $k$), and the
 denominator is the mean time each request spends in the system
@@ -288,14 +359,17 @@ where the effective $\mu_{pre}$ collapses from ≈ 20K tok/s to ≈ 4K tok/s.
 **Predicting the knee.** Setting $\lambda = \mu_{RPS}(k)$ and solving for
 $k_{knee}$:
 
-$$k_{knee} = \frac{\lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B}
-{KV^{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A}$$
+$$\boxed{
+k_{knee} = \frac{\lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot B}
+{KV^{max} - \lambda \cdot \overline{KV}_{req} \cdot \overline{OL} \cdot A}
+}
+$$
 
 This gives the KV% at which TTFT begins to degrade. For short-output workloads,
 $k_{knee}$ is the relevant scale-up threshold; it may be substantially lower
 than the decode-saturation threshold $k_{sat}$.
 
-### 4.3 Measuring $\mu_{pre}^{cap}$ when a small queue is present
+### 5.3 Measuring $\mu_{pre}^{cap}$ when a small queue is present
 
 When $W_{vllm}$ is small but non-zero (2–5 waiting requests), the system is
 operating right at the rate-balance point $\lambda \approx \mu_{RPS}(k)$.
@@ -303,10 +377,14 @@ This is a valuable measurement opportunity: $W_{vllm}$ is still small, so
 $\text{TTFT} \approx T_{pre} + \text{ITL}$ and the observed TTFT provides a
 clean estimate of the hardware prefill cost:
 
-$$\hat{T}_{pre} \approx \text{TTFT}_{obs} - \text{ITL} \quad \text{(when } W_{vllm} = 2\text{–}5\text{)}$$
+$$\boxed{
+\hat{T}_{pre} \approx \text{TTFT}_{obs} - \text{ITL} \quad \text{(when } W_{vllm} = 2\text{–}5\text{)}}
+$$
 
-$$\hat{\mu}_{pre,cap} = \frac{\overline{IL}_{eff}}{\hat{T}_{pre}}
-\quad [\text{tokens/s}]$$
+$$\boxed{
+\hat{\mu}_{pre,cap} = \frac{\overline{IL}_{eff}}{\hat{T}_{pre}}
+\quad [\text{tokens/s}]}
+$$
 
 The portable quantity is $T_{pre} / \overline{IL}_{eff}$ (seconds per token,
 or equivalently ns/token), which reflects the hardware prefill throughput and
@@ -327,7 +405,7 @@ If $T_{pre}$ is directly observable (`vllm:request_prefill_time_seconds`,
 §8.2), these estimates can be updated continuously without waiting for a
 small-queue event.
 
-### 4.4 Observable $\mu_{pre}$ and what it signals
+### 5.4 Observable $\mu_{pre}$ and what it signals
 
 In steady state with no vLLM waiting queue ($W_{vllm} = 0$):
 $\mu_{pre} = \lambda_{pre}$ — a balance condition, not a capacity measurement.
@@ -343,89 +421,6 @@ $$N_{pre,v} \approx N_v - N_{dec,v}, \qquad
 
 where $T_{pre}$ is available from `vllm:request_prefill_time_seconds` in
 vLLM ≥ v0.7.3 with the V1 engine (TA-notation.md §8).
-
----
-
-## 5. Estimating $\mu$ (RPS / Request Completion Rate)
-
-### 5.1 Little's Law for the full system
-
-The RPS supply is obtained by applying Little's Law to the full in-flight
-population. At operating point $k$, with $N_{pre} \approx 1$ (non-chunked
-prefill) and $N_{dec}(k)$ given by §3.1:
-
-$$N(k) = N_{dec}(k) + 1 = \frac{k \cdot KV^{max}}{\overline{KV}_{req}} + 1$$
-
-At the saturation operating point $k_{sat}$, define:
-
-$$N_{dec}^{sat} = \frac{k_{sat} \cdot KV^{max}}{\overline{KV}_{req}}$$
-
-Each request spends $E2E(k) = T_{pre}(k) + \overline{OL} \cdot \text{ITL}(k)$
-in the system (at steady state, $W_{epp} = W_{vllm} = 0$). The scheduler
-concurrency limit $N^{max}$ caps the total in-flight count. Therefore:
-
-$$\boxed{\mu_{RPS}(k) = \frac{\min\!\bigl(N(k),\; N^{max}\bigr)}{T_{pre}(k) + \overline{OL} \cdot (A \cdot k + B)}}$$
-
-**Intuition.** This is Little's Law ($\mu = N / E2E$) applied to the vLLM
-engine as a closed system. The numerator counts how many requests are being
-processed concurrently: $N(k)$ grows linearly with KV% because filling more of
-the cache means more decode slots are occupied. The denominator is how long each
-request occupies one of those slots — prefill time plus $\overline{OL}$ decode
-steps at $\text{ITL}(k)$ each. The ratio gives the rate at which completed
-requests leave the system, i.e., the maximum request arrival rate the engine
-can sustain without building a queue. The $\min(\cdot, N^{max})$ ensures the
-scheduler's concurrency limit is respected: once $N(k)$ would exceed $N^{max}$,
-throughput is capped at $N^{max}/E2E(k)$ regardless of available KV space.
-
-### 5.2 When this reduces to the decode-only formula
-
-The ratio of $\mu_{RPS}$ to the decode-only estimate $\mu_{RPS}^{dec} = N_{dec}/T_{dec}$
-(when $N(k) < N^{max}$) is:
-
-$$\frac{\mu_{RPS}}{\mu_{RPS}^{dec}} = \frac{N_{dec}+1}{N_{dec}} \cdot \frac{T_{dec}}{T_{pre} + T_{dec}}
-\approx \frac{T_{dec}}{T_{pre} + T_{dec}}
-\quad \text{for large } N_{dec}$$
-
-This correction is negligible when $T_{pre} \ll T_{dec}$, i.e., when:
-
-$$T_{pre} \ll \text{ITL}(k) \cdot \frac{\overline{OL}}{N_{dec}(k)}$$
-
-**Non-chunked prefill** ($B_{max} \gg \overline{IL}_{eff}$): $T_{pre} \approx
-\overline{IL}_{eff} \cdot t_{pre/tok}$ is constant and small (≈ 0.2 ms for
-$IL=5000$; threshold ≈ 200 ms). Correction $\approx 0.002\%$ — negligible.
-$\mu_{RPS}$ reduces to $\mu_{RPS}^{dec}$.
-
-**Chunked prefill** ($B_{max} < \overline{IL}_{eff}$): $T_{pre}(k) =
-\lceil \overline{IL}_{eff}/B_{max} \rceil \cdot \text{ITL}(k)$ grows with $k$.
-Once $\lceil \overline{IL}_{eff}/B_{max} \rceil > \overline{OL}/N_{dec}(k)$,
-the E2E correction is substantial and the full formula is required.
-
-**Operating above the knee** ($k > k_{knee}$): $W_{vllm} > 0$ inflates $E2E$
-beyond $T_{pre} + T_{dec}$, reducing effective throughput. This signals an
-ill-chosen operating point rather than a supply property — the autoscaler
-should use $k_{threshold} = \min(k_{knee}, k_{sat})$ to avoid this regime.
-
-### 5.3 The $N^{max}$ cap
-
-The cap $N^{max}$ binds when the KV cache would otherwise sustain more
-concurrent requests than the scheduler allows:
-
-$$k_{N^{max}} = \frac{N^{max} \cdot \overline{KV}_{req}}{KV^{max}}$$
-
-For $k < k_{N^{max}}$: KV cache fills before the batch saturates; the $N(k)/E2E$
-formula applies and $\mu_{RPS} \approx \mu_{RPS}^{dec}$.
-For $k \geq k_{N^{max}}$: $N^{max}$ is hit first; $\mu_{RPS} = N^{max}/E2E(k)$.
-
-### 5.4 Supply at the target operating point
-
-$$\mu^{sat}_{RPS} = \frac{\min\!\bigl(N_{dec}^{sat}+1,\; N^{max}\bigr)}{T_{pre}(k_{sat}) + \overline{OL} \cdot (A \cdot k_{sat} + B)}$$
-
-For the typical case ($N_{dec}^{sat} + 1 < N^{max}$, non-chunked prefill):
-
-$$\mu^{sat}_{RPS} \approx \frac{\mu_{dec}^{sat}}{\overline{OL}}$$
-
-When `vllm:request_success_total` or `vllm:request_decode_time_seconds` is
-collected (not yet in WVA), RPS can be measured directly as a counter rate.
 
 ---
 
@@ -556,33 +551,76 @@ in priority order to validate and anchor the model:
 
 ---
 
-## 8. Metric Sources
+## 8. Metric Sources, Observability, and Alternative Saturation Signals
 
-### 8.1 Currently collected (sufficient for full $\mu_{dec}$ model)
+### 8.1 Currently collected (sufficient for full model)
 
-| Symbol | Go Field | Prometheus Metric |
-|--------|----------|------------------|
-| $KV\text{\\\%}_v$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` |
-| $KV_{max,v}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` |
-| $N_v$ | `RunningRequests` | `vllm:num_requests_running` |
-| $\overline{IL}_{eff,v}$ | `AvgInputTokens × (1 - PrefixCacheHitRate)` | derived |
-| $\overline{OL}_v$ | `AvgOutputTokens` | `rate(generation_tokens_sum/count)` |
-| $\text{ITL}_v$ | `AvgITL` | `rate(time_per_output_token_seconds_sum/count)` |
-| $H\text{\\\%}_v$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` |
+| Symbol | Go Field | Prometheus Metric | Stability |
+|--------|----------|------------------|-----------|
+| $KV\%$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` | Gauge, use `max_over_time[1m]` |
+| $KV^{max}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` | Static labels |
+| $N$ | `RunningRequests` | `vllm:num_requests_running` | Gauge (instantaneous) |
+| $\overline{IL}_{eff}$ | derived | `rate(prompt_tokens_sum/count) × (1-H%)` | Rate-based, very stable |
+| $\overline{OL}$ | `AvgOutputTokens` | `rate(generation_tokens_sum/count)` | Rate-based, very stable |
+| ITL | `AvgITL` | `rate(time_per_output_token_seconds_sum/count)` | Rate-based, very stable |
+| $H\%$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` | Rate-based |
+| $\lambda$ | `ArrivalRate` | `inference_extension_scheduler_attempts_total` | Rate-based |
 
-The full $\mu_{dec}(k)$ model (§3.2–§3.3) requires only these fields plus a
-calibrated $(A, B)$ pair.
+### 8.2 Using direct phase duration metrics
 
-### 8.2 High-priority additions (enable direct verification and $\mu_{pre}$)
+**`vllm:request_prefill_time_seconds` and `vllm:request_decode_time_seconds`:**
+- $T_{pre}$ metric: Wall-clock from admission to first decode step. Includes prefill chunks but **not** $W_{vllm}$.
+- $T_{dec}$ metric: Wall-clock from first to last decode step.
 
-| Symbol | Prometheus Metric | Why needed |
-|--------|------------------|------------|
-| $\mu_{dec,v}$ (GPS rate) | `rate(vllm:request_generation_tokens_sum[5m])` | Direct GPS for model verification (§3.4, §7.1) |
-| $\mu_{pre,v}$ (PPS rate) | `rate(vllm:request_prompt_tokens_sum[5m])` | Direct PPS without $N_{pre}$ estimate |
-| $T_{pre,v}$ | `vllm:request_prefill_time_seconds` (vLLM ≥ v0.7.3, V1) | Separates prefill compute from queue wait |
-| $T_{dec,v}$ | `vllm:request_decode_time_seconds` (vLLM ≥ v0.7.3, V1) | Direct RPS cross-check: $\mu_v = \text{rate}(T_{dec}\text{ count})$ |
+**Verification:**
+$$\text{Cross-check: } T_{dec} \approx \text{ITL} \cdot \overline{OL}$$
 
-All four are available in llm-d v0.5.0 (vLLM v0.14.1, V1 engine).
+**Relationship to `vllm:e2e_request_latency_seconds`:**
+- vLLM's $T_{e2e} = W_{vllm} + T_{pre} + T_{dec}$ (excludes $W_{epp}$)
+- Derived: $T_{e2e} \approx T_{tft} + \text{ITL} \cdot \overline{OL} = W_{epp} + W_{vllm} + T_{pre} + \text{ITL} \cdot (\overline{OL} + 1)$
+
+### 8.3 $N(k^*)$ vs. $N_{dec}^{sat}$ as a saturation indicator
+
+Comparing rates ($\mu_{dec}^{sat}$ vs. observed GPS) requires calibrated $(A,B)$ and accurate workload averages. An alternative: compare **concurrency directly**.
+
+At current operating point $k^*$:
+$$N(k^*) = N_{dec}(k^*) + N_{pre}(k^*) \approx \frac{k^* \cdot KV^{max}}{\overline{KV}_{req}} + 1$$
+
+At saturation target $k_{sat}$:
+$$N_{dec}^{sat} = \frac{k_{sat} \cdot KV^{max}}{\overline{KV}_{req}}, \quad N^{sat} = N_{dec}^{sat} + 1$$
+
+**The condition $N(k^*) > N_{dec}^{sat}$** indicates the current running request count exceeds the **decode-slot capacity** at the saturation target. This is a **leading indicator** of saturation because:
+
+1. **It requires no rate measurements**—only $KV\%$, $KV^{max}$, and $\overline{KV}_{req}$ (all gauge-like or static)
+2. **It is less noisy** than GPS comparisons at low load (no small-$N_{dec}$ variance)
+3. **It predicts saturation** before GPS degradation becomes severe
+
+**Interpretation:**
+
+| Condition | Meaning | Action |
+|-----------|---------|--------|
+| $N(k^*) < 0.8 \cdot N_{dec}^{sat}$ | Healthy headroom | No action |
+| $N_{dec}^{sat} \leq N(k^*) < N^{max}$ | Approaching decode saturation | Prepare to scale |
+| $N(k^*) \geq N^{max}$ | Scheduler limit hit ($N^{max}$ binds) | Scale immediately |
+
+**When $N_{pre} \gg 1$ is significant:**
+$N_{pre} = N - N_{dec} \approx N(k) - k \cdot KV^{max}/\overline{KV}_{req}$. If $N_{pre} > N_{dec}/10$ (>10% in prefill):
+- **Chunked prefill** (expected for large $IL$): Normal, but update $T_{pre}$ estimate
+- **Short-OL saturation** (high churn): $k_{knee}$ likely binding—check $N_{wait}$
+- **Prefill backlog**: $\lambda_{pre} > \mu_{pre}^{cap}$—scale proactively
+
+**Recommendation:** Use $N(k^*) > N_{dec}^{sat}$ as a **primary threshold** for decode saturation, and $k_{knee}$ computation as secondary validation for short-output workloads. This avoids reliance on $\mu_{dec}$ calibration accuracy during transient load spikes.
+
+### 8.4 High-priority additions (enable direct verification and $\mu_{pre}$)
+
+| Symbol | Prometheus Metric | Status | Usage |
+|--------|------------------|--------|-------|
+| $\mu_{dec}$ (GPS) | `rate(vllm:request_generation_tokens_sum[5m])` | Available, not collected | Direct GPS for model verification (§3.4, §7.1) |
+| $\mu_{pre}$ (PPS) | `rate(vllm:request_prompt_tokens_sum[5m])` | Available, not collected | Direct PPS without $N_{pre}$ estimation |
+| $T_{pre}$ | `vllm:request_prefill_time_seconds` | vLLM ≥ v0.7.3, V1 engine | Separates prefill compute from queue wait |
+| $T_{dec}$ | `vllm:request_decode_time_seconds` | vLLM ≥ v0.7.3, V1 engine | Direct RPS cross-check: $\mu = \text{rate}(T_{dec}\text{ count})$ |
+
+All four are available in llm-d v0.5.0 (vLLM v0.14.1 with V1 engine).
 
 ---
 
@@ -603,7 +641,7 @@ N_dec       = KvCacheUsage * TotalKvCapacityTokens / kv_per_req
 μ           = μ_dec / AvgOutputTokens           # [req/s]
 
 # Supply at target KV% = k_sat (e.g. 0.75)
-N_dec_sat   = k_sat * TotalKvCapacityTokens / kv_per_req  # = N_{dec}^{sat} (§5.1)
+N_dec_sat   = k_sat * TotalKvCapacityTokens / kv_per_req  # = N_{dec}^{sat} (§4.3)
 ITL_sat     = A * k_sat + B
 μ_dec_sat   = N_dec_sat / ITL_sat               # [tokens/s]
 μ_sat       = μ_dec_sat / AvgOutputTokens       # [req/s]  = μ^{sat}_{RPS} (§5.4)
@@ -615,12 +653,12 @@ ITL_sat     = A * k_sat + B
 gps_obs     = rate(vllm:request_generation_tokens_sum[5m])
 gps_err_pct = abs(μ_dec - gps_obs) / gps_obs * 100  # recalibrate if > 15%
 
-# TTFT knee for short-output / heavy-prefill workloads (§4.2)
+# TTFT knee for short-output / heavy-prefill workloads (§5.2)
 # k_knee is the KV% where TTFT starts to degrade; may be << k_sat for short OL
 denom = KV_max - ArrivalRate * kv_per_req * AvgOutputTokens * A
 k_knee = (ArrivalRate * kv_per_req * AvgOutputTokens * B) / denom  # 0 if denom <= 0
 
-# μ_pre_cap from small-queue measurement (§4.3)
+# μ_pre_cap from small-queue measurement (§5.3)
 # Measure when W_vllm = 2-5: TTFT ≈ T_pre + ITL (W_vllm still small)
 T_pre_hat      = AvgTTFT - AvgITL                    # seconds, only valid when queue is small
 t_pre_per_tok  = T_pre_hat / AvgInputTokens          # s/tok (portable hardware constant)
@@ -678,7 +716,7 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
    during rapid workload changes — a deliberate trade-off for stability.
 
 9. **The TTFT knee is the relevant saturation threshold for short-output workloads.**
-   For $\overline{OL} \lesssim 150$, $k_{knee}$ (§4.2) may be as low as 20–30%
+   For $\overline{OL} \lesssim 150$, $k_{knee}$ (§5.2) may be as low as 20–30%
    KV%, far below the decode-saturation threshold $k_{sat} \approx 75\text{–}80\%$.
    Using $k_{sat}$ as the scale-up trigger for these workloads means the
    autoscaler reacts too late — TTFT SLO violations occur well before GPS
@@ -688,7 +726,7 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
 10. **$T_{pre}$ grows super-linearly for very large $\overline{IL}$.** For
     $\overline{IL} \gtrsim 10\text{K}$ (at low RPS), the admission wait dominates
     TTFT and the observed $\text{TTFT} / \overline{IL}_{eff}$ ratio grows rapidly
-    rather than staying constant. The $\hat{T}_{pre}$ measurement (§4.3) is only
+    rather than staying constant. The $\hat{T}_{pre}$ measurement (§5.3) is only
     a clean hardware-compute estimate when $W_{vllm}$ is small (2–5). If
     $W_{vllm}$ is already large, the observed TTFT over-estimates $T_{pre}$ and
     $\hat{\mu}_{pre,cap}$ will be under-estimated.
@@ -702,3 +740,11 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
     $B_{max} = 65\text{K} \gg IL$ (no chunking); deployments with smaller
     $B_{max}$ will see the TTFT knee at lower KV% and should re-measure
     $\hat{T}_{pre}$ accordingly.
+
+12. **Two distinct saturation mechanisms exist.** (a) **Decode saturation**
+   at $k_{sat}$ where GPS growth slows; detected by $N(k) \to N_{dec}^{sat}$ 
+   (§8.3) or $\mu_{dec}$ approaching ceiling. (b) **RPS saturation** at 
+   $k_{knee}$ (§5.2) where $W_{vllm}$ explodes; detected by TTFT degradation 
+   or $N_{wait}$ growth. Short-output workloads hit (b) first; use 
+   $k_{threshold} = \min(k_{knee}, k_{sat})$.
+```
