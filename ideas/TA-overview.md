@@ -11,7 +11,7 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Problem Analysis](#2-problem-analysis)
 3. [Design Goals and Non-Goals](#3-design-goals-and-non-goals)
-4. [Metrics: Rate-Based Demand and Supply](#4-rate-based-demand-and-supply)
+4. [Triple-Channel Model](#4-triple-channel-model)
 
 ---
 
@@ -23,14 +23,16 @@ The **Throughput Analyzer** adds a complementary **rate-based** signal that meas
 
 ### How It Works
 
-WVA Analyzers measure *demand* per model and *supply* per instance (variant). These allow WVA to estimate the number of instances needed to avoid overload. 
+WVA Analyzers measure *demand* per model and *supply* per instance (variant).  
+These allow WVA to estimate the number of instances needed to avoid overload. 
 
 The Throughput Analyzer measures demand and supply in **tokens/sec**:
 
 - **Demand rate**: How fast tokens are arriving (from request rate × average token count per request)
 - **Supply rate**: How fast tokens can be processed (estimate throughput per replica at saturation)
 
-When demand rate exceeds supply rate, the analyzer produces a positive `RequiredCapacity` signal — even before the saturation analyzer detects any overload. This enables **anticipatory scaling** that starts provisioning capacity 20-40 seconds earlier than saturation-only detection.
+When demand rate exceeds supply rate, the analyzer produces a positive `RequiredCapacity` signal — even before the saturation analyzer detects any overload.  
+This enables **anticipatory scaling** that starts provisioning capacity 20-40 seconds earlier than saturation-only detection.
 
 ### Relationship to Saturation Analyzer
 
@@ -50,23 +52,7 @@ The two analyzers run **in parallel** with OR logic for scale-up (either can tri
 
 ## 2. Problem Analysis
 
-### 2.1 The Detection Lag Problem
-
-Consider a traffic ramp from 20 RPS to 60 RPS over 5 minutes with 4 replicas:
-
-```
-Time    RPS    KV Usage    Queue    Saturation Says    Throughput Says
-t=0     20     40%         0        steady             steady
-t=60    28     50%         0        steady             demand_rate rising
-t=90    32     55%         0        steady             SCALE UP (rate > capacity)
-t=120   40     65%         2        steady             scale up (continued)
-t=150   48     78%         5        SCALE UP (now)     scale up (continued)
-t=180   56     88%         12       SCALE UP           scale up
-```
-
-The saturation analyzer detects the problem at t=150 (2.5 minutes into the ramp). The throughput analyzer detects the trajectory at t=90 — **60 seconds earlier**. With a 3-5 minute pod startup time, this 60-second head start means replicas are ready 60 seconds sooner, reducing the window of degraded service.
-
-### 2.2 Why Rate Matters
+### 2.1 Why Rate Matters
 
 Rate-based detection is fundamentally about **derivatives** vs **levels**:
 
@@ -78,7 +64,7 @@ The rate signal is especially valuable for:
 - **Step changes**: Sudden traffic shifts (e.g., marketing campaign, model routing changes)
 - **Diurnal patterns**: Predictable daily traffic curves where rate change is visible early
 
-### 2.3 Where Rate Is Less Useful
+### 2.2 Where Rate Is Less Useful
 
 The throughput analyzer adds less value when:
 - **Traffic is stable**: No rate change to detect
@@ -109,7 +95,7 @@ The throughput analyzer adds less value when:
 
 ---
 
-## 4. Rate-Based Demand and Supply
+## 4. Triple-Channel Model
 
 Input tokens (prefill) and output tokens (decode) have fundamentally different computational costs in vLLM. In each continuous-batching scheduler step:
 
