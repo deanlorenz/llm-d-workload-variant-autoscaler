@@ -42,17 +42,11 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 			}).NotTo(Panic())
 		})
 
-		It("should register all throughput analyzer queries with correct type", func() {
+		It("should register exactly the three TA-exclusive queries", func() {
 			expectedQueries := []string{
 				QueryGenerationTokenRate,
 				QueryKvTokensUsed,
-				QueryKvTokensTotal,
-				QueryTAAvgOutputTokens,
-				QueryTAAvgInputTokens,
-				QueryTAPrefixCacheHitRate,
-				QueryTAAvgITL,
 				QueryVLLMRequestRate,
-				QueryDecodeTokenDemand,
 			}
 			for _, name := range expectedQueries {
 				q := queryList.Get(name)
@@ -82,59 +76,8 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rendered).To(ContainSubstring(`vllm:kv_cache_usage_perc`))
 			Expect(rendered).NotTo(ContainSubstring(`max_over_time`))
-		})
-
-		It("should build QueryKvTokensTotal with block label dimensions", func() {
-			rendered, err := queryList.Build(QueryKvTokensTotal, map[string]string{
-				source.ParamNamespace: "test-ns",
-				source.ParamModelID:   "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`vllm:cache_config_info`))
-			Expect(rendered).To(ContainSubstring(`num_gpu_blocks`))
-			Expect(rendered).To(ContainSubstring(`block_size`))
-		})
-
-		It("should build QueryTAAvgITL with 1m window over ITL histogram", func() {
-			rendered, err := queryList.Build(QueryTAAvgITL, map[string]string{
-				source.ParamNamespace: "test-ns",
-				source.ParamModelID:   "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`vllm:time_per_output_token_seconds_sum`))
-			Expect(rendered).To(ContainSubstring(`vllm:time_per_output_token_seconds_count`))
-			Expect(rendered).To(ContainSubstring(`[1m]`))
-		})
-
-		It("should build QueryTAAvgOutputTokens with 5m window", func() {
-			rendered, err := queryList.Build(QueryTAAvgOutputTokens, map[string]string{
-				source.ParamNamespace: "test-ns",
-				source.ParamModelID:   "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`vllm:request_generation_tokens_sum`))
-			Expect(rendered).To(ContainSubstring(`[5m]`))
-		})
-
-		It("should build QueryTAAvgInputTokens with 5m window", func() {
-			rendered, err := queryList.Build(QueryTAAvgInputTokens, map[string]string{
-				source.ParamNamespace: "test-ns",
-				source.ParamModelID:   "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`vllm:request_prompt_tokens_sum`))
-			Expect(rendered).To(ContainSubstring(`[5m]`))
-		})
-
-		It("should build QueryTAPrefixCacheHitRate with 5m window", func() {
-			rendered, err := queryList.Build(QueryTAPrefixCacheHitRate, map[string]string{
-				source.ParamNamespace: "test-ns",
-				source.ParamModelID:   "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`vllm:prefix_cache_hits`))
-			Expect(rendered).To(ContainSubstring(`vllm:prefix_cache_queries`))
-			Expect(rendered).To(ContainSubstring(`[5m]`))
+			Expect(rendered).To(ContainSubstring(`namespace="test-ns"`))
+			Expect(rendered).To(ContainSubstring(`model_name="test-model"`))
 		})
 
 		It("should build QueryVLLMRequestRate with 1m window over token count", func() {
@@ -145,16 +88,8 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rendered).To(ContainSubstring(`vllm:request_generation_tokens_count`))
 			Expect(rendered).To(ContainSubstring(`[1m]`))
-		})
-
-		It("should build QueryDecodeTokenDemand using scheduler attempts metric", func() {
-			rendered, err := queryList.Build(QueryDecodeTokenDemand, map[string]string{
-				source.ParamModelID: "test-model",
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rendered).To(ContainSubstring(`inference_extension_scheduler_attempts_total`))
-			Expect(rendered).To(ContainSubstring(`test-model`))
-			Expect(rendered).To(ContainSubstring(`status="success"`))
+			Expect(rendered).To(ContainSubstring(`namespace="test-ns"`))
+			Expect(rendered).To(ContainSubstring(`model_name="test-model"`))
 		})
 	})
 
