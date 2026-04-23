@@ -99,6 +99,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 	// - Saturation: KV cache, queue length, cache config, prefix cache hit rate
 	// - Shared (saturation + queueing model): avg input tokens, avg output tokens
 	// - Queueing model: scheduler dispatch rate, avg TTFT, avg ITL
+	// - Throughput analyzer: generation token rate, instantaneous KV utilization, vLLM request rate
 	queries := []string{
 		registration.QueryKvCacheUsage,
 		registration.QueryQueueLength,
@@ -109,6 +110,9 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		registration.QuerySchedulerDispatchRate,
 		registration.QueryAvgTTFT,
 		registration.QueryAvgITL,
+		registration.QueryGenerationTokenRate,
+		registration.QueryKvTokensUsed,
+		registration.QueryVLLMRequestRate,
 	}
 
 	results, err := c.source.Refresh(ctx, source.RefreshSpec{
@@ -139,6 +143,10 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		hasArrivalRate bool
 		avgTTFT        float64
 		avgITL         float64
+		// Throughput analyzer fields
+		generationTokenRate float64
+		kvUtilization       float64
+		vllmRequestRate     float64
 	}
 
 	// Extract per-pod metrics from results
@@ -393,6 +401,69 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		}
 	}
 
+	// Process generation token rate results (tokens/sec) — throughput analyzer μ_dec^obs
+	if result := results[registration.QueryGenerationTokenRate]; result != nil {
+		if !result.HasError() {
+			for _, value := range result.Values {
+				podName := value.Labels["pod"]
+				if podName == "" {
+					podName = value.Labels["pod_name"]
+				}
+				if podName == "" {
+					continue
+				}
+				if podData[podName] == nil {
+					podData[podName] = &podMetricData{}
+				}
+				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
+					podData[podName].generationTokenRate = value.Value
+				}
+			}
+		}
+	}
+
+	// Process instantaneous KV utilization results (0.0–1.0) — throughput analyzer k*
+	if result := results[registration.QueryKvTokensUsed]; result != nil {
+		if !result.HasError() {
+			for _, value := range result.Values {
+				podName := value.Labels["pod"]
+				if podName == "" {
+					podName = value.Labels["pod_name"]
+				}
+				if podName == "" {
+					continue
+				}
+				if podData[podName] == nil {
+					podData[podName] = &podMetricData{}
+				}
+				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 && value.Value <= 1 {
+					podData[podName].kvUtilization = value.Value
+				}
+			}
+		}
+	}
+
+	// Process vLLM request completion rate (req/s) — throughput analyzer fallback λ_req
+	if result := results[registration.QueryVLLMRequestRate]; result != nil {
+		if !result.HasError() {
+			for _, value := range result.Values {
+				podName := value.Labels["pod"]
+				if podName == "" {
+					podName = value.Labels["pod_name"]
+				}
+				if podName == "" {
+					continue
+				}
+				if podData[podName] == nil {
+					podData[podName] = &podMetricData{}
+				}
+				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
+					podData[podName].vllmRequestRate = value.Value
+				}
+			}
+		}
+	}
+
 	// Pre-compute MaxBatchSize per scale target from container args.
 	// MaxBatchSize (--max-num-seqs) is not a Prometheus metric; it is parsed
 	// from the Deployment/LWS spec using the vLLM argument parser.
@@ -516,6 +587,9 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 			MaxBatchSize:          maxBatchSize,
 			AvgTTFT:               data.avgTTFT,
 			AvgITL:                data.avgITL,
+			GenerationTokenRate:   data.generationTokenRate,
+			KvUtilization:         data.kvUtilization,
+			VLLMRequestRate:       data.vllmRequestRate,
 			Metadata: &interfaces.ReplicaMetricsMetadata{
 				CollectedAt:     collectedAt,
 				Age:             0, // Fresh
