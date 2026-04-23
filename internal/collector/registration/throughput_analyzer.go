@@ -38,14 +38,36 @@ const (
 	//   kvTokensTotal = num_gpu_blocks × block_size
 	// Source: vllm:cache_config_info (info-style gauge, static labels)
 	QueryKvTokensTotal = "kv_tokens_total"
+
+	// QueryDecodeTokenDemand is the query name for the model-level decode token
+	// demand derived from the llm-d inference scheduler (λ_dec, tokens/sec).
+	//
+	// This query returns the total request dispatch rate (req/s) for the model.
+	// The full λ_dec in tokens/sec is computed in the analyzer as:
+	//   λ_dec = QueryDecodeTokenDemand × avg(QueryAvgOutputTokens)
+	//
+	// Approach: Option C from TA-Plan (scheduler-based demand, per-model aggregation).
+	// The scheduler rate captures queued requests that have not yet reached any
+	// vLLM pod, unlike the vLLM-side QueryGenerationTokenRate which only reflects
+	// served (not queued) demand.
+	//
+	// Sanity check: compare against QueryGenerationTokenRate (model-level sum).
+	// A gap > 10% between scheduler demand and vLLM-served rate indicates queueing:
+	//   λ_dec_sched >> λ_dec_vllm → requests are accumulating in the scheduler queue
+	//   λ_dec_sched <  λ_dec_vllm → metric lag or label mismatch; investigate
+	//
+	// TODO(#2309): The scheduler metric currently lacks a namespace label in the
+	// upstream gateway-api-inference-extension EPP. Filtering by namespace is not
+	// possible until the upstream adds it. Queries here filter by target_model_name
+	// (or model_name fallback), matching the pattern in QuerySchedulerQueueSize.
+	QueryDecodeTokenDemand = "decode_token_demand"
 )
 
 // RegisterThroughputAnalyzerQueries registers queries used by the throughput analyzer.
 //
-// These queries provide the raw metrics for computing μ_dec (decode supply):
-//   - QueryGenerationTokenRate: observed decode token rate per pod
-//   - QueryKvTokensUsed: instantaneous KV cache utilization (k*)
-//   - QueryKvTokensTotal: KV cache block configuration (num_gpu_blocks, block_size)
+// These queries provide the raw metrics for computing:
+//   - μ_dec (decode supply):  QueryGenerationTokenRate, QueryKvTokensUsed, QueryKvTokensTotal
+//   - λ_dec (decode demand):  QueryDecodeTokenDemand (combined with QueryAvgOutputTokens)
 //
 // The throughput analyzer computes μ_dec using a linear ITL model:
 //
@@ -54,6 +76,8 @@ const (
 //	μ_dec    = N_dec(k*) / ITL(k*)
 //
 // where k* is the current KV utilization fraction and KV_max = num_gpu_blocks × block_size.
+//
+// λ_dec is computed as: QueryDecodeTokenDemand (req/s) × avg(QueryAvgOutputTokens) (tok/req).
 func RegisterThroughputAnalyzerQueries(sourceRegistry *source.SourceRegistry) {
 	registry := sourceRegistry.Get("prometheus").QueryList()
 
@@ -93,5 +117,25 @@ func RegisterThroughputAnalyzerQueries(sourceRegistry *source.SourceRegistry) {
 		Template:    `max by (pod, num_gpu_blocks, block_size) (vllm:cache_config_info{namespace="{{.namespace}}",model_name="{{.modelID}}"})`,
 		Params:      []string{source.ParamNamespace, source.ParamModelID},
 		Description: "KV cache block configuration per pod (num_gpu_blocks and block_size as labels); total capacity = num_gpu_blocks × block_size",
+	})
+
+	// Model-level scheduler request dispatch rate (req/s).
+	// Represents the rate of requests arriving at the llm-d inference scheduler
+	// and being dispatched to vLLM replicas. Unlike QuerySchedulerDispatchRate
+	// (per-pod, used by the queueing model), this query aggregates across all
+	// replicas to give the total model-level demand rate.
+	//
+	// The full decode token demand is: λ_dec = QueryDecodeTokenDemand × avg(QueryAvgOutputTokens).
+	//
+	// Uses target_model_name (resolved model after routing) with fallback to
+	// model_name when target_model_name is not set, following the same pattern
+	// as QuerySchedulerQueueSize.
+	registry.MustRegister(source.QueryTemplate{
+		Name: QueryDecodeTokenDemand,
+		Type: source.QueryTypePromQL,
+		Template: `sum(rate(inference_extension_scheduler_attempts_total{status="success",target_model_name="{{.modelID}}"}[1m]))` +
+			` or sum(rate(inference_extension_scheduler_attempts_total{status="success",model_name="{{.modelID}}",target_model_name=""}[1m]))`,
+		Params:      []string{source.ParamModelID},
+		Description: "Model-level scheduler request dispatch rate (req/s); multiply by avg output tokens to get λ_dec (decode token demand, tok/s)",
 	})
 }
