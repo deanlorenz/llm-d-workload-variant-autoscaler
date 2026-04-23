@@ -10,7 +10,8 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ## Phase 1: Decode Supply Foundation (μ_dec)
 
-### PR-1: Register Core Rate Metrics
+### PR-1: Register Core Rate Metrics — ✅ COMPLETED (#1051, combined with PR-2)
+
 **What**: Register additional queries in `collector/registration/throughput_analyzer.go` for μ_dec calculation.
 
 **New queries to register** (μ_dec foundation):
@@ -36,15 +37,26 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ---
 
-### PR-2: Register Decode Demand Metric (λ_dec)
+### PR-2: Register Decode Demand Metric (λ_dec) — ✅ COMPLETED (#1051, combined with PR-1)
+
 **What**: Register query for decode token demand from scheduler (total tokens dispatched × average OL).
 
-**New query to register**:
-| Query Name | PromQL | Purpose |
-|------------|--------|---------|
-| `QueryDecodeTokenDemand` | `rate(inference_extension_scheduler_attempts_total[1m]) * avg(output_tokens)` | λ_dec = demand in tok/s |
+> **Note**: PR-1 and PR-2 were combined into a single PR (#1051) since the full 9-query set
+> is cohesive and there is no useful intermediate state. The final registered set is:
+>
+> | Query | Metric | Purpose |
+> |-------|--------|---------|
+> | `generation_token_rate` | `vllm:request_generation_tokens_sum` | μ_dec^obs per pod (1m rate) |
+> | `kv_tokens_used` | `vllm:kv_cache_usage_perc` | k* — current KV utilization (instantaneous) |
+> | `kv_tokens_total` | `vllm:cache_config_info` | KV_max = num_gpu_blocks × block_size |
+> | `ta_avg_itl` | `vllm:time_per_output_token_seconds` | ITL_obs for ITL(k) = A·k + B calibration |
+> | `ta_avg_output_tokens` | `vllm:request_generation_tokens` | OL — for KV_req and λ_dec |
+> | `ta_avg_input_tokens` | `vllm:request_prompt_tokens` | IL — for IL_eff = IL × (1 − hit_rate) |
+> | `ta_prefix_cache_hit_rate` | `vllm:prefix_cache_hits/queries` | Prefix hit rate for IL_eff reduction |
+> | `decode_token_demand` | `inference_extension_scheduler_attempts_total` | λ_dec primary (scheduler) |
+> | `vllm_request_rate` | `vllm:request_generation_tokens_count` | λ_dec fallback (EPP not deployed) |
 
-**Approach options**:
+**Original plan — Approach options for λ_dec**:
 | Option | Source | PromQL | Pros | Cons |
 |--------|--------|--------|------|------|
 | A | Scheduler | `sum(rate(inference_extension_scheduler_attempts[1m])) * avg_over_time(pod:OL[5m])` | Captures queued demand | May lack pod label for variant tracking |
@@ -59,10 +71,7 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 | D2 | `sum(rate(vllm:request_generation_tokens_sum[1m]))` | λ_dec_served (tok/s) — **same as μ_dec_obs** |
 | D3 | ` weighted_avg(OL_pod, weight=req_rate_pod) ` | OL demand profile |
 
-**Recommendation**: **Option C + Option D as sanity check**:
-- Primary: `λ_dec_sched = QuerySchedulerDispatchRate × QueryAvgOutputTokens`
-- Sanity: `λ_dec_vllm = sum(rate(vllm:request_generation_tokens_sum[1m]))`
-- Alert if `|λ_dec_sched - λ_dec_vllm| / λ_dec_sched > 0.10` (indicates >10% queueing)
+**Decision**: Option C (scheduler dispatch rate) as primary + Option D (vLLM request rate) as fallback.
 
 **Interpretation of gap**:
 | Condition | Meaning | Action |
@@ -86,19 +95,49 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ## Phase 2: Decode Supply Analyzer (§3)
 
-### PR-3: ThroughputAnalyzer Skeleton + ITL Calibration
-**What**: Create new analyzer under `engines/analyzers/throughput/` with ITL model (A, B) fitting.
+### PR-3: ThroughputAnalyzer State Management — ✅ COMPLETED (#1052)
 
-**Files to create**:
+**What**: Create new package `internal/engines/analyzers/throughput/` with per-variant
+workload shape tracking, ITL observation windows, and sanity diagnostics.
+
+> **Scope change from original plan**: The original PR-3 plan (see below) combined state
+> management with the OLS ITL fit in one PR. After design review, state management was
+> separated from the fit so each PR is independently reviewable. The OLS fit moves to PR-4.
+
+**Files created**:
 ```
 internal/engines/analyzers/throughput/
-├── analyzer.go           # ThroughputAnalyzer struct, Analyze() method
-├── itl_model.go          # ITLModel with OLS fit for A, B
-├── itl_model_test.go     # Unit tests
-└── types.go              # ThroughputMetrics, ScaleRecommendation types
+├── constants.go               thresholds, window parameters, analyzer name
+├── types.go                   WorkloadShape, ITLObservation, SanityIssue, SanityReport
+├── shape_tracker.go           ShapeTracker: current (IL,OL) bucket + change detection
+├── observation_window.go      ObservationWindow: rolling (k, ITL) pairs, Ready flag
+├── sanity.go                  CheckModelMetrics: missing/stale/out-of-range detection
+├── analyzer.go                ThroughputAnalyzer: Observe() + Analyze() stub
+├── suite_test.go              Ginkgo suite registration
+├── shape_tracker_test.go      unit tests
+├── observation_window_test.go unit tests
+├── sanity_test.go             unit tests
+└── analyzer_test.go           integration tests (multi-call state accumulation)
 ```
 
-**ITL Calibration Logic**:
+**Key design decisions** (see TA-PR3-plan.md for full details):
+- State tracked **per variant** (namespace|modelID|variantName) — different hardware → different A/B
+- Shape change tolerance: 20% shift in IL or OL triggers ObservationWindow.Clear()
+- `ILeff = IL × (1 − PrefixHitRate)` used for both N(k*) and N(k_sat) — cache-aware scheduling
+  makes IL_eff the right proxy for new replicas too (EPP prefix routing warms cache quickly)
+- ObservationWindow filters k ∈ [0.15, 0.85]; Ready when ≥10 samples with ≥0.30 k-spread
+- `Analyze()` returns RequiredCapacity=0 / SpareCapacity=0 until PR-4
+
+**Tests**: 78 Ginkgo tests across all components.
+
+**Dependencies**: PR-1, PR-2 (#1051)
+
+---
+
+#### Original PR-3 Plan (Alternative: state + OLS combined) — kept for reference
+
+The original plan combined state management and ITL model fit in a single PR:
+
 ```go
 // Rolling window of observations (k, ITL) pairs
 type ITLModel struct {
@@ -117,20 +156,42 @@ type ITLModel struct {
 
 **Recalibration trigger**: `|ΔOL| > 20%` or `|ΔIL| > 20%` or manually via API
 
-**Dependencies**: PR-1, PR-2
+**Original file layout**:
+```
+internal/engines/analyzers/throughput/
+├── analyzer.go           # ThroughputAnalyzer struct, Analyze() method
+├── itl_model.go          # ITLModel with OLS fit for A, B
+├── itl_model_test.go     # Unit tests
+└── types.go              # ThroughputMetrics, ScaleRecommendation types
+```
 
-**Test Plan**:
+**Original Test Plan**:
 1. Inject 5 type-1 points: k = 0.20, 0.35, 0.50, 0.65, 0.75; ITL = 0.021, 0.031, 0.043, 0.055, 0.061
 2. Verify fitted A ≈ 0.073, B ≈ 0.006 within 10%
 3. Verify recalibration triggers on |ΔOL| > 20%
 
 ---
 
-### PR-4: μ_dec Supply vs λ_dec Demand Calculation
-**What**: Compute μ_dec supply estimate and compare to λ_dec demand.
+### PR-4: ITL Model Fit + μ_dec vs λ_dec Scaling Signal
 
-**Files to modify**:
-- `internal/engines/analyzers/throughput/analyzer.go` - add Analyze() implementation
+**What**: Add OLS regression to fit A, B per variant from the observation window, compute
+μ_dec supply and λ_dec demand, and produce the RequiredCapacity / SpareCapacity scaling signal.
+
+> **Scope expansion from original plan**: The original PR-4 assumed A, B were already fitted
+> by PR-3. Since the fit was deferred, PR-4 now covers both the OLS calibration and the
+> supply/demand signal.
+
+**Files to add/modify**:
+- `internal/engines/analyzers/throughput/itl_model.go` — OLS fit: `A, B = fit(observations)`
+- `internal/engines/analyzers/throughput/itl_knowledge_store.go` — persist fitted (A, B) across
+  zero-replica periods (mirrors `CapacityKnowledgeStore` in saturation_v2)
+- `internal/engines/analyzers/throughput/analyzer.go` — wire fit and signal into `Analyze()`
+
+**OLS fit** (moved from original PR-3 plan):
+```
+Fit ITL(k) = A·k + B using window observations where Ready() == true
+OLS: minimize Σ(ITL_i - (A·k_i + B))²
+```
 
 **Supply calculation (μ_dec)**:
 ```
@@ -143,20 +204,18 @@ ITL(k*)   = A × k* + B
 
 **Demand calculation (λ_dec)**:
 ```
-Inputs: λ (from QuerySchedulerDispatchRate), OL
+Inputs: λ (from QuerySchedulerDispatchRate or fallback), OL
 λ_dec = λ × OL    # tok/s
 ```
 
 **Scale signal**:
 ```
 if λ_dec > μ_dec × safety_factor:
-    recommendation = SCALE_UP
-    reason = "decode_demand_exceeds_supply"
+    RequiredCapacity > 0  (scale up)
 else if λ_dec < μ_dec × down_threshold:
-    recommendation = SCALE_DOWN
-    reason = "decode_supply_exceeds_demand"
+    SpareCapacity > 0     (scale down safe)
 else:
-    recommendation = HOLD
+    both = 0              (hold)
 ```
 
 **Output metrics** (exported via `ThroughputMetrics`):
@@ -167,7 +226,7 @@ else:
 | `λ_dec` | Current decode demand (tok/s) |
 | `saturation_ratio` | λ_dec / μ_dec |
 
-**Dependencies**: PR-3
+**Dependencies**: PR-3 (#1052)
 
 **Test Plan**:
 1. Run at k* = 0.75 with known A=0.073, B=0.006, IL=5000, OL=200
@@ -177,8 +236,8 @@ else:
    - ITL = 0.073 × 0.75 + 0.006 = 0.061
    - μ_dec = 167 / 0.061 ≈ 2738 tok/s
 2. Set λ = 10 req/s, OL = 200 → λ_dec = 2000 tok/s
-3. Verify saturation_ratio = 2000/2738 ≈ 0.73 → HOLD
-4. Set λ = 15 req/s → λ_dec = 3000 tok/s → SCALE_UP
+3. Verify saturation_ratio = 2000/2738 ≈ 0.73 → hold
+4. Set λ = 15 req/s → λ_dec = 3000 tok/s → scale up
 
 ---
 
@@ -225,10 +284,9 @@ else:
 ## Summary: PR Dependency Graph
 
 ```
-PR-1 (Register Queries)
-    └── PR-2 (Decode Demand Query)
-            └── PR-3 (ITL Model + Analyzer Skeleton)
-                    └── PR-4 (μ_dec vs λ_dec Scale Logic)
+PR-1/PR-2 (#1051 ✅)  Register all 9 Prometheus queries
+    └── PR-3 (#1052 ✅)  State management: ShapeTracker, ObservationWindow, sanity, analyzer skeleton
+            └── PR-4 (planned)  OLS fit (A, B) + μ_dec supply + λ_dec demand + scaling signal
 ```
 
 **Phase 1 scope**: PR-1 through PR-4 only — μ_dec supply vs λ_dec demand
@@ -238,5 +296,3 @@ PR-1 (Register Queries)
 - No changes to existing saturation/queueing analyzers
 - No API changes unless absolutely required (moved to PR-Z)
 - Look at existing analyzers for inspiration, but don't share code
-
-**Estimated Timeline**: ~2 weeks for PR-1 through PR-4
