@@ -89,6 +89,7 @@ type Engine struct {
 	metricsRegistry *source.SourceRegistry
 
 	// saturationV2Analyzer is the V2 token-based saturation analyzer (initialized once).
+	// Also registered in analyzers under interfaces.SaturationAnalyzerName.
 	saturationV2Analyzer *saturation_v2.SaturationAnalyzer
 
 	// queueingModelAnalyzer is the queueing model-based analyzer (initialized once).
@@ -97,6 +98,11 @@ type Engine struct {
 
 	// capacityStore is shared with the V2 analyzer for caching capacity knowledge.
 	capacityStore *saturation_v2.CapacityKnowledgeStore
+
+	// analyzers is the generic name-to-implementation registry used by
+	// runAnalyzersAndScore. New analyzers are registered here; the engine loop
+	// calls each enabled analyzer by name without knowing its concrete type.
+	analyzers map[string]interfaces.Analyzer
 
 	// optimizer is the V2 scaling optimizer that produces VariantDecisions from
 	// AnalyzerResults. Selected per-cycle based on enableLimiter config:
@@ -125,6 +131,7 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	gpuLimiter := pipeline.NewDefaultLimiter("gpu-limiter", gpuInventory, gpuAlgorithm)
 
 	capacityStore := saturation_v2.NewCapacityKnowledgeStore()
+	satV2 := saturation_v2.NewSaturationAnalyzer(capacityStore)
 
 	// Initialize with default optimizer. The actual optimizer is selected
 	// per-cycle in optimize() based on dynamic config (enableLimiter flag
@@ -140,10 +147,13 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 		ScaleToZeroEnforcer:     pipeline.NewEnforcer(requestCountFunc),
 		GPULimiter:              gpuLimiter,
 		metricsRegistry:         metricsRegistry,
-		saturationV2Analyzer:    saturation_v2.NewSaturationAnalyzer(capacityStore),
+		saturationV2Analyzer:    satV2,
 		queueingModelAnalyzer:   queueingmodel.NewQueueingModelAnalyzer(),
 		capacityStore:           capacityStore,
 		optimizer:               scalingOptimizer,
+		analyzers: map[string]interfaces.Analyzer{
+			interfaces.SaturationAnalyzerName: satV2,
+		},
 	}
 
 	engine.executor = executor.NewPollingExecutor(executor.PollingConfig{
