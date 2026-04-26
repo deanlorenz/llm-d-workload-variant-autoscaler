@@ -30,8 +30,8 @@ type variantState struct {
 	// role is the P/D disaggregation role ("prefill", "decode", "both", "").
 	// Updated from VariantStates at the start of each Analyze call.
 	role             string
-	lastSanityReport  SanityReport
-	lastObservedAt    time.Time
+	lastSanityReport SanityReport
+	lastObservedAt   time.Time
 	// set by Analyze() for VariantState() snapshots
 	lastITLModel         ITLModel
 	lastPerReplicaSupply float64
