@@ -3,6 +3,7 @@ package saturation
 import (
 	"context"
 	"fmt"
+	"math"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -73,8 +74,123 @@ func (e *Engine) runV2AnalysisOnly(
 	return result, nil
 }
 
-// runAnalyzersAndScore runs the V2 saturation analyzer, then computes the
-// weighted composite score from enabled analyzers and model priority.
+// enabledAnalyzerResult pairs an enabled analyzer's result with its configured score weight.
+type enabledAnalyzerResult struct {
+	result *interfaces.AnalyzerResult
+	score  float64
+}
+
+// sumTotalCapacity returns the sum of TotalCapacity across all variant capacities.
+func sumTotalCapacity(vcs []interfaces.VariantCapacity) float64 {
+	total := 0.0
+	for _, vc := range vcs {
+		total += vc.TotalCapacity
+	}
+	return total
+}
+
+// combineAnalyzerResults merges multiple enabled analyzer results into a single
+// AnalyzerResult for the optimizer. satResult is always used as the metadata base —
+// its VariantCapacities carry Cost and AcceleratorName required for variant selection
+// and GPU accounting.
+//
+// The combine is performed in dimensionless utilisation space so that analyzers using
+// different capacity units (tokens, tok/s, …) can be compared safely:
+//
+//	utilExcess_i = RC_i / sum(TotalCapacity_i)   — fraction demand exceeds supply
+//	utilSlack_i  = SC_i / sum(TotalCapacity_i)   — fraction of supply that is spare
+//
+// Any-up:  scale up when any enabled analyzer has utilExcess > 0.
+// All-down: scale down only when every analyzer with valid data has utilSlack > 0.
+// Results are denormalised back into saturation's capacity units for the optimizer.
+func combineAnalyzerResults(
+	satResult *interfaces.AnalyzerResult,
+	results []enabledAnalyzerResult,
+	priority float64,
+) *interfaces.AnalyzerResult {
+	combined := *satResult // copy; VariantCapacities from saturation are always the base
+
+	if len(results) == 0 {
+		combined.RequiredCapacity = 0
+		combined.SpareCapacity = 0
+		combined.Score = 0
+		return &combined
+	}
+
+	satTotal := sumTotalCapacity(satResult.VariantCapacities)
+
+	var excessFracs []float64 // util_excess per analyzer with valid data
+	var slackFracs []float64  // util_slack  per analyzer with valid data
+	validCount := 0           // analyzers that provided a signal (t>0, or cold-start)
+	scaleUpColdStart := false
+	totalWeighted := 0.0
+
+	for _, er := range results {
+		t := sumTotalCapacity(er.result.VariantCapacities)
+		if t > 0 {
+			validCount++
+			excessFracs = append(excessFracs, er.result.RequiredCapacity/t)
+			slackFracs = append(slackFracs, er.result.SpareCapacity/t)
+		} else if er.result.RequiredCapacity > 0 {
+			// Cold start: demand detected but no replicas running yet.
+			scaleUpColdStart = true
+			validCount++
+		}
+		// t == 0 and RC == 0: no signal from this analyzer; skip.
+		totalWeighted += er.result.RequiredCapacity * er.score
+	}
+
+	// Any-up: scale up if any analyzer's normalised excess > 0.
+	maxExcess := 0.0
+	for _, ex := range excessFracs {
+		if ex > maxExcess {
+			maxExcess = ex
+		}
+	}
+
+	// All-down: scale down only when every analyzer with valid data agrees (slack > 0).
+	// Cold-start entries unconditionally block scale-down.
+	allDown := !scaleUpColdStart && len(slackFracs) == validCount && validCount > 0
+	minSlack := math.MaxFloat64
+	if allDown {
+		for _, sl := range slackFracs {
+			if sl <= 0 {
+				allDown = false
+				break
+			}
+			if sl < minSlack {
+				minSlack = sl
+			}
+		}
+	}
+
+	switch {
+	case scaleUpColdStart:
+		// satTotal == 0: denormalisation is not possible.
+		// Forward saturation's cold-start RC directly; fall back to 1.0 so the
+		// optimizer adds at least one replica.
+		if satResult.RequiredCapacity > 0 {
+			combined.RequiredCapacity = satResult.RequiredCapacity
+		} else {
+			combined.RequiredCapacity = 1.0
+		}
+		combined.SpareCapacity = 0
+	default:
+		combined.RequiredCapacity = maxExcess * satTotal
+		if allDown && minSlack < math.MaxFloat64 {
+			combined.SpareCapacity = minSlack * satTotal
+		} else {
+			combined.SpareCapacity = 0
+		}
+	}
+
+	combined.Score = priority * totalWeighted
+	return &combined
+}
+
+// runAnalyzersAndScore runs all enabled analyzers and combines their results into a
+// single AnalyzerResult for the optimizer. Saturation always runs first to populate
+// VariantCapacities (Cost, AcceleratorName, Role) that the optimizer requires.
 func (e *Engine) runAnalyzersAndScore(
 	ctx context.Context,
 	modelID, namespace string,
@@ -84,9 +200,9 @@ func (e *Engine) runAnalyzersAndScore(
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 ) (*interfaces.AnalyzerResult, error) {
-	// Resolve per-analyzer threshold overrides before running the analyzer.
-	// The saturation analyzer reads thresholds from the config, so we apply
-	// per-analyzer overrides to the config's top-level fields.
+	logger := ctrl.LoggerFrom(ctx)
+
+	// Apply per-analyzer saturation threshold overrides before running the analyzer.
 	for _, aw := range config.Analyzers {
 		if aw.Name == interfaces.SaturationAnalyzerName && (aw.Enabled == nil || *aw.Enabled) {
 			if aw.ScaleUpThreshold != nil {
@@ -99,28 +215,49 @@ func (e *Engine) runAnalyzersAndScore(
 		}
 	}
 
-	// Run saturation analyzer (always needed for PerReplicaCapacity)
-	baseResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
+	// Saturation always runs — its VariantCapacities carry Cost and AcceleratorName
+	// that the optimizer needs for variant selection and GPU accounting.
+	satResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings)
 	if err != nil {
 		return nil, err
 	}
 
-	// Compute weighted score from enabled analyzers
-	totalWeighted := 0.0
+	// Build AnalyzerInput once; shared by all non-saturation analyzers.
+	input := interfaces.AnalyzerInput{
+		ModelID:        modelID,
+		Namespace:      namespace,
+		ReplicaMetrics: replicaMetrics,
+		VariantStates:  variantStates,
+		Config:         &config,
+		// SchedulerQueue: nil — wired in a later PR
+	}
+
+	// Collect results from all enabled analyzers.
+	var results []enabledAnalyzerResult
 	for _, aw := range config.Analyzers {
 		if aw.Enabled != nil && !*aw.Enabled {
 			continue
 		}
-		if aw.Name == interfaces.SaturationAnalyzerName {
-			totalWeighted += baseResult.RequiredCapacity * aw.Score
-			// future: add "throughput", "slo" cases
+		a, ok := e.analyzers[aw.Name]
+		if !ok {
+			logger.V(logging.DEBUG).Info("unknown analyzer in config, skipping", "name", aw.Name)
+			continue
 		}
+		if aw.Name == interfaces.SaturationAnalyzerName {
+			// Saturation already ran above; reuse its result.
+			results = append(results, enabledAnalyzerResult{result: satResult, score: aw.Score})
+			continue
+		}
+		r, err := a.Analyze(ctx, input)
+		if err != nil {
+			logger.Error(err, "analyzer failed, skipping", "name", aw.Name, "modelID", modelID)
+			continue
+		}
+		results = append(results, enabledAnalyzerResult{result: r, score: aw.Score})
 	}
 
-	// Score = priority * weighted sum
-	baseResult.Score = config.Priority * totalWeighted
-	return baseResult, nil
+	return combineAnalyzerResults(satResult, results, config.Priority), nil
 }
 
 // computeCurrentGPUUsage iterates over model scaling requests to compute the
