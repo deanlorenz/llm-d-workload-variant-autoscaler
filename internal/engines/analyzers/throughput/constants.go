@@ -48,4 +48,21 @@ const (
 	// or AvgInputTokens. Values at or below this threshold indicate the metric
 	// is unavailable or zero-padded and are flagged as a sanity issue.
 	DefaultMinTokensPerRequest = 1.0
+
+	// DefaultKSat is the KV utilization fraction at which per-replica capacity is
+	// evaluated. Mirrors DefaultScaleUpThreshold in saturation config so that the
+	// throughput analyzer and saturation analyzer agree on the definition of "full".
+	// TODO: unify with the system-wide k_sat used by the EPP and saturation analyzer.
+	DefaultKSat = 0.85
+
+	// DefaultBaselineITLSec is the hardware baseline inter-token latency (seconds/token)
+	// used in tier-2 estimation when the OLS window is not yet ready.
+	// Derived from H100 SXM5 measurements at near-zero KV load; workload-independent.
+	DefaultBaselineITLSec = 0.006
+
+	// DefaultQueueDrainFactor controls how aggressively queued requests count as
+	// decode demand. The assumed drain time is QueueDrainFactor × ITL(k_sat) × avgOL;
+	// after avgOL cancels, queue demand = QueueSize / (QueueDrainFactor × ITL(k_sat)).
+	// A factor of 2.0 bounds per-request queueing time to ≤ 2 × ITL(k_sat) × avgOL.
+	DefaultQueueDrainFactor = 2.0
 )
