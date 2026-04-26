@@ -59,8 +59,8 @@ func checkReplicaMetrics(m interfaces.ReplicaMetrics) []SanityIssue {
 		issues = append(issues, SanityIssueMissingKV)
 	}
 
-	// KV utilization must be a valid fraction.
-	if m.KvCacheUsage < 0 || m.KvCacheUsage > 1 || math.IsNaN(m.KvCacheUsage) {
+	// KV utilization (k*) must be a valid fraction.
+	if m.KvUtilization < 0 || m.KvUtilization > 1 || math.IsNaN(m.KvUtilization) {
 		issues = append(issues, SanityIssueKVOutOfRange)
 	}
 
