@@ -201,7 +201,9 @@ func (a *ThroughputAnalyzer) Analyze(
 			continue
 		}
 
-		model, ok := a.resolveITLModel(state, variantMetrics)
+		// TODO: skip variant when state.lastSanityReport is not OK — stale/invalid
+		// metrics from Observe() do not currently block demand computation here.
+		model, ok := a.resolveITLModel(state, variantMetrics, input.Namespace, input.ModelID, variantName)
 		if !ok {
 			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
 				"namespace", input.Namespace,
@@ -365,13 +367,21 @@ func (a *ThroughputAnalyzer) getOrCreateVariantState(key string) *variantState {
 // is extended to iterate variants with state but no current replica metrics.
 //
 // Must be called with a.mu held.
-func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []interfaces.ReplicaMetrics) (ITLModel, bool) {
+func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []interfaces.ReplicaMetrics, namespace, modelID, variantName string) (ITLModel, bool) {
 	// Tier 1: OLS fit.
 	if state.observationWindow.Ready() {
 		obs := state.observationWindow.Observations()
 		if model, ok := FitITLModel(obs); ok {
+			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit",
+				"namespace", namespace, "modelID", modelID, "variant", variantName,
+				"A", model.A, "B", model.B, "samples", len(obs),
+			)
 			return model, true
 		}
+		ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit failed, trying tier-2",
+			"namespace", namespace, "modelID", modelID, "variant", variantName,
+			"samples", len(obs),
+		)
 	}
 
 	// Tier 2: constrained OLS with B = DefaultBaselineITLSec fixed.
@@ -391,6 +401,10 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 	if n > 0 && sumK2 > 0 {
 		A := numerator / sumK2
 		if A > 0 {
+			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-2 constrained OLS fit",
+				"namespace", namespace, "modelID", modelID, "variant", variantName,
+				"A", A, "B", DefaultBaselineITLSec, "replicas", int(n),
+			)
 			return ITLModel{A: A, B: DefaultBaselineITLSec}, true
 		}
 	}
@@ -517,7 +531,7 @@ func averageShapeMetrics(metrics []interfaces.ReplicaMetrics) (il, ol, hitRate f
 	var sumILu, sumOLu, sumHRu float64   // unweighted fallback
 	var totalWeight, count float64
 	for _, m := range metrics {
-		if m.AvgInputTokens <= 0 || m.AvgOutputTokens <= 0 {
+		if m.AvgInputTokens <= DefaultMinTokensPerRequest || m.AvgOutputTokens <= DefaultMinTokensPerRequest {
 			continue
 		}
 		count++
