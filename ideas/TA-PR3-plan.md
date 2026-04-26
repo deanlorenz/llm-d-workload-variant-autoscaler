@@ -1,324 +1,146 @@
 # PR-3: Throughput Analyzer State Management
 
-> **Status: COMPLETED** — Implemented in #1052. All components below were delivered as
-> planned. Everything listed under "Not in this PR" is deferred to PR-4.
-> This document serves as design rationale and reviewer context for #1052.
+> **Status: COMPLETED** — Implemented in #1052. All components below were delivered
+> as planned. Part of #1005; does not close it.
 
 ## Context
 
-The metrics collection layer (PR-1/PR-2, #1051) registered 9 Prometheus queries for
-the Throughput Analyzer. PR-3 creates the internal Go package that stores and manages
-the data those metrics produce — per-model workload shape tracking, ITL observation
-windows, and sanity diagnostics.
+The metrics collection layer (PR-1/PR-2, #1051) registered three Prometheus queries for
+the Throughput Analyzer and wired them into `ReplicaMetrics`. PR-3 creates the internal
+Go package that stores and manages the data those metrics produce — per-variant workload
+shape tracking, ITL observation windows, and sanity diagnostics.
 
 **Scope: μ_dec vs λ_dec only. No OLS fit. No scaling signal. No changes to existing code.**
 
-The OLS fit and μ_dec/λ_dec computation are PR-4. PR-3 builds the stateful substrate
-that PR-4 will extend.
+The OLS fit and scaling signal are PR-4. PR-3 builds the stateful substrate that PR-4
+will extend. `Analyze()` is stubbed to return zero RC/SC.
 
 ---
 
-## Key findings from codebase exploration
+## Key Design Decisions
 
-### `interfaces.ReplicaMetrics` already has everything PR-3 needs
+### State is tracked per variant, not per model
 
-| PR-3 need | Existing field |
-|-----------|---------------|
-| k* (KV utilization) | `KvCacheUsage float64` |
-| KV_max | `TotalKvCapacityTokens int64` |
-| OL | `AvgOutputTokens float64` |
-| IL | `AvgInputTokens float64` |
-| prefix hit rate | `PrefixCacheHitRate float64` |
-| ITL_obs | `AvgITL float64` (1m rate, already collected) |
+Different variants may run on different hardware with different ITL characteristics.
+All replicas of the same variant share IL/OL/KV_max (same hardware), while k naturally
+varies across replicas under uneven load — providing the k-spread needed for OLS.
+The variant key is `"namespace|modelID|variantName"`.
 
-**No changes needed to `interfaces/`, `collector/`, or any existing analyzer.**
+### Shape change tolerance triggers window reset
 
-### Pattern: follow `saturation_v2` two-store design
+When the fleet-average IL or OL shifts by more than 20%, the observation window is
+cleared. A fitted model calibrated at one workload shape (e.g., OL=200) is not valid
+at a different shape (e.g., OL=400) because `ITL(k)` depends on concurrency, which
+depends on KVreq, which depends on IL and OL.
 
-`saturation_v2` uses two distinct cross-call state stores:
+### Observation window filters k ∈ [0.15, 0.85]
 
-| saturation_v2 | role | throughput analogy |
-|---------------|------|--------------------|
-| `computeCapacityHistory map[string]*rollingAverage` | rolling observations per workload bucket (k2 history) | `ObservationWindow` per variant — rolling (k, ITL) pairs (PR-3) |
-| `CapacityKnowledgeStore` (injected) | persists learned capacity beyond individual cycles; survives zero-replica periods; supports cross-variant matching | `ITLKnowledgeStore` — persists fitted (A, B) per variant; fallback for zero-replica / uncalibrated variants (PR-4) |
+Below 0.15: KV utilization is too low for reliable ITL slope estimation (ITL barely
+changes, noise dominates). Above 0.85: the system is near saturation where ITL is
+non-linear. The fit needs samples in the linear operating range.
 
-PR-3 implements only the **observation history** layer (`ObservationWindow` per variant).  
-PR-4 adds the **knowledge store** layer (`ITLKnowledgeStore` with fitted A, B) following the same injection pattern as `CapacityKnowledgeStore`.
+### ILeff used for KVreq (cache-aware)
 
----
+`KVreq = ILeff + OL/2` where `ILeff = IL × (1 − PrefixHitRate)`. With EPP prefix
+routing, a new replica warms its cache quickly and operates near fleet-average ILeff.
+Using cold-cache IL would over-estimate KV demand per request and lead to over-scaling.
+When prefix caching is disabled, `PrefixHitRate = 0` and `ILeff = IL` automatically.
 
-## New package: `internal/engines/analyzers/throughput/`
+### Pattern mirrors saturation_v2's two-store design
 
-### File layout
-
-```
-internal/engines/analyzers/throughput/
-├── constants.go               thresholds, window parameters, analyzer name
-├── types.go                   WorkloadShape, ITLObservation, SanityIssue, SanityReport
-├── shape_tracker.go           ShapeTracker: current (IL,OL) bucket + change detection
-├── observation_window.go      ObservationWindow: rolling (k, ITL) pairs, ready flag
-├── sanity.go                  CheckModelMetrics: missing/stale/out-of-range detection
-├── analyzer.go                ThroughputAnalyzer struct + Observe() + Analyze() stub
-├── suite_test.go              Ginkgo suite registration
-├── shape_tracker_test.go      unit tests
-├── observation_window_test.go unit tests
-├── sanity_test.go             unit tests
-└── analyzer_test.go           integration tests (multi-call state accumulation)
-```
+`saturation_v2` uses a rolling observation history per workload bucket and a persistent
+knowledge store. PR-3 implements the observation history layer (`ObservationWindow`).
+PR-4 adds the knowledge store (`itlKnowledgeStore`) using the same injection pattern.
 
 ---
 
-## constants.go
+## Components
 
-```go
-const (
-    AnalyzerName = "throughput"
+### Package `internal/engines/analyzers/throughput/`
 
-    // Shape change tolerance: retriggers ITL window clear + refit
-    DefaultShapeChangeTolerance = 0.20  // 20% change in IL or OL
+**`constants.go`** — All tunable thresholds in one place: `AnalyzerName`, shape
+tolerance (20%), window size (20 samples), max observation age (30 min), readiness
+criteria (10 samples, 30% k-spread), k bounds (0.15–0.85), and minimum token counts
+for sanity checks.
 
-    // Observation window
-    DefaultWindowMaxSize      = 20
-    DefaultObservationMaxAge  = 30 * time.Minute
-    DefaultMinSamples         = 10
-    DefaultMinKSpread         = 0.30
-    DefaultMinObservableK     = 0.15   // below this, KV% unreliable for ITL fit
-    DefaultMaxObservableK     = 0.85   // above this, near saturation — non-linear
+**`types.go`** — Core data types:
+- `WorkloadShape` — fleet-average (IL, OL, PrefixHitRate) plus derived `ILeff` and
+  `KVreq`. `Within()` checks whether two shapes are within tolerance; `IsZero()` tests
+  for uninitialized state.
+- `ITLObservation` — a single `(k, ITL_obs, timestamp)` data point for the window.
+- `SanityIssue` / `SanityReport` — six diagnostic tags (`no_replicas`,
+  `missing_kv_capacity`, `kv_utilization_out_of_range`, `itl_non_positive`,
+  `missing_shape_metrics`, `stale_metrics`). `SanityReport.OK()` returns true when
+  no issues were found.
 
-    // Sanity thresholds
-    DefaultMinTokensPerRequest = 1.0   // OL or IL below this is suspect
-)
-```
+**`shape_tracker.go`** — `ShapeTracker` holds the current `WorkloadShape` and a
+tolerance parameter. `Observe(il, ol, hitRate)` returns `(currentShape, shapeChanged)`.
+The first call always sets the shape without triggering a change (nothing to compare).
+Subsequent calls compare with `Within()` and return `shapeChanged=true` when the shift
+exceeds tolerance. Callers use `shapeChanged` to decide whether to call `window.Clear()`.
 
----
+**`observation_window.go`** — `ObservationWindow` holds a bounded, time-limited slice
+of `ITLObservation`. `Add(k, itl, ts)` appends if `k ∈ [minK, maxK]`; at capacity,
+the oldest observation is evicted. `Prune(now)` removes observations older than
+`maxAge`. `Ready()` returns true when `len >= minSamples` AND
+`KSpread() >= minKSpread`. `Observations()` returns a copy for use by the OLS fitter.
+`Clear()` resets the window on shape change.
 
-## types.go
+**`sanity.go`** — `CheckModelMetrics([]ReplicaMetrics)` validates all replica metrics
+for one reconcile cycle. Each of the six issue types is checked per pod; the report
+aggregates issue types and affected pod names. Callers should skip `Observe` for
+variants with `!report.OK()`.
 
-```go
-// WorkloadShape captures the stable (IL, OL) characterization for a calibration period.
-//
-// KVreq = ILeff + OL/2 is the time-averaged per-in-flight-request KV footprint.
-// ILeff is used for both N(k*) (current fleet) and N(k_sat) (new replica capacity).
-//
-// Rationale for using ILeff for new replicas: with cache-aware scheduling (EPP
-// prefix routing), a new replica warms up quickly and operates at approximately
-// fleet-average ILeff in steady state. Using IL (cold-cache pessimism) would
-// chronically over-estimate KV demand per request and lead to over-scaling.
-// When prefix caching is disabled, PrefixHitRate=0 and ILeff=IL automatically,
-// so the formula is correct in that case without special handling.
-type WorkloadShape struct {
-    AvgInputTokens  float64  // IL (tok/req)
-    AvgOutputTokens float64  // OL (tok/req)
-    PrefixHitRate   float64  // 0.0 when NaN (caching disabled)
-    ILeff           float64  // IL × (1 − PrefixHitRate)
-    KVreq           float64  // ILeff + OL/2
-}
-
-func newWorkloadShape(il, ol, hitRate float64) WorkloadShape
-func (s WorkloadShape) IsZero() bool
-// Within returns true if both IL and OL are within ±tolerance of other.
-func (s WorkloadShape) Within(other WorkloadShape, tolerance float64) bool
-
-// ITLObservation is a single (k, ITL_obs) data point.
-type ITLObservation struct {
-    K         float64
-    ITLSec    float64
-    Timestamp time.Time
-}
-
-// SanityIssue is a diagnostic tag for a metric quality problem.
-type SanityIssue string
-const (
-    SanityIssueNoReplicas       SanityIssue = "no_replicas"
-    SanityIssueMissingKV        SanityIssue = "missing_kv_capacity"
-    SanityIssueKVOutOfRange     SanityIssue = "kv_utilization_out_of_range"
-    SanityIssueITLNonPositive   SanityIssue = "itl_non_positive"
-    SanityIssueMissingShape     SanityIssue = "missing_shape_metrics"
-    SanityIssueStaleMetrics     SanityIssue = "stale_metrics"
-)
-
-// SanityReport summarises metric quality for one reconcile cycle.
-type SanityReport struct {
-    Issues      []SanityIssue
-    AffectedPods []string  // pods with at least one issue
-}
-func (r SanityReport) OK() bool   // len(Issues) == 0
-func (r SanityReport) Has(issue SanityIssue) bool
-```
+**`analyzer.go`** — `ThroughputAnalyzer` holds a mutex-protected map of per-variant
+state (`ShapeTracker` + `ObservationWindow` + last `SanityReport`). `Observe()` groups
+replicas by variant, runs sanity checks, feeds shape and (k, ITL) observations, and
+prunes stale window entries. `Analyze()` calls `Observe()` then returns zero RC/SC
+(stub for PR-4). `VariantState()` returns a read-only snapshot used in tests.
 
 ---
 
-## shape_tracker.go
-
-```go
-type ShapeTracker struct {
-    current   WorkloadShape
-    hasShape  bool
-    tolerance float64
-}
-
-func newShapeTracker(tolerance float64) *ShapeTracker
-
-// Observe updates the tracker with the fleet-averaged (IL, OL, hitRate) for this cycle.
-// Returns (currentShape, shapeChanged). shapeChanged=true means the window must be cleared.
-// First call always sets the shape (shapeChanged=false — no prior shape to compare to).
-func (t *ShapeTracker) Observe(il, ol, hitRate float64) (WorkloadShape, bool)
-
-func (t *ShapeTracker) Current() (WorkloadShape, bool)
-func (t *ShapeTracker) Reset()
-```
-
-**Shape change logic:** shapeChanged = hasShape && !new.Within(current, tolerance).
-On first call (hasShape=false): sets shape, returns changed=false (nothing to refit yet).
-
----
-
-## observation_window.go
-
-```go
-type ObservationWindow struct {
-    observations []ITLObservation
-    maxSize      int
-    maxAge       time.Duration
-    minSamples   int
-    minKSpread   float64
-    minK, maxK   float64
-}
-
-func newObservationWindow(maxSize int, maxAge time.Duration,
-    minSamples int, minKSpread, minK, maxK float64) *ObservationWindow
-
-// Add appends a (k, itl) pair if k ∈ [minK, maxK].
-// When at capacity, the oldest observation is evicted first.
-func (w *ObservationWindow) Add(k, itl float64, ts time.Time)
-
-// Prune removes observations older than maxAge.
-func (w *ObservationWindow) Prune(now time.Time)
-
-// KSpread returns max_k - min_k over current observations (0 if empty).
-func (w *ObservationWindow) KSpread() float64
-
-// Ready returns true when len >= minSamples AND KSpread >= minKSpread.
-func (w *ObservationWindow) Ready() bool
-
-// Observations returns a copy of the current window contents (for OLS in PR-4).
-func (w *ObservationWindow) Observations() []ITLObservation
-
-// Clear discards all observations (called on shape change).
-func (w *ObservationWindow) Clear()
-```
-
----
-
-## sanity.go
-
-```go
-// CheckModelMetrics validates replica metrics for one reconcile cycle.
-// Returns a SanityReport; callers should log and skip Observe when !report.OK().
-func CheckModelMetrics(metrics []interfaces.ReplicaMetrics) SanityReport
-```
-
-Checks (per pod, aggregated into report):
-- No replicas → SanityIssueNoReplicas (model-level)
-- `TotalKvCapacityTokens <= 0` → SanityIssueMissingKV
-- `KvCacheUsage < 0 || KvCacheUsage > 1` → SanityIssueKVOutOfRange
-- `AvgITL <= 0` → SanityIssueITLNonPositive (not NaN-safe; treat NaN as 0)
-- `AvgOutputTokens <= DefaultMinTokensPerRequest || AvgInputTokens <= DefaultMinTokensPerRequest` → SanityIssueMissingShape
-- `Metadata != nil && Metadata.FreshnessStatus == "stale"` → SanityIssueStaleMetrics
-
----
-
-## analyzer.go
-
-State is tracked **per variant** because:
-- Different variants may run on different hardware → different ITL model A/B coefficients
-- All replicas of the same variant share OL, IL, KV_max — so per-variant averaging is correct
-- k naturally varies across replicas of the same variant under uneven load → provides k-spread
-
-```go
-type ThroughputAnalyzer struct {
-    mu            sync.Mutex
-    variantStates map[string]*variantState  // key: "namespace|modelID|variantName"
-}
-
-type variantState struct {
-    shapeTracker      *ShapeTracker
-    observationWindow *ObservationWindow
-    lastSanityReport  SanityReport
-    lastObservedAt    time.Time
-}
-
-func NewThroughputAnalyzer() *ThroughputAnalyzer
-func (a *ThroughputAnalyzer) Name() string  // AnalyzerName
-
-// Observe processes one reconcile cycle. Groups replicas by VariantName, then for each variant:
-//   1. CheckModelMetrics(variantReplicas) → sanityReport; skip variant if !OK
-//   2. Compute variant-average IL, OL, hitRate (expected uniform across replicas)
-//   3. shapeTracker.Observe(il, ol, hitRate) → if changed, window.Clear()
-//   4. For each replica in variant: window.Add(KvCacheUsage, AvgITL, now)
-//   5. window.Prune(now)
-// Returns a map of variant → SanityReport for logging.
-func (a *ThroughputAnalyzer) Observe(
-    ctx context.Context,
-    modelID, namespace string,
-    metrics []interfaces.ReplicaMetrics,
-) map[string]SanityReport
-
-// Analyze implements interfaces.Analyzer. In PR-3, calls Observe then returns
-// RequiredCapacity=0 / SpareCapacity=0 (no scaling signal until PR-4).
-func (a *ThroughputAnalyzer) Analyze(
-    ctx context.Context,
-    input interfaces.AnalyzerInput,
-) (*interfaces.AnalyzerResult, error)
-
-// VariantState returns a read-only snapshot for a specific variant. Used in tests and logging.
-func (a *ThroughputAnalyzer) VariantState(modelID, namespace, variantName string) (ThroughputVariantState, bool)
-
-// ThroughputVariantState is a read-only snapshot for tests and logging.
-type ThroughputVariantState struct {
-    Shape            WorkloadShape
-    ObservationReady bool
-    KSpread          float64
-    SampleCount      int
-    LastSanityReport SanityReport
-}
-```
-
----
-
-## Data flow within Observe()
+## Data Flow (Observe)
 
 ```
 metrics []ReplicaMetrics
     │
-    ├── group by VariantName → map[variantName][]ReplicaMetrics
-    │
+    ├── group by VariantName
     └── for each variant:
-            CheckModelMetrics(variantReplicas) → SanityReport
-            if !OK: record, skip this variant
+            CheckModelMetrics → SanityReport
+            if !OK: skip
             │
-            variant-average IL, OL, hitRate (expected uniform; mean handles noise)
+            fleet-average IL, OL, hitRate
             │
-            shapeTracker.Observe(il, ol, hitRate)
-            → (currentShape, changed)
-            if changed: window.Clear()
+            ShapeTracker.Observe → (shape, changed)
+            if changed: ObservationWindow.Clear()
             │
-            for each replica in variant:
-                window.Add(KvCacheUsage, AvgITL, now)
-            window.Prune(now)
+            for each replica:
+                ObservationWindow.Add(KvUtilization, AvgITL, now)
+            ObservationWindow.Prune(now)
 ```
 
 ---
 
-## Testing approach
+## Tests
 
-Follow `internal/engines/analyzers/saturation_v2/` pattern: Ginkgo/Gomega, `BeforeEach`
-constructs a fresh instance per test. Key test cases:
+78 Ginkgo specs across `shape_tracker_test.go`, `observation_window_test.go`,
+`sanity_test.go`, and `analyzer_test.go`. Key scenarios:
 
-- **shape_tracker_test**: first call sets shape (no change); second call same values → no change; 25% change → changed; 15% change → no change (within tolerance)
-- **observation_window_test**: Add respects k bounds; Prune evicts old entries; Ready() = false below minSamples, false below minKSpread, true when both met; Clear() resets all; Add at capacity evicts oldest
-- **sanity_test**: each SanityIssue triggered by the right bad-value combination; clean metrics → OK()
-- **analyzer_test**: shape change clears window; multi-cycle accumulation → Ready() becomes true; bad metrics → sanity short-circuit; State() reflects accumulated data
+- **shape_tracker**: first call sets shape (no change); same values → no change; 25% shift → changed; 15% shift → no change (within tolerance)
+- **observation_window**: k-bound filtering; eviction at capacity (oldest first); `Prune` removes by age; `Ready()` false below minSamples, false below minKSpread, true when both met; `Clear()` resets all
+- **sanity**: each of the six issue types triggered by the correct bad-value; clean metrics → `OK()`
+- **analyzer**: shape change clears window; multi-cycle accumulation makes `Ready()` true; bad metrics trigger sanity short-circuit; `VariantState()` reflects accumulated data
+
+---
+
+## Bug Fix Applied in TA3 (not TA2)
+
+`sanity.go` originally checked `KvCacheUsage` (the saturation peak field) for the
+`kv_utilization_out_of_range` issue. PR-4 uses `KvUtilization` (the instantaneous
+field registered in PR-1) as k* for the ITL model, so the sanity check should guard
+that field. The fix — changing `KvCacheUsage` to `KvUtilization` in `CheckModelMetrics`
+— was discovered when writing PR-4 and applied on the TA3 branch (not backported to
+TA2, which was already submitted).
 
 ---
 
@@ -327,14 +149,4 @@ constructs a fresh instance per test. Key test cases:
 - OLS regression (ITL model A, B fit) — PR-4
 - μ_dec / λ_dec computation — PR-4
 - Scaling signal (RequiredCapacity / SpareCapacity) — PR-4
-- New fields on `interfaces.ReplicaMetrics` (`GenerationTokenRate`, `DecodeTokenDemand`) — PR-4
-- Wiring into the engine's analyzer pipeline — PR-4
-
----
-
-## Verification
-
-```
-make test   # all tests pass including new package
-go build ./...  # no compile errors
-```
+- Wiring into the engine's analyzer pipeline — PR-5

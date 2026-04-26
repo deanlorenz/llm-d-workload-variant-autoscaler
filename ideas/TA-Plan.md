@@ -229,6 +229,63 @@ spareCapacity    = max(0, totalSupply − totalDemand)  if anyEPP else 0
 
 ---
 
+## Design Alternatives Considered
+
+Key decisions where we explicitly chose one approach over another.
+
+### PR-1: KV capacity query
+
+**Chosen:** Read `TotalKvCapacityTokens` (already collected by `RegisterSaturationQueries` via `QueryCacheConfigInfo` labels).  
+**Alternative:** Register a new `QueryKvTokensTotal` (`num_gpu_blocks × block_size`).  
+**Why not:** Duplicate registration of the same underlying data; adds query overhead without new information.
+
+### PR-1: KV utilization for ITL model input
+
+**Chosen:** `QueryKvTokensUsed` — instantaneous `max by (pod)` stored in `KvUtilization`.  
+**Alternative:** Reuse `QueryKvCacheUsage` — `max_over_time[1m]` (saturation analyzer's `KvCacheUsage`).  
+**Why not:** The saturation analyzer needs the worst-case peak for conservative guardrails. The ITL model needs the **current operating point** k*. Using the peak systematically overestimates load and produces premature scale-up.
+
+### PR-2: λ_dec primary source
+
+**Chosen:** Existing `ArrivalRate` from `QuerySchedulerDispatchRate` (already registered). Compute `λ_dec = ArrivalRate × AvgOutputTokens`.  
+**Alternatives considered:**
+- Option A/B: New scheduler PromQL `rate(scheduler_attempts[1m])` — not needed, `ArrivalRate` already provides this.
+- Option D (vLLM-only): Use `VLLMRequestRate` as primary — measures served demand, undercounts under queuing.
+
+`VLLMRequestRate` is registered as a **fallback** for when EPP/scheduler is absent.
+
+### PR-3: State granularity
+
+**Chosen:** Per-variant (`namespace|modelID|variantName`) state.  
+**Alternative:** Per-model state.  
+**Why not:** Different variants may run on different hardware → different ITL coefficients A/B. Per-model averaging loses this distinction and produces wrong supply estimates for mixed hardware deployments.
+
+### PR-4: RC/SC aggregation
+
+**Chosen:** Model-level totals — `RC = max(0, totalDemand − totalAnticipated)`.  
+**Alternative:** Per-variant accumulation — `RC += max(0, demand_v − supply_v)`.  
+**Why not:** With per-variant accumulation, when variant A is overloaded and variant B has spare, the result is simultaneous RC and SC (conflicting signals). Model-level aggregation gives one coherent signal.
+
+### PR-4: Shape averaging method
+
+**Chosen:** `averageShapeMetrics` — VLLMRequestRate-weighted mean for IL, OL, PrefixHitRate.  
+**Alternative:** Unweighted mean.  
+**Why not:** Cold replicas (rate ≈ 0) don't represent the actual served workload. Rate-weighting gives the mean shape that actual traffic sees; unweighted mean dilutes it toward cold-start conditions.
+
+### PR-4: Demand formula (EPP and vLLM paths)
+
+**Chosen:** Per-replica products: `Σ ArrivalRate_r × AvgOutputTokens_r`.  
+**Alternative:** `sum(ArrivalRate) × avg(AvgOutputTokens)`.  
+**Why not:** When replicas serve different OL distributions, `sumRate × avgOL` over- or under-estimates demand. Per-replica products correctly account for the correlation between request mix and throughput.
+
+### PR-4: Tier-3 knowledge store wiring
+
+**Chosen:** `itlKnowledgeStore` present in package but not wired.  
+**Alternative:** Wire tier-3 immediately for zero-replica fallback.  
+**Why not:** The current `Analyze()` loop only iterates variants with active replica metrics. Zero-replica variants are invisible. Wiring tier-3 requires a step-2 loop restructure — deferred to avoid scope expansion.
+
+---
+
 ## Phase 3: Future Extensions (Post-PR-4)
 
 ### PR-5: Mixed Workload Support
