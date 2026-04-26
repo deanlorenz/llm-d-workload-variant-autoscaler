@@ -172,7 +172,7 @@ internal/engines/analyzers/throughput/
 
 ---
 
-### PR-4: ITL Model Fit + μ_dec vs λ_dec Scaling Signal
+### PR-4: ITL Model Fit + μ_dec vs λ_dec Scaling Signal — ✅ COMPLETED (branch TA3)
 
 **What**: Add OLS regression to fit A, B per variant from the observation window, compute
 μ_dec supply and λ_dec demand, and produce the RequiredCapacity / SpareCapacity scaling signal.
@@ -181,63 +181,51 @@ internal/engines/analyzers/throughput/
 > by PR-3. Since the fit was deferred, PR-4 now covers both the OLS calibration and the
 > supply/demand signal.
 
-**Files to add/modify**:
-- `internal/engines/analyzers/throughput/itl_model.go` — OLS fit: `A, B = fit(observations)`
-- `internal/engines/analyzers/throughput/itl_knowledge_store.go` — persist fitted (A, B) across
-  zero-replica periods (mirrors `CapacityKnowledgeStore` in saturation_v2)
-- `internal/engines/analyzers/throughput/analyzer.go` — wire fit and signal into `Analyze()`
+**Files added/modified**:
+| File | Change |
+|---|---|
+| `itl_model.go` | New — `ITLModel{A,B}`, `FitITLModel(obs)`, `ITLAt(k)`, `IsZero()` |
+| `itl_knowledge_store.go` | New — `itlKnowledgeStore` skeleton for tier-3 (not yet wired) |
+| `constants.go` | Added `DefaultKSat=0.85`, `DefaultBaselineITLSec=0.006`, `DefaultQueueDrainFactor=2.0` |
+| `types.go` | `ThroughputVariantState` extended with `ITLModel`, `PerReplicaSupply`, `TotalSupply`, `Demand`, `Role` |
+| `analyzer.go` | Full `Analyze()`: two-tier ITL, supply/demand, roles, model-level RC/SC, queue demand, k*-based demand fallback, VLLMRequestRate-weighted shape averaging |
 
-**OLS fit** (moved from original PR-3 plan):
+**Two-tier ITL model**:
 ```
-Fit ITL(k) = A·k + B using window observations where Ready() == true
-OLS: minimize Σ(ITL_i - (A·k_i + B))²
-```
-
-**Supply calculation (μ_dec)**:
-```
-Inputs: k*, IL_eff, OL, KV_max, A, B
-KV_req    = IL_eff + OL/2
-N_dec(k*) = k* × KV_max / KV_req
-ITL(k*)   = A × k* + B
-μ_dec     = N_dec(k*) / ITL(k*)    # tok/s
+Tier 1 (OLS, window Ready):   minimize Σ(ITL_i − A·k_i − B)²
+Tier 2 (constrained OLS):     A = Σ((ITL_i − B)·k_i) / Σ(k_i²),  B = DefaultBaselineITLSec
+Tier 3 (knowledge store):     present in package, not yet wired (needs step-2 loop restructure)
 ```
 
-**Demand calculation (λ_dec)**:
+**Supply calculation (μ_dec_sat)**:
 ```
-Inputs: λ (from QuerySchedulerDispatchRate or fallback), OL
-λ_dec = λ × OL    # tok/s
-```
-
-**Scale signal**:
-```
-if λ_dec > μ_dec × safety_factor:
-    RequiredCapacity > 0  (scale up)
-else if λ_dec < μ_dec × down_threshold:
-    SpareCapacity > 0     (scale down safe)
-else:
-    both = 0              (hold)
+KVreq     = IL_eff + OL/2                    # time-averaged KV footprint per request
+N_dec_sat = DefaultKSat × KV_max / KVreq     # in-flight requests at saturation point
+μ_dec_sat = N_dec_sat / ITL(DefaultKSat)     # tokens/sec per replica
 ```
 
-**Output metrics** (exported via `ThroughputMetrics`):
-| Metric | Description |
-|--------|-------------|
-| `μ_dec_current` | Current decode supply (tok/s) |
-| `μ_dec_sat` | Target decode supply at k_sat (tok/s) |
-| `λ_dec` | Current decode demand (tok/s) |
-| `saturation_ratio` | λ_dec / μ_dec |
+**Demand calculation (λ_dec), priority order**:
+```
+1. EPP primary:      Σ ArrivalRate_r × AvgOutputTokens_r        (isEPP = true)
+2. vLLM fallback:    Σ VLLMRequestRate_r × AvgOutputTokens_r    (isEPP = false)
+3. k*-based local:   Σ k_r* × KV_max_r / KVreq / ITL(k_r*)     (scale-up only)
+```
+
+**Queue demand** (added to model-level totalDemand after per-variant loop):
+```
+queueDemand = QueueSize / (DefaultQueueDrainFactor × avgDecodeITLSat)   (OL cancels)
+```
+
+**Scale signal** (model-level totals, not per-variant):
+```
+totalAnticipated = Σ_v (current_v + pending_v) × perReplicaSupply_v
+requiredCapacity = max(0, totalDemand − totalAnticipated)
+spareCapacity    = max(0, totalSupply − totalDemand)  if anyEPP else 0
+```
+
+**Tests**: 119 Ginkgo specs across all files, all passing.
 
 **Dependencies**: PR-3 (#1052)
-
-**Test Plan**:
-1. Run at k* = 0.75 with known A=0.073, B=0.006, IL=5000, OL=200
-   - KV_max = 1024000 (1024 blocks × 16 × 16)
-   - KV_req = 5000 × (1-0.1) + 100 = 4600
-   - N_dec = 0.75 × 1024000 / 4600 ≈ 167
-   - ITL = 0.073 × 0.75 + 0.006 = 0.061
-   - μ_dec = 167 / 0.061 ≈ 2738 tok/s
-2. Set λ = 10 req/s, OL = 200 → λ_dec = 2000 tok/s
-3. Verify saturation_ratio = 2000/2738 ≈ 0.73 → hold
-4. Set λ = 15 req/s → λ_dec = 3000 tok/s → scale up
 
 ---
 
@@ -286,7 +274,8 @@ else:
 ```
 PR-1/PR-2 (#1051 ✅)  Register all 9 Prometheus queries
     └── PR-3 (#1052 ✅)  State management: ShapeTracker, ObservationWindow, sanity, analyzer skeleton
-            └── PR-4 (planned)  OLS fit (A, B) + μ_dec supply + λ_dec demand + scaling signal
+            └── PR-4 (TA3 ✅)  Two-tier ITL model + μ_dec supply + λ_dec demand + model-level RC/SC
+                    └── PR-5 (pending)  Wire analyzer into engine pipeline
 ```
 
 **Phase 1 scope**: PR-1 through PR-4 only — μ_dec supply vs λ_dec demand

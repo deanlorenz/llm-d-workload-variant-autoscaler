@@ -80,7 +80,7 @@ $\pi_w$ and are a high-priority metric addition per
 ## 3. Demand Rate Signals
 
 All signals are **per-replica** (per vLLM instance of variant $v$) unless noted.
-The prefix-cache hit rate $H\text{\\\%}_v$ and the workload averages
+The prefix-cache hit rate $H％_v$ and the workload averages
 $\overline{IL}_v$, $\overline{OL}_v$ are variant-specific (each replica of
 variant $v$ reports its own values; these are then aggregated at the variant
 level as described in §4).
@@ -95,16 +95,16 @@ scheduler. This is the root signal from which all other demand rates derive.
 ### 3.2 Prefill demand $\lambda_{pre,v}$
 
 $$\lambda_{pre,v} = \lambda_v \cdot \mathbb{E}_\pi\!\left[IL_{eff}\right]
-= \lambda_v \cdot \sum_{w \in \mathcal{W}} \pi_w \cdot IL(w) \cdot (1 - H\text{\\\%}_v)
+= \lambda_v \cdot \sum_{w \in \mathcal{W}} \pi_w \cdot IL(w) \cdot (1 - H％_v)
 \quad [\text{tokens/s}]$$
 
 This is the rate of input tokens that require actual GPU prefill computation.
-Prefix-cache hits ($H\text{\\\%}_v$ fraction of input tokens) reuse existing KV
+Prefix-cache hits ($H％_v$ fraction of input tokens) reuse existing KV
 entries and do not consume prefill cycles; they are excluded.
 
 **Single-bin simplification:**
 
-$$\lambda_{pre,v} = \lambda_v \cdot \overline{IL}_v \cdot (1 - H\text{\\\%}_v)$$
+$$\lambda_{pre,v} = \lambda_v \cdot \overline{IL}_v \cdot (1 - H％_v)$$
 
 ### 3.3 Decode demand $\lambda_{dec,v}$
 
@@ -125,7 +125,7 @@ $$\lambda_{dec,v} = \lambda_v \cdot \overline{OL}_v$$
 ### 3.4 KV cache demand $\lambda_{tok,v}$
 
 $$\lambda_{tok,v} = \lambda_v \cdot \mathbb{E}_\pi\!\left[IL_{eff} + OL\right]
-= \lambda_v \cdot \sum_{w \in \mathcal{W}} \pi_w \cdot \bigl(IL(w) \cdot (1 - H\text{\\\%}_v) + OL(w)\bigr)
+= \lambda_v \cdot \sum_{w \in \mathcal{W}} \pi_w \cdot \bigl(IL(w) \cdot (1 - H％_v) + OL(w)\bigr)
 \quad [\text{tokens/s}]$$
 
 This is the rate at which incoming requests commit new KV cache memory. When a
@@ -140,7 +140,7 @@ $$\lambda_{tok,v} = \lambda_{pre,v} + \lambda_{dec,v}$$
 
 **Single-bin simplification:**
 
-$$\lambda_{tok,v} = \lambda_v \cdot \bigl(\overline{IL}_v \cdot (1 - H\text{\\\%}_v) + \overline{OL}_v\bigr)$$
+$$\lambda_{tok,v} = \lambda_v \cdot \bigl(\overline{IL}_v \cdot (1 - H％_v) + \overline{OL}_v\bigr)$$
 
 ---
 
@@ -168,18 +168,27 @@ $$\lambda_{req,v}^{\text{avg}} = \frac{\Lambda_{req,v}}{I_v}, \qquad
 
 Requests queued in the EPP flow control layer are not yet dispatched to any
 replica and therefore not reflected in any replica's $\lambda_{v,r}$. A queue
-of $Q$ requests represents additional latent demand. At the model level:
+of $Q$ requests represents additional latent demand that must be drained within
+a bounded time to avoid compounding SLO violations.
 
-$$\Delta\lambda_{req} = \frac{Q}{\overline{T}_{e2e}} \quad [\text{req/s}]$$
+**Drain time bound.** For the decode channel, the target queue drain time is:
 
-$$\Delta\lambda_{pre} = \Delta\lambda_{req} \cdot \overline{IL}_{eff} \quad [\text{tokens/s}]$$
+$$W_{max} = \text{QueueDrainFactor} \times \text{ITL}(k_{sat}) \times \overline{OL}$$
 
-$$\Delta\lambda_{dec} = \Delta\lambda_{req} \cdot \overline{OL} \quad [\text{tokens/s}]$$
+This bounds per-request queueing time to $\leq \text{QueueDrainFactor}$ saturated
+decode periods. $\text{ITL}(k_{sat})$ is used rather than the current average ITL
+for stability: at high load $\text{ITL}(k^*)$ is noisy, while $\text{ITL}(k_{sat})$
+is computed from the calibrated model. Default $\text{QueueDrainFactor} = 2.0$.
 
-where $\overline{T}_{e2e}$ is the model-level average end-to-end latency and
-$\overline{IL}_{eff}$, $\overline{OL}$ are model-level workload averages. These
-queue corrections are added to the variant-level aggregates before supply
-comparison.
+The queue decode demand rate is:
+
+$$\Delta\lambda_{dec} = \frac{Q \cdot \overline{OL}}{W_{max}}
+= \frac{Q}{\text{QueueDrainFactor} \times \text{ITL}(k_{sat})} \quad [\text{tokens/s}]$$
+
+$\overline{OL}$ **cancels** — the result is independent of output length given the
+drain-time framing. This is added to model-level decode demand only (prefill
+demand contribution from the queue is deferred to a later PR when prefill-rate
+supply/demand is added).
 
 ---
 
@@ -192,7 +201,7 @@ All inputs required for demand computation are already collected:
 | $\lambda_v$ | `ArrivalRate` | `rate(inference_extension_scheduler_attempts_total{status="success"}[5m])` per pod | **Yes** |
 | $\overline{IL}_v$ | `AvgInputTokens` | `rate(vllm:request_prompt_tokens_sum[5m]) / rate(..._count[5m])` per pod | **Yes** |
 | $\overline{OL}_v$ | `AvgOutputTokens` | `rate(vllm:request_generation_tokens_sum[5m]) / rate(..._count[5m])` per pod | **Yes** |
-| $H\text{\\\%}_v$ | `PrefixCacheHitRate` | `rate(vllm:prefix_cache_hits[5m]) / rate(vllm:prefix_cache_queries[5m])` per pod | **Yes** |
+| $H％_v$ | `PrefixCacheHitRate` | `rate(vllm:prefix_cache_hits[5m]) / rate(vllm:prefix_cache_queries[5m])` per pod | **Yes** |
 | $Q$ | `SchedulerQueue.QueueSize` | `inference_extension_flow_control_queue_size` | **Yes** |
 
 **All required inputs are already collected.** No new Prometheus scraping is
@@ -203,7 +212,7 @@ needed for the single-bin (Level 2) demand estimation.
 The prefill and decode token rates can also be read directly from Prometheus as
 raw counter rates, without requiring $\lambda_v$ and the workload averages:
 
-$$\lambda_{pre,v}^{\text{direct}} = \text{rate}(\texttt{vllm:request\_prompt\_tokens\_sum}[\Delta t]) \cdot (1 - H\text{\\\%}_v)$$
+$$\lambda_{pre,v}^{\text{direct}} = \text{rate}(\texttt{vllm:request\_prompt\_tokens\_sum}[\Delta t]) \cdot (1 - H％_v)$$
 
 $$\lambda_{dec,v}^{\text{direct}} = \text{rate}(\texttt{vllm:request\_generation\_tokens\_sum}[\Delta t])$$
 
@@ -263,10 +272,10 @@ When `PrefixCacheHitRate == 0` (prefix caching disabled or metric unavailable),
    causes $\lambda_{dec,v}$ and $\lambda_{tok,v}$ to be temporarily understated
    during such shifts.
 
-3. **$H\text{\\\%}_v$ is applied uniformly across workload types.** In reality,
+3. **$H％_v$ is applied uniformly across workload types.** In reality,
    prefix-cache hit rate can differ between short and long prompts. With per-bin
    hit rates the formula becomes $\lambda_{pre,v}(w) = \lambda_v \cdot \pi_w
-   \cdot IL(w) \cdot (1 - H\text{\\\%}_v(w))$. Without per-bin data, the uniform
+   \cdot IL(w) \cdot (1 - H％_v(w))$. Without per-bin data, the uniform
    approximation is the best available.
 
 4. **Steady-distribution assumption breaks during rapid workload shifts.**
