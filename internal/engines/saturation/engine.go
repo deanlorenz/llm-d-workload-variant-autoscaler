@@ -183,6 +183,12 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	return &engine
 }
 
+// RegisterAnalyzer adds an external analyzer implementation to the engine's
+// analyzer registry. Must be called before StartOptimizeLoop.
+func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) {
+	e.analyzers[name] = a
+}
+
 // StartOptimizeLoop starts the optimization loop for the saturation engine.
 // It runs until the context is cancelled.
 func (e *Engine) StartOptimizeLoop(ctx context.Context) {
