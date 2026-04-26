@@ -15,10 +15,8 @@ operating point, and scales before demand exceeds that supply.
 - **λ_dec** — decode token demand: how many tokens/sec the scheduler is dispatching to this model
 - **ITL(k)** — inter-token latency as a function of KV utilization k: fitted as `A·k + B` via OLS
 
-> **Implementation status:** Query registration, collector wiring (three PromQL queries +
-> `GenerationTokenRate`, `KvUsageInstant`, `VLLMRequestRate` fields), ShapeTracker,
-> ObservationWindow, and SanityReport are implemented. ITL model fitting, supply/demand estimation,
-> scaling signal (full `ThroughputAnalyzer`), and engine wiring are not yet implemented.
+> **Status:** Implementation complete (PR-1 through PR-4). The analyzer is not yet wired into
+> the engine's analyzer pipeline — that is a separate follow-on step.
 
 ## Table of Contents
 
@@ -107,7 +105,7 @@ sum by (pod) (rate(vllm:request_generation_tokens_count{namespace="...",model_na
 generation tokens histogram `_count` counter (increments once per completed request).
 
 **TA notation:** fallback λ_req — used when `ArrivalRate == 0` for all pods (EPP not deployed).
-Per variant V, the analyzer computes `λ_dec_fallback = Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r` over that variant's replicas.
+The analyzer computes `λ_dec_fallback = Σ VLLMRequestRate_r × AvgOutputTokens_r`.
 
 **ReplicaMetrics field:** `VLLMRequestRate`
 
@@ -136,8 +134,8 @@ these fields directly rather than registering duplicate queries.
 | λ_req (per-pod, req/s) | `ReplicaMetrics.ArrivalRate` | `QuerySchedulerDispatchRate` | `RegisterQueueingModelQueries` |
 | Q (scheduler queue size) | `SchedulerQueueMetrics.QueueSize` (model-level) | `QuerySchedulerQueueSize` | `RegisterSaturationQueries` |
 
-**λ_dec primary (per variant V):** `Σ_{r∈V} ArrivalRate_r × AvgOutputTokens_r` over the variant's replicas (EPP deployed).  
-**λ_dec fallback (per variant V):** `Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r` (EPP absent, all ArrivalRate == 0).
+**λ_dec primary:** `Σ ArrivalRate_r × AvgOutputTokens_r` across all replicas (EPP deployed).  
+**λ_dec fallback:** `Σ VLLMRequestRate_r × AvgOutputTokens_r` (EPP absent, all ArrivalRate == 0).
 
 **Note on arrival rate:** `ArrivalRate` comes from `QuerySchedulerDispatchRate` which is per-pod,
 namespaced, and model-scoped — correctly isolating traffic to a specific variant. The TA sums
@@ -162,9 +160,6 @@ namespace filtering limitation of the scheduler metric.
 
 ## Architecture
 
-> **Note:** Query Registration, Metrics Collector, Package Structure, ShapeTracker,
-> ObservationWindow, and SanityReport are implemented. ITLModel, full ThroughputAnalyzer,
-> Analysis Pipeline, and Data Flow are **not yet implemented**.
 
 ### Package Structure
 
@@ -197,26 +192,11 @@ The remaining TA fields (`TotalKvCapacityTokens`, `AvgITL`, `AvgOutputTokens`, `
 `PrefixCacheHitRate`, `ArrivalRate`) are populated by saturation and queueing model queries.
 
 **ShapeTracker (`shape_tracker.go`)**  
-Maintains the current workload shape bucket `(IL, OL, H%, IL_eff, KVreq)`. Detects shape changes
+Maintains the current workload shape bucket `(IL, OL, IL_eff, KVreq)`. Detects shape changes
 (>20% shift in IL or OL) and triggers observation window reset.
 
-- `IL_eff = IL × (1 − H%)` — effective input length after prefix cache
+- `IL_eff = IL × (1 − PrefixCacheHitRate)` — effective input length after prefix cache
 - `KVreq = IL_eff + OL/2` — time-averaged KV footprint per decode request
-
-**Shape dimensions — design note:**  
-The tracker stores IL, OL, and H% but change detection uses only IL and OL (see `Within()`).
-H% is stored because it feeds IL_eff and KVreq; a H%-only change does not reset the window.
-
-The minimal sufficient representation for KVreq is `(OL, IL_eff)` rather than `(IL, OL, H%)`
-separately — we track all three because it is not yet clear whether IL and H% should be treated
-as independent shape dimensions or collapsed into IL_eff alone.
-
-Likewise, the slope A in `ITL(k) = A·k + B` may be independent of H%: A captures how quickly
-decode latency grows with KV load, which is driven by hardware and concurrency, not by the
-fraction of input tokens served from cache. We do not have enough data to confirm this yet.
-If it holds, a H%-only shift would warrant updating only B (via a new Tier-2 constrained fit)
-while carrying over the previous A — avoiding a full window reset.  
-*(This is a potential future optimization; the current implementation resets nothing on H%-only changes.)*
 
 **ObservationWindow (`observation_window.go`)**  
 Rolling window of `(k*, ITL_obs)` pairs collected per replica per cycle. Filters observations
@@ -249,6 +229,7 @@ Per-variant state is minimal:
 On leader failover the incoming leader starts with an empty analyzer. During warm-up (until the observation window re-accumulates ≥ 10 samples with ≥ 0.30 k-spread), the TA emits no scaling signal (`RC = 0, SC = 0`). The saturation analyzer runs unaffected and provides coverage throughout. Warm-up completes within a few minutes at normal traffic levels.
 
 **No external state store is needed.** State loss on failover is equivalent to a workload shape change (which already clears the window by design). The gap is bounded and temporary; adding a ConfigMap or lease annotation to persist calibration state would not be worth the added complexity at this stage.
+
 
 ### Analysis Pipeline
 
@@ -304,7 +285,7 @@ On leader failover the incoming leader starts with an empty analyzer. During war
        │ vllm:request_prompt_tokens_*            (QueryAvgInputTokens        → AvgInputTokens)
        │ vllm:prefix_cache_hits/queries          (QueryPrefixCacheHitRate    → PrefixCacheHitRate)
        │ inference_extension_scheduler_*         (QuerySchedulerDispatchRate → ArrivalRate)
-       │ inference_extension_scheduler_*         (QuerySchedulerQueueSize    → QueueSize)
+       │ inference_extension_flow_control_*      (QueryFlowControlQueueSize  → QueueSize)
        ↓
 ┌─────────────────────────┐
 │ ReplicaMetricsCollector │  ← internal/collector/replica_metrics.go
@@ -329,20 +310,12 @@ On leader failover the incoming leader starts with an empty analyzer. During war
 └──────┬───────────────────────────────────────────────────┘
        │ AnalyzerResult{RequiredCapacity, SpareCapacity, VariantCapacities, RoleCapacities}
        ↓
-┌──────────────────────────────────────┐
-│ combineAnalyzerResults()             │  ← any-up / all-down with saturation
-│ (internal/engines/saturation)        │
-└──────────────────┬───────────────────┘
-                   │ combined AnalyzerResult
-                   ↓
-┌────────────────────┐
-│ ScalingOptimizer   │  → VariantDecisions → Controller
-└────────────────────┘
+┌────────────┐
+│ Controller │  ← engine integration pending (follow-on PR)
+└────────────┘
 ```
 
 ## ITL Model Calibration
-
-> **Not yet implemented.**
 
 The ITL model `ITL(k) = A·k + B` captures how inter-token latency grows with KV cache
 utilization k. It is calibrated independently per variant (different hardware → different A, B).
@@ -374,8 +347,6 @@ zero-replica fallback using the last successful tier-1 fit. It is not wired into
 
 ## Supply Estimation
 
-> **Not yet implemented.**
-
 Per replica `r`:
 
 ```
@@ -392,8 +363,6 @@ per-analyzer constant pending alignment with the EPP system-wide k_sat (see open
 
 ## Demand Estimation
 
-> **Not yet implemented.**
-
 ### Priority Chain
 
 Demand is resolved in priority order per variant. The first non-zero source wins.
@@ -401,15 +370,15 @@ Demand is resolved in priority order per variant. The first non-zero source wins
 **1. EPP primary** (isEPP = true)  
 When any replica has `ArrivalRate > 0`:
 ```
-λ_dec = Σ_{r∈V} ArrivalRate_r × AvgOutputTokens_r
+λ_dec = Σ ArrivalRate_r × AvgOutputTokens_r
 ```
-Each replica of variant V contributes its own arrival rate × output length. This avoids
-averaging-the-averages when replicas have different throughput.
+Each replica contributes its own arrival rate × output length. This avoids averaging-the-averages
+when replicas have different throughput.
 
 **2. vLLM fallback** (isEPP = false)  
 When EPP is absent but `VLLMRequestRate > 0`:
 ```
-λ_dec = Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r
+λ_dec = Σ VLLMRequestRate_r × AvgOutputTokens_r
 ```
 Same structure as primary but using the vLLM-side completion rate. SpareCapacity (scale-down)
 is suppressed when isEPP is false — the vLLM rate only counts served requests, not arriving ones.
@@ -417,7 +386,7 @@ is suppressed when isEPP is false — the vLLM rate only counts served requests,
 **3. k\*-based local** (scale-up only)  
 When both EPP and vLLM rates are zero, demand is derived from the current KV utilization:
 ```
-λ_local = Σ_{r∈V}  k_r* × KV_max_r / KVreq / ITL(k_r*)
+λ_local = Σ_r  k_r* × KV_max_r / KVreq / ITL(k_r*)
 ```
 Each replica's in-flight request count `N_r = k_r* × KV_max / KVreq` is divided by `ITL(k_r*)`
 to approximate its current throughput. Scale-down is still gated on EPP when this path is used.
@@ -440,8 +409,6 @@ Queue demand appears in model-level `TotalDemand` but is **not attributed to any
 variant** — `Σ VariantCapacity.TotalDemand ≤ result.TotalDemand` when a queue is present.
 
 ## Scaling Signal
-
-> **Not yet implemented.**
 
 ### Model-Level Aggregation
 
