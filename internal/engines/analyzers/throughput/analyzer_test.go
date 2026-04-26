@@ -945,4 +945,27 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(state.ITLModel.B).To(BeNumerically("~", wantB, 1e-6))
 		})
 	})
+
+	Describe("estimateQueueDemand — guard clauses", func() {
+		It("returns 0 when sq is nil", func() {
+			Expect(estimateQueueDemand(nil, 0.05, 2.0)).To(Equal(0.0))
+		})
+		It("returns 0 when QueueSize is zero", func() {
+			sq := &interfaces.SchedulerQueueMetrics{QueueSize: 0}
+			Expect(estimateQueueDemand(sq, 0.05, 2.0)).To(Equal(0.0))
+		})
+		It("returns 0 when itlSat is zero", func() {
+			sq := &interfaces.SchedulerQueueMetrics{QueueSize: 10}
+			Expect(estimateQueueDemand(sq, 0, 2.0)).To(Equal(0.0))
+		})
+		It("returns 0 when drainFactor is zero", func() {
+			sq := &interfaces.SchedulerQueueMetrics{QueueSize: 10}
+			Expect(estimateQueueDemand(sq, 0.05, 0)).To(Equal(0.0))
+		})
+		It("returns QueueSize / (drainFactor * itlSat) for valid inputs", func() {
+			sq := &interfaces.SchedulerQueueMetrics{QueueSize: 100}
+			// 100 / (2.0 × 0.05) = 1000
+			Expect(estimateQueueDemand(sq, 0.05, 2.0)).To(BeNumerically("~", 1000.0, 1e-9))
+		})
+	})
 })
