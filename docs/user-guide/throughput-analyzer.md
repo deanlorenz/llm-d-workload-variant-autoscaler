@@ -16,12 +16,13 @@ operating point, and scales before demand exceeds that supply.
 - **λ_dec** — decode token demand: how many tokens/sec the scheduler is dispatching to this model
 - **ITL(k)** — inter-token latency as a function of KV utilization k: fitted as `A·k + B` via OLS
 
-> **Status:** Implementation complete (PR-1 through PR-4). The analyzer is not yet wired into
-> the engine's analyzer pipeline — that is a separate follow-on step.
+> **Status:** Implementation complete and wired into the engine's multi-analyzer pipeline.
+> Enable via the `analyzers:` field in `wva-saturation-scaling-config` — see [Configuration](#configuration).
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Configuration](#configuration)
 - [Metrics](#metrics)
   - [Throughput Analyzer Queries](#throughput-analyzer-queries)
   - [Shared Fields from Collector](#shared-fields-from-collector)
@@ -42,6 +43,46 @@ operating point, and scales before demand exceeds that supply.
   - [Role-Aware Aggregation](#role-aware-aggregation)
 - [Constants and Tuning](#constants-and-tuning)
 - [References](#references)
+
+## Configuration
+
+The Throughput Analyzer is enabled by adding it to the `analyzers:` list in the
+`wva-saturation-scaling-config` ConfigMap alongside the saturation analyzer:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wva-saturation-scaling-config
+  namespace: <workload-variant-autoscaler-namespace>
+data:
+  default: |
+    analyzerName: saturation
+    scaleUpThreshold: 0.85
+    scaleDownBoundary: 0.70
+    analyzers:
+      - name: saturation
+        score: 1.0
+      - name: throughput
+        score: 1.0
+```
+
+With this config:
+- **Scale-up** fires when either saturation OR throughput signals overload (any-up).
+- **Scale-down** fires only when both agree there is spare capacity (all-down).
+
+To run the Throughput Analyzer in isolation (without the saturation signal):
+
+```yaml
+analyzers:
+  - name: saturation
+    enabled: false   # provides Cost/AcceleratorName metadata but no RC/SC signal
+  - name: throughput
+    score: 1.0
+```
+
+See [saturation-scaling-config.md — Multi-Analyzer Pipeline](../saturation-scaling-config.md#multi-analyzer-pipeline)
+for the full `analyzers:` field reference and combine algorithm.
 
 ## Metrics
 
@@ -282,9 +323,15 @@ supply, demand, and model-level RC/SC signals in `Analyze()`.
 └──────┬───────────────────────────────────────────────────┘
        │ AnalyzerResult{RequiredCapacity, SpareCapacity, VariantCapacities, RoleCapacities}
        ↓
-┌────────────┐
-│ Controller │  ← engine integration pending (follow-on PR)
-└────────────┘
+┌──────────────────────────────────────┐
+│ combineAnalyzerResults()             │  ← any-up / all-down with saturation
+│ (internal/engines/saturation)        │
+└──────────────────┬───────────────────┘
+                   │ combined AnalyzerResult
+                   ↓
+┌────────────────────┐
+│ ScalingOptimizer   │  → VariantDecisions → Controller
+└────────────────────┘
 ```
 
 ## ITL Model Calibration
