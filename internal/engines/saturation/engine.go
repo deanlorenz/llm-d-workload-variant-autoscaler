@@ -98,6 +98,10 @@ type Engine struct {
 	// capacityStore is shared with the V2 analyzer for caching capacity knowledge.
 	capacityStore *saturation_v2.CapacityKnowledgeStore
 
+	// analyzers is the generic name-to-implementation registry used by
+	// runAnalyzersAndScore. Populated via RegisterAnalyzer before the loop starts.
+	analyzers map[string]interfaces.Analyzer
+
 	// optimizer is the V2 scaling optimizer that produces VariantDecisions from
 	// AnalyzerResults. Selected per-cycle based on enableLimiter config:
 	// CostAwareOptimizer (unlimited) or GreedyByScoreOptimizer (limited).
@@ -177,6 +181,15 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 // It runs until the context is cancelled.
 func (e *Engine) StartOptimizeLoop(ctx context.Context) {
 	e.executor.Start(ctx)
+}
+
+// RegisterAnalyzer adds an external analyzer implementation to the engine's
+// analyzer registry. Must be called before StartOptimizeLoop.
+func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) {
+	if e.analyzers == nil {
+		e.analyzers = make(map[string]interfaces.Analyzer)
+	}
+	e.analyzers[name] = a
 }
 
 // optimize performs the optimization logic.

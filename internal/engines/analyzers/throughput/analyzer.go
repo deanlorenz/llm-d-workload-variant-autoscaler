@@ -31,8 +31,8 @@ type variantState struct {
 	// role is the P/D disaggregation role ("prefill", "decode", "both", "").
 	// Updated from VariantStates at the start of each Analyze call.
 	role             string
-	lastSanityReport  SanityReport
-	lastObservedAt    time.Time
+	lastSanityReport SanityReport
+	lastObservedAt   time.Time
 	// set by Analyze() for VariantState() snapshots
 	lastITLModel         ITLModel
 	lastPerReplicaSupply float64
@@ -513,8 +513,8 @@ func groupByVariant(metrics []interfaces.ReplicaMetrics) map[string][]interfaces
 // negative IL or OL are excluded. When all eligible replicas have zero
 // VLLMRequestRate, falls back to an unweighted mean.
 func averageShapeMetrics(metrics []interfaces.ReplicaMetrics) (il, ol, hitRate float64) {
-	var sumIL, sumOL, sumHitRate float64      // weighted accumulators
-	var sumILu, sumOLu, sumHRu float64        // unweighted fallback
+	var sumIL, sumOL, sumHitRate float64 // weighted accumulators
+	var sumILu, sumOLu, sumHRu float64   // unweighted fallback
 	var totalWeight, count float64
 	for _, m := range metrics {
 		if m.AvgInputTokens <= 0 || m.AvgOutputTokens <= 0 {
