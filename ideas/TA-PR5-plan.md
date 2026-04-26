@@ -1,6 +1,7 @@
 # PR-5: Wire ThroughputAnalyzer into the Engine Pipeline
 
-> **Status: PLANNED** — Target branch TA3. Depends on PR-3 (#1052) and PR-4 merging first.
+> **Status: COMPLETE** — Committed on TA3 (`ee4ac58`). Depends on ENGINE multi-analyzer
+> PR (`engine-multi-analyzer` branch, commits `b6d142a`, `a1f094d`, `9fc4a62`) merging first.
 > Part of #1005; does not close it.
 
 ## Context
@@ -122,33 +123,33 @@ No new ConfigMap type needed.
 
 ## Components
 
-### `internal/interfaces/analyzer.go`
+### ENGINE PR (`engine-multi-analyzer` branch) — prerequisite
 
-Add `ThroughputAnalyzerName = "throughput"` constant.
+The generic infrastructure lives in the ENGINE PR, not this PR:
 
-### `internal/engines/saturation/engine.go`
+- `Engine.analyzers map[string]interfaces.Analyzer` field added to `engine.go`
+- `NewEngine()` populates `{interfaces.SaturationAnalyzerName: satV2}` and initializes the map
+- `runAnalyzersAndScore()` rewritten to generic loop + `combineAnalyzerResults()` in `engine_v2.go`
+- `RegisterAnalyzer(name string, a interfaces.Analyzer)` method on `Engine`
+- `engine_combine_test.go` (31 specs, 8 scenarios)
 
-- **`Engine` struct**: add `analyzers map[string]interfaces.Analyzer` (name → implementation).
-- **`NewEngine()`**:
-  - Populate the map: `"saturation"` → `saturation_v2.NewSaturationAnalyzer(capacityStore)`,
-    `"throughput"` → `throughput.NewThroughputAnalyzer()`.
-  - Call `registration.RegisterThroughputAnalyzerQueries(metricsRegistry)`.
-  - The named fields `saturationV2Analyzer` may stay for capacity-store pre-population
-    (called outside the generic loop) or be replaced by a type-assert from the map.
+### This PR (TA3 `ee4ac58`)
 
-### `internal/engines/saturation/engine_v2.go` — `runAnalyzersAndScore()`
+Two call sites in `cmd/main.go`:
 
-Three changes:
+```go
+registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
+engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer())
+```
 
-1. **Generic execution**: replace the name-dispatch with a map lookup. For each enabled
-   `aw` in `config.Analyzers`, call `e.analyzers[aw.Name].Analyze(ctx, input)`.
+`throughput.AnalyzerName` (`= "throughput"`) lives in the `throughput` package — it is
+**not** added to `interfaces/analyzer.go`. This is intentional: only
+`interfaces.SaturationAnalyzerName` lives in interfaces because the saturation engine uses
+it for internal config-override logic. Analyzer name constants are package-local.
 
-2. **Generic combine**: convert each result to replicas via `RC / PerReplicaCapacity`,
-   apply any-up / all-down, re-express as RC in saturation units. Return the single
-   combined `AnalyzerResult`.
-
-3. **Generic Score**: `totalWeighted += result.RequiredCapacity × aw.Score` for each
-   enabled analyzer (removes the TODO comment).
+TA3's `engine.go` also carries a minimal stub (nil-guarded `RegisterAnalyzer` + field
+declaration) so TA3 compiles independently of the ENGINE PR. When rebased on
+main+ENGINE, the stub merges trivially (ENGINE PR has the same content).
 
 ---
 
@@ -160,14 +161,19 @@ config.Analyzers: [{saturation, enabled, score}, {throughput, enabled, score}]
     runAnalyzersAndScore()
         │
         capacity store pre-population (saturation-specific, outside loop)
+        satResult = runV2AnalysisOnly()   ← always runs (provides Cost/AcceleratorName)
         │
         for each enabled aw:
             result_i = e.analyzers[aw.Name].Analyze(ctx, AnalyzerInput)
         │
-        combine(results):
-            replicas_i = ceil(RC_i / PerReplicaCapacity_i) per variant per analyzer
-            RC_combined = max(replicas) × sat.PerReplicaCapacity  [any-up]
-            SC_combined = min(freed)  × sat.PerReplicaCapacity    [all-down]
+        combineAnalyzerResults(satResult, results):
+            sat_total = Σ_v(VariantCapacities_sat_v.TotalCapacity)
+
+            util_excess_i = RC_i / Σ_v(VariantCapacities_i_v.TotalCapacity)
+            util_slack_i  = SC_i / Σ_v(VariantCapacities_i_v.TotalCapacity)
+
+            RC_combined = max_i(util_excess_i) × sat_total  [any-up]
+            SC_combined = min_i(util_slack_i)  × sat_total  [all-down; 0 if any disagrees]
             Score       = priority × Σ(RC_i × score_i)
         │
         return AnalyzerResult{RC_combined, SC_combined, VariantCapacities_sat, Score}
