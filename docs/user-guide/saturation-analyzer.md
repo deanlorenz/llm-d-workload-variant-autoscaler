@@ -297,6 +297,14 @@ Lookup order: `modelID#namespace` → `default` → zero-value with defaults app
 > lookup**. The ConfigMap data key itself determines which model/namespace the override
 > applies to.
 
+## Multi-Analyzer Pipeline
+
+The saturation analyzer participates in the engine's multi-analyzer pipeline alongside other analyzers (e.g., throughput analyzer). The pipeline combines signals using an any-up / all-down policy: scale-up fires when *any* enabled analyzer signals overload; scale-down requires *all* to agree.
+
+The saturation analyzer always executes on every cycle, even when `enabled: false` in the `analyzers:` config list. Its `VariantCapacities` carry `Cost` and `AcceleratorName` required by the optimizer for variant selection and GPU accounting. Setting `enabled: false` only removes saturation's RC/SC from the combine.
+
+See [saturation-scaling-config.md — Multi-Analyzer Pipeline](../saturation-scaling-config.md#multi-analyzer-pipeline) for configuration details and the combine algorithm.
+
 ## Architecture
 
 ### Components

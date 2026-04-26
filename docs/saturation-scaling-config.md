@@ -28,6 +28,18 @@ The saturation scaling configuration is stored in a ConfigMap named `wva-saturat
 | `kvSpareTrigger` | float64 | Scale-up signal if average spare KV capacity < trigger (0.0-1.0) | 0.10 |
 | `queueSpareTrigger` | float64 | Scale-up signal if average spare queue capacity < trigger | 3 |
 
+### V2 Analyzer Parameters
+
+These parameters apply when `analyzerName: "saturation"` is set or when the `analyzers:` list is populated.
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `analyzerName` | string | Selects the V2 token-based analyzer: set to `"saturation"`. Empty string uses V1. | `""` |
+| `scaleUpThreshold` | float64 | Utilization fraction above which scale-up is triggered | 0.85 |
+| `scaleDownBoundary` | float64 | Utilization fraction below which scale-down is safe | 0.70 |
+| `priority` | float64 | Multiplier for this model's scaling urgency in fair-share GPU allocation | 1.0 |
+| `analyzers` | list | Multi-analyzer pipeline configuration — see [Multi-Analyzer Pipeline](#multi-analyzer-pipeline) | `[{name: "saturation", score: 1.0}]` |
+
 ### Default Configuration
 
 The recommended values for the V1 (percentage-based) saturation analyzer are:
@@ -77,6 +89,66 @@ The saturation analyzer uses a **spare capacity model** to determine when to sca
 This proactive approach ensures adequate headroom and prevents request drops by scaling before saturation occurs.
 
 **For detailed implementation, see:** [Saturation Analyzer Documentation](user-guide/saturation-analyzer.md)
+
+## Multi-Analyzer Pipeline
+
+The V2 engine supports running multiple analyzers in parallel and combining their signals. This lets different analyzers (e.g., saturation detector, throughput analyzer) vote on scaling decisions independently: any single analyzer can trigger scale-up, but all must agree for scale-down.
+
+### Configuring Analyzers
+
+The `analyzers:` list controls which analyzers run and how their signals are weighted:
+
+```yaml
+analyzerName: saturation
+scaleUpThreshold: 0.85
+scaleDownBoundary: 0.70
+analyzers:
+  - name: saturation
+    score: 1.0
+  - name: throughput
+    score: 1.0
+    # scaleUpThreshold: 0.90    # optional: per-analyzer override
+    # scaleDownBoundary: 0.75   # optional: per-analyzer override
+```
+
+When `analyzers:` is omitted, it defaults to `[{name: "saturation", score: 1.0}]` — equivalent to the single-analyzer behavior of earlier versions.
+
+### AnalyzerScoreConfig Fields
+
+| Field | Type | Description | Default |
+|-------|------|-------------|---------|
+| `name` | string | Analyzer name (e.g., `"saturation"`, `"throughput"`) | required |
+| `enabled` | bool | Whether this analyzer's signal enters the combine | `true` |
+| `score` | float64 | Weight in the composite urgency score | `1.0` |
+| `scaleUpThreshold` | float64 | Per-analyzer override for scale-up threshold | global `scaleUpThreshold` |
+| `scaleDownBoundary` | float64 | Per-analyzer override for scale-down boundary | global `scaleDownBoundary` |
+
+### Combine Algorithm (Any-Up / All-Down)
+
+Analyzers may use different capacity units (tokens, tok/s, etc.). The engine normalizes each analyzer's signal to a dimensionless utilization fraction before combining:
+
+```
+util_excess_i = RC_i / Σ(TotalCapacity across variants)_i
+util_slack_i  = SC_i / Σ(TotalCapacity across variants)_i
+```
+
+**Any-up (scale-up):** Scale up when *any* enabled analyzer signals overload:
+
+```
+combined.RC = max_i(util_excess_i) × sat_total
+```
+
+**All-down (scale-down):** Scale down only when *every* enabled analyzer with valid data agrees:
+
+```
+combined.SC = min_i(util_slack_i) × sat_total  (0 if any analyzer disagrees)
+```
+
+The combined result is expressed in saturation's capacity units so the optimizer is unchanged.
+
+### Saturation Always Runs
+
+Even when `saturation: enabled: false`, the saturation analyzer executes internally on every cycle. Its `VariantCapacities` carry `Cost` and `AcceleratorName` required by the optimizer for variant selection and GPU accounting. Setting `enabled: false` only excludes saturation's RC/SC from the combine.
 
 ## Best Practices: Coordinating with InferenceScheduler (End Point Picker)
 
@@ -584,19 +656,33 @@ kubectl describe cm wva-saturation-scaling-config -n <workload-variant-autoscale
 **SaturationScalingConfig** (defined in `internal/config/saturation_scaling.go`):
 ```go
 type SaturationScalingConfig struct {
-    ModelID              string  `yaml:"model_id,omitempty"`
-    Namespace            string  `yaml:"namespace,omitempty"`
-    KvCacheThreshold     float64 `yaml:"kvCacheThreshold"`
-    QueueLengthThreshold float64 `yaml:"queueLengthThreshold"`
-    KvSpareTrigger       float64 `yaml:"kvSpareTrigger"`
-    QueueSpareTrigger    float64 `yaml:"queueSpareTrigger"`
-    // ... additional V2-specific fields omitted
+    ModelID              string               `yaml:"model_id,omitempty"`
+    Namespace            string               `yaml:"namespace,omitempty"`
+    KvCacheThreshold     float64              `yaml:"kvCacheThreshold"`
+    QueueLengthThreshold float64              `yaml:"queueLengthThreshold"`
+    KvSpareTrigger       float64              `yaml:"kvSpareTrigger"`
+    QueueSpareTrigger    float64              `yaml:"queueSpareTrigger"`
+    EnableLimiter        bool                 `yaml:"enableLimiter,omitempty"`
+    AnalyzerName         string               `yaml:"analyzerName,omitempty"`
+    ScaleUpThreshold     float64              `yaml:"scaleUpThreshold,omitempty"`   // default 0.85
+    ScaleDownBoundary    float64              `yaml:"scaleDownBoundary,omitempty"`  // default 0.70
+    Priority             float64              `yaml:"priority,omitempty"`           // default 1.0
+    Analyzers            []AnalyzerScoreConfig `yaml:"analyzers,omitempty"`
+}
+
+// AnalyzerScoreConfig configures one analyzer in the multi-analyzer pipeline.
+type AnalyzerScoreConfig struct {
+    Name              string   `yaml:"name"`
+    Enabled           *bool    `yaml:"enabled,omitempty"`           // default true
+    Score             float64  `yaml:"score,omitempty"`             // default 1.0
+    ScaleUpThreshold  *float64 `yaml:"scaleUpThreshold,omitempty"`  // overrides global
+    ScaleDownBoundary *float64 `yaml:"scaleDownBoundary,omitempty"` // overrides global
 }
 ```
 
 **Methods:**
-- `ApplyDefaults()` - Fills in zero-valued V2 fields with their defaults (V1 fields have no hardcoded defaults)
-- `Validate() error` - Validates configuration values (thresholds in range, consistency checks)
+- `ApplyDefaults()` - Fills in zero-valued V2 fields with their defaults and seeds the `Analyzers` list when empty
+- `Validate() error` - Validates configuration values (thresholds in range, consistency checks, per-analyzer overrides)
 
 ## Architecture Notes
 
