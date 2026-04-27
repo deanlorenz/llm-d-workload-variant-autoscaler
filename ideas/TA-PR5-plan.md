@@ -1,216 +1,119 @@
-# PR-5: Wire ThroughputAnalyzer into the Engine Pipeline
+# TA PR-5: Register ThroughputAnalyzer in the Engine
 
-> **Status: COMPLETE** — Committed on TA3 (`ee4ac58`). Depends on ENGINE multi-analyzer
-> PR (`engine-multi-analyzer` branch, commits `b6d142a`, `a1f094d`, `9fc4a62`) merging first.
+> **Status: PLANNED** — Target branch TA3 (or TA4 if scope grows).
+> Depends on: TA1 (#1051), TA2 (#1052), TA3/PR-4, and the ENGINE multi-analyzer PR.
 > Part of #1005; does not close it.
+
+---
 
 ## Context
 
-PRs 1–4 built and tested the ThroughputAnalyzer in isolation. PR-5 completes the
-multi-analyzer infrastructure that is already partially in place in `runAnalyzersAndScore`
-and registers the ThroughputAnalyzer into it.
+The ENGINE multi-analyzer PR (see `ideas/ENGINE-multi-analyzer-plan.md`) generalizes
+`runAnalyzersAndScore()` into a generic map-based loop and implements the correct
+combine algorithm. That PR adds the `analyzers map[string]interfaces.Analyzer` field
+to the `Engine` struct and calls `RegisterThroughputAnalyzerQueries()`.
 
-**Scope:** engine wiring only. No changes to the analyzer package, the collector, the
-optimizer, or existing analyzers.
+**This PR (TA PR-5) registers the ThroughputAnalyzer into that map** and validates
+the end-to-end TA signal path with targeted tests.
 
----
-
-## Relationship to the Queueing Model Analyzer
-
-The queueing model analyzer has its own `optimizeQueueingModel()` path — it replaces
-saturation entirely via a `switch analyzerName` in `optimize()`. It does not go through
-`runAnalyzersAndScore` and cannot run alongside other analyzers.
-
-The ThroughputAnalyzer is different: it goes through `runAnalyzersAndScore` alongside
-saturation V2. This is the intended multi-analyzer path — `config.Analyzers` already
-carries the per-analyzer `Enabled`, `Score`, and threshold overrides for it.
+**Scope:** TA registration and TA-specific e2e scenarios. No changes to the ENGINE
+combine logic, no changes to the analyzer package, no changes to the optimizer.
 
 ---
 
-## What Is Already in Place
+## What Is Already in Place After ENGINE PR Merges
 
-### Generic infrastructure (exists today)
-
-- `interfaces.Analyzer` — `Name() string` + `Analyze(ctx, AnalyzerInput) (*AnalyzerResult, error)`.
-  Both `SaturationAnalyzer` (V2) and `ThroughputAnalyzer` implement it.
-- `config.Analyzers []AnalyzerScoreConfig` — per-analyzer `Enabled *bool`, `Score float64`,
-  `ScaleUpThreshold`, `ScaleDownBoundary`. The existing scoring loop in `runAnalyzersAndScore`
-  iterates this list with the comment `// future: add "throughput", "slo" cases`.
-- `GreedyByScoreOptimizer` — already handles multiple models (fair-share by Score),
-  multiple variants (cheapest first via `cost/perReplicaCapacity`), P/D role allocation
-  (by `RoleCapacities` demand fractions), and GPU constraints. It consumes a single
-  `AnalyzerResult` per model; `runAnalyzersAndScore` is responsible for producing it.
-- `CostAwareOptimizer` — same variant and replica logic, unlimited mode.
-
-### What TA3 adds (already committed)
-
-- `ThroughputAnalyzer.Analyze()` — returns `AnalyzerResult` with `RequiredCapacity`,
-  `SpareCapacity`, `VariantCapacities.PerReplicaCapacity` in tok/s units.
-- `RegisterThroughputAnalyzerQueries()` — registers three Prometheus queries.
-- `replica_metrics.go` — already populates `GenerationTokenRate`, `KvUtilization`,
-  `VLLMRequestRate` on every cycle.
+- `Engine.analyzers` map — generic name → `interfaces.Analyzer` registry
+- `runAnalyzersAndScore()` — generic loop, dimensionless combine, any-up/all-down
+- `registration.RegisterThroughputAnalyzerQueries()` — called from `NewEngine()`
+- `replica_metrics.go` — populates `GenerationTokenRate`, `KvUtilization`, `VLLMRequestRate`
+  on every cycle
 
 ---
 
-## Key Design Decisions
+## What TA PR-5 Does
 
-### Generic runner, not name-dispatched
+### Size assessment
 
-`runAnalyzersAndScore` should iterate `config.Analyzers` and look up each by name in
-a registered map of `interfaces.Analyzer`. It does not need to know which specific
-analyzer it is running — it just calls `Analyze()` and collects the result.
+The ENGINE PR has already done the heavy lifting: map registration pattern, query
+registration call, and combine logic. TA PR-5 only needs to verify that
+`ThroughputAnalyzer` is correctly in the map and add TA-specific e2e scenarios.
 
-The existing name-dispatch (`if aw.Name == interfaces.SaturationAnalyzerName`) is replaced
-by a generic lookup: `analyzer, ok := e.analyzers[aw.Name]`.
+**If the ENGINE PR adds the throughput entry to `NewEngine()` as a code example** (as
+described in `ENGINE-multi-analyzer-plan.md`), TA PR-5 may be trivially small — just
+the e2e tests and any config-level documentation. In that case, merge into TA3.
 
-### Single AnalyzerResult to the optimizer
+**If ENGINE PR leaves the map empty** (just the infrastructure), TA PR-5 adds:
 
-The optimizer takes one `AnalyzerResult` per model. The engine combines results from
-all enabled analyzers before calling the optimizer. Combining is generic:
-
-- **Scale up** if **any** enabled analyzer returns `RequiredCapacity > 0`.
-- **Scale down** only if **all** enabled analyzers agree (`SpareCapacity > 0`).
-
-Since analyzers use different capacity units, combining is done in replica space:
-`replicas_needed_i = ceil(RC_i / PerReplicaCapacity_i)` per variant per analyzer.
-The combined replica target is then re-expressed as RC in saturation units (using
-saturation's `PerReplicaCapacity`) so the optimizer receives a consistent result.
-
-Saturation's `VariantCapacities` are used as the base for the combined result — they
-provide the `Cost`, `AcceleratorName`, and `Role` fields the optimizer needs for
-variant selection, P/D allocation, and GPU accounting.
-
-### Per-analyzer enable/disable
-
-Users add entries to `config.Analyzers` to enable or disable each analyzer:
-
-```yaml
-analyzers:
-  - name: saturation
-    enabled: true
-    score: 1.0
-  - name: throughput
-    enabled: true
-    score: 1.0
+```go
+// in NewEngine(), alongside the saturation entry:
+throughput.AnalyzerName: throughput.NewThroughputAnalyzer(),
 ```
 
-For e2e isolation (TA only):
+Either way, the net code change is tiny. Merge into TA3.
 
-```yaml
-analyzers:
-  - name: saturation
-    enabled: false
-  - name: throughput
-    enabled: true
-    score: 1.0
-```
+---
 
-The saturation capacity-store pre-population (`LoadFromScaleTarget`) must still run
-when saturation data is needed — this is a side-effect step that stays outside the
-generic loop.
+## Key Design Decisions (from ENGINE plan, applied here)
 
-### SchedulerQueue remains nil
+### Saturation always runs
 
-`AnalyzerInput.SchedulerQueue` is nil (existing TODO). `estimateQueueDemand` returns
-0 gracefully. Queue demand wiring is a separate later PR.
+Even when `saturation: enabled: false`, saturation's `VariantCapacities` carry `Cost`
+and `AcceleratorName` that the optimizer needs. The `enabled` flag only controls whether
+saturation's RC/SC enter the combine.
+
+### TA-only mode with CostAwareOptimizer
+
+When testing TA in isolation (`saturation: enabled: false`):
+- Saturation RC/SC = 0 (excluded from combine)
+- Saturation's VariantCapacities still flow to the optimizer (Cost, AcceleratorName)
+- Use `CostAwareOptimizer` (no GPU limiting) — this is already the default
+- `GreedyByScoreOptimizer` (GPU-limiting mode) works too because saturation's
+  VariantCapacities still have correct AcceleratorName
 
 ### No TA-specific config
 
-`ThroughputAnalyzer.Analyze()` ignores `input.Config` and uses internal constants.
+`ThroughputAnalyzer.Analyze()` uses internal constants; ignores `input.Config`.
 No new ConfigMap type needed.
 
----
+### SchedulerQueue stays nil
 
-## Components
-
-### ENGINE PR (`engine-multi-analyzer` branch) — prerequisite
-
-The generic infrastructure lives in the ENGINE PR, not this PR:
-
-- `Engine.analyzers map[string]interfaces.Analyzer` field added to `engine.go`
-- `NewEngine()` populates `{interfaces.SaturationAnalyzerName: satV2}` and initializes the map
-- `runAnalyzersAndScore()` rewritten to generic loop + `combineAnalyzerResults()` in `engine_v2.go`
-- `RegisterAnalyzer(name string, a interfaces.Analyzer)` method on `Engine`
-- `engine_combine_test.go` (31 specs, 8 scenarios)
-
-### This PR (TA3 `ee4ac58`)
-
-Two call sites in `cmd/main.go`:
-
-```go
-registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
-engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer())
-```
-
-`throughput.AnalyzerName` (`= "throughput"`) lives in the `throughput` package — it is
-**not** added to `interfaces/analyzer.go`. This is intentional: only
-`interfaces.SaturationAnalyzerName` lives in interfaces because the saturation engine uses
-it for internal config-override logic. Analyzer name constants are package-local.
-
-TA3's `engine.go` also carries a minimal stub (nil-guarded `RegisterAnalyzer` + field
-declaration) so TA3 compiles independently of the ENGINE PR. When rebased on
-main+ENGINE, the stub merges trivially (ENGINE PR has the same content).
+`AnalyzerInput.SchedulerQueue` = nil. `estimateQueueDemand` returns 0 gracefully.
 
 ---
 
-## Data Flow
+## E2E Tests (TA-specific)
 
-```
-config.Analyzers: [{saturation, enabled, score}, {throughput, enabled, score}]
-    │
-    runAnalyzersAndScore()
-        │
-        capacity store pre-population (saturation-specific, outside loop)
-        satResult = runV2AnalysisOnly()   ← always runs (provides Cost/AcceleratorName)
-        │
-        for each enabled aw:
-            result_i = e.analyzers[aw.Name].Analyze(ctx, AnalyzerInput)
-        │
-        combineAnalyzerResults(satResult, results):
-            sat_total = Σ_v(VariantCapacities_sat_v.TotalCapacity)
+These complement the ENGINE PR's e2e tests which verify the combine logic itself.
 
-            util_excess_i = RC_i / Σ_v(VariantCapacities_i_v.TotalCapacity)
-            util_slack_i  = SC_i / Σ_v(VariantCapacities_i_v.TotalCapacity)
-
-            RC_combined = max_i(util_excess_i) × sat_total  [any-up]
-            SC_combined = min_i(util_slack_i)  × sat_total  [all-down; 0 if any disagrees]
-            Score       = priority × Σ(RC_i × score_i)
-        │
-        return AnalyzerResult{RC_combined, SC_combined, VariantCapacities_sat, Score}
-        │
-    optimizer.Optimize():
-        GreedyByScore: fair-share across models by Score, cheapest variant first,
-                       role-proportional for P/D, GPU-constrained
-        CostAware:     unlimited, cheapest variant, no cross-model coordination
-        │
-    ScaleToZeroEnforcer per model
-        │
-    applySaturationDecisions()
-```
-
----
-
-## E2e Tests
-
-Planned as part of this PR (or immediately before submission). High-level scenarios:
-
-- **Scale-up under load**: simulator with known ITL + request rate > single-replica
-  supply → TA RC > 0 → replica added.
-- **Scale-down on idle**: load drops, EPP deployed → TA SC > 0 → replica removed.
-- **TA-only mode** (`saturation: enabled: false`): TA drives all decisions; isolates
-  TA behavior for validation without saturation interference.
-- **Both analyzers**: either triggers scale-up; scale-down requires both to agree.
-- **Cold start**: tier-2 constrained OLS path still emits a valid non-zero signal.
+| Scenario | Config | Expected |
+|---|---|---|
+| **TA-only scale-up** | `saturation: enabled:false`, `throughput: enabled:true, score:1.0`; simulator with high RPS relative to single-replica tok/s supply | TA RC > 0 → replica added |
+| **TA-only scale-down** | Same config; load drops, EPP deployed | TA SC > 0 → replica removed |
+| **Dual-analyzer scale-up** | Both enabled; saturation idle, TA detects overload | Combined RC > 0, replica added |
+| **Dual-analyzer scale-down blocked** | Saturation says idle, TA still sees load | Combined SC = 0 (all-down requires agreement), no scale-down |
+| **Cold-start** | 0 replicas, TA RC > 0 | Scale-up to 1 replica triggered |
 
 Simulator parameters used: `--inter-token-latency`, `--max-num-seqs`, `--kv-cache-size`,
-`--block-size`. The detailed e2e plan (exact parameters and expected replica counts)
-will be a sub-document of this PR.
+`--block-size`.
 
 ---
 
-## Not in this PR
+## Files to Change (TA PR-5)
 
-- SchedulerQueue wiring (flow-control metrics) — later PR
-- Tier-3 `itlKnowledgeStore` wiring — later PR
-- `DefaultKSat` alignment with EPP system-wide k_sat — later PR
-- Prefill-specific rate signals — later PR
+| File | Change |
+|---|---|
+| `internal/engines/saturation/engine.go` | Add `throughput.AnalyzerName: throughput.NewThroughputAnalyzer()` to `engine.analyzers` (if not done in ENGINE PR) |
+| `test/e2e/...` | TA-specific e2e scenarios above |
+
+If the ENGINE PR already added the map entry, TA PR-5 is e2e tests only.
+
+---
+
+## Not in This PR
+
+- SchedulerQueue wiring (flow control metrics)
+- Tier-3 `itlKnowledgeStore` wiring
+- `DefaultKSat` unification with EPP system-wide k_sat
+- Prefill-specific rate signals
+- Renaming `saturation` engine package

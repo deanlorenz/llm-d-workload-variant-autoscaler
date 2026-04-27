@@ -14,13 +14,13 @@ per-$(IL, OL)$ requirements without simplifying assumptions.
 | $OL$ | Output Length | tokens | Generated (output) tokens per request. Only observable after request completion. Characterized by its distribution. |
 | $TL$ | Total Length | tokens | $TL = IL + OL$. |
 | $TL^{max}$ | Max Context Length | tokens | Model's maximum context window: $IL + OL \leq TL^{max}$. Configured via `--max-model-len`. |
-| $IL_{eff}$ | Effective Input Length | tokens | Input tokens requiring actual prefill computation after prefix cache adjustment: $IL_{eff} = IL \cdot (1 - H\text{\\\%})$. |
-| $H\text{\\\%}$ | Prefix Cache Hit Rate | 0–1 | Fraction of input token lookups served from the KV prefix cache, avoiding recomputation. |
+| $IL_{eff}$ | Effective Input Length | tokens | Input tokens requiring actual prefill computation after prefix cache adjustment: $IL_{eff} = IL \cdot (1 - H％)$. |
+| $H％$ | Prefix Cache Hit Rate | 0–1 | Fraction of input token lookups served from the KV prefix cache, avoiding recomputation. |
 | $w$ | Workload Type | — | A workload category characterized by representative $(IL, OL)$ values. Used to bucket requests with similar compute profiles. |
 
 ### 1.1 Workload Relationships
 
-$$IL_{eff} = IL \cdot (1 - H\text{\\\%})$$
+$$IL_{eff} = IL \cdot (1 - H％)$$
 
 $$TL = IL + OL$$
 
@@ -112,7 +112,7 @@ All rates are measured in **units per second**.
 | Symbol | Name | Unit | Description |
 |--------|------|------|-------------|
 | $\lambda$ | Request Arrival Rate | req/s | Rate at which new requests enter the system at the EPP. Upstream of any queueing. Also written $\lambda_{req}$, $\lambda_m$ per model, or $\lambda_v$ per variant (dispatched rate). |
-| $\lambda_{pre}$ | Prefill Demand Rate | tokens/s | Input tokens per second that require actual GPU prefill computation, after prefix-cache adjustment: $\lambda_{pre} = \lambda \cdot \overline{IL}_{eff} = \lambda \cdot \overline{IL} \cdot (1 - H\text{\\\%})$. |
+| $\lambda_{pre}$ | Prefill Demand Rate | tokens/s | Input tokens per second that require actual GPU prefill computation, after prefix-cache adjustment: $\lambda_{pre} = \lambda \cdot \overline{IL}_{eff} = \lambda \cdot \overline{IL} \cdot (1 - H％)$. |
 | $\lambda_{dec}$ | Decode Demand Rate | tokens/s | Output tokens per second the system must generate to sustain the arrival rate: $\lambda_{dec} = \lambda \cdot \overline{OL}$. |
 | $\lambda_{tok}$ | KV Cache Demand Rate | tokens/s | Rate at which incoming requests commit new KV cache memory: $\lambda_{tok} = \lambda_{pre} + \lambda_{dec} = \lambda \cdot (\overline{IL}_{eff} + \overline{OL})$. Equals the peak KV footprint per request times the arrival rate. |
 | $\mu$ | Successful Completion Rate | req/s | Rate of requests that complete successfully (last output token delivered). $\mu \leq \lambda$ at steady state (due to queueing); $\mu = \lambda$ when the system is not dropping requests. Used in supply analysis. |
@@ -125,11 +125,11 @@ All rates are measured in **units per second**.
 
 **Demand-side rates** (what the arrival stream requires from the system):
 
-$$\lambda_{pre} = \lambda \cdot \overline{IL}_{eff} = \lambda \cdot \overline{IL} \cdot (1 - H\text{\\\%})$$
+$$\lambda_{pre} = \lambda \cdot \overline{IL}_{eff} = \lambda \cdot \overline{IL} \cdot (1 - H％)$$
 
 $$\lambda_{dec} = \lambda \cdot \overline{OL}$$
 
-$$\lambda_{tok} = \lambda_{pre} + \lambda_{dec} = \lambda \cdot \bigl(\overline{IL} \cdot (1 - H\text{\\\%}) + \overline{OL}\bigr)$$
+$$\lambda_{tok} = \lambda_{pre} + \lambda_{dec} = \lambda \cdot \bigl(\overline{IL} \cdot (1 - H％) + \overline{OL}\bigr)$$
 
 **Supply-side / observed rates** (what vLLM is currently producing):
 
@@ -141,7 +141,7 @@ $$\mu_{err} = \lambda - \mu \quad \text{(at steady state, ignoring in-flight req
 
 **Multi-workload form** (workload types $w \in \mathcal{W}$ with mixture weights $\pi_w$):
 
-$$\lambda_{pre} = \lambda \cdot \sum_{w} \pi_w \cdot IL(w) \cdot (1 - H\text{\\\%}), \qquad
+$$\lambda_{pre} = \lambda \cdot \sum_{w} \pi_w \cdot IL(w) \cdot (1 - H％), \qquad
 \lambda_{dec} = \lambda \cdot \sum_{w} \pi_w \cdot OL(w)$$
 
 **Source for $\lambda_v$ (dispatched rate per pod).** The EPP scheduler dispatches requests to
@@ -160,9 +160,9 @@ is dispatched rate, equal to arrival rate when the EPP has no queue ($W_{epp} = 
 | $N_{dec}$ | Decode Requests | count | Requests currently in the decode phase (generating output tokens). **Not available as a Prometheus metric in any released vLLM version** (see §4.2). |
 | $N_{wait}$ | Waiting Requests | count | Requests accepted by vLLM but queued waiting for a free KV memory slot. Distinct from $W_{epp}$ (EPP queue), which is upstream of vLLM. |
 | $N^{max}$ | Max Concurrent Sequences | count | Maximum sequences vLLM will process concurrently. Configured via `--max-num-seqs`. When $N = N^{max}$, new requests enter $N_{wait}$. |
-| $KV$ | KV Cache Tokens In Use | tokens | Current KV cache token slots occupied across all running requests. $KV = KV\text{\\\%} \cdot KV^{max}$. |
+| $KV$ | KV Cache Tokens In Use | tokens | Current KV cache token slots occupied across all running requests. $KV = KV％ \cdot KV^{max}$. |
 | $KV^{max}$ | KV Cache Capacity | tokens | Total KV token slots available on GPU. $KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
-| $KV\text{\\\%}$ | KV Cache Utilization | 0–1 | Fraction of KV cache currently occupied. $KV\text{\\\%} = KV / KV^{max}$. |
+| $KV％$ | KV Cache Utilization | 0–1 | Fraction of KV cache currently occupied. $KV％ = KV / KV^{max}$. |
 | $\overline{KV}_{req}$ | Mean KV Footprint per Request | tokens | Time-averaged KV token slots occupied by a single request over its lifetime: $\overline{KV}_{req} = \overline{IL}_{eff} + \overline{OL}/2$. The $\overline{OL}/2$ term reflects that decode tokens accumulate from 0 to $OL$ uniformly. Also written `kv_per_req` in pseudocode. Used in $N_{dec}$ estimation and the $k_{knee}$ formula. **Not** the peak footprint $\overline{IL}_{eff} + \overline{OL}$, which is only reached at the final decode step. |
 
 ### 4.1 vLLM State Relationships
@@ -171,7 +171,7 @@ $$N = N_{pre} + N_{dec}$$
 
 $$KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$$
 
-$$KV = KV\text{\\\%} \cdot KV^{max}$$
+$$KV = KV％ \cdot KV^{max}$$
 
 **KV occupancy of a single request $r$ at time $t$** (decode tokens produced so far = $k_r(t) \in [0, OL_r]$):
 
@@ -230,7 +230,7 @@ to determine when to scale up.
 
 **Relationship between $k_{knee}$ and workload output length.** Because $\overline{OL}$ appears in
 the denominator of $\mu_{RPS}(k) = k \cdot KV^{max} / (\overline{KV}_{req} \cdot \overline{OL} \cdot (Ak+B))$,
-short-output workloads saturate at lower $KV\text{\%}$:
+short-output workloads saturate at lower $KV％$:
 
 | $\overline{IL}$ | $\overline{OL}$ | Observed $k_{knee}$ (H100) |
 |----------------|----------------|--------------------------|
@@ -270,7 +270,7 @@ high-priority metrics to add to the WVA collector.
 | $\lambda$ (arrival, model) | `inference_extension_request_total` | `rate({model=m}[1m])` | No | Total requests arriving at EPP before queueing. |
 | $\mu$ (SRPS, per pod) | `vllm:request_success_total` | `rate([1m])` per pod | No | Successful completions. Token counters serve as proxy. |
 | $\mu_{err}$ (ERPS) | derived | $\lambda - \mu$ | No | Or from `vllm:request_failure_total` if available. |
-| $\lambda_{pre}$ (prefill demand) | `vllm:request_prompt_tokens_sum` | `rate([1m]) × (1-H%) per pod` | No (rate) | Demand-side. Derived: $\lambda_v \cdot \overline{IL} \cdot (1 - H\text{\\\%})$ from collected scalars. Direct rate not yet stored. |
+| $\lambda_{pre}$ (prefill demand) | `vllm:request_prompt_tokens_sum` | `rate([1m]) × (1-H%) per pod` | No (rate) | Demand-side. Derived: $\lambda_v \cdot \overline{IL} \cdot (1 - H％)$ from collected scalars. Direct rate not yet stored. |
 | $\lambda_{dec}$ (decode demand) | `vllm:request_generation_tokens_sum` | `rate([1m])` per pod | No (rate) | Demand-side. Derived: $\lambda_v \cdot \overline{OL}$ from collected scalars. Direct rate not yet stored. |
 | $\lambda_{tok}$ (KV demand) | derived | $\lambda_{pre} + \lambda_{dec}$ | Derived | KV cache commitment rate per pod. |
 | $\mu_{tok}$ (GPS, supply) | `vllm:request_generation_tokens_sum` | `rate([1m])` per pod | No (rate) | Supply-side observed throughput. Token averages are collected; raw rate is not. Equals $\lambda_{dec}$ at steady state. |
@@ -284,9 +284,9 @@ high-priority metrics to add to the WVA collector.
 | $N_{dec}$ | — | — | **N/A** | **Does not exist in any released vLLM version.** Estimate: $N_{dec} \approx \mu_{tok} \cdot \text{ITL}$. See §4.2. |
 | $N_{wait}$ | `vllm:num_requests_waiting` | `max_over_time([1m])` per pod | Yes (`QueueLength`) | vLLM internal queue; distinct from $W_{epp}$. |
 | $N^{max}$ | (not a Prometheus metric) | Parsed from `--max-num-seqs` in Deployment args | Yes (`MaxBatchSize`) | Default 256 in vLLM v0.8+. |
-| $KV\text{\\\%}$ | `vllm:kv_cache_usage_perc` | `max_over_time([1m])` per pod | Yes (`KvCacheUsage`) | 0.0–1.0. |
+| $KV％$ | `vllm:kv_cache_usage_perc` | `max_over_time([1m])` per pod | Yes (`KvCacheUsage`) | 0.0–1.0. |
 | $KV^{max}$ | `vllm:cache_config_info{num_gpu_blocks, block_size}` | static labels | Yes (`TotalKvCapacityTokens`) | $KV^{max} = \texttt{num\_gpu\_blocks} \times \texttt{block\_size}$. |
-| $KV$ | derived | $KV\text{\\\%} \cdot KV^{max}$ | Yes (`TokensInUse`) | Derived by collector. |
+| $KV$ | derived | $KV％ \cdot KV^{max}$ | Yes (`TokensInUse`) | Derived by collector. |
 
 ### 5.4 Workload / Request Metrics
 
@@ -296,7 +296,7 @@ high-priority metrics to add to the WVA collector.
 | $\overline{OL}$ (avg) | `vllm:request_generation_tokens_sum/count` | `rate(_sum[5m]) / rate(_count[5m])` per pod | Yes (`AvgOutputTokens`) | Mean generation length over completed requests. |
 | $IL$ (distribution) | `vllm:request_prompt_tokens_bucket` | histogram | No | Required for per-bin workload analysis. High priority to add. |
 | $OL$ (distribution) | `vllm:request_generation_tokens_bucket` | histogram | No | Required for per-bin workload analysis. High priority to add. |
-| $H\text{\\\%}$ | `vllm:prefix_cache_hits`, `vllm:prefix_cache_queries` | `rate(hits[5m]) / rate(queries[5m])` per pod | Yes (`PrefixCacheHitRate`) | Ratio from counters. |
+| $H％$ | `vllm:prefix_cache_hits`, `vllm:prefix_cache_queries` | `rate(hits[5m]) / rate(queries[5m])` per pod | Yes (`PrefixCacheHitRate`) | Ratio from counters. |
 | $TL^{max}$ | (not a Prometheus metric) | Parsed from `--max-model-len` in Deployment args | No | Static; useful for rejection rate estimation. |
 
 ---
@@ -320,13 +320,13 @@ These can be computed as pod-level or model-level averages without losing accura
 
 | Metric | Aggregation | Rationale |
 |--------|------------|-----------|
-| $KV\text{\\\%}$ | Average or max across pods | Directly observable; max is meaningful for saturation detection |
+| $KV％$ | Average or max across pods | Directly observable; max is meaningful for saturation detection |
 | $KV^{max}$ | Sum across pods (model capacity) or per-pod (per-replica) | Static hardware property |
 | $N$, $N_{wait}$ | Sum across pods | Additive; model-level $N = \sum N_{\text{pod}}$ |
 | $\lambda_{pre}$, $\lambda_{dec}$, $\lambda_{tok}$ | Sum across pods | Demand rates are additive |
 | $\mu_{tok}$ | Sum across pods | Supply throughput is additive |
 | $\lambda$, $\mu$ | Sum across pods | Request rate is additive |
-| $H\text{\\\%}$ | Volume-weighted mean across pods | Arithmetic mean is biased; use $\sum_{v}(\lambda_v \cdot H\text{\\\%}(v)) / \sum_{v} \lambda_v$ |
+| $H％$ | Volume-weighted mean across pods | Arithmetic mean is biased; use $\sum_{v}(\lambda_v \cdot H％(v)) / \sum_{v} \lambda_v$ |
 
 ### 7.2 Metrics That Require Per-$(IL, OL)$ Collection for Accuracy
 
@@ -356,7 +356,7 @@ ITL. Strategies in decreasing order of accuracy:
 
 2. **Proportional deconvolution** (K3 approach): Observe workload mixture weights
    $\pi_w = N_w / \sum_{w'} N_{w'}$ from EPP-side request counts. Use structural constraints
-   ($T_{tft}$ increases with $IL_{eff}$, ITL increases with $KV\text{\\\%}$) to solve for per-bin
+   ($T_{tft}$ increases with $IL_{eff}$, ITL increases with $KV％$) to solve for per-bin
    expectations via constrained least-squares fit to per-pod histogram moments.
 
 3. **Aggregate with mixture correction**: Use aggregate $\overline{T_{tft}}$
@@ -372,8 +372,8 @@ ITL. Strategies in decreasing order of accuracy:
 | Parameter | Preferred Source | Fallback | Reason |
 |-----------|-----------------|---------|--------|
 | $N$ | `vllm:num_requests_running` (direct) | Little's Law: $\lambda_v \cdot T_{e2e}$ | Direct measurement avoids $T_{e2e}$ estimation error |
-| $KV\text{\\\%}$ | `vllm:kv_cache_usage_perc` | — | Direct; no alternative |
-| $H\text{\\\%}$ | `rate(prefix_cache_hits) / rate(prefix_cache_queries)` | 0 (conservative: no caching) | Ratio from counters; 0 is safe default |
+| $KV％$ | `vllm:kv_cache_usage_perc` | — | Direct; no alternative |
+| $H％$ | `rate(prefix_cache_hits) / rate(prefix_cache_queries)` | 0 (conservative: no caching) | Ratio from counters; 0 is safe default |
 | $T_{tft}$ | `vllm:time_to_first_token_seconds` histogram | $T_{pre}$ (no-queue proxy, lower bound) | Histogram captures distribution; scalar proxy omits $W_{vllm}$ |
 | $T_{pre}$ | `vllm:request_prefill_time_seconds` (≥ v0.7.3, V1 engine) | $T_{tft} \cdot IL_{eff}/IL$ (queue-adjusted heuristic) | Compute-only signal; not yet collected in WVA |
 | ITL | `vllm:time_per_output_token_seconds` histogram | $\mu_{tok} / N_{dec}$ (supply GPS-derived) | Histogram is direct; GPS-derived requires $N_{dec}$ estimate |
@@ -391,7 +391,7 @@ ITL. Strategies in decreasing order of accuracy:
 | $T_{dec}$ | `vllm:request_decode_time_seconds` | **High** | Available in llm-d (same version requirement). Cross-check: $T_{dec} \approx \text{ITL} \cdot \overline{OL}$. |
 | $\mu$ (SRPS) | `vllm:request_success_total` | Low | Currently proxied via token rate counters. |
 | $\mu_{tok}$ (GPS, supply rate) | `rate(vllm:request_generation_tokens_sum[1m])` | Low | Supply-side observed throughput. Token averages collected; raw rate is not. Equals $\lambda_{dec}$ at steady state. |
-| $\lambda_{pre}$ (prefill demand, direct) | `rate(vllm:request_prompt_tokens_sum[1m])` | Low | Demand-side direct rate. Currently derived from $\lambda_v \cdot \overline{IL} \cdot (1 - H\text{\\\%})$ using collected scalars. |
+| $\lambda_{pre}$ (prefill demand, direct) | `rate(vllm:request_prompt_tokens_sum[1m])` | Low | Demand-side direct rate. Currently derived from $\lambda_v \cdot \overline{IL} \cdot (1 - H％)$ using collected scalars. |
 | $TL^{max}$ | `--max-model-len` Deployment arg | Low | Static; useful for rejection rate estimation. |
 | $N_{pre}$, $N_{dec}$ | — | **N/A** | **Do not exist in any released vLLM version** (as of v0.14.1). Tracked in open PR #33845. Estimate $N_{dec} \approx \mu_{tok} \cdot \text{ITL}$ (supply-side, using observed GPS). |
 | $IL$ distribution | `vllm:request_prompt_tokens_bucket` | **High** | Needed for per-$(IL, OL)$ bin workload analysis. |
@@ -411,7 +411,7 @@ The following maps mathematical symbols to their corresponding field names in
 
 | Symbol | Go Field / Derived Name | Source |
 |--------|------------------------|--------|
-| $KV\text{\\\%}$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` |
+| $KV％$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` |
 | $KV^{max}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` |
 | $KV$ | `TokensInUse` | `KvCacheUsage × TotalKvCapacityTokens` |
 | $N_{wait}$ | `QueueLength` | `vllm:num_requests_waiting` |
@@ -420,7 +420,7 @@ The following maps mathematical symbols to their corresponding field names in
 | $\lambda_v$ = $\lambda_{req,v}$ | `ArrivalRate` | `inference_extension_scheduler_attempts_total` |
 | $\overline{IL}$ | `AvgInputTokens` | `rate(prompt_tokens_sum/count)` |
 | $\overline{OL}$ | `AvgOutputTokens` | `rate(generation_tokens_sum/count)` |
-| $H\text{\\\%}$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` |
+| $H％$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` |
 | $\lambda_{pre,v}$ | `ArrivalRate × AvgInputTokens × (1 - PrefixCacheHitRate)` | derived |
 | $\lambda_{dec,v}$ | `ArrivalRate × AvgOutputTokens` | derived |
 | $\lambda_{tok,v}$ | `λ_pre_v + λ_dec_v` | derived |

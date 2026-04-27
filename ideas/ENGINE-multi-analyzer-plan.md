@@ -1,7 +1,6 @@
 # ENGINE: Generic Multi-Analyzer Pipeline
 
-> **Status: COMPLETE** — Committed on `engine-multi-analyzer` branch.
-> Commits: `b6d142a` (implementation), `a1f094d` (docs), `9fc4a62` (RegisterAnalyzer method).
+> **Status: PLANNED** — Independent of TA branches. No dependency on TA1/TA2/TA3.
 > Part of #1005 (infrastructure enabler). Unblocks the TA wiring PR.
 
 ---

@@ -23,9 +23,9 @@ At steady state with no queueing: $\mu_{pre} \geq \lambda_{pre}$,
 $\mu_{dec} = \lambda_{dec}$, and $\mu = \lambda$.
 
 These supply rates are **not constant**: they depend on the KV cache utilization
-$KV\text{\\\%}$, which reflects how many requests are concurrently in flight.
+$KV％$, which reflects how many requests are concurrently in flight.
 The central goal of this document is to estimate each supply signal as a
-function of $KV\text{\\\%}$.
+function of $KV％$.
 
 ---
 
@@ -34,13 +34,13 @@ function of $KV\text{\\\%}$.
 ### 2.1 Empirical observation
 
 Empirical measurements on H100 hardware — **type-1 experiments** in which $IL$
-and $OL$ are held fixed while RPS is increased to raise $KV\text{\\\%}$ — show
-that below KV saturation ($KV\text{\\\%} \lesssim 80\text{\\\%}$), ITL is well
-approximated by a **linear function of $KV\text{\\\%}$**:
+and $OL$ are held fixed while RPS is increased to raise $KV％$ — show
+that below KV saturation ($KV％ \lesssim 80％$), ITL is well
+approximated by a **linear function of $KV％$**:
 
 $$\boxed{\text{ITL}(k) = A(w) \cdot k + B}$$
 
-where $k = KV\text{\\\%} \in [0, 1]$, and:
+where $k = KV％ \in [0, 1]$, and:
 
 - $B \approx 0.006\,\text{s}$ is the **hardware baseline**: the per-token decode
   latency at zero KV load. It is nearly independent of workload $w$ and reflects
@@ -49,7 +49,7 @@ where $k = KV\text{\\\%} \in [0, 1]$, and:
 
 - $A(w)$ is the **load sensitivity**: the additional ITL per unit of KV cache
   utilization. It depends on the workload $w$ and decreases as $OL$ increases
-  (longer $OL$ → fewer concurrent requests at the same $KV\text{\\\%}$ → lower
+  (longer $OL$ → fewer concurrent requests at the same $KV％$ → lower
   per-step attention cost):
 
 | $IL$ | $OL$ | $A$ (s / KV fraction) | $B$ (s) | $R^2$ |
@@ -60,7 +60,7 @@ where $k = KV\text{\\\%} \in [0, 1]$, and:
 | 5000 | 1000 | 0.034                | 0.004   | 0.960 |
 | 6000 | 100  | 0.121                | 0.007   | 0.993 |
 
-Fits are computed only on unsaturated type-1 points ($KV\text{\\\%} < 80\%$,
+Fits are computed only on unsaturated type-1 points ($KV％ < 80％$,
 RPS increasing at fixed $IL$/$OL$). Type-2 (increasing $IL$) and type-3
 (increasing $OL$) experiments change the workload itself and produce different
 apparent $A$ values; they are not used for supply calibration.
@@ -82,7 +82,7 @@ $$\text{ITL}(k) = \bar{A} \cdot k + B, \qquad
 \bar{A} = \sum_{w \in \mathcal{W}} \pi_w \cdot A(w)$$
 
 $B$ is shared across bins and drops out of the weighting. The linearity of
-ITL in $KV\text{\\\%}$ therefore extends to mixed workloads as long as the
+ITL in $KV％$ therefore extends to mixed workloads as long as the
 mixture is steady — the slope $\bar{A}$ shifts if $\{\pi_w\}$ shifts, but
 at any fixed mixture the model holds.
 
@@ -115,8 +115,8 @@ yield poor estimates of both $A$ and $B$ regardless of count.
   $B = 0.006\,\text{s}$.
 - Exclude points at $k < 0.15$: the small $N_{dec}$ at low load makes ITL
   estimates noisy and they pull the intercept $B$ toward unreliable values.
-- Trigger a full re-fit whenever $|\Delta\overline{OL}| > 20\%$ or
-  $|\Delta\overline{IL}| > 20\%$ (workload shift changes $A$).
+- Trigger a full re-fit whenever $|\Delta\overline{OL}| > 20％$ or
+  $|\Delta\overline{IL}| > 20％$ (workload shift changes $A$).
 
 **Fallback (insufficient history):** fix $\hat{B} = 0.006\,\text{s}$ and
 estimate $A$ from a single mid-range observation:
@@ -140,13 +140,13 @@ $$N_{dec}(k) \approx \frac{k \cdot KV^{max}}{\overline{KV}_{req}}$$
 
 where $\overline{KV}_{req} = \overline{IL}_{eff} + \overline{OL}/2$ is the
 time-averaged KV footprint per decode request (TA-notation.md §4.1),
-$k = KV\text{\\\%}$, and $KV^{max}$ is
+$k = KV％$, and $KV^{max}$ is
 the total KV cache capacity in tokens.
 
 This estimate is derived entirely from rate-averaged metrics — no instantaneous
 counters are needed.
 
-### 3.2 GPS as a function of $KV\text{\\\%}$
+### 3.2 GPS as a function of $KV％$
 
 Substituting the linear ITL model (with coefficients $A$ and $B$ calibrated
 in §2) and the KV%-derived $N_{dec}$:
@@ -155,7 +155,7 @@ $$\boxed{\mu_{dec}(k) = \frac{N_{dec}(k)}{\text{ITL}(k)}
 = \frac{k \cdot KV^{max} / \overline{KV}_{req}}{A \cdot k + B}}$$
 
 This is a **hyperbolic rational function** of $k$: GPS rises sub-linearly with
-$KV\text{\\\%}$ across the full operating range and approaches an asymptotic
+$KV％$ across the full operating range and approaches an asymptotic
 ceiling only at extreme load:
 
 $$\mu_{dec}^{max} = \lim_{k \to \infty} \mu_{dec}(k) = \frac{KV^{max}}{A \cdot \overline{KV}_{req}}$$
@@ -166,14 +166,14 @@ vs. ceiling $\approx 1040\,\text{tok/s}$). GPS is therefore **still rising at 80
 KV%**, not flat — the increase is just decelerating. The curve is concave from
 below throughout the operating range; there is no plateau within it.
 
-The crossover $k \sim B/A \approx 0.006/0.06 = 10\%$ marks where the numerator's
+The crossover $k \sim B/A \approx 0.006/0.06 = 10％$ marks where the numerator's
 linear growth begins to be noticeably limited by the denominator — not a plateau,
 but the transition from near-linear to clearly sub-linear growth.
 
 ### 3.3 Supply at the target operating point $k_{sat}$
 
 With the same calibrated $\hat{A}$ and $\hat{B}$ from §2, the expected GPS at
-any target $KV\text{\\\%} = k_{sat}$ is:
+any target $KV％ = k_{sat}$ is:
 
 $$\mu_{dec}^{sat} = \frac{k_{sat} \cdot KV^{max} / \overline{KV}_{req}}{\hat{A} \cdot k_{sat} + \hat{B}}$$
 
@@ -187,7 +187,7 @@ can be verified at the current operating point $k^*$:
 
 $$\text{GPS}_{obs}(k^*) \approx \mu_{dec}(k^*)$$
 
-**At low load ($KV\text{\\\%} \lesssim 15\%$)**, errors of 10–20% are expected
+**At low load ($KV％ \lesssim 15％$)**, errors of 10–20% are expected
 even with a well-calibrated model. Two compounding causes:
 
 1. **Small $N_{dec}$**: with only 4–7 requests in flight, the rate-window
@@ -197,7 +197,7 @@ even with a well-calibrated model. Two compounding causes:
    A small absolute error in $B$ (e.g., 0.001 s) is a large relative error
    ($\sim$15%) in ITL and therefore in GPS.
 
-At moderate to high load ($KV\text{\\\%} \gtrsim 30\%$) the model consistently
+At moderate to high load ($KV％ \gtrsim 30％$) the model consistently
 tracks observed GPS within 5–10% on type-1 experiments (fixed $IL$/$OL$,
 increasing RPS). Errors above 15% at higher load indicate either a workload
 shift ($\overline{OL}$ or $\overline{IL}$ changed) or that the system is not
@@ -211,7 +211,7 @@ The request completion rate $\mu_{RPS}$ is derived from Little's Law applied to 
 
 ### 4.1 Derivation from Little's Law
 
-At operating point $k = KV\%$, with $N_{pre} \approx 1$ (non-chunked prefill) and $N_{dec}(k)$ from §3.1:
+At operating point $k = KV％$, with $N_{pre} \approx 1$ (non-chunked prefill) and $N_{dec}(k)$ from §3.1:
 
 $$N(k) = N_{dec}(k) + 1 = \frac{k \cdot KV^{max}}{\overline{KV}_{req}} + 1$$
 
@@ -245,7 +245,7 @@ The full multiplicative correction accounting for prefill overhead and the $N^{m
 
 $$\frac{\mu_{RPS}}{\mu_{dec}/\overline{OL}} = \underbrace{\frac{N_{dec}+1}{N_{dec}}}_{\text{prefill slot}} \cdot \underbrace{\frac{\overline{OL} \cdot \text{ITL}}{T_{pre} + \overline{OL} \cdot \text{ITL}}}_{\text{prefill time fraction}} \cdot \underbrace{\mathbb{1}_{[N(k) \leq N^{max}]}}_{\text{cap indicator}}$$
 
-The first term accounts for the single prefill request (typically $+1/N_{dec} \approx 5\%$ correction); the second adjusts for time spent in prefill vs. decode; the third enforces the $N^{max}$ bound.
+The first term accounts for the single prefill request (typically $+1/N_{dec} \approx 5％$ correction); the second adjusts for time spent in prefill vs. decode; the third enforces the $N^{max}$ bound.
 
 ### 4.3 The $N^{max}$ cap
 
@@ -412,7 +412,7 @@ $\mu_{pre} = \lambda_{pre}$ — a balance condition, not a capacity measurement.
 
 **Direct measurement (preferred, when collected):**
 
-$$\mu_{pre,v} = \text{rate}(\texttt{vllm:request\_prompt\_tokens\_sum}[\Delta t]) \cdot (1 - H\text{\\\%}_v)$$
+$$\mu_{pre,v} = \text{rate}(\texttt{vllm:request\_prompt\_tokens\_sum}[\Delta t]) \cdot (1 - H％_v)$$
 
 **From $N_{pre}$ and $T_{pre}$ (when $T_{pre}$ is collected):**
 
@@ -430,7 +430,7 @@ The ITL model $\text{ITL}(k) = A \cdot k + B$ must be calibrated per variant $v$
 and updated as the workload mix $\{\pi_w\}$ shifts. The procedure is:
 
 1. **Collect** $(k_i, \text{ITL}_i)$ pairs from recent observations at
-   $KV\text{\\\%} \in (0.15, 0.80)$ (at least 5 points spanning ≥ 30% KV% range;
+   $KV％ \in (0.15, 0.80)$ (at least 5 points spanning ≥ 30% KV% range;
    ideally 15–20 points spanning 20%–70%).
    Use the rate-averaged `AvgITL` and `KvCacheUsage` fields — no instantaneous
    metrics are needed.
@@ -450,8 +450,8 @@ and updated as the workload mix $\{\pi_w\}$ shifts. The procedure is:
    $\mu_{dec}^{sat}$ at $k_{sat} = 0.75\text{–}0.80$.
 
 6. **Update** periodically (e.g., every 5–10 minutes) or whenever the workload
-   mix shifts detectably (e.g., $|\Delta\overline{IL}| > 20\%$ or
-   $|\Delta\overline{OL}| > 20\%$).
+   mix shifts detectably (e.g., $|\Delta\overline{IL}| > 20％$ or
+   $|\Delta\overline{OL}| > 20％$).
 
 ---
 
@@ -486,7 +486,7 @@ at lower $k$ — a true out-of-sample prediction. To verify this capability:
 **Test procedure:**
 
 1. Collect a type-1 dataset: fix $IL$ and $OL$, sweep RPS to cover
-   $KV\text{\\\%}$ from ≈20% to ≈85%.
+   $KV％$ from ≈20% to ≈85%.
 2. **Split:** training set $k < 0.70$, test set $k \in [0.70, 0.85]$.
 3. **Fit** $(A, B)$ on the training set only.
 4. **Predict** $\mu_{dec}$ at each test point using the fitted model and the
@@ -557,13 +557,13 @@ in priority order to validate and anchor the model:
 
 | Symbol | Go Field | Prometheus Metric | Stability |
 |--------|----------|------------------|-----------|
-| $KV\%$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` | Gauge, use `max_over_time[1m]` |
+| $KV％$ | `KvCacheUsage` | `vllm:kv_cache_usage_perc` | Gauge, use `max_over_time[1m]` |
 | $KV^{max}$ | `TotalKvCapacityTokens` | `num_gpu_blocks × block_size` | Static labels |
 | $N$ | `RunningRequests` | `vllm:num_requests_running` | Gauge (instantaneous) |
 | $\overline{IL}_{eff}$ | derived | `rate(prompt_tokens_sum/count) × (1-H%)` | Rate-based, very stable |
 | $\overline{OL}$ | `AvgOutputTokens` | `rate(generation_tokens_sum/count)` | Rate-based, very stable |
 | ITL | `AvgITL` | `rate(time_per_output_token_seconds_sum/count)` | Rate-based, very stable |
-| $H\%$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` | Rate-based |
+| $H％$ | `PrefixCacheHitRate` | `rate(prefix_cache_hits/queries)` | Rate-based |
 | $\lambda$ | `ArrivalRate` | `inference_extension_scheduler_attempts_total` | Rate-based |
 
 ### 8.2 Using direct phase duration metrics
@@ -591,7 +591,7 @@ $$N_{dec}^{sat} = \frac{k_{sat} \cdot KV^{max}}{\overline{KV}_{req}}, \quad N^{s
 
 **The condition $N(k^*) > N_{dec}^{sat}$** indicates the current running request count exceeds the **decode-slot capacity** at the saturation target. This is a **leading indicator** of saturation because:
 
-1. **It requires no rate measurements**—only $KV\%$, $KV^{max}$, and $\overline{KV}_{req}$ (all gauge-like or static)
+1. **It requires no rate measurements**—only $KV％$, $KV^{max}$, and $\overline{KV}_{req}$ (all gauge-like or static)
 2. **It is less noisy** than GPS comparisons at low load (no small-$N_{dec}$ variance)
 3. **It predicts saturation** before GPS degradation becomes severe
 
@@ -677,7 +677,7 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
    $N_{dec}$ is no longer a good approximation for $N$. In this regime, $T_{pre}$
    data is needed to separate $N_{pre}$ from $N_{dec}$.
 
-2. **The linear ITL model holds at least to $KV\text{\\\%} \approx 85\%$.** Fitting
+2. **The linear ITL model holds at least to $KV％ \approx 85％$.** Fitting
    a quadratic term $C \cdot k^2$ to H100 data improves $R^2$ by less than
    0.1% for all measured workloads (OL = 100, 200, 500), and the fitted $C$ is
    near zero or negative. Residuals at KV% > 70% are within ±2–6 ms of the
@@ -690,9 +690,9 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
    $\mu_{dec}(k)$ curve is concave from below and approaches its ceiling
    asymptotically. At 80% KV%, GPS is typically at 90–95% of the ceiling, so
    the increment from 60% to 80% is small but non-zero. Do not treat GPS as
-   constant above any finite $KV\text{\\\%}$.
+   constant above any finite $KV％$.
 
-4. **Low-load GPS estimates are less reliable.** At $KV\text{\\\%} \lesssim 15\%$,
+4. **Low-load GPS estimates are less reliable.** At $KV％ \lesssim 15％$,
    $N_{dec} \approx 4\text{–}7$, making rate-window averages noisy and absolute
    ITL errors (in $B$) proportionally large. Use low-load observations only
    as soft sanity checks, not as primary calibration data.
@@ -717,7 +717,7 @@ k_threshold = min(k_knee, k_sat)  # if k_knee is valid (denom > 0)
 
 9. **The TTFT knee is the relevant saturation threshold for short-output workloads.**
    For $\overline{OL} \lesssim 150$, $k_{knee}$ (§5.2) may be as low as 20–30%
-   KV%, far below the decode-saturation threshold $k_{sat} \approx 75\text{–}80\%$.
+   KV%, far below the decode-saturation threshold $k_{sat} \approx 75\text{–}80％$.
    Using $k_{sat}$ as the scale-up trigger for these workloads means the
    autoscaler reacts too late — TTFT SLO violations occur well before GPS
    saturation. Scale-up decisions should use $\min(k_{knee}, k_{sat})$ as the
