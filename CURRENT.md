@@ -19,7 +19,7 @@ Phase:
   - [x] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `ee4ac58`, not yet submitted)
   - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, ready to submit)
 - [x] E2E infrastructure — kind cluster up, Step 1a + 1b passed (31/31 smoke tests each)
-- [ ] E2E test scenarios — `test/e2e/throughput_analyzer_test.go` (3 scenarios)
+- [ ] E2E test scenarios — `test/e2e/throughput_analyzer_test.go` (3 scenarios, file written — discuss before running)
 - [ ] PR review
 - [ ] Merge
 
@@ -34,7 +34,9 @@ Plan doc:
 - `ideas/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
 
 Next step:
-- Write `test/e2e/throughput_analyzer_test.go` (three scenarios per `ideas/TA-e2e-plan.md § Task 2`)
+- [ ] Discuss e2e test design (scenarios, load strategy, assertions) — awaiting discussion
+- [ ] Review `test/e2e/throughput_analyzer_test.go` (drafted, not yet run)
+- [ ] Run scenarios per `ideas/TA-e2e-plan.md § Task 2`
 
 ---
 
