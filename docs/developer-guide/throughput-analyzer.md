@@ -326,7 +326,7 @@ On leader failover the incoming leader starts with an empty analyzer. During war
        │ vllm:request_prompt_tokens_*            (QueryAvgInputTokens        → AvgInputTokens)
        │ vllm:prefix_cache_hits/queries          (QueryPrefixCacheHitRate    → PrefixCacheHitRate)
        │ inference_extension_scheduler_*         (QuerySchedulerDispatchRate → ArrivalRate)
-       │ inference_extension_flow_control_*      (QueryFlowControlQueueSize  → QueueSize)
+       │ inference_extension_flow_control_*      (QuerySchedulerQueueSize    → QueueSize)
        ↓
 ┌─────────────────────────┐
 │ ReplicaMetricsCollector │  ← internal/collector/replica_metrics.go
