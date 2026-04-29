@@ -1,20 +1,33 @@
 # Current Work
 
-**Last updated:** 2026-04-28  
-**Branch:** TA1 (context switch — TA3 paused, see § TA3 Paused State below)
+**Last updated:** 2026-04-29  
+**Branch:** TA3 (PR #1051 review done; TA2/TA3 rebased; TA3 still paused — see § TA3 Paused State)
 
 ---
 
 ## Current Task
 
-Feature: ThroughputAnalyzer — TA1 review comments (PR #1051)
+Feature: ThroughputAnalyzer — PR #1051 review complete; TA2/TA3 rebased
 
-**Status:** Addressing review comments on TA1 (query registration + collector wiring).  
-TA3 work is paused and intact — resume from § TA3 Paused State below once TA1 is resolved.
+**Status (2026-04-29):** All 5 PR #1051 review comments addressed and CI passing. PR description
+updated to reflect the 3-query simplification. TA2 rebased onto `0c3933c`. TA3 rebased onto new TA2.
+Plan files (TA-PR1/2/3-plan.md) updated with renamed constants (`KvUsageInstant`, `QueryKvUsageInstant`).
+
+**What changed in TA1 (accumulated over 2026-04-28/29):**
+- `QueryKvTokensUsed` → `QueryKvUsageInstant` (`kv_tokens_used` → `kv_usage_instant`)
+- `KvUtilization` → `KvUsageInstant` (ReplicaMetrics field)
+- Doc moved: `docs/user-guide/` → `docs/developer-guide/throughput-analyzer.md`
+- Pending markers + architecture note added to doc (PR-3/PR-4 callouts)
+- Duplicate-panic test replaces redundant test (comment 4)
+- Pod/pod_name fallback doc comment added (comment 5)
+
+**Branch tips after rebase:**
+- TA1: `0c3933c` (pushed to origin, PR #1051 CI green)
+- TA2: `ed63932` (local only — not pushed)
+- TA3: `56fade2` (local only — not pushed)
 
 Next step:
-- [ ] Review TA1 comments and discuss approach
-- [ ] Address comments, update PR #1051
+- [ ] Discuss TA2 changes and PR-4 before resuming TA3 work
 
 ---
 
@@ -26,10 +39,10 @@ Phase:
 - [x] Design discussion
 - [x] Design frozen
 - [x] Implementation
-  - [x] PR-1/PR-2: query registration + collector wiring (TA1, #1051 — awaiting review)
+  - [x] PR-1/PR-2: query registration + collector wiring (TA1, #1051 — review resolved, CI green)
   - [x] PR-3: state management — ShapeTracker, ObservationWindow, SanityReport (TA2, #1052 — awaiting review)
-  - [x] PR-4: ITL model + scaling signal (TA3 commit `c68210a`, not yet submitted)
-  - [x] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `ee4ac58`, not yet submitted)
+  - [x] PR-4: ITL model + scaling signal (TA3 commit `52553dc`, not yet submitted)
+  - [x] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `8c67138`, not yet submitted)
   - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, ready to submit)
 - [x] E2E infrastructure — kind cluster up, Step 1a + 1b passed (31/31 smoke tests each)
 - [ ] E2E test scenarios — `test/e2e/throughput_analyzer_test.go` (3 scenarios, file written — discuss before running)
@@ -41,7 +54,7 @@ Design docs:
 - `ideas/TA-overview.md` — supply/demand model and analyzer overview
 - `ideas/TA-PR4-plan.md` — ITL model + scaling signal (PR-4)
 - `ideas/TA-PR5-plan.md` — wiring PR plan (PR-5)
-- `docs/user-guide/throughput-analyzer.md` — user-facing reference
+- `docs/developer-guide/throughput-analyzer.md` — user-facing reference
 
 Plan doc:
 - `ideas/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
@@ -67,7 +80,7 @@ Next step:
 
 ## TA PR-5: Committed on TA3
 
-**Commit:** `ee4ac58` on TA3
+**Commit:** `8c67138` on TA3 (new hash after TA3 rebase onto TA2)
 
 Two-line wiring in `main.go`:
 ```go
@@ -153,4 +166,4 @@ combined.SC = min_i(util_slack_i)  × sat_total   # all-down; 0 if any analyzer 
 - **EPP image version mismatch** — `install.sh` patches EPP to v0.7.0 but local llm-d is v0.5.0; file as infra bug
 - **Gateway prompt bug** — `install_core.sh` fires interactive prompt when `E2E_TESTS_ENABLED=false` even with explicit `INSTALL_GATEWAY_CTRLPLANE=true`; file as infra bug
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable; file as Makefile bug
-- **ndots fix standalone PR** — commit `c03cdc7` on TA3 (`test/e2e/fixtures/workload_builder.go`) needs its own PR to `main` before or alongside TA3 merge
+- **ndots fix standalone PR** — commit `0614d9d` on TA3 (`test/e2e/fixtures/workload_builder.go`) needs its own PR to `main` before or alongside TA3 merge
