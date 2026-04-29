@@ -20,7 +20,7 @@ func makeMetrics(variant string, count int, baseK float64, kStep float64) []inte
 			PodName:               "pod-" + variant + "-" + string(rune('0'+i)),
 			VariantName:           variant,
 			KvCacheUsage:          k,
-			KvUsageInstant:         k,
+			KvUsageInstant:        k,
 			TotalKvCapacityTokens: 65536,
 			AvgInputTokens:        1024,
 			AvgOutputTokens:       256,
@@ -40,7 +40,7 @@ func injectWindowObs(a *ThroughputAnalyzer, ctx context.Context, modelID, namesp
 		m := interfaces.ReplicaMetrics{
 			VariantName:           variant,
 			KvCacheUsage:          k,
-			KvUsageInstant:         k,
+			KvUsageInstant:        k,
 			AvgITL:                A*k + B,
 			AvgInputTokens:        il,
 			AvgOutputTokens:       ol,
@@ -276,7 +276,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			return interfaces.ReplicaMetrics{
 				VariantName:           "v1",
 				KvCacheUsage:          k,
-				KvUsageInstant:         k,
+				KvUsageInstant:        k,
 				AvgITL:                A*k + B,
 				AvgInputTokens:        il,
 				AvgOutputTokens:       ol,
@@ -383,7 +383,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			return interfaces.ReplicaMetrics{
 				VariantName:           "v1",
 				KvCacheUsage:          k,
-				KvUsageInstant:         k,
+				KvUsageInstant:        k,
 				AvgITL:                0.073*k + 0.006,
 				AvgInputTokens:        5000,
 				AvgOutputTokens:       200,
@@ -420,7 +420,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			idleReplica := interfaces.ReplicaMetrics{
 				VariantName:           "v1",
 				KvCacheUsage:          0.0,
-				KvUsageInstant:         0.0,
+				KvUsageInstant:        0.0,
 				AvgITL:                0.006,
 				AvgInputTokens:        5000,
 				AvgOutputTokens:       200,
@@ -450,7 +450,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			analyzer.Observe(ctx, modelID, namespace, []interfaces.ReplicaMetrics{{
 				VariantName:           "v1",
 				KvCacheUsage:          0.50,
-				KvUsageInstant:         0.50,
+				KvUsageInstant:        0.50,
 				AvgITL:                0.073*0.50 + 0.006,
 				AvgInputTokens:        7500, // +50% — exceeds 20% tolerance, clears window
 				AvgOutputTokens:       200,
@@ -467,7 +467,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ReplicaMetrics: []interfaces.ReplicaMetrics{{
 					VariantName:           "v1",
 					KvCacheUsage:          0.0,
-					KvUsageInstant:         0.0,
+					KvUsageInstant:        0.0,
 					AvgITL:                0.006,
 					AvgInputTokens:        7500,
 					AvgOutputTokens:       200,
@@ -525,7 +525,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			replica := interfaces.ReplicaMetrics{
 				VariantName:           "v1",
 				KvCacheUsage:          0.50,
-				KvUsageInstant:         0.50,
+				KvUsageInstant:        0.50,
 				AvgITL:                A*0.50 + B,
 				AvgInputTokens:        il,
 				AvgOutputTokens:       ol,
@@ -600,7 +600,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			return interfaces.ReplicaMetrics{
 				VariantName:           variant,
 				KvCacheUsage:          k,
-				KvUsageInstant:         k,
+				KvUsageInstant:        k,
 				AvgITL:                A*k + B,
 				AvgInputTokens:        il,
 				AvgOutputTokens:       ol,
