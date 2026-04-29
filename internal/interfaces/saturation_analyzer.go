@@ -107,12 +107,12 @@ type ReplicaMetrics struct {
 	// Zero when metrics are unavailable.
 	GenerationTokenRate float64
 
-	// KvUtilization is the instantaneous KV cache utilization fraction on this replica (0.0–1.0).
+	// KvUsageInstant is the instantaneous KV cache utilization fraction on this replica (0.0–1.0).
 	// Derived from vllm:kv_cache_usage_perc (no max_over_time window).
 	// TA notation: k* — the current operating point in the ITL model ITL(k) = A·k + B.
 	// Differs from KvCacheUsage which uses max_over_time[1m] for the saturation analyzer.
 	// Zero when metrics are unavailable.
-	KvUtilization float64
+	KvUsageInstant float64
 
 	// VLLMRequestRate is the vLLM-side request completion rate on this replica (req/s).
 	// Derived from rate(vllm:request_generation_tokens_count[1m]) per pod.
