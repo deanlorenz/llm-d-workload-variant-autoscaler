@@ -21,6 +21,23 @@ limitations under the License.
 // source infrastructure. Saturation metrics (KV cache, queue length, token
 // capacity) and queueing model metrics (scheduler dispatch rate, max batch
 // size) are collected together and exposed via the shared ReplicaMetrics struct.
+//
+// # Pod label fallback
+//
+// Every processing block in Refresh() extracts a pod identity from Prometheus
+// labels using a two-step fallback:
+//
+//	podName := value.Labels["pod"]
+//	if podName == "" {
+//	    podName = value.Labels["pod_name"]
+//	}
+//
+// vLLM metrics are typically scraped via a PodMonitor or ServiceMonitor that
+// applies the Prometheus operator's default target-relabeling, which produces
+// a "pod" label. Some scrape configurations (e.g., raw Prometheus scrape jobs,
+// kube-state-metrics–style configs) instead expose the pod identity as
+// "pod_name". The fallback handles both conventions so the collector works
+// regardless of how the Prometheus scrape is configured.
 package collector
 
 import (

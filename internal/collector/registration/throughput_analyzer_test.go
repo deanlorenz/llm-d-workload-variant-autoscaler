@@ -33,13 +33,13 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 			queryList = registry.Get("prometheus").QueryList()
 		})
 
-		It("should not panic during registration", func() {
-			reg2 := source.NewSourceRegistry()
-			metricsSource2 := prometheus.NewPrometheusSource(ctx, mockAPI, prometheus.DefaultPrometheusSourceConfig())
-			Expect(reg2.Register("prometheus", metricsSource2)).To(Succeed())
+		It("should panic when RegisterThroughputAnalyzerQueries is called twice on the same registry", func() {
+			// MustRegister panics on duplicate names; calling the function a second
+			// time on the same registry (queries already registered by BeforeEach)
+			// must trigger that panic.
 			Expect(func() {
-				RegisterThroughputAnalyzerQueries(reg2)
-			}).NotTo(Panic())
+				RegisterThroughputAnalyzerQueries(registry)
+			}).To(Panic())
 		})
 
 		It("should register exactly the three TA-exclusive queries", func() {
