@@ -1,11 +1,24 @@
 # Current Work
 
-**Last updated:** 2026-04-27  
-**Branch:** TA3
+**Last updated:** 2026-04-28  
+**Branch:** TA1 (context switch — TA3 paused, see § TA3 Paused State below)
 
 ---
 
 ## Current Task
+
+Feature: ThroughputAnalyzer — TA1 review comments (PR #1051)
+
+**Status:** Addressing review comments on TA1 (query registration + collector wiring).  
+TA3 work is paused and intact — resume from § TA3 Paused State below once TA1 is resolved.
+
+Next step:
+- [ ] Review TA1 comments and discuss approach
+- [ ] Address comments, update PR #1051
+
+---
+
+## TA3 Paused State
 
 Feature: ThroughputAnalyzer (TA) — E2E test scenarios
 
