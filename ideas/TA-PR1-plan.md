@@ -28,8 +28,8 @@ implementation it was discovered that `RegisterSaturationQueries` already regist
 The saturation analyzer registers `QueryKvCacheUsage` with `max_over_time[1m]` to
 catch worst-case peaks for conservative guardrails (stored in `KvCacheUsage`). The
 throughput analyzer evaluates `ITL(k*)` at the **current operating point** — using
-a peak would systematically overestimate load. A separate `QueryKvTokensUsed` with
-an instantaneous `max by (pod)` is required and stored in a distinct `KvUtilization`
+a peak would systematically overestimate load. A separate `QueryKvUsageInstant` with
+an instantaneous `max by (pod)` is required and stored in a distinct `KvUsageInstant`
 field. Both fields coexist on `ReplicaMetrics` for their respective purposes.
 
 ---
@@ -45,7 +45,7 @@ Two new query constants registered via `MustRegister`:
   This is the directly observed decode token rate per pod (tokens/sec), μ_dec^obs.
   `sum by (pod)` collapses histogram buckets; `rate(_sum)` gives true tokens/sec.
 
-- **`QueryKvTokensUsed`** (`kv_tokens_used`) — `max by (pod)` of
+- **`QueryKvUsageInstant`** (`kv_usage_instant`) — `max by (pod)` of
   `vllm:kv_cache_usage_perc`. Instantaneous KV cache utilization fraction (0.0–1.0),
   used as k* in `ITL(k) = A·k + B`. Does not use `max_over_time`; the throughput
   analyzer needs the current operating point, not the worst-case peak.
@@ -54,11 +54,11 @@ Two new query constants registered via `MustRegister`:
 
 Two new fields added to `ReplicaMetrics`:
 - `GenerationTokenRate float64` — μ_dec^obs per pod (tok/s)
-- `KvUtilization float64` — k* per pod (0.0–1.0), distinct from `KvCacheUsage`
+- `KvUsageInstant float64` — k* per pod (0.0–1.0), distinct from `KvCacheUsage`
 
 ### `internal/collector/replica_metrics.go`
 
-`Refresh()` wired to populate `GenerationTokenRate` and `KvUtilization` from the
+`Refresh()` wired to populate `GenerationTokenRate` and `KvUsageInstant` from the
 two new query results.
 
 ---

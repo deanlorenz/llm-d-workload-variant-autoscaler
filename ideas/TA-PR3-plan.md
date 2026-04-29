@@ -115,7 +115,7 @@ metrics []ReplicaMetrics
             if changed: ObservationWindow.Clear()
             │
             for each replica:
-                ObservationWindow.Add(KvUtilization, AvgITL, now)
+                ObservationWindow.Add(KvUsageInstant, AvgITL, now)
             ObservationWindow.Prune(now)
 ```
 
@@ -136,9 +136,9 @@ metrics []ReplicaMetrics
 ## Bug Fix Applied in TA3 (not TA2)
 
 `sanity.go` originally checked `KvCacheUsage` (the saturation peak field) for the
-`kv_utilization_out_of_range` issue. PR-4 uses `KvUtilization` (the instantaneous
+`kv_utilization_out_of_range` issue. PR-4 uses `KvUsageInstant` (the instantaneous
 field registered in PR-1) as k* for the ITL model, so the sanity check should guard
-that field. The fix — changing `KvCacheUsage` to `KvUtilization` in `CheckModelMetrics`
+that field. The fix — changing `KvCacheUsage` to `KvUsageInstant` in `CheckModelMetrics`
 — was discovered when writing PR-4 and applied on the TA3 branch (not backported to
 TA2, which was already submitted).
 

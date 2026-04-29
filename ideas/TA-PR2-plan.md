@@ -58,9 +58,10 @@ between `ArrivalRate` and `VLLMRequestRate` signals queuing depth.
 
 ### `internal/collector/registration/throughput_analyzer_test.go`
 
-6 specs: no-panic on double registration, three query presence checks (one per query),
-one template-rendering check per query (namespace/modelID substitution), and a
-no-prometheus-source guard (no panic).
+6 specs: panic-on-double-registration (MustRegister panics when called twice on the
+same registry), three query presence checks (one per query), one template-rendering
+check per query (namespace/modelID substitution), and a no-prometheus-source guard
+(no panic).
 
 ### `internal/interfaces/saturation_analyzer.go`
 
@@ -87,7 +88,7 @@ no-prometheus-source guard (no panic).
 
 ## Not in this PR
 
-- Supply queries (`QueryGenerationTokenRate`, `QueryKvTokensUsed`) — PR-1
+- Supply queries (`QueryGenerationTokenRate`, `QueryKvUsageInstant`) — PR-1
 - Analyzer package — PR-3
 - ITL model and scaling signal — PR-4
 - Wiring into engine pipeline — PR-5
