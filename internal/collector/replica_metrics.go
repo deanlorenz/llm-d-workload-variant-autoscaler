@@ -183,7 +183,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		avgITLTimestamp      time.Time
 		// Throughput analyzer fields
 		generationTokenRate float64
-		kvUsageInstant       float64
+		kvUsageInstant      float64
 		vllmRequestRate     float64
 	}
 
@@ -679,7 +679,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 			AvgTTFT:               data.avgTTFT,
 			AvgITL:                data.avgITL,
 			GenerationTokenRate:   data.generationTokenRate,
-			KvUsageInstant:         data.kvUsageInstant,
+			KvUsageInstant:        data.kvUsageInstant,
 			VLLMRequestRate:       data.vllmRequestRate,
 			Metadata: &interfaces.ReplicaMetricsMetadata{
 				CollectedAt:     collectedAt,
