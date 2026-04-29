@@ -33,14 +33,24 @@ const (
 	// Source: vllm:request_generation_tokens_sum (histogram _sum counter)
 	QueryGenerationTokenRate = "generation_token_rate"
 
-	// QueryKvTokensUsed is the query name for the current KV cache utilization
-	// fraction per pod (0.0–1.0), measured instantaneously.
-	// Used as k* (current operating point) in the ITL model: ITL(k) = A·k + B.
-	// Note: unlike QueryKvCacheUsage (saturation), this query does NOT use
-	// max_over_time — the throughput analyzer needs the current operating point,
-	// not the worst-case peak used by the saturation analyzer.
+	// QueryKvUsageInstant is the query name for the instantaneous KV cache utilization
+	// fraction per pod (0.0–1.0). Used as k* (current operating point) in the ITL
+	// model: ITL(k) = A·k + B.
+	//
+	// Same underlying metric as QueryKvCacheUsage (vllm:kv_cache_usage_perc), but
+	// without max_over_time. QueryKvCacheUsage wraps the gauge in max_over_time[1m]
+	// to give the saturation analyzer a conservative peak. This query reads the raw
+	// gauge so the throughput analyzer sees the current operating point, not a
+	// 1-minute high-water mark that could overestimate load and trigger premature
+	// scale-up after a transient spike.
+	//
+	// max by (pod): deduplication only. vllm:kv_cache_usage_perc is a single scalar
+	// gauge per vLLM process; there is one series per pod in normal deployment. The
+	// max by (pod) collapses any duplicate series that arise when a pod is scraped by
+	// multiple targets (e.g., PodMonitor + ServiceMonitor). Since duplicates carry the
+	// same value, max = avg — the choice has no effect on correctness.
 	// Source: vllm:kv_cache_usage_perc (gauge)
-	QueryKvTokensUsed = "kv_tokens_used"
+	QueryKvUsageInstant = "kv_usage_instant"
 
 	// QueryVLLMRequestRate is the query name for the vLLM-side request completion
 	// rate per pod (req/s), derived from the generation tokens histogram count.
@@ -61,7 +71,7 @@ const (
 //
 // Registered queries:
 //   - QueryGenerationTokenRate — μ_dec^obs: observed decode token rate per pod
-//   - QueryKvTokensUsed        — k*: instantaneous KV cache utilization per pod
+//   - QueryKvUsageInstant        — k*: instantaneous KV cache utilization per pod
 //   - QueryVLLMRequestRate     — fallback λ_req: completion rate per pod when EPP absent
 //
 // Additional TA inputs are read from interfaces.ReplicaMetrics fields populated by
@@ -104,7 +114,7 @@ func RegisterThroughputAnalyzerQueries(sourceRegistry *source.SourceRegistry) {
 	// Does NOT use max_over_time: the throughput analyzer needs the current
 	// operating point k*, not the worst-case peak used by the saturation analyzer.
 	registry.MustRegister(source.QueryTemplate{
-		Name:        QueryKvTokensUsed,
+		Name:        QueryKvUsageInstant,
 		Type:        source.QueryTypePromQL,
 		Template:    `max by (pod) (vllm:kv_cache_usage_perc{namespace="{{.namespace}}",model_name="{{.modelID}}"})`,
 		Params:      []string{source.ParamNamespace, source.ParamModelID},

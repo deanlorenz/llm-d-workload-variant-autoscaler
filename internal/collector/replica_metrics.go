@@ -99,7 +99,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 	// - Saturation: KV cache, queue length, cache config, prefix cache hit rate
 	// - Shared (saturation + queueing model): avg input tokens, avg output tokens
 	// - Queueing model: scheduler dispatch rate, avg TTFT, avg ITL
-	// - Throughput analyzer: generation token rate, instantaneous KV utilization, vLLM request rate
+	// - Throughput analyzer: generation token rate, instantaneous KV usage (k*), vLLM request rate
 	queries := []string{
 		registration.QueryKvCacheUsage,
 		registration.QueryQueueLength,
@@ -111,7 +111,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		registration.QueryAvgTTFT,
 		registration.QueryAvgITL,
 		registration.QueryGenerationTokenRate,
-		registration.QueryKvTokensUsed,
+		registration.QueryKvUsageInstant,
 		registration.QueryVLLMRequestRate,
 	}
 
@@ -145,7 +145,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		avgITL         float64
 		// Throughput analyzer fields
 		generationTokenRate float64
-		kvUtilization       float64
+		kvUsageInstant       float64
 		vllmRequestRate     float64
 	}
 
@@ -422,8 +422,8 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		}
 	}
 
-	// Process instantaneous KV utilization results (0.0–1.0) — throughput analyzer k*
-	if result := results[registration.QueryKvTokensUsed]; result != nil {
+	// Process instantaneous KV usage (k*) results (0.0–1.0) — throughput analyzer k*
+	if result := results[registration.QueryKvUsageInstant]; result != nil {
 		if !result.HasError() {
 			for _, value := range result.Values {
 				podName := value.Labels["pod"]
@@ -437,7 +437,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 					podData[podName] = &podMetricData{}
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 && value.Value <= 1 {
-					podData[podName].kvUtilization = value.Value
+					podData[podName].kvUsageInstant = value.Value
 				}
 			}
 		}
@@ -588,7 +588,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 			AvgTTFT:               data.avgTTFT,
 			AvgITL:                data.avgITL,
 			GenerationTokenRate:   data.generationTokenRate,
-			KvUtilization:         data.kvUtilization,
+			KvUsageInstant:         data.kvUsageInstant,
 			VLLMRequestRate:       data.vllmRequestRate,
 			Metadata: &interfaces.ReplicaMetricsMetadata{
 				CollectedAt:     collectedAt,

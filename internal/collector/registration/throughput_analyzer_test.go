@@ -45,7 +45,7 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 		It("should register exactly the three TA-exclusive queries", func() {
 			expectedQueries := []string{
 				QueryGenerationTokenRate,
-				QueryKvTokensUsed,
+				QueryKvUsageInstant,
 				QueryVLLMRequestRate,
 			}
 			for _, name := range expectedQueries {
@@ -68,8 +68,8 @@ var _ = Describe("RegisterThroughputAnalyzerQueries", func() {
 			Expect(rendered).To(ContainSubstring(`vllm:request_generation_tokens_sum`))
 		})
 
-		It("should build QueryKvTokensUsed without max_over_time", func() {
-			rendered, err := queryList.Build(QueryKvTokensUsed, map[string]string{
+		It("should build QueryKvUsageInstant without max_over_time", func() {
+			rendered, err := queryList.Build(QueryKvUsageInstant, map[string]string{
 				source.ParamNamespace: "test-ns",
 				source.ParamModelID:   "test-model",
 			})
