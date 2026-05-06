@@ -217,6 +217,25 @@ Implements `interfaces.Analyzer`. Groups replicas by `VariantName`, runs sanity 
 updates per-variant shape tracker and observation window in `Observe()`, then computes
 supply, demand, and model-level RC/SC signals in `Analyze()`.
 
+### State and High Availability
+
+`ThroughputAnalyzer` is stateful across reconcile cycles: it accumulates `(k*, ITL)` observations until the window is ready to fit the ITL model. The state is **in-memory only** — a `map[string]*variantState` held inside the analyzer instance, with no persistence to etcd or Kubernetes.
+
+Per-variant state is minimal:
+
+| Field | What it holds |
+|---|---|
+| `ShapeTracker` | Three EMA floats: IL, OL, prefix hit rate |
+| `ObservationWindow` | Rolling slice of ≤ 10 `(k*, ITL_obs)` pairs + timestamps |
+| `lastSanityReport` | Most recent sanity check result |
+| `lastObservedAt` | Timestamp of last observation |
+
+**In HA mode**, the engine reconciliation loops run only on the elected leader (gated in `main.go`). The `ThroughputAnalyzer` instance lives inside that loop — state is local to the leader process and is never shared across replicas.
+
+On leader failover the incoming leader starts with an empty analyzer. During warm-up (until the observation window re-accumulates ≥ 10 samples with ≥ 0.30 k-spread), the TA emits no scaling signal (`RC = 0, SC = 0`). The saturation analyzer runs unaffected and provides coverage throughout. Warm-up completes within a few minutes at normal traffic levels.
+
+**No external state store is needed.** State loss on failover is equivalent to a workload shape change (which already clears the window by design). The gap is bounded and temporary; adding a ConfigMap or lease annotation to persist calibration state would not be worth the added complexity at this stage.
+
 ### Analysis Pipeline
 
 ```
