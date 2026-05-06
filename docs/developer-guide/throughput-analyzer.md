@@ -16,10 +16,10 @@ operating point, and scales before demand exceeds that supply.
 - **λ_dec** — decode token demand: how many tokens/sec the scheduler is dispatching to this model
 - **ITL(k)** — inter-token latency as a function of KV utilization k: fitted as `A·k + B` via OLS
 
-> **Status (PR-1/PR-2 — query registration + collector wiring):** Three PromQL queries
-> registered; `GenerationTokenRate`, `KvUsageInstant`, and `VLLMRequestRate` fields wired in the
-> collector. Full analyzer implementation (ShapeTracker, ObservationWindow, ITL model,
-> `ThroughputAnalyzer`) and engine wiring are pending PR-3 through PR-5.
+> **Implementation status:** Query registration, collector wiring (three PromQL queries +
+> `GenerationTokenRate`, `KvUsageInstant`, `VLLMRequestRate` fields), ShapeTracker,
+> ObservationWindow, and SanityReport are implemented. ITL model fitting, supply/demand estimation,
+> scaling signal (full `ThroughputAnalyzer`), and engine wiring are not yet implemented.
 
 ## Table of Contents
 
@@ -163,9 +163,9 @@ namespace filtering limitation of the scheduler metric.
 
 ## Architecture
 
-> **Note:** The Query Registration and Metrics Collector components below are implemented in
-> PR-1/PR-2. All other components — Package Structure, ShapeTracker, ObservationWindow, ITLModel,
-> ThroughputAnalyzer, Analysis Pipeline, and Data Flow — are **pending PR-3/PR-4**.
+> **Note:** Query Registration, Metrics Collector, Package Structure, ShapeTracker,
+> ObservationWindow, and SanityReport are implemented. ITLModel, full ThroughputAnalyzer,
+> Analysis Pipeline, and Data Flow are **not yet implemented**.
 
 ### Package Structure
 
@@ -343,7 +343,7 @@ On leader failover the incoming leader starts with an empty analyzer. During war
 
 ## ITL Model Calibration
 
-> **Pending: PR-3/PR-4.**
+> **Not yet implemented.**
 
 The ITL model `ITL(k) = A·k + B` captures how inter-token latency grows with KV cache
 utilization k. It is calibrated independently per variant (different hardware → different A, B).
@@ -375,7 +375,7 @@ zero-replica fallback using the last successful tier-1 fit. It is not wired into
 
 ## Supply Estimation
 
-> **Pending: PR-3/PR-4.**
+> **Not yet implemented.**
 
 Per replica `r`:
 
@@ -393,7 +393,7 @@ per-analyzer constant pending alignment with the EPP system-wide k_sat (see open
 
 ## Demand Estimation
 
-> **Pending: PR-3/PR-4.**
+> **Not yet implemented.**
 
 ### Priority Chain
 
@@ -442,7 +442,7 @@ variant** — `Σ VariantCapacity.TotalDemand ≤ result.TotalDemand` when a que
 
 ## Scaling Signal
 
-> **Pending: PR-3/PR-4.**
+> **Not yet implemented.**
 
 ### Model-Level Aggregation
 
