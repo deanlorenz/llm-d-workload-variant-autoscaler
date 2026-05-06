@@ -108,7 +108,7 @@ sum by (pod) (rate(vllm:request_generation_tokens_count{namespace="...",model_na
 generation tokens histogram `_count` counter (increments once per completed request).
 
 **TA notation:** fallback λ_req — used when `ArrivalRate == 0` for all pods (EPP not deployed).
-The analyzer computes `λ_dec_fallback = Σ VLLMRequestRate_r × AvgOutputTokens_r`.
+Per variant V, the analyzer computes `λ_dec_fallback = Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r` over that variant's replicas.
 
 **ReplicaMetrics field:** `VLLMRequestRate`
 
@@ -137,8 +137,8 @@ these fields directly rather than registering duplicate queries.
 | λ_req (per-pod, req/s) | `ReplicaMetrics.ArrivalRate` | `QuerySchedulerDispatchRate` | `RegisterQueueingModelQueries` |
 | Q (scheduler queue size) | `SchedulerQueueMetrics.QueueSize` (model-level) | `QuerySchedulerQueueSize` | `RegisterSaturationQueries` |
 
-**λ_dec primary:** `Σ ArrivalRate_r × AvgOutputTokens_r` across all replicas (EPP deployed).  
-**λ_dec fallback:** `Σ VLLMRequestRate_r × AvgOutputTokens_r` (EPP absent, all ArrivalRate == 0).
+**λ_dec primary (per variant V):** `Σ_{r∈V} ArrivalRate_r × AvgOutputTokens_r` over the variant's replicas (EPP deployed).  
+**λ_dec fallback (per variant V):** `Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r` (EPP absent, all ArrivalRate == 0).
 
 **Note on arrival rate:** `ArrivalRate` comes from `QuerySchedulerDispatchRate` which is per-pod,
 namespaced, and model-scoped — correctly isolating traffic to a specific variant. The TA sums
@@ -271,7 +271,7 @@ supply, demand, and model-level RC/SC signals in `Analyze()`.
        │ vllm:request_prompt_tokens_*            (QueryAvgInputTokens        → AvgInputTokens)
        │ vllm:prefix_cache_hits/queries          (QueryPrefixCacheHitRate    → PrefixCacheHitRate)
        │ inference_extension_scheduler_*         (QuerySchedulerDispatchRate → ArrivalRate)
-       │ inference_extension_flow_control_*      (QueryFlowControlQueueSize  → QueueSize)
+       │ inference_extension_scheduler_*         (QuerySchedulerQueueSize    → QueueSize)
        ↓
 ┌─────────────────────────┐
 │ ReplicaMetricsCollector │  ← internal/collector/replica_metrics.go
@@ -368,15 +368,15 @@ Demand is resolved in priority order per variant. The first non-zero source wins
 **1. EPP primary** (isEPP = true)  
 When any replica has `ArrivalRate > 0`:
 ```
-λ_dec = Σ ArrivalRate_r × AvgOutputTokens_r
+λ_dec = Σ_{r∈V} ArrivalRate_r × AvgOutputTokens_r
 ```
-Each replica contributes its own arrival rate × output length. This avoids averaging-the-averages
-when replicas have different throughput.
+Each replica of variant V contributes its own arrival rate × output length. This avoids
+averaging-the-averages when replicas have different throughput.
 
 **2. vLLM fallback** (isEPP = false)  
 When EPP is absent but `VLLMRequestRate > 0`:
 ```
-λ_dec = Σ VLLMRequestRate_r × AvgOutputTokens_r
+λ_dec = Σ_{r∈V} VLLMRequestRate_r × AvgOutputTokens_r
 ```
 Same structure as primary but using the vLLM-side completion rate. SpareCapacity (scale-down)
 is suppressed when isEPP is false — the vLLM rate only counts served requests, not arriving ones.
@@ -384,7 +384,7 @@ is suppressed when isEPP is false — the vLLM rate only counts served requests,
 **3. k\*-based local** (scale-up only)  
 When both EPP and vLLM rates are zero, demand is derived from the current KV utilization:
 ```
-λ_local = Σ_r  k_r* × KV_max_r / KVreq / ITL(k_r*)
+λ_local = Σ_{r∈V}  k_r* × KV_max_r / KVreq / ITL(k_r*)
 ```
 Each replica's in-flight request count `N_r = k_r* × KV_max / KVreq` is divided by `ITL(k_r*)`
 to approximate its current throughput. Scale-down is still gated on EPP when this path is used.

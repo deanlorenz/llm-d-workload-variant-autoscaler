@@ -151,7 +151,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		metrics.IncMetricsCollectionErrors(constants.QueryTypeKVCache, reason)
 		metrics.IncMetricsCollectionErrors(constants.QueryTypeQueueLength, reason)
 		metrics.IncMetricsCollectionErrors(constants.QueryTypeCacheConfig, reason)
-		return nil, fmt.Errorf("failed to refresh saturation metrics: %w", err)
+		return nil, fmt.Errorf("failed to refresh replica metrics: %w", err)
 	}
 
 	// podMetricData holds per-pod metric values and timestamps
