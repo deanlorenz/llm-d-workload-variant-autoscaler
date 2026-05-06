@@ -137,7 +137,7 @@ func (c *ReplicaMetricsCollector) CollectReplicaMetrics(
 		Params:  params,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh saturation metrics: %w", err)
+		return nil, fmt.Errorf("failed to refresh replica metrics: %w", err)
 	}
 
 	// podMetricData holds per-pod metric values and timestamps
