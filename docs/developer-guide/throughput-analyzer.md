@@ -198,11 +198,26 @@ The remaining TA fields (`TotalKvCapacityTokens`, `AvgITL`, `AvgOutputTokens`, `
 `PrefixCacheHitRate`, `ArrivalRate`) are populated by saturation and queueing model queries.
 
 **ShapeTracker (`shape_tracker.go`)**  
-Maintains the current workload shape bucket `(IL, OL, IL_eff, KVreq)`. Detects shape changes
+Maintains the current workload shape bucket `(IL, OL, H%, IL_eff, KVreq)`. Detects shape changes
 (>20% shift in IL or OL) and triggers observation window reset.
 
-- `IL_eff = IL × (1 − PrefixCacheHitRate)` — effective input length after prefix cache
+- `IL_eff = IL × (1 − H%)` — effective input length after prefix cache
 - `KVreq = IL_eff + OL/2` — time-averaged KV footprint per decode request
+
+**Shape dimensions — design note:**  
+The tracker stores IL, OL, and H% but change detection uses only IL and OL (see `Within()`).
+H% is stored because it feeds IL_eff and KVreq; a H%-only change does not reset the window.
+
+The minimal sufficient representation for KVreq is `(OL, IL_eff)` rather than `(IL, OL, H%)`
+separately — we track all three because it is not yet clear whether IL and H% should be treated
+as independent shape dimensions or collapsed into IL_eff alone.
+
+Likewise, the slope A in `ITL(k) = A·k + B` may be independent of H%: A captures how quickly
+decode latency grows with KV load, which is driven by hardware and concurrency, not by the
+fraction of input tokens served from cache. We do not have enough data to confirm this yet.
+If it holds, a H%-only shift would warrant updating only B (via a new Tier-2 constrained fit)
+while carrying over the previous A — avoiding a full window reset.  
+*(This is a potential future optimization; the current implementation resets nothing on H%-only changes.)*
 
 **ObservationWindow (`observation_window.go`)**  
 Rolling window of `(k*, ITL_obs)` pairs collected per replica per cycle. Filters observations
