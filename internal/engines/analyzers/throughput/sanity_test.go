@@ -8,10 +8,10 @@ import (
 )
 
 // healthyReplica returns a ReplicaMetrics with all fields valid.
-func healthyReplica(podName, variant string) interfaces.ReplicaMetrics {
+func healthyReplica(podName string) interfaces.ReplicaMetrics {
 	return interfaces.ReplicaMetrics{
 		PodName:               podName,
-		VariantName:           variant,
+		VariantName:           "v1",
 		KvCacheUsage:          0.50,
 		TotalKvCapacityTokens: 65536,
 		AvgInputTokens:        1024,
@@ -38,7 +38,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("healthy metrics", func() {
 		It("returns OK for a single healthy replica", func() {
-			metrics := []interfaces.ReplicaMetrics{healthyReplica("pod-0", "v1")}
+			metrics := []interfaces.ReplicaMetrics{healthyReplica("pod-0")}
 			report := CheckModelMetrics(metrics)
 			Expect(report.OK()).To(BeTrue())
 			Expect(report.Issues).To(BeEmpty())
@@ -47,9 +47,9 @@ var _ = Describe("CheckModelMetrics", func() {
 
 		It("returns OK for multiple healthy replicas", func() {
 			metrics := []interfaces.ReplicaMetrics{
-				healthyReplica("pod-0", "v1"),
-				healthyReplica("pod-1", "v1"),
-				healthyReplica("pod-2", "v1"),
+				healthyReplica("pod-0"),
+				healthyReplica("pod-1"),
+				healthyReplica("pod-2"),
 			}
 			report := CheckModelMetrics(metrics)
 			Expect(report.OK()).To(BeTrue())
@@ -58,7 +58,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("stale metrics", func() {
 		It("flags SanityIssueStaleMetrics when FreshnessStatus is stale", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.Metadata = &interfaces.ReplicaMetricsMetadata{FreshnessStatus: "stale"}
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueStaleMetrics)).To(BeTrue())
@@ -66,14 +66,14 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("does not flag stale when FreshnessStatus is fresh", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.Metadata = &interfaces.ReplicaMetricsMetadata{FreshnessStatus: "fresh"}
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueStaleMetrics)).To(BeFalse())
 		})
 
 		It("does not flag stale when Metadata is nil", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			// Metadata is nil by default in healthyReplica
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueStaleMetrics)).To(BeFalse())
@@ -82,7 +82,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("missing KV capacity", func() {
 		It("flags SanityIssueMissingKV when TotalKvCapacityTokens is zero", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.TotalKvCapacityTokens = 0
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingKV)).To(BeTrue())
@@ -90,7 +90,7 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("flags SanityIssueMissingKV when TotalKvCapacityTokens is negative", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.TotalKvCapacityTokens = -1
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingKV)).To(BeTrue())
@@ -99,7 +99,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("KV utilization out of range", func() {
 		It("flags SanityIssueKVOutOfRange when KvCacheUsage is negative", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.KvCacheUsage = -0.01
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueKVOutOfRange)).To(BeTrue())
@@ -107,23 +107,23 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("flags SanityIssueKVOutOfRange when KvCacheUsage exceeds 1.0", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.KvCacheUsage = 1.01
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueKVOutOfRange)).To(BeTrue())
 		})
 
 		It("flags SanityIssueKVOutOfRange for NaN KvCacheUsage", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.KvCacheUsage = float64NaN()
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueKVOutOfRange)).To(BeTrue())
 		})
 
 		It("accepts KvCacheUsage at the boundary values 0.0 and 1.0", func() {
-			m0 := healthyReplica("pod-0", "v1")
+			m0 := healthyReplica("pod-0")
 			m0.KvCacheUsage = 0.0
-			m1 := healthyReplica("pod-1", "v1")
+			m1 := healthyReplica("pod-1")
 			m1.KvCacheUsage = 1.0
 			Expect(CheckModelMetrics([]interfaces.ReplicaMetrics{m0}).Has(SanityIssueKVOutOfRange)).To(BeFalse())
 			Expect(CheckModelMetrics([]interfaces.ReplicaMetrics{m1}).Has(SanityIssueKVOutOfRange)).To(BeFalse())
@@ -132,7 +132,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("non-positive ITL", func() {
 		It("flags SanityIssueITLNonPositive when AvgITL is zero", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgITL = 0
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueITLNonPositive)).To(BeTrue())
@@ -140,14 +140,14 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("flags SanityIssueITLNonPositive when AvgITL is negative", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgITL = -0.001
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueITLNonPositive)).To(BeTrue())
 		})
 
 		It("flags SanityIssueITLNonPositive when AvgITL is NaN", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgITL = float64NaN()
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueITLNonPositive)).To(BeTrue())
@@ -156,7 +156,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("missing shape metrics", func() {
 		It("flags SanityIssueMissingShape when AvgOutputTokens is at threshold", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgOutputTokens = DefaultMinTokensPerRequest
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingShape)).To(BeTrue())
@@ -164,21 +164,21 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("flags SanityIssueMissingShape when AvgOutputTokens is zero", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgOutputTokens = 0
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingShape)).To(BeTrue())
 		})
 
 		It("flags SanityIssueMissingShape when AvgInputTokens is at threshold", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgInputTokens = DefaultMinTokensPerRequest
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingShape)).To(BeTrue())
 		})
 
 		It("flags SanityIssueMissingShape when AvgInputTokens is NaN", func() {
-			m := healthyReplica("pod-0", "v1")
+			m := healthyReplica("pod-0")
 			m.AvgInputTokens = float64NaN()
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m})
 			Expect(report.Has(SanityIssueMissingShape)).To(BeTrue())
@@ -187,9 +187,9 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("issue deduplication", func() {
 		It("reports the same issue once even when multiple pods trigger it", func() {
-			m0 := healthyReplica("pod-0", "v1")
+			m0 := healthyReplica("pod-0")
 			m0.AvgITL = 0
-			m1 := healthyReplica("pod-1", "v1")
+			m1 := healthyReplica("pod-1")
 			m1.AvgITL = 0
 
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m0, m1})
@@ -204,9 +204,9 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("collects multiple distinct issues from different pods", func() {
-			m0 := healthyReplica("pod-0", "v1")
+			m0 := healthyReplica("pod-0")
 			m0.AvgITL = 0 // ITL issue
-			m1 := healthyReplica("pod-1", "v1")
+			m1 := healthyReplica("pod-1")
 			m1.TotalKvCapacityTokens = 0 // KV issue
 
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{m0, m1})
@@ -216,8 +216,8 @@ var _ = Describe("CheckModelMetrics", func() {
 		})
 
 		It("a pod with no issues does not appear in AffectedPods", func() {
-			good := healthyReplica("pod-good", "v1")
-			bad := healthyReplica("pod-bad", "v1")
+			good := healthyReplica("pod-good")
+			bad := healthyReplica("pod-bad")
 			bad.AvgITL = 0
 
 			report := CheckModelMetrics([]interfaces.ReplicaMetrics{good, bad})
@@ -228,7 +228,7 @@ var _ = Describe("CheckModelMetrics", func() {
 
 	Describe("SanityReport helpers", func() {
 		It("Has returns false for an issue not in the report", func() {
-			report := CheckModelMetrics([]interfaces.ReplicaMetrics{healthyReplica("pod-0", "v1")})
+			report := CheckModelMetrics([]interfaces.ReplicaMetrics{healthyReplica("pod-0")})
 			Expect(report.Has(SanityIssueNoReplicas)).To(BeFalse())
 		})
 	})
