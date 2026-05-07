@@ -32,6 +32,12 @@ type variantState struct {
 	role             string
 	lastSanityReport SanityReport
 	lastObservedAt   time.Time
+	// lastFittedB is the B coefficient from the most recent successful Tier-1 OLS fit.
+	// It is used as the pinned baseline in Tier-2 instead of DefaultBaselineITLSec,
+	// because B reflects hardware/model characteristics rather than workload shape.
+	// A shape change clears the observation window but must NOT clear lastFittedB.
+	lastFittedB float64
+	hasFittedB  bool
 	// set by Analyze() for VariantState() snapshots
 	lastITLModel         ITLModel
 	lastPerReplicaSupply float64
@@ -332,6 +338,8 @@ func (a *ThroughputAnalyzer) VariantState(modelID, namespace, variantName string
 		TotalSupply:      state.lastTotalSupply,
 		Demand:           state.lastDemand,
 		Role:             state.role,
+		LastFittedB:      state.lastFittedB,
+		HasFittedB:       state.hasFittedB,
 	}, true
 }
 
@@ -369,9 +377,11 @@ func (a *ThroughputAnalyzer) getOrCreateVariantState(key string) *variantState {
 // resolveITLModel returns the ITL model to use for a variant using a two-tier strategy:
 //
 //   - Tier 1: OLS fit from the observation window (when Ready).
-//   - Tier 2: single-point estimate from variant-average (k*, ITL_obs) with B = DefaultBaselineITLSec.
-//     Only possible when at least one replica has k* > 0. Replicas with k* = 0 (idle) are excluded
-//     from estimation — k* = 0 observations carry no ITL signal.
+//   - Tier 2: constrained OLS with B pinned. B is taken from the last successful Tier-1 fit
+//     (state.lastFittedB) when one exists, because B reflects hardware/model characteristics
+//     that survive workload-shape changes. Falls back to DefaultBaselineITLSec when no
+//     prior fit exists. Only possible when at least one replica has k* > 0; replicas with
+//     k* = 0 (idle) carry no ITL signal and are excluded.
 //
 // When replicas are present but all are idle (k* = 0), both tiers fail and we return (zero, false).
 // A future tier-3 (knowledge store) path for the scale-from-zero case will be added once Analyze()
@@ -387,6 +397,8 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 				"namespace", namespace, "modelID", modelID, "variant", variantName,
 				"A", model.A, "B", model.B, "samples", len(obs),
 			)
+			state.lastFittedB = model.B
+			state.hasFittedB = true
 			return model, true
 		}
 		ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit failed, trying tier-2",
@@ -395,16 +407,20 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 		)
 	}
 
-	// Tier 2: constrained OLS with B = DefaultBaselineITLSec fixed.
+	// Tier 2: constrained OLS with B pinned.
 	// Minimize Σ(ITL_i − A·k_i − B)² → A = Σ((ITL_i − B)·k_i) / Σ(k_i²).
 	// Using per-replica (k*, ITL) directly is better than collapsing to a centroid
 	// when replicas have spread k* values — it is the same least-squares criterion
 	// as tier-1 OLS but with B pinned instead of fitted.
+	baselineB := DefaultBaselineITLSec
+	if state.hasFittedB {
+		baselineB = state.lastFittedB
+	}
 	var numerator, sumK2 float64
 	var n float64
 	for _, m := range metrics {
 		if m.KvUsageInstant > 0 && m.AvgITL > 0 {
-			numerator += (m.AvgITL - DefaultBaselineITLSec) * m.KvUsageInstant
+			numerator += (m.AvgITL - baselineB) * m.KvUsageInstant
 			sumK2 += m.KvUsageInstant * m.KvUsageInstant
 			n++
 		}
@@ -414,9 +430,9 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 		if A > 0 {
 			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-2 constrained OLS fit",
 				"namespace", namespace, "modelID", modelID, "variant", variantName,
-				"A", A, "B", DefaultBaselineITLSec, "replicas", int(n),
+				"A", A, "B", baselineB, "replicas", int(n),
 			)
-			return ITLModel{A: A, B: DefaultBaselineITLSec}, true
+			return ITLModel{A: A, B: baselineB}, true
 		}
 	}
 	return ITLModel{}, false

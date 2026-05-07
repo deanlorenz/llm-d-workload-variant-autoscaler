@@ -974,6 +974,125 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
+	Describe("lastFittedB — tier-2 fallback after shape reset", func() {
+		const (
+			trueA = 0.073
+			trueB = 0.012 // deliberately non-default to verify it's carried over
+		)
+
+		// onLineMetrics returns two replicas whose (k*, ITL) lie exactly on y = trueA*k + trueB.
+		// IL/OL/shape matches the buildTier1Window observations so no shape change fires.
+		onLineMetrics := func() []interfaces.ReplicaMetrics {
+			return []interfaces.ReplicaMetrics{
+				{
+					VariantName: "v1", KvUsageInstant: 0.30, KvCacheUsage: 0.30,
+					AvgITL: trueA*0.30 + trueB, AvgInputTokens: 1024, AvgOutputTokens: 256,
+					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
+				},
+				{
+					VariantName: "v1", KvUsageInstant: 0.70, KvCacheUsage: 0.70,
+					AvgITL: trueA*0.70 + trueB, AvgInputTokens: 1024, AvgOutputTokens: 256,
+					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
+				},
+			}
+		}
+
+		// buildTier1Window injects 10 observations that lie exactly on y = trueA*k + trueB.
+		buildTier1Window := func() {
+			kValues := []float64{0.20, 0.30, 0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80}
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1",
+				1024, 256, 0.0, 65536, trueA, trueB, kValues)
+		}
+
+		It("saves lastFittedB after a successful Tier-1 OLS fit", func() {
+			buildTier1Window()
+			// Analyze-internal Observe must also add on-line points so OLS recovers trueB exactly.
+			_, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: onLineMetrics(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			state, ok := analyzer.VariantState(modelID, namespace, "v1")
+			Expect(ok).To(BeTrue())
+			Expect(state.ObservationReady).To(BeTrue())
+			Expect(state.HasFittedB).To(BeTrue())
+			Expect(state.LastFittedB).To(BeNumerically("~", trueB, 1e-6))
+		})
+
+		It("retains lastFittedB after a shape change clears the observation window", func() {
+			buildTier1Window()
+			_, _ = analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: onLineMetrics(),
+			})
+
+			// Trigger a shape change: shift OL by >20%.
+			shapeShiftMetrics := []interfaces.ReplicaMetrics{
+				{
+					VariantName: "v1", KvUsageInstant: 0.40, KvCacheUsage: 0.40,
+					AvgITL: trueA*0.40 + trueB, AvgInputTokens: 1024, AvgOutputTokens: 800,
+					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536,
+				},
+			}
+			analyzer.Observe(ctx, modelID, namespace, shapeShiftMetrics)
+
+			state, ok := analyzer.VariantState(modelID, namespace, "v1")
+			Expect(ok).To(BeTrue())
+			Expect(state.ObservationReady).To(BeFalse()) // window cleared
+			Expect(state.HasFittedB).To(BeTrue())        // survived the reset
+			Expect(state.LastFittedB).To(BeNumerically("~", trueB, 1e-6))
+		})
+
+		It("uses lastFittedB as the pinned B in tier-2 after a shape reset", func() {
+			buildTier1Window()
+			_, _ = analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: onLineMetrics(),
+			})
+
+			// Shape change → window cleared → tier-2 will fire next.
+			shapeShiftMetrics := []interfaces.ReplicaMetrics{
+				{
+					VariantName: "v1", KvUsageInstant: 0.40, KvCacheUsage: 0.40,
+					AvgITL: trueA*0.40 + trueB, AvgInputTokens: 1024, AvgOutputTokens: 800,
+					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
+				},
+			}
+			analyzer.Observe(ctx, modelID, namespace, shapeShiftMetrics)
+
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: shapeShiftMetrics,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.VariantCapacities).To(HaveLen(1))
+
+			state, _ := analyzer.VariantState(modelID, namespace, "v1")
+			Expect(state.ObservationReady).To(BeFalse()) // still tier-2
+			// Tier-2 should use lastFittedB, not DefaultBaselineITLSec.
+			Expect(state.ITLModel.B).To(BeNumerically("~", trueB, 1e-6))
+			Expect(state.ITLModel.B).NotTo(BeNumerically("~", DefaultBaselineITLSec, 1e-6))
+		})
+
+		It("uses DefaultBaselineITLSec in tier-2 when no Tier-1 fit has occurred", func() {
+			// Fresh analyzer, never reached tier-1 — hasFittedB is false.
+			metrics := []interfaces.ReplicaMetrics{
+				{
+					VariantName: "v1", KvUsageInstant: 0.40, KvCacheUsage: 0.40,
+					AvgITL: trueA*0.40 + DefaultBaselineITLSec, AvgInputTokens: 1024, AvgOutputTokens: 256,
+					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
+				},
+			}
+			analyzer.Observe(ctx, modelID, namespace, metrics)
+
+			_, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: metrics,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			state, _ := analyzer.VariantState(modelID, namespace, "v1")
+			Expect(state.HasFittedB).To(BeFalse())
+			Expect(state.ITLModel.B).To(BeNumerically("~", DefaultBaselineITLSec, 1e-6))
+		})
+	})
+
 	Describe("estimateQueueDemand — guard clauses", func() {
 		It("returns 0 when sq is nil", func() {
 			Expect(estimateQueueDemand(nil, 0.05, 2.0)).To(Equal(0.0))
