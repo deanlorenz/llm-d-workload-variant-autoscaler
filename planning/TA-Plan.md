@@ -10,7 +10,7 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ## Phase 1: Decode Supply Foundation (μ_dec)
 
-### PR-1: Register Core Rate Metrics — ✅ COMPLETED (#1051, combined with PR-2)
+### PR-1: Register Core Rate Metrics — submitted (#1051, combined with PR-2, in review)
 
 **What**: Register additional queries in `collector/registration/throughput_analyzer.go` for μ_dec calculation.
 
@@ -37,7 +37,7 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ---
 
-### PR-2: Register Decode Demand Metric (λ_dec) — ✅ COMPLETED (#1051, combined with PR-1)
+### PR-2: Register Decode Demand Metric (λ_dec) — submitted (#1051, combined with PR-1, in review)
 
 **What**: Register query for decode token demand from scheduler (total tokens dispatched × average OL).
 
@@ -95,7 +95,7 @@ Implementation roadmap from TA-supply.md theory to production autoscaler.
 
 ## Phase 2: Decode Supply Analyzer (§3)
 
-### PR-3: ThroughputAnalyzer State Management — ✅ COMPLETED (#1052)
+### PR-3: ThroughputAnalyzer State Management — submitted (#1052, in review)
 
 **What**: Create new package `internal/engines/analyzers/throughput/` with per-variant
 workload shape tracking, ITL observation windows, and sanity diagnostics.
@@ -172,7 +172,7 @@ internal/engines/analyzers/throughput/
 
 ---
 
-### PR-4: ITL Model Fit + μ_dec vs λ_dec Scaling Signal — ✅ COMPLETED (branch TA3)
+### PR-4: ITL Model Fit + μ_dec vs λ_dec Scaling Signal — code complete (branch TA3, not yet submitted)
 
 **What**: Add OLS regression to fit A, B per variant from the observation window, compute
 μ_dec supply and λ_dec demand, and produce the RequiredCapacity / SpareCapacity scaling signal.
@@ -241,7 +241,7 @@ Key decisions where we explicitly chose one approach over another.
 
 ### PR-1: KV utilization for ITL model input
 
-**Chosen:** `QueryKvTokensUsed` — instantaneous `max by (pod)` stored in `KvUtilization`.  
+**Chosen:** `QueryKvUsageInstant` — instantaneous `max by (pod)` stored in `KvUsageInstant`.  
 **Alternative:** Reuse `QueryKvCacheUsage` — `max_over_time[1m]` (saturation analyzer's `KvCacheUsage`).  
 **Why not:** The saturation analyzer needs the worst-case peak for conservative guardrails. The ITL model needs the **current operating point** k*. Using the peak systematically overestimates load and produces premature scale-up.
 
@@ -329,10 +329,10 @@ Key decisions where we explicitly chose one approach over another.
 ## Summary: PR Dependency Graph
 
 ```
-PR-1/PR-2 (#1051 ✅)  Register all 9 Prometheus queries
-    └── PR-3 (#1052 ✅)  State management: ShapeTracker, ObservationWindow, sanity, analyzer skeleton
-            └── PR-4 (TA3 ✅)  Two-tier ITL model + μ_dec supply + λ_dec demand + model-level RC/SC
-                    └── PR-5 (pending)  Wire analyzer into engine pipeline
+PR-1/PR-2 (#1051, in review)  Register all 9 Prometheus queries
+    └── PR-3 (#1052, in review)  State management: ShapeTracker, ObservationWindow, sanity, analyzer skeleton
+            └── PR-4 (TA3, code complete)  Two-tier ITL model + μ_dec supply + λ_dec demand + model-level RC/SC
+                    └── PR-5 (TA3, code complete)  Wire analyzer into engine pipeline
 ```
 
 **Phase 1 scope**: PR-1 through PR-4 only — μ_dec supply vs λ_dec demand

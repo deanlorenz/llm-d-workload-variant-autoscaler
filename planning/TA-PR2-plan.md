@@ -1,6 +1,6 @@
 # PR-2: Register Decode Demand Metric (λ_dec Demand Signal)
 
-> **Status: COMPLETED** — Implemented in #1051 (combined with PR-1).
+> **Status: submitted** — Implemented in #1051 (combined with PR-1), in review.
 > Part of #1005; does not close it.
 
 ## Context

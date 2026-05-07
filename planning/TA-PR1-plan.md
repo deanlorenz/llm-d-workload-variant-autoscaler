@@ -1,6 +1,6 @@
 # PR-1: Register Core Rate Metrics (μ_dec Supply Signals)
 
-> **Status: COMPLETED** — Implemented in #1051 (combined with PR-2).
+> **Status: submitted** — Implemented in #1051 (combined with PR-2), in review.
 > Part of #1005; does not close it.
 
 ## Context

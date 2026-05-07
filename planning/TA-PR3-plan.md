@@ -1,7 +1,7 @@
 # PR-3: Throughput Analyzer State Management
 
-> **Status: COMPLETED** — Implemented in #1052. All components below were delivered
-> as planned. Part of #1005; does not close it.
+> **Status: submitted** — Implemented in #1052, in review. All components below were
+> delivered as planned. Part of #1005; does not close it.
 
 ## Context
 
