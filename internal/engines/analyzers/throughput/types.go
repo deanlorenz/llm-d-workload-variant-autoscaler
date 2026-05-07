@@ -164,4 +164,10 @@ type ThroughputVariantState struct {
 	// Role is the P/D disaggregation role: "prefill", "decode", "both", or ""
 	// (non-disaggregated). Populated from VariantStates in Analyze(); empty until first Analyze call.
 	Role string
+
+	// LastFittedB is the B coefficient from the most recent successful Tier-1 OLS fit.
+	// Zero when no Tier-1 fit has occurred yet (HasFittedB is false in that case).
+	LastFittedB float64
+	// HasFittedB is true when at least one Tier-1 OLS fit has succeeded for this variant.
+	HasFittedB bool
 }
