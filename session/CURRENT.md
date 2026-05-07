@@ -1,16 +1,16 @@
 # Current Work
 
-**Last updated:** 2026-05-06
+**Last updated:** 2026-05-07
 
 ---
 
 ## PR Status
 
-| Branch | PR    | Status                          | Tip       |
-|--------|-------|---------------------------------|-----------|
-| TA1    | #1051 | Awaiting approval (CI green)    | `900c94c` |
-| TA2    | #1052 | CI running (just pushed)        | `99a35b0` |
-| TA3    | —     | Local only; rebase after TA2    | `56fade2` |
+| Branch | PR    | Status                                      | Tip       |
+|--------|-------|---------------------------------------------|-----------|
+| TA1    | #1051 | CI green; awaiting approval (no LGTM yet)   | `900c94c` |
+| TA2    | #1052 | CI green; no reviews yet                    | `99a35b0` |
+| TA3    | —     | Local only; rebase after TA2 merges         | `56fade2` |
 
 ---
 
@@ -45,19 +45,19 @@ Phase:
 - [ ] Merge
 
 Design docs:
-- `ideas/TA-Plan.md` — overall TA design
-- `ideas/TA-overview.md` — supply/demand model and analyzer overview
-- `ideas/TA-PR4-plan.md` — ITL model + scaling signal (PR-4)
-- `ideas/TA-PR5-plan.md` — wiring PR plan (PR-5)
+- `plans/planning/TA-Plan.md` — overall TA design
+- `plans/planning/TA-overview.md` — supply/demand model and analyzer overview
+- `plans/planning/TA-PR4-plan.md` — ITL model + scaling signal (PR-4)
+- `plans/planning/TA-PR5-plan.md` — wiring PR plan (PR-5)
 - `docs/developer-guide/throughput-analyzer.md` — user-facing reference
 
 Plan doc:
-- `ideas/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
+- `plans/planning/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
 
 Next step:
 - [ ] Discuss e2e test design (scenarios, load strategy, assertions) — awaiting discussion
 - [ ] Review `test/e2e/throughput_analyzer_test.go` (drafted, not yet run)
-- [ ] Run scenarios per `ideas/TA-e2e-plan.md § Task 2`
+- [ ] Run scenarios per `plans/planning/TA-e2e-plan.md § Task 2`
 
 ---
 
@@ -89,7 +89,7 @@ engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyze
 
 ## E2E Plan: Step 1 Complete
 
-**File:** `ideas/TA-e2e-plan.md` (rev 6 — 2026-04-27)
+**File:** `plans/planning/TA-e2e-plan.md` (rev 6 — 2026-04-27)
 
 ### Step 1a — PASSED (2026-04-27)
 - 31/31 smoke tests in 536s
@@ -115,11 +115,11 @@ make test-e2e-smoke ENVIRONMENT=kind-emulator
 make test-e2e-full ENVIRONMENT=kind-emulator FOCUS="ThroughputAnalyzer"
 ```
 
-If the cluster is gone, redeploy following `ideas/TA-e2e-plan.md § Step 1a` then `§ Step 1b`.
+If the cluster is gone, redeploy following `plans/planning/TA-e2e-plan.md § Step 1a` then `§ Step 1b`.
 
 ### Known infra issues (separate PRs — not in TA3)
 
-Details in `ideas/TA-e2e-plan.md § Infrastructure notes`.
+Details in `plans/planning/TA-e2e-plan.md § Infrastructure notes`.
 
 1. **EPP image mismatch** — `install.sh` patches EPP to `v0.7.0` which rejects `--kv-cache-usage-percentage-metric`; llm-d values are for v0.5.0. Workaround: `kubectl set image deployment/gaie-sim-epp -n llm-d-sim epp=ghcr.io/llm-d/llm-d-inference-scheduler:v0.5.0` after deploy.
 2. **Gateway interactive prompt** — `install_core.sh` fires even with `INSTALL_GATEWAY_CTRLPLANE=true` unless `E2E_TESTS_ENABLED=true`. Workaround: prefix `E2E_TESTS_ENABLED=true` before `make deploy-e2e-infra`.
