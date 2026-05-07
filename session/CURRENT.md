@@ -10,7 +10,7 @@
 |--------|-------|---------------------------------------------|-----------|
 | TA1    | #1051 | CI green; awaiting approval (no LGTM yet)   | `900c94c` |
 | TA2    | #1052 | CI green; no reviews yet                    | `99a35b0` |
-| TA3    | —     | Local only; rebase after TA2 merges         | `56fade2` |
+| TA3    | —     | Local only; rebase after TA2 merges         | `cadae03` |
 
 ---
 
