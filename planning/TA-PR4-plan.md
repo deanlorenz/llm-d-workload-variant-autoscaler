@@ -27,11 +27,15 @@ the case where the window is not yet ready:
   OLS minimises `Σ(ITL_i − A·k_i − B)²`. Both A and B are free parameters.
   Accepted only when `A > 0` (physically required: higher concurrency → higher latency).
 
-- **Tier 2 (constrained OLS):** When the window is not ready, B is pinned to
-  `DefaultBaselineITLSec` (0.006 s — H100 baseline at near-zero load) and only A is
+- **Tier 2 (constrained OLS):** When the window is not ready, B is pinned and only A is
   fitted: `A = Σ((ITL_i − B)·k_i) / Σ(k_i²)`. For a single replica this reduces to
   the single-point formula `A = (ITL − B) / k*`. For multiple replicas it is strictly
-  better (same OLS criterion, fewer degrees of freedom). Accepted only when `A > 0`.
+  better (same OLS criterion, fewer degrees of freedom). Accepted only when `A > 0`.  
+  B is taken from `state.lastFittedB` when a prior Tier-1 fit exists (design decision #7,
+  implemented in commit `7733471`); falls back to `DefaultBaselineITLSec` (0.006 s —
+  H100 baseline at near-zero load) when no prior fit is available. `lastFittedB` survives
+  shape-change window clears because B reflects hardware/model characteristics, not
+  workload shape.
 
 - **Tier 3 (knowledge store):** The `itlKnowledgeStore` type is present in the package
   to persist the last tier-1 fit per variant, enabling supply estimates during
@@ -121,7 +125,7 @@ operating point), `DefaultBaselineITLSec = 0.006` (tier-2 B pin), and
 `DefaultQueueDrainFactor = 2.0` (queue demand denominator).
 
 **`types.go`** — `ThroughputVariantState` extended with `ITLModel`, `PerReplicaSupply`,
-`TotalSupply`, `Demand`, and `Role` fields for read-only inspection.
+`TotalSupply`, `Demand`, `Role`, `LastFittedB`, and `HasFittedB` fields for read-only inspection.
 
 **`analyzer.go`** — Full `Analyze()` implementation. Key helpers: `computeVariantSupply`
 (μ_dec_sat per variant), `computeDemand` (three-priority λ_dec), `aggregateRoleCapacities`
@@ -156,8 +160,8 @@ AnalyzerInput.VariantStates + []ReplicaMetrics
 
 ## Tests
 
-119 Ginkgo specs total: 40 (analyzer) + 12 (itl_model) + 23 (observation_window) +
-24 (sanity) + 16 (shape_tracker) + 4 (itl_knowledge_store). All passing.
+128 Ginkgo specs total: 44 (analyzer) + 12 (itl_model) + 23 (observation_window) +
+24 (sanity) + 16 (shape_tracker) + 4 (itl_knowledge_store) + 4 (lastFittedB). All passing.
 
 Key new scenarios in TA3 (beyond PR-3 baseline):
 - Tier-1 and tier-2 OLS numerical accuracy
@@ -168,6 +172,7 @@ Key new scenarios in TA3 (beyond PR-3 baseline):
 - Mixed-load: SC only (no simultaneous RC+SC)
 - `RoleCapacities` populated; prefill RC suppressed; nil for non-disaggregated
 - `averageShapeMetrics`: weighted mean, unweighted fallback, mixed (zero-rate replicas excluded)
+- `lastFittedB`: saved after Tier-1 fit, survives shape reset, used in Tier-2 after reset, default when no prior fit
 
 ---
 

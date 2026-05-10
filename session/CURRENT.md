@@ -10,7 +10,7 @@
 |--------|-------|---------------------------------------------|-----------|
 | TA1    | #1051 | CI green; awaiting approval (no LGTM yet)   | `900c94c` |
 | TA2    | #1052 | CI green; no reviews yet                    | `99a35b0` |
-| TA3    | —     | Local only; rebase after TA2 merges         | `cadae03` |
+| TA3    | —     | Local only; rebase after TA2 merges         | `7733471` |
 
 ---
 
@@ -148,21 +148,25 @@ combined.SC = min_i(util_slack_i)  × sat_total   # all-down; 0 if any analyzer 
 
 **5. Engine package stays in `saturation/` for now.**
 
-**6. SchedulerQueue stays nil** — existing TODO.
+**6. SchedulerQueue: TA handles it correctly; engine collection is a separate bug.**  
+`ThroughputAnalyzer.Analyze()` already calls `estimateQueueDemand(input.SchedulerQueue, ...)` and
+handles nil → 0 correctly. The gap is in `engine_v2.go` line 56 which always passes
+`SchedulerQueue: nil` (TODO comment). `CollectSchedulerQueueMetrics` exists and is fully
+implemented in the collector — the engine just never calls it. This affects both `saturation_v2`
+and the TA equally. Fix belongs in a separate engine PR (see Issues to Open below).
 
-**7. Tier-2 fallback B: use last fitted B across shape resets.**  
-On shape change, `observationWindow.Clear()` drops the tier back to Tier 2. Tier 2 currently pins
-`B = DefaultBaselineITLSec` (0.006). Instead, if a prior Tier-1 OLS fit exists for this variant,
-use that fitted B — it reflects hardware/model characteristics, not workload shape.  
-**Implementation (TA3, in `resolveITLModel` + `variantState`):**
-- Add `lastFittedB float64` + `hasFittedB bool` to `variantState`
-- After a successful Tier-1 fit, save `model.B` to `state.lastFittedB`
-- In Tier 2, prefer `state.lastFittedB` over `DefaultBaselineITLSec` when `hasFittedB` is true
-- Shape change clears the window but must NOT clear `lastFittedB`
+**7. Tier-2 fallback B: use last fitted B across shape resets. ✅ Implemented (`7733471`).**  
+On shape change, `observationWindow.Clear()` drops the tier back to Tier 2. Instead of pinning
+`B = DefaultBaselineITLSec` (0.006), Tier 2 uses the last successful Tier-1 fitted B when one
+exists — it reflects hardware/model characteristics, not workload shape.  
+`lastFittedB float64` + `hasFittedB bool` in `variantState`; exposed in `ThroughputVariantState`.
+4 new Ginkgo specs cover: save after Tier-1, survival through shape reset, Tier-2 uses it, default fallback.
 
 ---
 
 ## Issues to Open (post-merge)
+
+- **Engine never populates SchedulerQueue** — `engine_v2.go:56` has `// TODO: populate SchedulerQueue when flow control metrics are collected`. `CollectSchedulerQueueMetrics` is fully implemented in the collector but is never called. Both `saturation_v2` and the TA miss EPP flow-control queue demand as a result. Fix: call `CollectSchedulerQueueMetrics` in `prepareModelData`, thread through `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly`, set `AnalyzerInput.SchedulerQueue`. Independent of TA branches; can land with `engine-multi-analyzer` or as its own PR.
 
 - **Prometheus gauges for ITL model coefficients** — export `wva_throughput_analyzer_itl_model_a`
   and `wva_throughput_analyzer_itl_model_b` gauges (labels: `namespace`, `model_id`, `variant`,
