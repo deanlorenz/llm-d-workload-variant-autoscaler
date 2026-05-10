@@ -278,6 +278,10 @@ func (a *ThroughputAnalyzer) Analyze(
 		pending := pendingByVariant[variantName]
 		totalSupply += supply
 		totalDemand += demand
+		// len(variantMetrics) intentionally includes replicas with KV=0 (still booting).
+		// Counting them in anticipated supply suppresses RC while a scale-out is in progress,
+		// consistent with saturation_v2. perReplicaSupply is the mean over replicas that
+		// already reported capacity; new replicas are assumed to reach the same level.
 		totalAnticipated += float64(len(variantMetrics)+pending) * perReplicaSupply
 		if isEPP {
 			anyEPP = true
