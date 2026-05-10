@@ -615,7 +615,7 @@ $N_{pre} = N - N_{dec} \approx N(k) - k \cdot KV^{max}/\overline{KV}_{req}$. If 
 
 | Symbol | Prometheus Metric | Status | Usage |
 |--------|------------------|--------|-------|
-| $\mu_{dec}$ (GPS) | `rate(vllm:request_generation_tokens_sum[5m])` | Available, not collected | Direct GPS for model verification (§3.4, §7.1) |
+| $\mu_{dec}$ (GPS) | `rate(vllm:request_generation_tokens_sum[1m])` | Collected, implemented (TA3) | GPS verification in `checkVariantGPSMismatch`: err > 15% at k* ≥ 0.30 suppresses SC; near k_sat logs ITL residual vs N_dec cross-check to diagnose model drift vs shape mismatch (§3.4) |
 | $\mu_{pre}$ (PPS) | `rate(vllm:request_prompt_tokens_sum[5m])` | Available, not collected | Direct PPS without $N_{pre}$ estimation |
 | $T_{pre}$ | `vllm:request_prefill_time_seconds` | vLLM ≥ v0.7.3, V1 engine | Separates prefill compute from queue wait |
 | $T_{dec}$ | `vllm:request_decode_time_seconds` | vLLM ≥ v0.7.3, V1 engine | Direct RPS cross-check: $\mu = \text{rate}(T_{dec}\text{ count})$ |
@@ -649,9 +649,13 @@ ITL_sat     = A * k_sat + B
 # Maximum sustainable GPS (plateau value)
 μ_dec_max   = TotalKvCapacityTokens / (A * kv_per_req)
 
-# Verification (when GPS rate is collected)
-gps_obs     = rate(vllm:request_generation_tokens_sum[5m])
-gps_err_pct = abs(μ_dec - gps_obs) / gps_obs * 100  # recalibrate if > 15%
+# GPS verification — implemented in checkVariantGPSMismatch() (TA3)
+# Only active at k* >= 0.30 (GPS unreliable at low load).
+gps_obs     = rate(vllm:request_generation_tokens_sum[1m])
+μ_model     = N_dec / ITL(k*)             # model-predicted decode rate at k*
+gps_err_pct = abs(μ_model - gps_obs) / gps_obs * 100
+# if gps_err_pct > 15%: suppress SpareCapacity (keep RequiredCapacity)
+# if k* near k_sat: also log ITL residual and N_dec cross-check for root-cause diagnosis
 
 # TTFT knee for short-output / heavy-prefill workloads (§5.2)
 # k_knee is the KV% where TTFT starts to degrade; may be << k_sat for short OL
