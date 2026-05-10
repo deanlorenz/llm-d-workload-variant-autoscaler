@@ -376,8 +376,7 @@ latency). On success, the fitted model is used for both supply and demand estima
 
 ### Tier 2 — Constrained OLS
 
-When the window is not ready, A is estimated with B pinned to `DefaultBaselineITLSec` (0.006 s —
-H100 hardware baseline at near-zero load):
+When the window is not ready, A is estimated with B pinned and only A fitted:
 
 ```
 A = Σ((ITL_i − B) · k_i) / Σ(k_i²)
@@ -387,6 +386,12 @@ This is least-squares with B fixed, applied to all replicas with k* > 0. For a s
 it reduces to the single-point formula `A = (ITL − B) / k*`. For multiple replicas it is
 strictly better — same OLS criterion as tier-1 but with one fewer degree of freedom.
 Accepted only when A > 0.
+
+**B selection:** B is taken from `variantState.lastFittedB` when a prior successful Tier-1 fit
+exists for this variant. B reflects hardware/model characteristics (not workload shape), so it
+survives shape-change window resets. When no prior Tier-1 fit has occurred (`hasFittedB` is
+false), B falls back to `DefaultBaselineITLSec` (0.006 s — H100 baseline at near-zero load).
+`lastFittedB` and `hasFittedB` are exposed in `ThroughputVariantState` for observability.
 
 **Tier 3 (not yet wired):** `itlKnowledgeStore` is present in the package for a future
 zero-replica fallback using the last successful tier-1 fit. It is not wired into the current
@@ -455,6 +460,11 @@ is independent of OL.
 Queue demand appears in model-level `TotalDemand` but is **not attributed to any specific
 variant** — `Σ VariantCapacity.TotalDemand ≤ result.TotalDemand` when a queue is present.
 
+**Note:** `SchedulerQueueMetrics` is passed via `AnalyzerInput.SchedulerQueue`. The TA handles
+nil correctly (queue demand = 0 when absent). The engine currently always passes nil due to a
+known bug (`engine_v2.go` never calls `CollectSchedulerQueueMetrics`); fixing this is tracked
+as a separate engine PR and will not require changes to the TA.
+
 ## Scaling Signal
 
 ### Model-Level Aggregation
@@ -508,4 +518,4 @@ use the same decode-rate framework.
 ## References
 
 - Related: [Saturation Analyzer](../user-guide/saturation-analyzer.md)
-- Design: `ideas/TA-Plan.md`, `ideas/TA-supply.md`, `ideas/TA-demand.md`, `ideas/TA-PR4-plan.md`
+- Design: `plans/planning/TA-Plan.md`, `plans/planning/TA-PR4-plan.md`
