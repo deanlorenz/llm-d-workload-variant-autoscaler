@@ -1065,6 +1065,120 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
+	Describe("Analyze — GPS verification suppresses SpareCapacity", func() {
+		// Scenario: same ITL coefficients as the tier-1 scaling signal tests.
+		//   IL=5000, OL=200, prefix=0.1, KV_max=1024000, A=0.073, B=0.006
+		//   KVreq = IL×(1−prefix) + OL/2 = 4500 + 100 = 4600
+		//   At k*=0.50: ITL=0.0425; N_dec≈111.3; μ_dec_model≈2619 tok/s
+		const (
+			ilG    = 5000.0
+			olG    = 200.0
+			pfxG   = 0.1
+			aG     = 0.073
+			bG     = 0.006
+			kvMaxG = int64(1024000)
+			kStar  = 0.50
+		)
+
+		kValuesG := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
+
+		buildWindowG := func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "gv1",
+				ilG, olG, pfxG, kvMaxG, aG, bG, kValuesG)
+			state, ok := analyzer.VariantState(modelID, namespace, "gv1")
+			Expect(ok).To(BeTrue())
+			Expect(state.ObservationReady).To(BeTrue())
+		}
+
+		replicaG := func(k, arrivalRate, gps float64) interfaces.ReplicaMetrics {
+			return interfaces.ReplicaMetrics{
+				VariantName:           "gv1",
+				KvCacheUsage:          k,
+				KvUsageInstant:        k,
+				AvgITL:                aG*k + bG,
+				AvgInputTokens:        ilG,
+				AvgOutputTokens:       olG,
+				PrefixCacheHitRate:    pfxG,
+				TotalKvCapacityTokens: kvMaxG,
+				ArrivalRate:           arrivalRate,
+				GenerationTokenRate:   gps,
+			}
+		}
+
+		// muDecG is the model-predicted μ_dec(k*) for the scenario above.
+		muDecG := func(k float64) float64 {
+			kvReq := ilG*(1-pfxG) + olG/2 // 4600
+			nDec := k * float64(kvMaxG) / kvReq
+			return nDec / (aG*k + bG)
+		}
+
+		It("emits SpareCapacity when GPS is within 15% of model prediction", func() {
+			buildWindowG()
+			// GPS equals model value → 0% error, well within threshold.
+			gps := muDecG(kStar)
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 2, gps)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+		})
+
+		It("suppresses SpareCapacity when GPS deviates > 15% at k* ≥ DefaultGPSMinKForVerification", func() {
+			buildWindowG()
+			// GPS is 50% of model → gpsErrPct = |1 - 0.5| / 0.5 × 100 = 100% >> 15%.
+			gps := muDecG(kStar) * 0.5
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 2, gps)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.SpareCapacity).To(Equal(0.0))
+		})
+
+		It("does not suppress SpareCapacity when GPS deviates but k* < DefaultGPSMinKForVerification", func() {
+			buildWindowG()
+			// k*=0.20 < DefaultGPSMinKForVerification(0.30); GPS check is skipped.
+			gps := muDecG(kStar) * 0.1 // enormous mismatch, but k* too low to trust
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(0.20, 2, gps)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+		})
+
+		It("does not suppress SpareCapacity when GenerationTokenRate is zero (metric absent)", func() {
+			buildWindowG()
+			// GPS=0 → check is skipped entirely.
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 2, 0)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+		})
+
+		It("preserves RequiredCapacity when GPS mismatch suppresses SpareCapacity", func() {
+			buildWindowG()
+			// High ArrivalRate drives demand > supply (RC > 0).
+			// GPS mismatch suppresses SC but must not zero out RC.
+			gps := muDecG(kStar) * 0.1
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 20, gps)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.SpareCapacity).To(Equal(0.0))
+			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+		})
+	})
+
 	Describe("estimateQueueDemand — guard clauses", func() {
 		It("returns 0 when sq is nil", func() {
 			Expect(estimateQueueDemand(nil, 0.05, 2.0)).To(Equal(0.0))

@@ -3,6 +3,7 @@ package throughput
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -188,7 +189,7 @@ func (a *ThroughputAnalyzer) Analyze(
 
 	var (
 		totalSupply, totalDemand, totalAnticipated float64
-		anyEPP                                     bool
+		anyEPP, anyGPSMismatch                     bool
 		totalDecodeITLSat                          float64
 		nDecodeVariants                            int
 	)
@@ -255,6 +256,10 @@ func (a *ThroughputAnalyzer) Analyze(
 			nDecodeVariants++
 		}
 
+		if checkVariantGPSMismatch(variantMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
+			anyGPSMismatch = true
+		}
+
 		isEPPByVariant[variantName] = isEPP
 		variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
 			VariantName:        variantName,
@@ -282,9 +287,10 @@ func (a *ThroughputAnalyzer) Analyze(
 	if totalDemand > totalAnticipated {
 		requiredCapacity = totalDemand - totalAnticipated
 	}
-	// Scale-down only when EPP is deployed — without it the demand estimate may be
-	// too noisy to trust for scale-down decisions.
-	if anyEPP && totalSupply > totalDemand {
+	// Scale-down only when EPP is deployed and no GPS mismatch is active.
+	// A GPS mismatch means the ITL model may be wrong, making the supply estimate
+	// unreliable; failing toward keeping capacity is safer than scaling down.
+	if anyEPP && !anyGPSMismatch && totalSupply > totalDemand {
 		spareCapacity = totalSupply - totalDemand
 	}
 
@@ -576,6 +582,97 @@ func safeDivide(num, denom float64) float64 {
 		return 0
 	}
 	return num / denom
+}
+
+// checkVariantGPSMismatch compares each replica's observed GenerationTokenRate (GPS_obs,
+// i.e. μ_dec^obs) against the model-predicted decode rate μ_dec(k*) = N_dec(k*) / ITL(k*).
+// Returns true when any replica exceeds DefaultGPSMismatchThresholdPct at k* ≥
+// DefaultGPSMinKForVerification, indicating the ITL model may be wrong.
+//
+// When a mismatch is detected near saturation (k* ≥ DefaultKSat − DefaultNearKSatMargin),
+// additional diagnostics are logged to distinguish between two root causes:
+//   - ITL model drift / bad data points: observed AvgITL deviates from ITL(k*).
+//   - Shape mismatch: ITL fits well but GPS × AvgITL disagrees with KV-derived N_dec,
+//     suggesting IL, OL, or prefix-hit-rate parameters are wrong.
+func checkVariantGPSMismatch(
+	metrics []interfaces.ReplicaMetrics,
+	shape WorkloadShape,
+	model ITLModel,
+	namespace, modelID, variantName string,
+) bool {
+	if shape.KVreq <= 0 {
+		return false
+	}
+	mismatch := false
+	for _, m := range metrics {
+		if m.GenerationTokenRate <= 0 || m.KvUsageInstant < DefaultGPSMinKForVerification {
+			continue
+		}
+		if m.TotalKvCapacityTokens <= 0 {
+			continue
+		}
+		itlAtK := model.ITLAt(m.KvUsageInstant)
+		if itlAtK <= 0 {
+			continue
+		}
+		nDec := m.KvUsageInstant * float64(m.TotalKvCapacityTokens) / shape.KVreq
+		muDecModel := nDec / itlAtK
+		if muDecModel <= 0 {
+			continue
+		}
+		gpsErrPct := math.Abs(muDecModel-m.GenerationTokenRate) / m.GenerationTokenRate * 100
+		if gpsErrPct <= DefaultGPSMismatchThresholdPct {
+			continue
+		}
+		mismatch = true
+		ctrl.Log.Info("throughput analyzer: GPS mismatch, suppressing SpareCapacity",
+			"namespace", namespace,
+			"modelID", modelID,
+			"variant", variantName,
+			"pod", m.PodName,
+			"k", m.KvUsageInstant,
+			"GPSObs", m.GenerationTokenRate,
+			"muDecModel", muDecModel,
+			"gpsErrPct", gpsErrPct,
+		)
+
+		// Near k_sat: run deeper diagnostics to identify root cause.
+		if m.KvUsageInstant < DefaultKSat-DefaultNearKSatMargin || m.AvgITL <= 0 {
+			continue
+		}
+		itlResidual := math.Abs(m.AvgITL-itlAtK) / m.AvgITL
+		if itlResidual > DefaultNearKSatITLResidualThreshold {
+			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: near-k_sat ITL residual high (model drift or bad data)",
+				"namespace", namespace,
+				"modelID", modelID,
+				"variant", variantName,
+				"pod", m.PodName,
+				"k", m.KvUsageInstant,
+				"avgITLObs", m.AvgITL,
+				"itlModel", itlAtK,
+				"itlResidualPct", itlResidual*100,
+			)
+		} else {
+			// ITL model matches observed ITL but GPS disagrees: N_dec derivation
+			// (shape.KVreq via IL/OL/hit-rate) may be wrong.
+			nDecGPS := m.GenerationTokenRate * m.AvgITL
+			nDecErrPct := math.Abs(nDec-nDecGPS) / nDec * 100
+			if nDecErrPct > DefaultNearKSatNDecResidualThreshold*100 {
+				ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: near-k_sat N_dec mismatch (shape wrong?)",
+					"namespace", namespace,
+					"modelID", modelID,
+					"variant", variantName,
+					"pod", m.PodName,
+					"k", m.KvUsageInstant,
+					"nDecModel", nDec,
+					"nDecGPS", nDecGPS,
+					"nDecErrPct", nDecErrPct,
+					"hint", "check AvgInputTokens/AvgOutputTokens/PrefixCacheHitRate",
+				)
+			}
+		}
+	}
+	return mismatch
 }
 
 // aggregateRoleCapacities groups variant capacities by P/D role and computes

@@ -65,4 +65,31 @@ const (
 	// after avgOL cancels, queue demand = QueueSize / (QueueDrainFactor × ITL(k_sat)).
 	// A factor of 2.0 bounds per-request queueing time to ≤ 2 × ITL(k_sat) × avgOL.
 	DefaultQueueDrainFactor = 2.0
+
+	// DefaultGPSMismatchThresholdPct is the maximum tolerable percentage error between
+	// the model-predicted decode rate μ_dec(k*) and the directly observed GPS
+	// (GenerationTokenRate). Errors above this threshold at k* ≥ DefaultGPSMinKForVerification
+	// indicate the ITL model may be wrong and trigger SpareCapacity suppression.
+	DefaultGPSMismatchThresholdPct = 15.0
+
+	// DefaultGPSMinKForVerification is the minimum KV utilization (k*) required before
+	// GPS verification is applied. Below this threshold the in-flight count N_dec is
+	// small and percentage errors on GPS are unreliable.
+	DefaultGPSMinKForVerification = 0.30
+
+	// DefaultNearKSatMargin is the margin below DefaultKSat at which a replica is
+	// considered "near saturation" for GPS sanity diagnostics. At k* above
+	// DefaultKSat - DefaultNearKSatMargin the GPS signal is near-oracle quality:
+	// any model–GPS discrepancy is a strong indicator of a model error.
+	DefaultNearKSatMargin = 0.10
+
+	// DefaultNearKSatITLResidualThreshold is the fractional ITL residual above which
+	// the observed AvgITL is considered inconsistent with the ITL model near k_sat.
+	// A large residual points to bad data points or model drift.
+	DefaultNearKSatITLResidualThreshold = 0.20
+
+	// DefaultNearKSatNDecResidualThreshold is the fractional N_dec cross-check threshold
+	// used in near-k_sat GPS sanity. If ITL residual is small but GPS × AvgITL disagrees
+	// with KV-derived N_dec, the workload shape (KVreq via IL, OL, or hit rate) may be wrong.
+	DefaultNearKSatNDecResidualThreshold = 0.20
 )

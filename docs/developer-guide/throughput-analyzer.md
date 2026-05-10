@@ -101,8 +101,10 @@ sum by (pod) (rate(vllm:request_generation_tokens_sum{namespace="...",model_name
 
 **What it measures:** Observed generation (decode) token rate per pod in tokens/sec.
 
-**TA notation:** μ_dec^obs — the directly observable supply proxy. Included for observability;
-the analyzer derives supply from the ITL model rather than using this value directly.
+**TA notation:** μ_dec^obs — the directly observable supply proxy. Used for supply model
+verification: the analyzer compares the ITL-model-predicted rate μ_dec(k*) against GPS_obs per
+replica. A deviation > 15% at k* ≥ 0.30 suppresses SpareCapacity for the cycle. See
+[GPS Verification](#gps-verification).
 
 **ReplicaMetrics field:** `GenerationTokenRate`
 
@@ -275,8 +277,15 @@ supply, demand, and model-level RC/SC signals in `Analyze()`.
   │        │                                        [ITL(k_sat) = A·k_sat + B]    │
   │        │                                        → μ_dec_sat, perReplicaSupply │
   │        │                                                                      │
-  │        └─(ArrivalRate / VLLMRequestRate)─────► computeDemand                  │
-  │                                                 → λ_dec, isEPP                │
+  │        ├─(ArrivalRate / VLLMRequestRate)─────► computeDemand                  │
+  │        │                                         → λ_dec, isEPP               │
+  │        │                                                                      │
+  │        └─(GPS_obs, k*, KV_max)──────────────► checkVariantGPSMismatch         │
+  │                                               μ_model = N_dec(k*) / ITL(k*)   │
+  │                                               err = |μ_model − GPS_obs|       │
+  │                                                     / GPS_obs × 100           │
+  │                                               if err > 15% at k* ≥ 0.30:     │
+  │                                                 anyGPSMismatch = true         │
   └──────────────────────────────────┬────────────────────────────────────────────┘
                                      │ per-variant outputs accumulated
   ┌──────────────────────────────────▼────────────────────────────────────────────┐
@@ -287,7 +296,8 @@ supply, demand, and model-level RC/SC signals in `Analyze()`.
   │  totalAnticipated = Σ (current + pending) × perReplicaSupply                  │
   │                                                                               │
   │  RequiredCapacity = max(0, totalDemand − totalAnticipated)                    │
-  │  SpareCapacity    = max(0, totalSupply  − totalDemand)    [if anyEPP]         │
+  │  SpareCapacity    = max(0, totalSupply  − totalDemand)    [if anyEPP          │
+  │                                                             && !gpsMismatch]  │
   │  RoleCapacities                                           [if P/D roles]      │
   └───────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -457,7 +467,7 @@ variant B has spare.
 ```
 totalAnticipated = Σ_v (current_replicas_v + pending_replicas_v) × perReplicaSupply_v
 requiredCapacity = max(0, totalDemand − totalAnticipated)
-spareCapacity    = max(0, totalSupply − totalDemand)   if anyEPP else 0
+spareCapacity    = max(0, totalSupply − totalDemand)   if anyEPP && !gpsMismatch else 0
 ```
 
 `PendingReplicas` counts replicas that have been provisioned but not yet in service. Including
@@ -465,6 +475,42 @@ them in `totalAnticipated` suppresses redundant scale-up requests while pods are
 
 By construction, `requiredCapacity` and `spareCapacity` cannot both be non-zero in the same
 cycle: if demand exceeds anticipated supply then spare = max(0, supply−demand) = 0.
+
+### GPS Verification
+
+`GenerationTokenRate` (GPS_obs = μ_dec^obs) is the directly observed decode token rate per
+replica from `rate(vllm:request_generation_tokens_sum[1m])`. Each cycle, `Analyze()` compares
+this against the ITL model's prediction:
+
+```
+μ_model(k*) = N_dec(k*) / ITL(k*)
+            = (k* × KV_max / KVreq) / (A·k* + B)
+
+gpsErrPct = |μ_model(k*) − GPS_obs| / GPS_obs × 100
+```
+
+When any replica in any variant shows `gpsErrPct > 15%` at `k* ≥ 0.30`, the ITL model's supply
+estimate is considered unreliable. The response is asymmetric:
+
+- **SpareCapacity is suppressed** (set to 0) — fail toward keeping capacity rather than scaling
+  down with a wrong model.
+- **RequiredCapacity is unaffected** — if demand genuinely exceeds supply, the scale-up signal
+  stands regardless of model accuracy.
+
+The `k* ≥ 0.30` guard prevents false positives at low load where GPS is noisy and N_dec is small.
+
+**Near-saturation diagnostics.** When `k* ≥ DefaultKSat − 0.10` (i.e. k* ≥ 0.75), GPS is
+near-oracle quality: a discrepancy between μ_model and GPS_obs is a strong indicator of a
+model error. In this case, `checkVariantGPSMismatch` logs additional root-cause diagnostics:
+
+- **ITL residual high** (`|AvgITL − ITL(k*)| / AvgITL > 20%`): the observed ITL deviates from
+  the model's prediction at k*. Cause: bad data points in the observation window, or the workload
+  has shifted and the model has not yet recalibrated.
+- **N_dec mismatch** (ITL residual small, but `|N_dec_model − GPS_obs × AvgITL| / N_dec_model > 20%`):
+  the ITL model fits observed ITL but GPS × ITL disagrees with KV-derived N_dec. Cause: the
+  workload shape (IL, OL, or prefix-hit-rate) used to compute KVreq is wrong.
+
+GPS mismatch is logged at INFO so operators see it without enabling debug logging.
 
 ### Role-Aware Aggregation
 
@@ -491,6 +537,11 @@ use the same decode-rate framework.
 | `DefaultMinObservableK` | 0.15 | Lower k* filter for ObservationWindow |
 | `DefaultMaxObservableK` | 0.85 | Upper k* filter for ObservationWindow |
 | `DefaultShapeChangeTolerance` | 0.20 | IL or OL shift that triggers window reset |
+| `DefaultGPSMismatchThresholdPct` | 15.0 | GPS error % above which SpareCapacity is suppressed |
+| `DefaultGPSMinKForVerification` | 0.30 | Minimum k* for GPS check to apply |
+| `DefaultNearKSatMargin` | 0.10 | k* within this margin of k_sat triggers deeper diagnostics |
+| `DefaultNearKSatITLResidualThreshold` | 0.20 | ITL residual above which model drift is flagged |
+| `DefaultNearKSatNDecResidualThreshold` | 0.20 | N_dec cross-check residual above which shape mismatch is flagged |
 
 **Open items:**
 - `DefaultKSat = 0.85` is per-analyzer; needs alignment with EPP system-wide k_sat
