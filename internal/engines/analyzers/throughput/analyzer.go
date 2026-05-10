@@ -93,21 +93,36 @@ func (a *ThroughputAnalyzer) Observe(
 		state.lastSanityReport = report
 		state.lastObservedAt = now
 
+		if report.Has(SanityIssueNoReplicas) {
+			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no replicas, skipping variant",
+				"namespace", namespace,
+				"modelID", modelID,
+				"variant", variantName,
+			)
+			continue
+		}
 		if !report.OK() {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: sanity issues detected, skipping variant",
+			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: sanity issues detected, some pods excluded",
 				"namespace", namespace,
 				"modelID", modelID,
 				"variant", variantName,
 				"issues", report.Issues,
 				"affectedPods", report.AffectedPods,
 			)
+		}
+
+		// Only healthy pods contribute to shape averaging and window observations.
+		// Pods with per-replica issues (cold start, stale metrics, missing KV) are
+		// excluded so one bad replica cannot block the entire variant.
+		healthyMetrics := filterHealthyForShape(variantMetrics)
+		if len(healthyMetrics) == 0 {
 			continue
 		}
 
 		// Compute variant-average shape metrics. All replicas of the same variant
 		// are expected to have the same OL and IL (same model, same config); the
 		// mean handles any minor per-pod variation.
-		il, ol, hitRate := averageShapeMetrics(variantMetrics)
+		il, ol, hitRate := averageShapeMetrics(healthyMetrics)
 
 		shape, changed := state.shapeTracker.Observe(il, ol, hitRate)
 		if changed {
@@ -586,6 +601,19 @@ func averageShapeMetrics(metrics []interfaces.ReplicaMetrics) (il, ol, hitRate f
 		return sumILu / count, sumOLu / count, sumHRu / count
 	}
 	return sumIL / totalWeight, sumOL / totalWeight, sumHitRate / totalWeight
+}
+
+// filterHealthyForShape returns only the replicas that pass all per-replica
+// sanity checks. Replicas with cold-start (ITL=0), stale metrics, or missing
+// KV capacity are excluded so a single bad pod cannot block the variant.
+func filterHealthyForShape(metrics []interfaces.ReplicaMetrics) []interfaces.ReplicaMetrics {
+	healthy := make([]interfaces.ReplicaMetrics, 0, len(metrics))
+	for _, m := range metrics {
+		if len(checkReplicaMetrics(m)) == 0 {
+			healthy = append(healthy, m)
+		}
+	}
+	return healthy
 }
 
 // safeDivide returns num/denom, or 0 when denom is zero.

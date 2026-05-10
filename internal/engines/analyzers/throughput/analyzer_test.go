@@ -1256,4 +1256,47 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(estimateQueueDemand(sq, 0.05, 2.0)).To(BeNumerically("~", 1000.0, 1e-9))
 		})
 	})
+
+	Describe("Observe — per-pod sanity filter", func() {
+		// Verify that a single bad pod (ITL=0, cold start) does not block healthy pods
+		// from contributing shape observations and window entries.
+		const (
+			ilS    = 1024.0
+			olS    = 256.0
+			kvMaxS = int64(65536)
+			aS     = 0.050
+			bS     = 0.006
+		)
+
+		It("still observes shape and window entries when one pod has ITL=0 (cold start)", func() {
+			healthy := interfaces.ReplicaMetrics{
+				PodName:               "pod-healthy",
+				VariantName:           "v1",
+				KvCacheUsage:          0.50,
+				KvUsageInstant:        0.50,
+				AvgITL:                aS*0.50 + bS,
+				AvgInputTokens:        ilS,
+				AvgOutputTokens:       olS,
+				TotalKvCapacityTokens: kvMaxS,
+			}
+			cold := interfaces.ReplicaMetrics{
+				PodName:               "pod-cold",
+				VariantName:           "v1",
+				KvCacheUsage:          0.0,
+				KvUsageInstant:        0.0,
+				AvgITL:                0, // cold start: ITL not yet available
+				AvgInputTokens:        ilS,
+				AvgOutputTokens:       olS,
+				TotalKvCapacityTokens: kvMaxS,
+			}
+			analyzer.Observe(ctx, modelID, namespace, []interfaces.ReplicaMetrics{healthy, cold})
+
+			state, ok := analyzer.VariantState(modelID, namespace, "v1")
+			Expect(ok).To(BeTrue())
+			// Healthy pod contributed one window entry; cold pod was excluded.
+			Expect(state.SampleCount).To(Equal(1))
+			// Shape is derived from the healthy pod.
+			Expect(state.Shape.KVreq).To(BeNumerically(">", 0))
+		})
+	})
 })
