@@ -101,4 +101,12 @@ const (
 	// used in near-k_sat GPS sanity. If ITL residual is small but GPS × AvgITL disagrees
 	// with KV-derived N_dec, the workload shape (KVreq via IL, OL, or hit rate) may be wrong.
 	DefaultNearKSatNDecResidualThreshold = 0.20
+
+	// DefaultGPSMismatchClearThreshold is the number of consecutive reconcile cycles
+	// with a GPS mismatch before the observation window is cleared for recalibration.
+	// Requiring N consecutive mismatches filters transient GPS noise while still
+	// breaking persistent calibration lock. The counter resets to zero whenever the
+	// window is cleared (shape change or threshold reached) so it is always bound to
+	// the current window's lifetime.
+	DefaultGPSMismatchClearThreshold = 3
 )

@@ -40,6 +40,11 @@ type variantState struct {
 	// A shape change clears the observation window but must NOT clear lastFittedB.
 	lastFittedB float64
 	hasFittedB  bool
+	// consecutiveGPSMismatches counts how many consecutive Analyze cycles have
+	// produced a GPS mismatch for this variant. The observation window is cleared
+	// when this reaches DefaultGPSMismatchClearThreshold. Always reset alongside
+	// observationWindow.Clear() so it is bound to the current window's lifetime.
+	consecutiveGPSMismatches int
 	// set by Analyze() for VariantState() snapshots
 	lastITLModel         ITLModel
 	lastPerReplicaSupply float64
@@ -133,11 +138,12 @@ func (a *ThroughputAnalyzer) Observe(
 				"newKVreq", shape.KVreq,
 			)
 			state.observationWindow.Clear()
+			state.consecutiveGPSMismatches = 0
 		}
 
-		// Collect one (k*, ITL) observation per replica. Per-replica variation in k*
-		// provides the k-spread needed for a reliable OLS fit.
-		for _, m := range variantMetrics {
+		// Collect one (k*, ITL) observation per healthy replica. Per-replica variation
+		// in k* provides the k-spread needed for a reliable OLS fit.
+		for _, m := range healthyMetrics {
 			state.observationWindow.Add(m.KvUsageInstant, m.AvgITL, now)
 		}
 		state.observationWindow.Prune(now)
@@ -273,6 +279,19 @@ func (a *ThroughputAnalyzer) Analyze(
 
 		if checkVariantGPSMismatch(variantMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
 			anyGPSMismatch = true
+			state.consecutiveGPSMismatches++
+			if state.consecutiveGPSMismatches >= DefaultGPSMismatchClearThreshold {
+				state.observationWindow.Clear()
+				state.consecutiveGPSMismatches = 0
+				ctrl.Log.Info("throughput analyzer: GPS mismatch persisted, clearing observation window for recalibration",
+					"namespace", input.Namespace,
+					"modelID", input.ModelID,
+					"variant", variantName,
+					"threshold", DefaultGPSMismatchClearThreshold,
+				)
+			}
+		} else {
+			state.consecutiveGPSMismatches = 0
 		}
 
 		isEPPByVariant[variantName] = isEPP
@@ -653,7 +672,7 @@ func checkVariantGPSMismatch(
 			continue
 		}
 		mismatch = true
-		ctrl.Log.Info("throughput analyzer: GPS mismatch, suppressing SpareCapacity",
+		ctrl.Log.Info("throughput analyzer: GPS mismatch detected",
 			"namespace", namespace,
 			"modelID", modelID,
 			"variant", variantName,

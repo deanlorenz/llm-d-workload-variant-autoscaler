@@ -1206,6 +1206,146 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
+	Describe("Analyze — GPS mismatch window reset", func() {
+		// Scenario uses the same ITL coefficients as the GPS verification tests.
+		const (
+			ilW    = 5000.0
+			olW    = 200.0
+			pfxW   = 0.1
+			aW     = 0.073
+			bW     = 0.006
+			kvMaxW = int64(1024000)
+			kStarW = 0.50
+		)
+		kValuesW := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
+
+		buildWindowW := func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "wv1",
+				ilW, olW, pfxW, kvMaxW, aW, bW, kValuesW)
+			state, ok := analyzer.VariantState(modelID, namespace, "wv1")
+			Expect(ok).To(BeTrue())
+			Expect(state.ObservationReady).To(BeTrue())
+		}
+
+		// muDecW computes model-predicted μ_dec(k) so GPS can be set to a mismatch value.
+		muDecW := func(k float64) float64 {
+			kvReq := ilW*(1-pfxW) + olW/2
+			nDec := k * float64(kvMaxW) / kvReq
+			return nDec / (aW*k + bW)
+		}
+
+		mismatchInput := func() interfaces.AnalyzerInput {
+			return interfaces.AnalyzerInput{
+				ModelID:   modelID,
+				Namespace: namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{{
+					VariantName:           "wv1",
+					KvCacheUsage:          kStarW,
+					KvUsageInstant:        kStarW,
+					AvgITL:                aW*kStarW + bW,
+					AvgInputTokens:        ilW,
+					AvgOutputTokens:       olW,
+					PrefixCacheHitRate:    pfxW,
+					TotalKvCapacityTokens: kvMaxW,
+					ArrivalRate:           2,
+					GenerationTokenRate:   muDecW(kStarW) * 0.1, // >> 15% error
+				}},
+			}
+		}
+
+		cleanInput := func() interfaces.AnalyzerInput {
+			return interfaces.AnalyzerInput{
+				ModelID:   modelID,
+				Namespace: namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{{
+					VariantName:           "wv1",
+					KvCacheUsage:          kStarW,
+					KvUsageInstant:        kStarW,
+					AvgITL:                aW*kStarW + bW,
+					AvgInputTokens:        ilW,
+					AvgOutputTokens:       olW,
+					PrefixCacheHitRate:    pfxW,
+					TotalKvCapacityTokens: kvMaxW,
+					ArrivalRate:           2,
+					GenerationTokenRate:   muDecW(kStarW), // exact match → no mismatch
+				}},
+			}
+		}
+
+		It("does not clear the observation window on a single GPS mismatch cycle", func() {
+			buildWindowW()
+			_, err := analyzer.Analyze(ctx, mismatchInput())
+			Expect(err).NotTo(HaveOccurred())
+
+			state, _ := analyzer.VariantState(modelID, namespace, "wv1")
+			Expect(state.SampleCount).To(BeNumerically(">", 0))
+		})
+
+		It("clears the observation window after N consecutive GPS mismatch cycles", func() {
+			buildWindowW()
+			// Run one clean Analyze to trigger the Tier-1 OLS fit and set lastFittedB.
+			_, err := analyzer.Analyze(ctx, cleanInput())
+			Expect(err).NotTo(HaveOccurred())
+			stateBeforeW, _ := analyzer.VariantState(modelID, namespace, "wv1")
+			Expect(stateBeforeW.HasFittedB).To(BeTrue())
+
+			for i := 0; i < DefaultGPSMismatchClearThreshold; i++ {
+				_, err := analyzer.Analyze(ctx, mismatchInput())
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			state, _ := analyzer.VariantState(modelID, namespace, "wv1")
+			Expect(state.SampleCount).To(Equal(0))
+			// lastFittedB must survive the window clear.
+			Expect(state.HasFittedB).To(BeTrue())
+		})
+
+		It("resets the consecutive counter on a clean cycle, requiring N mismatches again", func() {
+			buildWindowW()
+			// Inject N-1 mismatches, then a clean cycle — counter should reset.
+			for i := 0; i < DefaultGPSMismatchClearThreshold-1; i++ {
+				_, err := analyzer.Analyze(ctx, mismatchInput())
+				Expect(err).NotTo(HaveOccurred())
+			}
+			_, err := analyzer.Analyze(ctx, cleanInput())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now inject N-1 more mismatches — still below threshold → window intact.
+			for i := 0; i < DefaultGPSMismatchClearThreshold-1; i++ {
+				_, err = analyzer.Analyze(ctx, mismatchInput())
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			state, _ := analyzer.VariantState(modelID, namespace, "wv1")
+			Expect(state.SampleCount).To(BeNumerically(">", 0))
+		})
+
+		It("resets the consecutive counter when the window is cleared by a shape change", func() {
+			buildWindowW()
+			// Inject N-1 mismatches — just below the threshold.
+			for i := 0; i < DefaultGPSMismatchClearThreshold-1; i++ {
+				_, err := analyzer.Analyze(ctx, mismatchInput())
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// Trigger a shape change by injecting observations with a very different OL.
+			injectWindowObs(analyzer, ctx, modelID, namespace, "wv1",
+				ilW, olW*10, pfxW, kvMaxW, aW, bW, kValuesW)
+
+			// One more mismatch — but the counter was reset by the shape change,
+			// so the total consecutive count is 1, not N.
+			_, err := analyzer.Analyze(ctx, mismatchInput())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Window was cleared by shape change; after one Observe pass it may be
+			// empty or have just the new-shape observations — either way, not cleared
+			// again by GPS (count is 1, not N).
+			state, _ := analyzer.VariantState(modelID, namespace, "wv1")
+			// SampleCount reflects the new-shape window from injectWindowObs — still > 0.
+			Expect(state.SampleCount).To(BeNumerically(">", 0))
+		})
+	})
+
 	Describe("estimateQueueDemand — guard clauses", func() {
 		It("returns 0 when sq is nil", func() {
 			Expect(estimateQueueDemand(nil, 0.05, 2.0)).To(Equal(0.0))
