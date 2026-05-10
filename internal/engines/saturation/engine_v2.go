@@ -27,6 +27,7 @@ func (e *Engine) runV2AnalysisOnly(
 	variantStates []interfaces.VariantReplicaState,
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
+	schedulerQueue *interfaces.SchedulerQueueMetrics,
 ) (*interfaces.AnalyzerResult, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -54,7 +55,7 @@ func (e *Engine) runV2AnalysisOnly(
 		ReplicaMetrics: replicaMetrics,
 		VariantStates:  variantStates,
 		Config:         &config,
-		// TODO: populate SchedulerQueue when flow control metrics are collected
+		SchedulerQueue: schedulerQueue,
 	}
 
 	// 3. Run V2 analyzer
@@ -199,6 +200,7 @@ func (e *Engine) runAnalyzersAndScore(
 	variantStates []interfaces.VariantReplicaState,
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
+	schedulerQueue *interfaces.SchedulerQueueMetrics,
 ) (*interfaces.AnalyzerResult, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -218,7 +220,7 @@ func (e *Engine) runAnalyzersAndScore(
 	// Saturation always runs — its VariantCapacities carry Cost and AcceleratorName
 	// that the optimizer needs for variant selection and GPU accounting.
 	satResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
-		variantStates, scaleTargets, variantAutoscalings)
+		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +232,7 @@ func (e *Engine) runAnalyzersAndScore(
 		ReplicaMetrics: replicaMetrics,
 		VariantStates:  variantStates,
 		Config:         &config,
-		// SchedulerQueue: nil — wired in a later PR
+		SchedulerQueue: schedulerQueue,
 	}
 
 	// Collect results from all enabled analyzers.
@@ -295,9 +297,10 @@ func (e *Engine) collectV2ModelRequest(
 	variantStates []interfaces.VariantReplicaState,
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
+	schedulerQueue *interfaces.SchedulerQueueMetrics,
 ) (*pipeline.ModelScalingRequest, error) {
 	result, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
-		variantStates, scaleTargets, variantAutoscalings)
+		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
 		return nil, fmt.Errorf("collecting V2 model request for %s/%s: %w", namespace, modelID, err)
 	}
