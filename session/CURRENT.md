@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
 
 ---
 
@@ -10,7 +10,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | CI green; awaiting approval (no LGTM yet)                         | `900c94c` |
 | TA2                   | #1052 | CI green; awaiting approval                                       | `99a35b0` |
-| TA3                   | —     | Local only; rebase after TA2 merges                               | `44a96f0` |
+| TA3                   | —     | Local only; rebase after TA2 merges                               | `cacb0e5` |
 | engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
@@ -187,12 +187,9 @@ exists — it reflects hardware/model characteristics, not workload shape.
 
 - **Engine SchedulerQueue wiring** — ✅ implemented on `engine-queue-fix` (`01ed7d8`); PR deferred until #1113 merges. Fix threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
 
-- **GPS mismatch: clear observation window instead of just logging** — `checkVariantGPSMismatch`
-  currently suppresses SC and logs INFO but does not clear the window. Without a clear, bad
-  observations accumulate and the mismatch persists indefinitely (up to 30 min window age),
-  blocking all scale-down. Fix: clear `state.observationWindow` at the call site in `Analyze()`
-  when `checkVariantGPSMismatch` returns true. The INFO log becomes "GPS mismatch: clearing
-  window for recalibration". `lastFittedB` must be preserved (same as shape-change resets).
+- **Bob review 1.3 — ArrivalRate staleness check in `computeDemand`** — defer ArrivalRate
+  staleness detection (warn when `ArrivalRate` metric is stale/zero while queue is non-empty)
+  to a later observability PR. Related to the Prometheus gauge work below.
 
 - **Prometheus gauges for ITL model coefficients** — export `wva_throughput_analyzer_itl_model_a`
   and `wva_throughput_analyzer_itl_model_b` gauges (labels: `namespace`, `model_id`, `variant`,
