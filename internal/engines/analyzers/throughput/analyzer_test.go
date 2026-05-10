@@ -750,6 +750,33 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
+
+		It("emits zero RequiredCapacity when OL is below the decode-dominated threshold", func() {
+			// OL=5 < DefaultMinDecodeOLForLocalDemand(20): the k*-based formula must not fire.
+			// EPP and vLLM paths are also absent (no ArrivalRate, no VLLMRequestRate).
+			// Expected: demand=0, RC=0, SC=0.
+			const lowOL = 5.0
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, lowOL, prefix, kvMax, A, B, kValues)
+
+			replica := interfaces.ReplicaMetrics{
+				VariantName:           "v1",
+				KvCacheUsage:          0.95,
+				KvUsageInstant:        0.95,
+				AvgITL:                A*0.95 + B,
+				AvgInputTokens:        il,
+				AvgOutputTokens:       lowOL,
+				PrefixCacheHitRate:    prefix,
+				TotalKvCapacityTokens: kvMax,
+				// ArrivalRate=0, VLLMRequestRate=0
+			}
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replica},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequiredCapacity).To(Equal(0.0))
+			Expect(result.SpareCapacity).To(Equal(0.0))
+		})
 	})
 
 	Describe("Analyze — scheduler queue demand", func() {
