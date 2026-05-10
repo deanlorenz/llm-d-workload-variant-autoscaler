@@ -66,6 +66,15 @@ const (
 	// A factor of 2.0 bounds per-request queueing time to ≤ 2 × ITL(k_sat) × avgOL.
 	DefaultQueueDrainFactor = 2.0
 
+	// DefaultMinDecodeOLForLocalDemand is the minimum AvgOutputTokens required
+	// before the k*-based local demand estimator is applied. The estimator derives
+	// λ_dec = N_dec(k*) / ITL(k*) where N_dec is approximated from KV utilization
+	// as k* × KV_max / KVreq. This approximation only holds in the decode-dominated
+	// regime (N_pre ≈ 1, TA-supply.md §3.1), which requires sufficiently long OL.
+	// When OL ≈ 0, KV usage is from prefill rather than decode; the formula then
+	// produces spurious non-zero demand instead of the correct λ_dec = 0.
+	DefaultMinDecodeOLForLocalDemand = 20.0
+
 	// DefaultGPSMismatchThresholdPct is the maximum tolerable percentage error between
 	// the model-predicted decode rate μ_dec(k*) and the directly observed GPS
 	// (GenerationTokenRate). Errors above this threshold at k* ≥ DefaultGPSMinKForVerification

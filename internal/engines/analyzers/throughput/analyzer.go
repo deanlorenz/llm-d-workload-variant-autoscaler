@@ -491,7 +491,7 @@ func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 // KV_max = 0 are excluded (no meaningful signal at idle).
 // This estimate is used for scale-up only; SpareCapacity still requires EPP.
 func computeLocalDemand(metrics []interfaces.ReplicaMetrics, shape WorkloadShape, model ITLModel) float64 {
-	if shape.KVreq <= 0 {
+	if shape.KVreq <= 0 || shape.AvgOutputTokens <= DefaultMinDecodeOLForLocalDemand {
 		return 0
 	}
 	var total float64
