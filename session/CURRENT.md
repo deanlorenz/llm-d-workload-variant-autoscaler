@@ -1,28 +1,32 @@
 # Current Work
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-10
 
 ---
 
 ## PR Status
 
-| Branch | PR    | Status                                      | Tip       |
-|--------|-------|---------------------------------------------|-----------|
-| TA1    | #1051 | CI green; awaiting approval (no LGTM yet)   | `900c94c` |
-| TA2    | #1052 | CI green; no reviews yet                    | `99a35b0` |
-| TA3    | —     | Local only; rebase after TA2 merges         | `44a96f0` |
+| Branch                | PR    | Status                                                            | Tip       |
+|-----------------------|-------|-------------------------------------------------------------------|-----------|
+| TA1                   | #1051 | CI green; awaiting approval (no LGTM yet)                         | `900c94c` |
+| TA2                   | #1052 | CI green; awaiting approval                                       | `99a35b0` |
+| TA3                   | —     | Local only; rebase after TA2 merges                               | `44a96f0` |
+| engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
+| engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
 ---
 
 ## Blocked on
 
 - **TA1 (#1051)** — awaiting approval; TA2 and TA3 cannot merge until TA1 lands
-- **TA2 (#1052)** — awaiting CI + review; TA3 rebase waits on TA2 merge
+- **TA2 (#1052)** — awaiting approval; TA3 rebase waits on TA2 merge
+- **#1113 (engine-multi-analyzer)** — e2e-smoke pending; awaiting review; engine-queue-fix PR waits on this
 
 ## Next steps
 
 - After TA1 merges: rebase TA2 onto new upstream/main tip
-- After TA2 merges: rebase TA3, implement design decision #7 (lastFittedB carry-over), discuss PR-4 before submitting
+- After TA2 merges: rebase TA3, discuss TA3 PR-4+PR-5 before submitting
+- After #1113 merges: open engine-queue-fix PR (force-push `01ed7d8` after rebasing onto new main tip)
 
 ---
 
@@ -38,7 +42,8 @@ Phase:
   - [x] PR-3: state management — ShapeTracker, ObservationWindow, SanityReport (TA2, #1052 — awaiting review)
   - [x] PR-4: ITL model + scaling signal (TA3 commit `52553dc`, not yet submitted)
   - [x] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `8c67138`, not yet submitted)
-  - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, ready to submit)
+  - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, PR #1113 submitted)
+  - [x] ENGINE: SchedulerQueue wiring — `CollectSchedulerQueueMetrics` → `AnalyzerInput.SchedulerQueue` (`engine-queue-fix`, PR deferred)
 - [x] E2E infrastructure — kind cluster up, Step 1a + 1b passed (31/31 smoke tests each)
 - [ ] E2E test scenarios — `test/e2e/throughput_analyzer_test.go` (3 scenarios, file written — discuss before running)
 - [ ] PR review
@@ -61,15 +66,25 @@ Next step:
 
 ---
 
-## ENGINE PR: Ready to Submit
+## ENGINE PRs
 
-**Branch:** `engine-multi-analyzer` (pushed to origin)  
-**Targets:** `main` — independent of all TA branches, no TA code included.
+### engine-multi-analyzer (PR #1113)
+
+**Branch:** `engine-multi-analyzer` in worktree `.claude/worktrees/engine-multi-analyzer/`  
+**Targets:** `main` — independent of all TA branches, no TA code included.  
+**Tip:** `a93bc5d` (post DCO+gofmt interactive-rebase fix, force-pushed 2026-05-10)
 
 **Three commits:**
-- `b6d142a` — implementation: generic `analyzers` map in `Engine` struct, `runAnalyzersAndScore()` rewrite, `combineAnalyzerResults()` with dimensionless any-up/all-down, `engine_combine_test.go` (31 specs)
-- `a1f094d` — docs: Multi-Analyzer Pipeline section in `saturation-scaling-config.md` and `saturation-analyzer.md`
-- `9fc4a62` — `RegisterAnalyzer(name, interfaces.Analyzer)` method on `Engine` — lets callers inject plugin analyzers without engine.go knowing the concrete type
+- `5bbe8af` — implementation: generic `analyzers` map, `runAnalyzersAndScore()`, `combineAnalyzerResults()` any-up/all-down, `engine_combine_test.go` (31 specs)
+- `db59b53` — docs: Multi-Analyzer Pipeline section in `saturation-scaling-config.md` and `saturation-analyzer.md`
+- `a93bc5d` — `RegisterAnalyzer(name, interfaces.Analyzer)` method on `Engine`
+
+### engine-queue-fix
+
+**Branch:** `engine-queue-fix` (stacked on `engine-multi-analyzer`; worktree `.claude/worktrees/engine-multi-analyzer/`)  
+**Tip:** `01ed7d8` (1 commit ahead of engine-multi-analyzer)  
+**PR:** not yet opened — waiting for #1113 to merge  
+**What it adds:** calls `CollectSchedulerQueueMetrics(ctx, modelID)` in `prepareModelData`; threads result through `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
 
 ---
 
@@ -103,8 +118,11 @@ engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyze
 
 ### E2E Infrastructure State
 
-Kind cluster `kind-wva-gpu-cluster` is UP and ready.  
-WVA deployed: `quay.io/dlorenz/llm-d-workload-variant-autoscaler:ta3-dev` (Step 1b).
+Kind cluster `kind-wva-gpu-cluster` — last confirmed UP 2026-04-27; **check before use**.  
+WVA deployed during Step 1b: `quay.io/dlorenz/llm-d-workload-variant-autoscaler:ta3-dev` (**wrong namespace** — quay.io account is `deanlorenz` not `dlorenz`; that image may still be accessible if it was pushed then, but use the newer image below for real TA e2e).
+
+**Current e2e image** (TA3 + engine-multi-analyzer + queue-fix):  
+`quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e` — pushed 2026-05-10
 
 To resume e2e work on this cluster:
 ```bash
@@ -166,7 +184,7 @@ exists — it reflects hardware/model characteristics, not workload shape.
 
 ## Issues to Open (post-merge)
 
-- **Engine never populates SchedulerQueue** — `engine_v2.go:56` has `// TODO: populate SchedulerQueue when flow control metrics are collected`. `CollectSchedulerQueueMetrics` is fully implemented in the collector but is never called. Both `saturation_v2` and the TA miss EPP flow-control queue demand as a result. Fix: call `CollectSchedulerQueueMetrics` in `prepareModelData`, thread through `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly`, set `AnalyzerInput.SchedulerQueue`. Independent of TA branches; can land with `engine-multi-analyzer` or as its own PR.
+- **Engine SchedulerQueue wiring** — ✅ implemented on `engine-queue-fix` (`01ed7d8`); PR deferred until #1113 merges. Fix threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
 
 - **Prometheus gauges for ITL model coefficients** — export `wva_throughput_analyzer_itl_model_a`
   and `wva_throughput_analyzer_itl_model_b` gauges (labels: `namespace`, `model_id`, `variant`,

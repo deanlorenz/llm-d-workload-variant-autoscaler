@@ -86,19 +86,23 @@ actual code state of the branch it is on. Do not include PR-schedule references 
 or forward-looking implementation details. Use "not yet implemented" for features that are
 genuinely absent from the current branch.
 
-**Pre-push checklist.**
-Before any `git push` or PR submission on a code branch: `gofmt -l` on changed Go files,
-`go test ./internal/... ./pkg/... ./cmd/...`, and `make lint` (golangci-lint). Fix any failure
-before pushing.
+**Pre-push checklist (run in order before every `git push` or PR submission).**
+1. **Check current branch** — `git branch --show-current`. Confirm you are on the intended branch before any commit, amend, or rebase.
+2. **gofmt** — `gofmt -l ./internal/... ./pkg/... ./cmd/...`. No output means clean.
+3. **Tests** — `go test ./internal/... ./pkg/... ./cmd/...`. All pass.
+4. **DCO sign-off** — every commit must carry `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`. Use `git commit --signoff` or `git commit --amend --signoff`. Verify with `git log upstream/main..HEAD --format="%b" | grep Signed-off-by`. DCO failure blocks CI and requires a force-push after the PR is open.
+5. **Build** — `go build ./...`. Clean.
 
 **Force-push only after history rewrite.**
 Use `git push --force-with-lease` only after a rebase or amend. Use plain `git push` for new
 commits on top of a branch.
 
+**Merging upstream into main.**
+Always use `git merge --ff-only upstream/main` when fast-forwarding main to upstream. Push to
+origin after. Never use a merge commit for this operation.
+
 ---
 
-## Active PRs (as of 2026-05-06)
+## Active PRs
 
-See `session/CURRENT.md` for current PR status and branch tips.
-
-Current chain: `main ← TA1 (#1051) ← TA2 (#1052) ← TA3 (not yet submitted)`
+See `session/CURRENT.md` for current PR status, branch tips, and stacking order.
