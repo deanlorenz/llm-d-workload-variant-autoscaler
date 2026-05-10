@@ -187,6 +187,13 @@ exists — it reflects hardware/model characteristics, not workload shape.
 
 - **Engine SchedulerQueue wiring** — ✅ implemented on `engine-queue-fix` (`01ed7d8`); PR deferred until #1113 merges. Fix threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
 
+- **GPS mismatch: clear observation window instead of just logging** — `checkVariantGPSMismatch`
+  currently suppresses SC and logs INFO but does not clear the window. Without a clear, bad
+  observations accumulate and the mismatch persists indefinitely (up to 30 min window age),
+  blocking all scale-down. Fix: clear `state.observationWindow` at the call site in `Analyze()`
+  when `checkVariantGPSMismatch` returns true. The INFO log becomes "GPS mismatch: clearing
+  window for recalibration". `lastFittedB` must be preserved (same as shape-change resets).
+
 - **Prometheus gauges for ITL model coefficients** — export `wva_throughput_analyzer_itl_model_a`
   and `wva_throughput_analyzer_itl_model_b` gauges (labels: `namespace`, `model_id`, `variant`,
   `tier`) so operators can graph ITL model stability in Grafana. Separate observability PR
