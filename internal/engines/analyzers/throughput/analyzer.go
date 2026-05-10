@@ -332,6 +332,12 @@ func (a *ThroughputAnalyzer) Analyze(
 
 	// Model-level RequiredCapacity and SpareCapacity from totals. Computing from
 	// totals prevents simultaneous RC and SC signals when variants are imbalanced.
+	//
+	// RequiredCapacity includes all roles. Prefill-role demand contribution is
+	// effectively zero after the OL guard in computeLocalDemand: the EPP and vLLM
+	// demand paths multiply by AvgOutputTokens (≈ 0 for prefill pods), and
+	// computeLocalDemand is gated on AvgOutputTokens > DefaultMinDecodeOLForLocalDemand.
+	// Per-role RC suppression is applied in RoleCapacities via aggregateRoleCapacities.
 	var requiredCapacity, spareCapacity float64
 	if totalDemand > totalAnticipated {
 		requiredCapacity = totalDemand - totalAnticipated
