@@ -63,6 +63,26 @@ Transient session state. Enables any new session to resume without prior memory.
 docs rather than duplicating them. Holds decisions/insights not yet captured elsewhere and removes
 them once they land in a permanent doc.
 
+**Type 6 — Review docs** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
+Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
+gaps, NTH items, and confirmed-correct items. Scoped to a branch or design doc. Carries a
+`Status: DRAFT` header until the user finalizes the findings in discussion; only `Status: FINAL`
+docs are ready for consumption by the plan agent. Never write to a `*-review.md` file unless you
+are acting as the review agent.
+
+### Agent roles and document ownership
+
+Three distinct agent roles write to three non-overlapping doc domains:
+
+| Role | Invoked by | Writes | Reads |
+|---|---|---|---|
+| **Review agent** | `/design-review` | `*-review.md` (Type 6) | Type 1, 3, code |
+| **Plan agent** | explicit request | `*-plan.md` (Type 3) | Type 6 (FINAL only), Type 1 |
+| **Coder** | explicit request | code, Type 4 | Type 3, Type 4 |
+
+Never write into another agent's domain. A coder should not edit a `*-review.md`; a review agent
+should not edit code or `*-plan.md` files.
+
 ### Quick rule
 
 Before writing anything into CURRENT.md, ask: does this belong in a Type 1–4 doc instead? Only
