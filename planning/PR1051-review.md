@@ -3,7 +3,7 @@
 **Status: DRAFT**
 
 **PR:** [collector/registration: register throughput analyzer queries (PR-1, PR-2)](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1051)  
-**Head:** `900c94c`  
+**Head:** `c405e8d` (rebased 2026-05-11; previous tip `900c94c`)  
 **Reviewed:** 2026-05-11
 
 ---
