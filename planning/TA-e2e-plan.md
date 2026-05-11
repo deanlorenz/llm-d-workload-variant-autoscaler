@@ -1,9 +1,9 @@
 # E2E Test Plan — TA3 (ThroughputAnalyzer)
 
 ## Status
-**Phase:** Step 1 COMPLETE — Task 2 (TA3 test scenarios) is the next action  
-**Branch:** TA3  
-**Last updated:** 2026-04-27 (rev 6 — Step 1a + 1b results; EPP image bug; E2E_TESTS_ENABLED requirement; quay.io registry)
+**Phase:** Step 1 COMPLETE — Task 3 (fresh cluster restart + TA baseline run) is the next action  
+**Branch:** TA3 (tests) / ta3-e2e (image)  
+**Last updated:** 2026-05-11 (rev 7 — Task 3 added: fresh cluster, ta3-e2e cherry-picks, flow control, llm-d reset)
 
 ---
 
@@ -34,6 +34,11 @@ Depends on the ENGINE multi-analyzer PR (`engine-multi-analyzer` branch) for the
 | D13 | No separate `kind create cluster` or `kind load docker-image` | Both handled automatically by `install.sh`: CREATE_CLUSTER=true triggers cluster creation; load_image() in kind-emulator/install.sh loads WVA image into kind after build |
 | D14 | IMG_TAG=main-local / ta3-dev for local builds | Expands to full `IMG` ref; `WVA_IMAGE_PULL_POLICY=IfNotPresent` set by deploy-e2e-infra triggers local-image path in install.sh |
 | D15 | llm-d stack persists across WVA test iterations | llm-d (simulator + EPP) is expensive to redeploy; only tear down when switching model topology. Between runs: scale to 0 and back instead |
+| D16 | Cherry-pick 4 TA3 commits onto `ta3-e2e` before building image | `ta3-e2e` forked at `44a96f0`; GPS verification, OL guard, unhealthy-pod fix, and calibration-lock fix landed after that |
+| D17 | `rm -rf llm-d/` before fresh deploy | `infra_llmd.sh` now aligns the checkout to `LLM_D_RELEASE` even when the dir already exists; dirty v0.5.0 tree causes `git checkout v0.6.0` to fail |
+| D18 | Flow control enabled via `E2E_TESTS_ENABLED=true` | `infra_llmd.sh` patches EPP ConfigMap to add `flowControl` featureGate when `E2E_TESTS_ENABLED=true`; no extra variable needed |
+| D19 | EPP image mismatch: verify at runtime with v0.6.0 llm-d | v0.5.0 needed a patch back to `v0.5.0` EPP because its values set `--kv-cache-usage-percentage-metric` which v0.7.0 EPP rejects; v0.6.0 likely doesn't set it — verify, don't pre-patch |
+| D20 | Run tests from TA3 branch; image from `ta3-e2e` | `throughput_analyzer_test.go` exists on TA3 only; `ta3-e2e` carries the engine changes needed in the deployed binary |
 
 ---
 
@@ -280,47 +285,101 @@ make test-e2e-smoke ENVIRONMENT=kind-emulator
 
 ---
 
-### Step 2 — TA3 tests (deferred — do not start until Step 1 passes)
+### Step 2 — TA3 tests: fresh cluster restart
 
-After the test file `test/e2e/throughput_analyzer_test.go` is written:
+The cluster is being restarted from scratch. Use the `ta3-e2e` branch as the build source
+(TA3 code + engine-multi-analyzer + engine-queue-fix) and run tests from the `TA3` branch
+(which contains `throughput_analyzer_test.go`).
+
+#### Step 2a — Update `ta3-e2e` branch
+
+`ta3-e2e` forked from TA3 at `44a96f0`. Cherry-pick the 4 functional commits that landed
+after that point (all touch only `throughput/analyzer.go`, `analyzer_test.go`, `constants.go`):
+
+```bash
+git checkout ta3-e2e
+git cherry-pick 29fbd3c 41ec95a 00352f6 790ac8f
+# Verify
+gofmt -l ./internal/... ./pkg/... ./cmd/...
+go test ./internal/... ./pkg/... ./cmd/...
+go build ./...
+git push --force-with-lease origin ta3-e2e
+```
+
+Commits in order (oldest first):
+- `29fbd3c` — GPS supply model verification + SC suppression
+- `41ec95a` — guard `computeLocalDemand` against low OL (decode-dominated invariant)
+- `00352f6` — exclude unhealthy pods per-replica
+- `790ac8f` — clear observation window on repeated GPS mismatches (calibration lock fix)
+
+#### Step 2b — Build + push image
+
+```bash
+git checkout ta3-e2e
+make docker-build IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e
+docker push quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e
+```
+
+#### Step 2c — Tear down cluster + wipe llm-d checkout
+
+```bash
+# Delete kind cluster and namespaces (errors from non-existent resources are safe to ignore)
+make undeploy-wva-emulated-on-kind \
+  DELETE_CLUSTER=true \
+  DELETE_NAMESPACES=true || true
+
+# Remove stale v0.5.0 llm-d dir — infra_llmd.sh will clone v0.6.0 fresh (D17)
+rm -rf llm-d/
+```
+
+#### Step 2d — Fresh deploy (all 4 layers, flow control on)
+
+`E2E_TESTS_ENABLED=true` triggers `infra_llmd.sh` to patch the EPP image and enable the
+`flowControl` featureGate in the EPP ConfigMap (D18). `CREATE_CLUSTER=true` is a shell env
+var, not a Make var.
+
+```bash
+CREATE_CLUSTER=true INSTALL_GRAFANA=true E2E_TESTS_ENABLED=true make deploy-e2e-infra \
+  ENVIRONMENT=kind-emulator \
+  IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e \
+  WVA_IMAGE_PULL_POLICY=IfNotPresent \
+  SKIP_BUILD=true \
+  DECODE_REPLICAS=1
+```
+
+**After deploy — verify EPP pod is running (D19):**
+
+```bash
+kubectl rollout status deployment/gaie-sim-epp -n llm-d-sim --timeout=120s
+```
+
+If the EPP pod fails to start (CrashLoopBackOff with rejected-flag errors), apply the v0.5.0
+image fallback:
+
+```bash
+kubectl set image deployment/gaie-sim-epp -n llm-d-sim \
+  epp=ghcr.io/llm-d/llm-d-inference-scheduler:v0.5.0
+kubectl rollout status deployment/gaie-sim-epp -n llm-d-sim --timeout=60s
+```
+
+#### Step 2e — Run baseline smoke tests (from TA3 branch)
+
+Tests must be run from the TA3 branch so that `throughput_analyzer_test.go` is present (D20).
 
 ```bash
 git checkout TA3
-
-# Build TA3 image
-make docker-build IMG_TAG=ta3-dev
-
-# Reset llm-d state
-LLMD_NS=llm-d-sim
-kubectl scale deployment ms-sim-llm-d-modelservice-decode gaie-sim-epp \
-  -n $LLMD_NS --replicas=0
-kubectl scale deployment ms-sim-llm-d-modelservice-decode gaie-sim-epp \
-  -n $LLMD_NS --replicas=1
-kubectl rollout status deployment/ms-sim-llm-d-modelservice-decode \
-  -n $LLMD_NS --timeout=120s
-kubectl rollout status deployment/gaie-sim-epp \
-  -n $LLMD_NS --timeout=120s
-
-# Undeploy WVA only, redeploy with TA3 image
-DEPLOY_LLM_D=false make undeploy-wva-emulated-on-kind \
-  DELETE_NAMESPACES=false \
-  DELETE_CLUSTER=false
-
-DEPLOY_LLM_D=false make deploy-e2e-infra \
-  ENVIRONMENT=kind-emulator \
-  IMG_TAG=ta3-dev \
-  SKIP_BUILD=true \
-  DECODE_REPLICAS=1 \
-  LLM_D_RELEASE=v0.6.0 \
-  CREATE_CLUSTER=false
-
-# Run smoke (includes TA smoke via Label("smoke","throughput"))
 make test-e2e-smoke ENVIRONMENT=kind-emulator
+```
 
-# Run full TA scenarios only
-make test-e2e-full \
-  ENVIRONMENT=kind-emulator \
-  FOCUS="ThroughputAnalyzer"
+**Pass condition:** all existing smoke tests + Scenario 1 (TA wiring health check) green.
+Previous baseline was 31/31; with Scenario 1 added expect 32/32.
+
+#### Step 2f — Run full TA scenarios (discuss before running)
+
+After smoke passes, discuss Scenarios 2 and 3 before executing:
+
+```bash
+make test-e2e-full ENVIRONMENT=kind-emulator FOCUS="ThroughputAnalyzer"
 ```
 
 ---
@@ -486,10 +545,11 @@ Tier-2 fires after 1 observation at k* > 0 — test asserts on whichever fires f
 
 ## Current Step
 
-**→ Step 1 complete. Next: write `test/e2e/throughput_analyzer_test.go` (Task 2).**
+**→ Step 2: fresh cluster restart + TA baseline run.**
 
 Completed:
 1. ✓ **Step 1a** — 31/31 smoke tests passed with kind cluster + all layers (2026-04-27)
 2. ✓ **Step 1b** — 31/31 smoke tests passed with local TA3 image + WVA-only redeploy (2026-04-27)
+3. ✓ **`test/e2e/throughput_analyzer_test.go`** — all 3 scenarios drafted on TA3 branch
 
-Next: write `test/e2e/throughput_analyzer_test.go` with the three scenarios in Task 2. Deploy with TA3 image before running TA-specific tests (same commands as Step 1b — cluster is already up).
+Next: execute Step 2a–2e in order. Do not start Step 2f (full TA scenarios) until 2e passes.
