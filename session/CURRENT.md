@@ -193,6 +193,23 @@ exists — it reflects hardware/model characteristics, not workload shape.
 
 ---
 
+## Deferred PR-3 (#1052) Fixes
+
+Found during Claude code review; deferred to a follow-up PR after TA2 merges.
+
+- **`DefaultWindowMaxSize` code/doc mismatch** — `constants.go` has `20`; docs table says `100`. Confirm intended value and align. (`internal/engines/analyzers/throughput/constants.go`)
+- **Silent discard in `Analyze()`** — `a.Observe(...)` return value not assigned; change to `_ = a.Observe(...)` for clarity. (`analyzer.go`)
+- **Misleading `CheckModelMetrics` doc** — comment says "callers should check `report.OK()` before Observe" but `Observe()` only short-circuits on `SanityIssueNoReplicas`. Reword to match actual contract. (`sanity.go`)
+- **`averageShapeMetrics()` zero-count branch untested** — add test where all replicas have `IL ≤ 0` or `OL ≤ 0` and verify downstream `ShapeTracker` behavior.
+- **No concurrent-access test** — add `go test -race` scenario for simultaneous `Observe()` + `VariantState()`.
+- **`pod_name` fallback untested in collector** — add collector tests using `pod_name`-only labels for `GenerationTokenRate`, `KvUsageInstant`, `VLLMRequestRate`.
+- **Unbounded `variantStates` map** — add eviction pass keyed on `lastObservedAt > 2×DefaultObservationMaxAge`; add `MaxLength` to `spec.modelID` CRD validation.
+- **PromQL `Build()` escaping fragility** — move `EscapePromQLValue` into `Build()` or add explicit doc contract + test.
+- **`SanityReport.Has()` → `slices.Contains`** — replace loop body with `return slices.Contains(r.Issues, issue)`. (`types.go`)
+- **`issueSet` map → `sets.Set[SanityIssue]`** — replace `map[SanityIssue]struct{}` with `sets.New[SanityIssue]()` from `k8s.io/apimachinery/pkg/util/sets`. (`sanity.go`)
+
+---
+
 ## Issues to Open (post-merge)
 
 - **Engine SchedulerQueue wiring** — ✅ implemented on `engine-queue-fix` (`01ed7d8`); PR deferred until #1113 merges. Fix threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
