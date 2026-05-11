@@ -8,9 +8,9 @@
 
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
-| TA1                   | #1051 | CI green; awaiting approval (no LGTM yet)                         | `900c94c` |
+| TA1                   | #1051 | CI green; approved (ev-shindin 2026-05-11); ready to merge        | `c405e8d` |
 | TA2                   | #1052 | CI green; awaiting approval                                       | `99a35b0` |
-| TA3                   | —     | Local only; rebase after TA2 merges                               | `cacb0e5` |
+| TA3                   | —     | Local only; rebase after TA2 merges                               | `247ffdf2` |
 | engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
@@ -70,7 +70,7 @@ Next step:
 
 ### engine-multi-analyzer (PR #1113)
 
-**Branch:** `engine-multi-analyzer` in worktree `.claude/worktrees/engine-multi-analyzer/`  
+**Branch:** `engine-multi-analyzer` in worktree `engine-multi-analyzer/`  
 **Targets:** `main` — independent of all TA branches, no TA code included.  
 **Tip:** `a93bc5d` (post DCO+gofmt interactive-rebase fix, force-pushed 2026-05-10)
 
@@ -81,7 +81,7 @@ Next step:
 
 ### engine-queue-fix
 
-**Branch:** `engine-queue-fix` (stacked on `engine-multi-analyzer`; worktree `.claude/worktrees/engine-multi-analyzer/`)  
+**Branch:** `engine-queue-fix` (stacked on `engine-multi-analyzer`; worktree `engine-queue-fix/`)  
 **Tip:** `01ed7d8` (1 commit ahead of engine-multi-analyzer)  
 **PR:** not yet opened — waiting for #1113 to merge  
 **What it adds:** calls `CollectSchedulerQueueMetrics(ctx, modelID)` in `prepareModelData`; threads result through `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.

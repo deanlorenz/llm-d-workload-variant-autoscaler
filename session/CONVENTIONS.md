@@ -7,19 +7,27 @@ project. Read it alongside `CURRENT.md` at the start of every session.
 
 ## Repository Layout
 
-The main repo is `llm-d/llm-d-workload-variant-autoscaler`. Code branches (`main`, `TA1`, `TA2`,
-`TA3`, `engine-multi-analyzer`, …) contain only WVA source code, tests, and committed docs under
-`docs/`.
+The workspace uses a **bare repository + worktrees** layout. The bare repo at `repo/` holds all
+git metadata; every branch lives as a named worktree at the top level:
 
-Two additional worktrees live inside the repo directory and are untracked on code branches:
+```
+llm-d-workload-variant-autoscaler/
+├── repo/                    ← bare git repository (no working files)
+├── main/                    ← worktree: main branch
+├── TA1/                     ← worktree: TA1 branch (PR #1051)
+├── TA2/                     ← worktree: TA2 branch (PR #1052)
+├── TA3/                     ← worktree: TA3 branch (in progress)
+├── engine-multi-analyzer/   ← worktree: engine-multi-analyzer branch (PR #1113)
+├── engine-queue-fix/        ← worktree: engine-queue-fix branch (deferred)
+└── plans/                   ← worktree: plans branch (orphan)
+```
 
-| Path | Branch | Contents |
-|---|---|---|
-| `./plans` | `plans` (orphan) | Session state, planning docs, scratch/research |
-| `./session-notes` | *(retired)* | *(merged into `plans/session/` — do not use)* |
+Code branches (`main`, `TA1`, `TA2`, `TA3`, `engine-multi-analyzer`, …) contain only WVA source
+code, tests, and committed docs under `docs/`. The `plans` branch is an orphan with no shared
+history with any code branch. Never let its files appear in a code PR diff.
 
-The `plans` branch has no shared history with any code branch. Never let its files appear in a
-code PR diff.
+Worktrees are added as needed (`git -C repo worktree add ../<name> <branch>`) and removed when
+the corresponding PR merges. The `plans/` worktree is permanent.
 
 ### plans/ structure
 
@@ -92,6 +100,12 @@ content with a link.
 ---
 
 ## Key Working Rules
+
+**Worktree scope.**
+Every agent or coding task operates exclusively within its assigned worktree. Never read from or
+write to `repo/` (it is bare — no working files), and never touch a sibling worktree. If a task
+requires work on branch X, explicitly switch to or open the `X/` worktree. This applies even when
+paths in another worktree are visible from the filesystem.
 
 **Discuss before implementing.**
 Never begin a non-trivial implementation task based solely on what CURRENT.md says is the "next
