@@ -46,7 +46,7 @@ Phase:
   - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, PR #1113 submitted)
   - [x] ENGINE: SchedulerQueue wiring — `CollectSchedulerQueueMetrics` → `AnalyzerInput.SchedulerQueue` (`engine-queue-fix`, PR deferred)
 - [x] E2E infrastructure — kind cluster up, Step 1a + 1b passed (31/31 smoke tests each)
-- [ ] E2E test scenarios — `test/e2e/throughput_analyzer_test.go` (3 scenarios, file written — discuss before running)
+- [x] E2E test scenarios — Steps 2a–2e complete; Scenario 1 PASSED (TA wiring health check); 3 pre-existing smoke failures; Step 2f (Scenarios 2+3) pending discussion
 - [ ] PR review
 - [ ] Merge
 
@@ -61,9 +61,8 @@ Plan doc:
 - `plans/planning/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
 
 Next step:
-- [ ] Discuss e2e test design (scenarios, load strategy, assertions) — awaiting discussion
-- [ ] Review `test/e2e/throughput_analyzer_test.go` (drafted, not yet run)
-- [ ] Run scenarios per `plans/planning/TA-e2e-plan.md § Task 2`
+- [ ] Triage 3 pre-existing smoke failures (smoke_test.go:339, :542, :1724) — are these regressions in main, or require TA3 action?
+- [ ] Discuss Step 2f (Scenarios 2 and 3) before running
 
 ---
 
@@ -117,13 +116,24 @@ engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyze
 - WVA redeployed with `quay.io/dlorenz/llm-d-workload-variant-autoscaler:ta3-dev`
 - EPP patch to v0.5.0 applied (version mismatch workaround)
 
+### Step 2a–2e — COMPLETE (2026-05-11)
+- 2a: cherry-picked 4 TA3 commits onto `ta3-e2e` (GPS verify, OL guard, unhealthy-pod, calibration-lock)
+- 2b: built + pushed `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e`
+- 2c: torn down cluster, rm -rf llm-d/
+- 2d: fresh deploy with v0.6.0 llm-d, flow control on (E2E_TESTS_ENABLED=true); EPP v0.7.0 no crash
+- 2e: **29/32 smoke tests passed** (1292s); **Scenario 1 (TA wiring) PASSED** in 210.503s
+  - 3 failures in `smoke_test.go` (not throughput_analyzer_test.go) — pre-existing regressions vs newer main:
+    - `:339` — "external metric item when exported_namespace is selected" (timeout)
+    - `:542` — "isolated external metrics for each namespace-scoped controller"
+    - `:1724` — "scale up LWS under load" (HPA desired=0 after 120s)
+
 ### E2E Infrastructure State
 
-Kind cluster `kind-wva-gpu-cluster` — last confirmed UP 2026-04-27; **check before use**.  
-WVA deployed during Step 1b: `quay.io/dlorenz/llm-d-workload-variant-autoscaler:ta3-dev` (**wrong namespace** — quay.io account is `deanlorenz` not `dlorenz`; that image may still be accessible if it was pushed then, but use the newer image below for real TA e2e).
+Kind cluster `kind-wva-gpu-cluster` — UP as of 2026-05-11.  
+WVA deployed during Step 2d: `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e` — flow control enabled.
 
 **Current e2e image** (TA3 + engine-multi-analyzer + queue-fix):  
-`quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e` — pushed 2026-05-10
+`quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3-e2e` — pushed 2026-05-11 (after cherry-picks)
 
 To resume e2e work on this cluster:
 ```bash

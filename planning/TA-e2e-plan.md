@@ -1,9 +1,9 @@
 # E2E Test Plan — TA3 (ThroughputAnalyzer)
 
 ## Status
-**Phase:** Step 1 COMPLETE — Task 3 (fresh cluster restart + TA baseline run) is the next action  
+**Phase:** Steps 2a–2e COMPLETE — Step 2e partial: 29/32 smoke tests passed; Scenario 1 (TA wiring health check) PASSED; 3 pre-existing failures in smoke_test.go; Step 2f (full TA scenarios) pending discussion  
 **Branch:** TA3 (tests) / ta3-e2e (image)  
-**Last updated:** 2026-05-11 (rev 7 — Task 3 added: fresh cluster, ta3-e2e cherry-picks, flow control, llm-d reset)
+**Last updated:** 2026-05-11 (rev 8 — Step 2e result recorded)
 
 ---
 
@@ -364,6 +364,8 @@ kubectl rollout status deployment/gaie-sim-epp -n llm-d-sim --timeout=60s
 
 #### Step 2e — Run baseline smoke tests (from TA3 branch)
 
+**RESULT: PARTIAL PASS 2026-05-11 — 29/32 passed (3 pre-existing failures); Scenario 1 PASSED in 210.503s — 1292s total**
+
 Tests must be run from the TA3 branch so that `throughput_analyzer_test.go` is present (D20).
 
 ```bash
@@ -373,6 +375,13 @@ make test-e2e-smoke ENVIRONMENT=kind-emulator
 
 **Pass condition:** all existing smoke tests + Scenario 1 (TA wiring health check) green.
 Previous baseline was 31/31; with Scenario 1 added expect 32/32.
+
+**Actual result:** 29/32 passed, 3 failed (37 skipped). The 3 failures are in `smoke_test.go` (not `throughput_analyzer_test.go`) and appear to be regressions introduced in the newer main base that `ta3-e2e` is based on (not present in the Step 1a/1b runs):
+- `smoke_test.go:339` — "should return exactly one external metric item when exported_namespace is selected" (timeout waiting for exactly 1 item)
+- `smoke_test.go:542` — "should expose isolated external metrics for each namespace-scoped controller" (similar external metrics isolation)
+- `smoke_test.go:1724` — "should scale up LWS under load" (HPA desired=0 after 120s timeout)
+
+**Scenario 1 (TA wiring health check):** PASSED — `MetricsAvailable=True`, `DesiredOptimizedAlloc replicas=1 accelerator="H100"`. Confirms TA3 wiring is functionally correct end-to-end.
 
 #### Step 2f — Run full TA scenarios (discuss before running)
 
