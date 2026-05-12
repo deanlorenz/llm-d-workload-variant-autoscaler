@@ -126,7 +126,8 @@ content with a link.
 **Worktree scope.**
 Every agent or coding task operates exclusively within its assigned worktree. Never read from or
 write to `repo/` (it is bare — no working files), and never touch a sibling worktree. This applies
-even when paths in another worktree are visible from the filesystem.
+even when paths in another worktree are visible from the filesystem. Never write code or edit
+source files while the session CWD is the container directory — use `EnterWorktree` first.
 
 **Switching worktrees — use `EnterWorktree`.**
 To move work to a different branch, use the `EnterWorktree` tool with the `path` of the target
@@ -158,9 +159,26 @@ genuinely absent from the current branch.
 4. **DCO sign-off** — every commit must carry `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`. Use `git commit --signoff` or `git commit --amend --signoff`. Verify with `git log upstream/main..HEAD --format="%b" | grep Signed-off-by`. DCO failure blocks CI and requires a force-push after the PR is open.
 5. **Build** — `go build ./...`. Clean.
 
-**Force-push only after history rewrite.**
-Use `git push --force-with-lease` only after a rebase or amend. Use plain `git push` for new
-commits on top of a branch.
+**No push without explicit confirmation.**
+Never run `git push` (or any variant) without Dean's explicit confirmation for that specific push.
+State what branch will be pushed, the commit range, and whether it is a force push — then wait for
+approval. Do not infer approval from earlier conversation context.
+
+**Warn before pushing to an active PR branch.**
+If the target branch has an open PR (check `gh pr view <branch>`), state the PR number and title
+before pushing and wait for confirmation. This prevents accidental history rewrites or force-pushes
+that would disrupt reviewers.
+
+**No GitHub actions without explicit confirmation.**
+Never post a comment on a PR or issue, create a PR, create an issue, request reviewers, or take
+any other GitHub action that is visible to others without Dean's explicit instruction for that
+specific action. Summarise the proposed text and wait for approval before running any `gh` command
+that writes to GitHub.
+
+**Force-push only after history rewrite, and explain why.**
+Use `git push --force-with-lease` only after a rebase or amend — never for new commits on top of a
+branch. Before force-pushing, state the reason (e.g., "rebased onto upstream/main", "amended to
+add DCO sign-off") and wait for confirmation. Prefer `--force-with-lease` over `--force`.
 
 **Merging upstream into main.**
 Always use `git merge --ff-only upstream/main` when fast-forwarding main to upstream. Push to
