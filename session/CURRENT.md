@@ -9,7 +9,7 @@
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
-| TA2                   | #1052 | CI green; awaiting approval                                       | `99a35b0` |
+| TA2                   | #1052 | CI green; CHANGES_REQUESTED by ev-shindin (2026-05-11); triaged   | `99a35b0` |
 | TA3                   | —     | Local only; rebase after TA2 merges                               | `7506634b` |
 | engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
@@ -18,13 +18,12 @@
 
 ## Blocked on
 
-- **TA1 (#1051)** — awaiting approval; TA2 and TA3 cannot merge until TA1 lands
-- **TA2 (#1052)** — awaiting approval; TA3 rebase waits on TA2 merge
+- **TA2 (#1052)** — 12 pending actions (ev-shindin CHANGES_REQUESTED + Claude review); see `planning/PR1052-review.md`; TA3 rebase waits on TA2 merge
 - **#1113 (engine-multi-analyzer)** — e2e-smoke pending; awaiting review; engine-queue-fix PR waits on this
 
 ## Next steps
 
-- After TA1 merges: rebase TA2 onto new upstream/main tip
+- **Now:** address 12 pending actions in TA2 (#1052) — see `planning/PR1052-review.md`
 - After TA2 merges: rebase TA3, discuss TA3 PR-4+PR-5 before submitting
 - After #1113 merges: open engine-queue-fix PR (force-push `01ed7d8` after rebasing onto new main tip)
 
