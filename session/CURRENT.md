@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-05-11
+**Last updated:** 2026-05-12
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
-| TA1                   | #1051 | CI green; approved (ev-shindin 2026-05-11); ready to merge        | `c405e8d` |
+| TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | CI green; awaiting approval                                       | `99a35b0` |
 | TA3                   | —     | Local only; rebase after TA2 merges                               | `7506634b` |
 | engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
