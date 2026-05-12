@@ -146,6 +146,35 @@ resolving the last open task, summarize what was done and ask what to work on ne
 even when a detailed plan doc exists — the plan is background for the discussion, not a substitute
 for it.
 
+**Shared-state updates go through handoff files.**
+`session/CURRENT.md` is a shared-state document that may be touched by multiple parallel agent
+sessions (plan agent, review agent, coder). To avoid races and overwrites, updates to its
+agent-output sections must be produced by **handoff files** at `session/handoffs/<name>.md`
+and merged into CURRENT.md by the `/sync-current` skill — not by direct edits.
+
+Create a handoff file whenever a session produces a document (plan, review, code change) that
+another agent will consume, or whenever the existence of that document should be reflected in
+CURRENT.md. This rule applies **regardless of the document's status** — DRAFT, READY, and FINAL
+documents all use the same handoff flow. The handoff signals "this doc exists at this path with
+this status"; `/sync-current` reconciles the set of handoffs into CURRENT.md's `## Pending
+handoffs` table.
+
+Handoff file format:
+
+```
+to: plan-agent | coder | reviewer
+doc: <relative path from plans/ worktree root>
+status: DRAFT | READY | FINAL
+note: <one-line description>
+```
+
+Durable sections of CURRENT.md (PR Status, Blocked on, Next steps, long-running paused features
+such as "TA3 Paused State") may be edited directly — they are project state, not agent-output
+state, and do not race against parallel agents. If you are unsure whether a section is durable
+or agent-output, ask.
+
+See `plans/.claude/skills/s-sync-current/SKILL.md` for the sync merge rules.
+
 **Type 4 docs reflect code, not plans.**
 `docs/developer-guide/throughput-analyzer.md` (and any other Type 4 doc) must always reflect the
 actual code state of the branch it is on. Do not include PR-schedule references ("pending PR-N")
