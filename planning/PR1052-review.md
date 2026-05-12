@@ -51,39 +51,48 @@ Asked how HA state management is handled. Dean replied twice: state is in-memory
 
 ---
 
+## TA3 Coverage Check (2026-05-12)
+
+Checked which pending actions are already addressed by TA3 commits (`TA2..TA3`):
+
+| # | Item | Status in TA3 |
+|---|---|---|
+| 1 | `variantStates` pruning / latent VA-recreate bug | ❌ not addressed |
+| 2 | Doc: ShapeTracker described as EMA/EWMA (wrong) | ✅ addressed — "Three EMA floats" text removed |
+| 3 | Doc: window cap written as "≤ 10" (should be 20) | ⚠️ partial — old text removed, but config table now says `100` while `constants.go` has `20` |
+| 4 | Clock injection / `now time.Time` for test coverage | ❌ not addressed |
+| 5 | Log/metric for k-values dropped outside `[0.15, 0.85]` | ❌ not addressed |
+| 6 | Request-rate-weighted `PrefixCacheHitRate` average | ✅ addressed — `averageShapeMetrics` uses `VLLMRequestRate`-weighted mean |
+| 7 | `variantKey` separator — `modelID` may contain `\|` | ⚠️ partial — comment added saying k8s names are DNS-safe, but `modelID` is operator-provided and not DNS-constrained |
+
+---
+
 ## Pending Actions
 
+From ev-shindin's review:
 - [ ] Fix `variantStates` pruning — evict stale entries; fix latent shape-change false positive on VA recreate
-- [ ] Fix doc: ShapeTracker.Observe is a direct overwrite, not EWMA
-- [ ] Fix doc: window cap is `DefaultWindowMaxSize = 20`, not `10` (which is `DefaultMinSamples`)
+- [ ] Fix doc/code mismatch: config table says `DefaultWindowMaxSize = 100`; `constants.go` has `20` — align them
 - [ ] Add clock injection or `now time.Time` param to `Observe` for time-based pruning testability
 - [ ] Add log/metric when k-value is dropped (outside `[0.15, 0.85]`) to surface stuck-window failures
-- [ ] Use request-rate-weighted average for `PrefixCacheHitRate` across replicas
-- [ ] Fix `variantStates` key separator — `modelID` may contain `|`; use a safer delimiter or structured key
+- [ ] Fix `variantKey` separator — `modelID` is operator-provided and not DNS-constrained; `\|` is unsafe
+
+From Claude code review (TA2-introduced code):
+- [ ] Silent discard of `Observe()` return in `Analyze()` — change to `_ = a.Observe(...)`
+- [ ] `CheckModelMetrics` doc comment overstates contract — reword to match actual short-circuit behavior
+- [ ] `averageShapeMetrics()` count==0 branch (`returns 0,0,0`) not tested
+- [ ] No concurrent-access / race test for `Observe()` + `VariantState()`
+- [ ] `pod_name` label fallback in collector not tested for the 3 new fields
+- [ ] `SanityReport.Has()` → replace with `slices.Contains` (`types.go`)
+- [ ] `issueSet map[SanityIssue]struct{}` → replace with `sets.Set[SanityIssue]` from apimachinery (`sanity.go`)
 
 ---
 
 ## Code Review Findings (Claude, 2026-05-11)
 
-Deferred to a follow-up PR after TA2 merges. See CURRENT.md § "Deferred PR-3 (#1052) Fixes" for the full list. Summary:
+TA2-introduced issues are promoted to Pending Actions above.
 
-**Go Quality**
-- `DefaultWindowMaxSize` code/doc mismatch — `constants.go` has `20`; docs table says `100`
-- Silent discard of `Observe()` return in `Analyze()` — should be `_ = a.Observe(...)`
-- `CheckModelMetrics` doc comment overstates the contract (says "callers should check `OK()`" but `Observe()` only short-circuits on `SanityIssueNoReplicas`)
-
-**Test Coverage**
-- `averageShapeMetrics()` count==0 branch (returns `0,0,0`) not tested
-- No concurrent-access / race test for `Observe()` + `VariantState()`
-- `pod_name` label fallback in collector not tested for the 3 new fields
-
-**Security**
-- `variantStates` map grows unbounded — no eviction of stale variants
-- `Build()` escaping relies on all callers; fragile if non-Prometheus sources reuse templates
-
-**Library Reuse**
-- `SanityReport.Has()` → replace with `slices.Contains`
-- `issueSet map[SanityIssue]struct{}` → replace with `sets.Set[SanityIssue]` from apimachinery
+**Deferred — pre-existing code (out of scope for TA2 PR):**
+- `Build()` escaping in `internal/collector/source/query_template.go` — relies on all callers to escape; fragile. Pre-dates TA work — file last touched in #823/#984.
 
 ---
 
