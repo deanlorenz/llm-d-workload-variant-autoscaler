@@ -76,9 +76,21 @@ equivalent or better p99 ITL. The gap against KEDA-naive is larger (40–60%) an
 both cost and latency. The gap against KEDA-tuned is dominated by cost, with only a small
 latency edge during the ramp.
 
+**Second dimension — multi-tenant coordination (Scenario 2, § 12).** Under a partitioned
+GPU pool with a premium tenant constrained to one partition, WVA's cost-optimal scaling
+steers a basic tenant's workload away from the premium partition — preventing starvation
+structurally, without cross-autoscaler coordination. KEDA's best countermeasure
+(hard-capping basic-tenant replicas on the premium partition) protects the premium tenant
+but hurts the basic tenant's own scale-up latency. WVA achieves both.
+
+**This document covers two benchmark scenarios.** § 2–9 describe **Scenario 1** (the cost
+argument). § 12 describes **Scenario 2** (the starvation / multi-tenant argument). They
+share the implementation infrastructure (§ 8) but have distinct traffic patterns, variant
+topologies, and expected results.
+
 ---
 
-## 2. Benchmark Scenario Design
+## 2. Scenario 1 — Cost-Optimal Ramp (design)
 
 ### 2.1 Infrastructure
 
@@ -1630,7 +1642,7 @@ The coder should implement in this order; each step is independently testable.
 
 ---
 
-## 9. Expected Results
+## 9. Expected Results — Scenario 1
 
 Numbers below are directional predictions, not committed targets.
 
@@ -1718,8 +1730,41 @@ different cost.
 
 ### What comes next
 Re-run with the Throughput Analyzer enabled (after TA3 merges) to expose the
-proactive-detection advantage on rapid ramps. Extend to multi-model contention once
-WVA's Limited mode lands.
+proactive-detection advantage on rapid ramps. Extend to dynamic cross-tenant
+reallocation once WVA's Limited mode lands.
+
+---
+
+### Scenario 2 — Starvation Prevention (one-pager)
+
+**The question.** Can a per-deployment autoscaler like KEDA protect a premium-tenant
+workload from being starved of GPU slots by a basic tenant that shares the cluster?
+
+**The experiment.** Two tenants in the same cluster. Partition GPU nodes with labels:
+2 nodes = premium, 4 nodes = basic. Pool-A (premium tenant) constrained to the premium
+partition; Pool-B (basic tenant) can use either. Same model, same cluster, same
+hardware — only labels + cost weights differ. Traffic: Pool-B ramps first, Pool-A
+joins 10 min later.
+
+**The claim.** WVA's cost-gradient (pool-B-gpu2=30 < pool-B-gpu1=40) makes pool-B scale
+up on the basic partition, leaving premium slots free for Pool-A. KEDA (any config) scales
+pool-B symmetrically across both partitions, consuming premium slots; Pool-A starves when
+it tries to scale. The only KEDA fix (hard-capping pool-B-gpu1 at 0) protects Pool-A but
+penalizes Pool-B's own ramp latency — a trade-off WVA avoids.
+
+**The picture.** A replica-count timeline showing Pool-B on WVA climbing only on gpu2
+while gpu1 stays at 0; and on KEDA-tuned, Pool-B filling both partitions. Then Pool-A
+tries to scale: under WVA it succeeds immediately; under KEDA it sits Pending.
+
+**What this is and is not.**
+- **Is:** a defensible multi-tenancy argument — structural cross-variant preference works
+  for tenancy protection without any priority scheduling.
+- **Is not:** a claim about dynamic cross-tenant reallocation. WVA's preventive
+  mechanism is *static* (cost gradient steers Pool-B's first choice). Dynamic
+  reallocation under a Pool-A spike after Pool-B is already on gpu1 requires Limited
+  mode and is out of scope for this round.
+
+**What comes next.** Dynamic cross-tenant reallocation once Limited mode is available.
 
 ---
 
@@ -1727,30 +1772,359 @@ WVA's Limited mode lands.
 
 Which sections of this document to use when, depending on audience and time budget.
 
-**Lightning talk (≤ 5 min):** § 11 alone. It covers question, experiment, claim,
-picture, caveats, and next step. Skip everything else.
+**Lightning talk — Scenario 1 only (≤ 5 min):** § 11 up to § 11.1. Question, experiment,
+claim, picture, caveats, next step. Skip everything else.
 
-**Approval discussion with Dean (~15 min):** use the sections below in order. These are
-the knobs still open; sign-off on each unblocks implementation.
+**Lightning talk — both scenarios (~8 min):** § 11 Scenario 1 one-pager + § 11 Scenario 2
+one-pager. Two slides, two claims, two pictures. Good for a short conference pitch.
+
+**Approval discussion — Scenario 1 only (~15 min):**
 
 | Min | Section | Purpose |
 |---|---|---|
-| 0–2  | § 11             | Open with the one-pager — state question, claim, picture |
-| 2–4  | § 2.2            | Confirm cost ratio and variant choices (1 : 6.7 retail, or an exaggerated variant) |
-| 4–9  | § 4.3            | Walk through "what KEDA can and cannot do" — the intellectual core. If anyone pushes back on WVA's claim, this is where the argument lives |
-| 9–12 | § 7.5            | Decide which sizing option to actually run on OpenShift (1, 2, or 3) |
-| 12–14| § 9              | Expected-results table as the "here's what we'd learn" commit |
-| 14–15| STOP block (top) | Confirm explicit approval — the five preconditions |
+| 0–2  | § 11 Scenario 1    | Open with the one-pager — state question, claim, picture |
+| 2–4  | § 2.2              | Confirm cost ratio and variant choices |
+| 4–9  | § 4.3              | Walk through "what KEDA can and cannot do" — intellectual core |
+| 9–12 | § 7.5              | Decide which sizing option to run on OpenShift |
+| 12–14| § 9                | Expected-results table — "here's what we'd learn" |
+| 14–15| STOP block (top)   | Confirm explicit approval |
 
-§ 8 (implementation guide) is appendix. Only open it if someone asks about
-implementability or the coder wants to walk through file layout.
+**Approval discussion — both scenarios (~25 min):**
 
-**External / wider-audience talk (~20 min):** § 11 → § 2 → § 4 → § 9. Skip the sizing
-options (§ 7.5) and implementation guide (§ 8) — those are internal concerns.
+| Min | Section | Purpose |
+|---|---|---|
+| 0–3   | § 11 Scenario 1   | One-pager for cost argument |
+| 3–6   | § 11 Scenario 2   | One-pager for starvation argument |
+| 6–10  | § 4.3             | Why KEDA-tuned cannot solve cross-variant coordination |
+| 10–13 | § 12.8            | Why `keda-tuned-capped` is the honest competitor and still loses |
+| 13–17 | § 9 + § 12.10     | Expected results for both |
+| 17–22 | § 7.5             | Sizing decision covering both scenarios |
+| 22–25 | STOP block (top)  | Confirm explicit approval |
 
-**Written circulation for async review:** just link the document. The STOP block at the
-top and § 11 at the bottom bookend the argument; reviewers can navigate the rest by
-section heading.
+§ 8 (implementation guide) is appendix. § 12.11 (Scenario 2 delta) is also appendix.
+Only open them if someone asks about implementability or the coder walks through file
+layout.
 
-**Rule of thumb:** If you find yourself presenting § 8, you have the wrong audience —
-that section is for the coder after approval, not for decision-makers.
+**External / wider-audience talk (~20 min):** both one-pagers from § 11 → § 2 → § 4 →
+§ 9. Add § 12.1 + § 12.6 + § 12.10 if time. Skip sizing (§ 7.5) and implementation (§ 8)
+— those are internal concerns.
+
+**Written circulation for async review:** link the whole document. The STOP block at
+the top and the two one-pagers in § 11 bookend each argument; reviewers navigate the
+rest by section heading.
+
+**Rule of thumb:** If you find yourself presenting § 8 or § 12.11, you have the wrong
+audience — those sections are for the coder after approval, not for decision-makers.
+
+---
+
+## 12. Scenario 2 — Starvation Prevention (Multi-Tenant Coordination)
+
+### 12.1 Thesis
+
+Under a fixed cluster budget with a higher-priority tenant constrained to a specific GPU
+partition, WVA's cost-optimal cross-variant scaling naturally steers a lower-priority
+tenant's workload *away* from the constrained partition — preventing starvation **without
+any cross-autoscaler coordination, priority-scheduling extension, or manual cross-tenant
+configuration**. KEDA cannot replicate this because its per-deployment `ScaledObject`s
+have no visibility into another tenant's demand.
+
+**Headline:** Under simultaneous load on both pools, WVA holds Pool-A's SLO while KEDA
+(naive or tuned) causes Pool-A replica starvation and SLO violation. The only KEDA
+countermeasure that matches WVA on Pool-A protection (hard-capping pool-B on the premium
+partition) simultaneously hurts pool-B's own latency during its ramp phase — a trade-off
+WVA avoids by construction.
+
+### 12.2 Topology
+
+Two tenants, shared cluster, partitioned GPU pool:
+
+| Pool | Namespace | EPP | Variants |
+|---|---|---|---|
+| Pool-A (premium tenant) | `tenant-premium` | `gaie-premium-epp` | 1 variant: constrained to GPU1 partition |
+| Pool-B (basic tenant) | `tenant-basic` | `gaie-basic-epp` | 2 variants: GPU1 partition OR GPU2 partition |
+
+Both pools serve the **same model** (`meta-llama/Llama-3.1-8B-Instruct`). Same-model
+choice removes model-capability as a confound: any Pool-A latency difference across
+systems is attributable to resource availability, not model differences.
+
+Pool-A's constraint to GPU1 simulates a real production pattern (VRAM requirement for a
+larger model). In this benchmark it is enforced via `nodeSelector`.
+
+### 12.3 Physical Realization — Two Options
+
+The GPU1/GPU2 partition is logical, not physical. Two options depending on cluster
+hardware availability.
+
+#### Option P1 — True heterogeneous GPUs (reality-matching)
+
+| Partition | GPU | Count |
+|---|---|---|
+| GPU1 (premium) | A100-80GB | 2 |
+| GPU2 (basic) | L4 | 4 |
+
+Matches the production pattern. Use for publication-quality numbers on clusters that
+have both GPU types.
+
+#### Option P2 — Homogeneous hardware with label partitioning (benchmark-friendly, DEFAULT)
+
+All workers use the same GPU (any type — L4, A10, A100). Label them artificially to
+create the partition:
+
+```bash
+# 2 nodes → premium partition
+kubectl label node worker-0 worker-1 gpu.partition=premium --overwrite
+
+# 4 nodes → basic partition
+kubectl label node worker-2 worker-3 worker-4 worker-5 gpu.partition=basic --overwrite
+```
+
+Deployments use `nodeSelector: gpu.partition=<label>`. Both partitions target the same
+hardware; the barrier is purely a label.
+
+**Why this works:** the starvation effect comes from GPU-slot contention (Pool-B on the
+premium partition consumes slots; Pool-A then finds no free slots to scale into). The
+effect is identical whether the partitions are physically different GPUs or the same GPU
+type behind different labels.
+
+**Why this is the default:** clusters with only one GPU type are common (most test
+clusters, many academic labs). Option P2 makes Scenario 2 universally runnable. Cost
+weights still drive WVA's cross-variant choice, independent of the underlying hardware.
+
+**When to prefer Option P1:** only when publishing externally and realism matters more
+than portability.
+
+### 12.4 Cost Assignment
+
+| Variant | Partition | Cost weight | Purpose |
+|---|---|---|---|
+| `pool-A-gpu1` | premium | 40 | Only variant — cost is informational |
+| `pool-B-gpu1` | premium | 40 | Same cost as Pool-A on same partition |
+| `pool-B-gpu2` | basic | 30 | Cheaper; WVA's scale-up picks this first |
+
+The 40 → 30 delta (25%) is intentionally modest. A larger delta would make WVA's
+preference overwhelming and the result trivial; a modest delta proves the mechanism
+works at realistic price gradients.
+
+Cost ordering `pool-B-gpu2 < pool-B-gpu1` is the *only* configuration WVA sees that
+differs from Scenario 1. No priority classes, no cluster-level policy, no Limited mode.
+
+### 12.5 Capacity Budget and Replica Caps
+
+```
+cluster budget (Option P2 example):
+  premium partition: 2 GPU slots  (2 labeled nodes × 1 GPU)
+  basic partition:   4 GPU slots  (4 labeled nodes × 1 GPU)
+
+min / max replicas per variant:
+  pool-A-gpu1: min=1, max=2    # Pool-A never exceeds 2; premium partition can hold it
+  pool-B-gpu1: min=0, max=2    # KEDA may fill this, WVA should leave it at 0
+  pool-B-gpu2: min=0, max=4    # WVA-preferred target for Pool-B scale-up
+```
+
+`min=0` on both Pool-B variants means Pool-B holds zero premium slots when Pool-B is
+idle. At peak Pool-B load (5 replicas needed), `pool-B-gpu2` alone can provide 4 — one
+short of ideal, exposing whether the autoscaler is willing to borrow 1 premium slot even
+when it causes Pool-A contention.
+
+### 12.6 Traffic Pattern
+
+Three-phase trace, 18 minutes total:
+
+```
+Pool-B RPS                           Pool-A RPS
+  20 |    _________________            8 |           __________
+     |   /                 \             |          /          \
+   1 |---                   ---       1 |---------              -----
+        0    5   10  13   18  min          0    5  10 13     18  min
+            ^rampB          ^end            ^idle ^join   ^end
+```
+
+| Phase | Duration | Pool-B RPS | Pool-A RPS | Purpose |
+|---|---|---|---|---|
+| P0 Idle | 2 min | 1 | 1 | Baseline; both at min replicas (Pool-A=1, Pool-B=0+0) |
+| P1 Pool-B ramp | 5 min | 1 → 20 staircase | 1 | Pool-B scales up; WVA picks gpu2, KEDA may pick both |
+| P2 Sustain + Pool-A join | 8 min | 20 | 1 → 8 staircase, sustain | **Critical phase** — Pool-A demands premium slots KEDA has already given to Pool-B |
+| P3 Cooldown | 3 min | 1 | 1 | Both drop |
+
+Both pools run GuideLLM concurrently throughout (separate jobs, same gateway target but
+different model/pool labels routed via EPP).
+
+Pool-A's ramp in P2 is the instrumented moment: KEDA has Pool-A sitting at 1 replica
+trying to scale to 2, but premium partition is already full — Pool-A pod goes Pending.
+
+### 12.7 WVA Configuration
+
+Three VA resources across two namespaces. All share the same `modelID`, but Pool-A's VA
+is in a different namespace — so WVA's cross-variant optimization runs **within Pool-B
+only**. The starvation prevention is a side-effect of Pool-B choosing gpu2 for its own
+cost-optimal scale-up. No cross-tenant coordination needed.
+
+```yaml
+# tenant-premium namespace
+apiVersion: llmd.ai/v1alpha1
+kind: VariantAutoscaling
+metadata: { name: pool-A-gpu1, namespace: tenant-premium }
+spec:
+  modelID: meta-llama/Llama-3.1-8B-Instruct
+  minReplicas: 1
+  maxReplicas: 2
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: pool-A-decode }
+  accelerator: { type: ..., cost: 40 }
+---
+# tenant-basic namespace
+apiVersion: llmd.ai/v1alpha1
+kind: VariantAutoscaling
+metadata: { name: pool-B-gpu1, namespace: tenant-basic }
+spec:
+  modelID: meta-llama/Llama-3.1-8B-Instruct
+  minReplicas: 0
+  maxReplicas: 2
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: pool-B-gpu1-decode }
+  accelerator: { type: ..., cost: 40 }
+---
+# tenant-basic namespace
+apiVersion: llmd.ai/v1alpha1
+kind: VariantAutoscaling
+metadata: { name: pool-B-gpu2, namespace: tenant-basic }
+spec:
+  modelID: meta-llama/Llama-3.1-8B-Instruct
+  minReplicas: 0
+  maxReplicas: 4
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: pool-B-gpu2-decode }
+  accelerator: { type: ..., cost: 30 }
+```
+
+Analyzer configuration: identical to Scenario 1 (QueueingModel with explicit SLO 60ms,
+Saturation v1 as guardrail). No Scenario-2-specific WVA tuning.
+
+### 12.8 KEDA Baselines — Scenario 2
+
+Three ScaledObjects (one per variant). Same tuning philosophy as § 4, but now with a
+fourth mode that represents the honest best-effort KEDA countermeasure.
+
+| Mode | Configuration |
+|---|---|
+| `keda-naive` | Single `vllm:num_requests_waiting > 3` trigger per ScaledObject. Symmetric on both Pool-B variants → scales both equally. |
+| `keda-tuned` | Four triggers per ScaledObject (KV + queue + ITL p99 + token rate), 30s/180s stabilization. Still symmetric → still starves Pool-A. |
+| `keda-tuned-capped` | Same as `keda-tuned`, but `pool-B-gpu1` ScaledObject has `maxReplicaCount: 0` — hard disables the premium-partition variant. Operator hand-applied based on knowledge of Pool-A's topology. |
+
+**Why `keda-tuned-capped` is instructive, not a cheat:** it is what a careful operator
+would *actually* do after being burned by starvation. It demonstrates the operational
+cost of KEDA's lack of cross-variant awareness — you have to hand-configure limits based
+on external knowledge. WVA solves this structurally via cost gradient.
+
+### 12.9 Metrics — Scenario 2 Specific
+
+Shared with Scenario 1: replica timelines per variant, KV%, queue depth, TTFT/ITL
+percentiles, cost-weighted GPU-hours.
+
+New metrics for Scenario 2:
+
+| Metric | Formula / Source | What it shows |
+|---|---|---|
+| **Pool-A p99 ITL during P2** | `histogram_quantile(0.99, vllm:time_per_output_token_seconds_bucket{namespace="tenant-premium"})` | Primary SLO compliance for the premium tenant |
+| **Pool-A pending replicas during P2** | `kube_deployment_status_replicas_unavailable{deployment="pool-A-decode"}` | Direct starvation indicator |
+| **Pool-A pod scheduling latency** | time-to-Ready from Pending observed during P2 | How long Pool-A waits for a premium slot |
+| **GPU1 partition occupancy by pool** | count pods where `nodeSelector.gpu.partition=premium`, grouped by owner namespace | Who is holding premium slots and when |
+| **Pool-B variant split** | `replicas(pool-B-gpu2) / (replicas(pool-B-gpu1) + replicas(pool-B-gpu2))` | Visual of where Pool-B landed |
+| **Pool-B p99 ITL during P1 and P2** | per-namespace ITL | Secondary — ensures the starvation protection didn't accidentally starve Pool-B |
+
+### 12.10 Expected Results
+
+Directional predictions; not committed targets.
+
+| Metric | WVA | KEDA-naive | KEDA-tuned | KEDA-tuned-capped |
+|---|---|---|---|---|
+| Pool-A p99 ITL during P2 (ms) | ~55 | ≥180 or timeout | ≥150 | ~60 |
+| Pool-A pending-replica-seconds during P2 | 0 | 200+ | 200+ | 0 |
+| Pool-A SLO violation rate (P2) | <5% | >40% | >35% | <8% |
+| Pool-B p99 ITL during P1 ramp (ms) | ~60 | ~60 | ~55 | **~80** |
+| Pool-B gpu1 replicas at P1 peak | 0 | 2 | 2 | 0 |
+| Pool-B gpu2 replicas at P1 peak | 4 | 3 | 3 | 4 |
+| Total cost-weighted GPU-hours | 1.00 | 1.15 | 1.15 | 1.00 |
+
+**Headline takeaways:**
+
+1. **WVA vs KEDA-naive / KEDA-tuned:** Pool-A starvation is structural. ~40% Pool-A SLO
+   violations vs WVA's <5%. Tuning KEDA's metrics does not fix this because no per-variant
+   metric sees Pool-A's pressure.
+2. **WVA vs KEDA-tuned-capped:** Pool-A parity, but Pool-B pays the price — its P1
+   ramp is slower because one of its two variants is hard-capped. KEDA forces a **binary**
+   trade-off (always cap or never cap); WVA's cost gradient gives **graceful** preference
+   that still allows gpu1 usage when gpu2 alone is insufficient.
+3. **The capped mode is the most honest KEDA competitor**, and it still loses on Pool-B
+   latency. Lead the Scenario 2 story with the WVA vs capped-KEDA comparison.
+
+### 12.11 Implementation Notes (Relative to § 8)
+
+Scenario 2 reuses most of § 8 infrastructure. Incremental additions:
+
+1. **Three variants (not two).** The `Variant` struct from § 8.2 is unchanged; the
+   `variants []Variant` slice simply has three entries. `CostWeightedGPUHours`,
+   `VariantTimeline[]`, per-variant timeline sampling all handle N variants.
+
+2. **Two namespaces.** The harness currently assumes one `LLMDNamespace`. Add
+   `LLMDNamespaceA` (`tenant-premium`) and `LLMDNamespaceB` (`tenant-basic`) env vars and
+   plumb through fixtures. Two EPP instances deployed, one per namespace.
+
+3. **Concurrent dual-pool GuideLLM orchestration.** Phase orchestration launches one
+   GuideLLM job per pool per phase, running in parallel. `runPhase` becomes
+   `runPhaseTwoPools` taking two `(poolName, rate, duration)` tuples. A phase completes
+   only when both jobs finish.
+
+4. **New mode: `keda-tuned-capped`.** Adds a `RampMode` constant; the ScaledObject builder
+   applies `MaxReplicaCount: 0` specifically on `pool-B-gpu1`. Otherwise identical to
+   `keda-tuned`.
+
+5. **Node-partition labeling.** Precondition step that labels worker nodes
+   `gpu.partition=premium|basic` before the test begins. Add
+   `labelNodesForStarvationScenario(ctx, k8sClient, premiumCount, basicCount)` helper.
+
+6. **Pool-A pending-replica metric.** Add a Prometheus query for
+   `kube_deployment_status_replicas_unavailable` to the monitor loop.
+
+**Estimated incremental effort over Scenario 1: 0.5–1 engineer-day.** Most of § 8 is
+shared; only orchestration and labeling are new.
+
+### 12.12 Kind Dry-Run Notes — Scenario 2
+
+Default kind-emulator has 2 worker nodes, which is exactly enough to label one premium,
+one basic. Adjust replica caps for the smaller cluster:
+
+- `pool-A-gpu1`: max=1 (premium partition has 1 node × 1 GPU slot simulated)
+- `pool-B-gpu1`: max=1
+- `pool-B-gpu2`: max=2 (basic partition has 1 node; simulated 2-slot via deployment resource requests)
+
+Compress phase durations to 60 / 180 / 240 / 90s (baseline/rampB/sustain+joinA/cooldown).
+
+Starvation effect on kind is smaller (max=1 on each constrained variant), but the
+pattern (WVA leaves pool-B-gpu1 at 0; KEDA scales it to 1 and blocks Pool-A) is
+observable. Good for pipeline validation, not for publication numbers.
+
+### 12.13 Risks and Caveats — Scenario 2
+
+1. **Same-model assumption.** Using the same model for both pools in Option P2 removes
+   model-capability confounds but makes the "Pool-A requires VRAM" rationale artificial.
+   Document as a benchmark simplification; the production case uses different models.
+   Option P1 fixes this if real heterogeneous GPUs are available.
+
+2. **Pool-A never exceeds 2 replicas.** The demo needs only 1→2 scaling on Pool-A to
+   expose the starvation; larger scale-up would need a bigger premium partition.
+
+3. **WVA does not react to Pool-A pressure.** The prevention is entirely **static** —
+   cost gradient steers Pool-B away from gpu1 before Pool-A's spike occurs. If Pool-B
+   were already at full gpu1 capacity before Pool-A existed, WVA would not actively
+   migrate Pool-B off gpu1. Phase 0 (both at 1 RPS) seeds Pool-B's first scale-up
+   during P1, which is when the cost gradient takes effect. This initial-condition
+   design is deliberate.
+
+4. **Dynamic cross-tenant reallocation is out of scope for this round.** Active
+   migration under a sudden Pool-A spike requires cross-model capacity accounting that
+   lives in WVA's Limited mode. See `session/CURRENT.md § Benchmark future directions`.
+
+5. **`keda-tuned-capped` is not portable.** It requires the operator to know in advance
+   which tenant is constrained to which partition. In a real multi-tenant cluster with
+   frequent tenant turnover this is unmaintainable. WVA's cost-gradient approach is
+   self-maintaining — new tenants get cost assignments and the structural preference
+   falls out automatically.

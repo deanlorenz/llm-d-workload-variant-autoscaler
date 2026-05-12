@@ -58,14 +58,25 @@ Drafted 2026-05-13, **not yet reviewed/approved**.
 configuration at equivalent p99 ITL, because no per-deployment autoscaler can coordinate
 scale decisions across variants.
 
-**What the benchmark is:**
+**Two scenarios in the doc:**
+
+**Scenario 1 — Cost-Optimal Ramp (§ 2–9):** Cost-efficiency argument.
 - Model: `meta-llama/Llama-3.1-8B-Instruct`, decode-heavy (1000 in / 4000 out)
 - Pool: two variants of the same model — L4 (cost=6) + A100 (cost=40), 1:6.7 retail ratio
 - Traffic: 30-min four-phase staircase ramp, 3 → 25 RPS, Poisson
-- Compared systems: **WVA** (queueing model + saturation) vs **KEDA-naive** (single
-  queue-depth trigger) vs **KEDA-tuned** (KV + queue + ITL p99 + token rate, with
-  stabilization windows)
 - Headline metric: cost-weighted GPU-hours at equivalent SLO
+
+**Scenario 2 — Starvation Prevention (§ 12):** Multi-tenancy / coordination argument.
+- Two tenants sharing one cluster; GPU nodes partitioned into `gpu.partition=premium|basic`
+  (labels only; can run on homogeneous hardware — Option P2)
+- Three variants: pool-A-gpu1 (premium tenant, constrained to premium partition),
+  pool-B-gpu1 and pool-B-gpu2 (basic tenant, can use either)
+- Cost weights: pool-B-gpu2=30 < pool-B-gpu1=40 — WVA's cost gradient steers Pool-B to
+  basic partition, leaving premium for Pool-A
+- Traffic: 18-min three-phase — Pool-B ramps first, Pool-A joins 10 min later
+- Comparison adds a fourth KEDA mode: `keda-tuned-capped` (`maxReplicaCount: 0` on
+  pool-B-gpu1) — the honest best-effort KEDA countermeasure
+- Headline metric: Pool-A SLO violation rate during Pool-A spike phase
 
 **Where WVA wins vs KEDA (from discussion):**
 - Large, structural: **cross-variant cost selection** — no KEDA config matches this
@@ -103,12 +114,30 @@ scale decisions across variants.
 **Do not (even once approved):** modify WVA controller code — this work is driver-only.
 
 **Decisions already made (do not re-litigate):**
-- Three-way comparison (WVA / KEDA-naive / KEDA-tuned) — not a two-way
+- Two scenarios: cost argument (§ 2–9) + starvation argument (§ 12)
+- Scenario 1: three-way comparison (WVA / KEDA-naive / KEDA-tuned)
+- Scenario 2: four-way comparison (adds `keda-tuned-capped` as honest best-effort)
 - Decode-heavy workload — not prefill
 - Staircase ramp via chained GuideLLM jobs — not schema extension (§ 2.5 Option B)
-- KEDA modes create **no** VA and **no** HPA (direct deployment scaling)
+- Scenario 1 KEDA modes create **no** VA and **no** HPA (direct deployment scaling)
 - KEDA-tuned uses tighter KV threshold (0.70 vs WVA's 0.80) — an honest concession
 - ThroughputAnalyzer intentionally **not** enabled in this round (re-run after TA3 merges)
+- Scenario 2 uses Option P2 (label-partitioned homogeneous hardware) as default — runnable
+  on single-GPU-type clusters; Option P1 (true heterogeneous A100+L4) only for publication
+
+**Benchmark future directions (not in scope for this round):**
+- **Dynamic cross-tenant reallocation under a Pool-A spike** — requires WVA's Limited
+  mode (not yet implemented; see `docs/design/modeling-optimization.md § Future Work:
+  Limited Mode`). Scenario 2's prevention is static (cost gradient at scale-up time);
+  under a sudden Pool-A spike after Pool-B already holds premium slots, WVA Unlimited
+  will not migrate Pool-B off gpu1. Re-run Scenario 2 after Limited mode lands to
+  demonstrate dynamic reallocation.
+- **Proactive detection during rapid ramps** — re-run Scenario 1 with TA3's
+  ThroughputAnalyzer enabled after TA3 merges, to expose the rate-based-detection
+  advantage separately from the cost-coordination advantage.
+- **SLO priority under contention** — explicit priority/criticality mechanism from
+  the WVA design exists but requires Limited mode to engage. Adds a third scenario
+  once that path is live.
 
 ---
 
