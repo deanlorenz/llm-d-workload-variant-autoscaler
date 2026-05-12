@@ -1,3 +1,4 @@
+<!-- cspell:ignore shindin apimachinery -->
 # PR #1052 Review Summary
 
 **Status: DRAFT**
