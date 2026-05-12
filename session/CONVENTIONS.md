@@ -125,9 +125,18 @@ content with a link.
 
 **Worktree scope.**
 Every agent or coding task operates exclusively within its assigned worktree. Never read from or
-write to `repo/` (it is bare — no working files), and never touch a sibling worktree. If a task
-requires work on branch X, explicitly switch to or open the `X/` worktree. This applies even when
-paths in another worktree are visible from the filesystem.
+write to `repo/` (it is bare — no working files), and never touch a sibling worktree. This applies
+even when paths in another worktree are visible from the filesystem.
+
+**Switching worktrees — use `EnterWorktree`.**
+To move work to a different branch, use the `EnterWorktree` tool with the `path` of the target
+worktree (e.g. `path: ".../TA3"`). This is the only approved way to switch worktree context: it
+updates CWD, reloads memory files and CLAUDE.md, and appears as an explicit tool call in the UI
+so Dean can approve or deny it. Never use bare `cd` or `-C` flags as a substitute for a context
+switch. `ExitWorktree(action: "keep")` returns to the previous worktree.
+
+Prerequisite: `EnterWorktree` requires the session to already be inside a git repository (any
+worktree). If the session starts in the container directory, `cd` into any worktree first.
 
 **Discuss before implementing.**
 Never begin a non-trivial implementation task based solely on what CURRENT.md says is the "next
