@@ -337,3 +337,12 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 - **Gateway prompt bug** — `install_core.sh` fires interactive prompt when `E2E_TESTS_ENABLED=false` even with explicit `INSTALL_GATEWAY_CTRLPLANE=true`; file as infra bug
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable; file as Makefile bug
 - **ndots fix standalone PR** — commit `0614d9d` on TA3 (`test/e2e/fixtures/workload_builder.go`) needs its own PR to `main` before or alongside TA3 merge
+
+---
+
+## Pending handoffs
+
+| Agent | Doc | Status | Note |
+|---|---|---|---|
+| reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
+| reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
