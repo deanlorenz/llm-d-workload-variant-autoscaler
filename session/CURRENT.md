@@ -4,6 +4,16 @@
 
 ---
 
+## Session in progress: PR #1092 — VA CRD removal analysis
+
+Analysis of the va removal proposal (PR #1092). Short review comment draft is ready at
+`plans/scratch/PR1092-short-draft.md`. Counter-proposal (WVA owns the KEDA ScaledObject as a
+child resource) discussed but not yet added to the draft — that is the next step.
+
+See memory `project_pr1092_analysis.md` for full recap.
+
+---
+
 ## PR Status
 
 | Branch                | PR    | Status                                                            | Tip       |
