@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-13
 
 ---
 
@@ -36,6 +36,79 @@ See memory `project_pr1092_analysis.md` for full recap.
 - **Now:** address 12 pending actions in TA2 (#1052) — see `planning/PR1052-review.md`
 - After TA2 merges: rebase TA3, discuss TA3 PR-4+PR-5 before submitting
 - After #1113 merges: open engine-queue-fix PR (force-push `01ed7d8` after rebasing onto new main tip)
+- **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark plan drafted at `planning/benchmark-wva-vs-keda-plan.md`. **Do not start coding.** The plan needs review + explicit go-ahead from Dean before any implementation begins — see the Benchmark section below.
+
+---
+
+## Benchmark: WVA vs KEDA Cost-Optimal Ramp (plan DRAFT — NOT AUTHORIZED)
+
+> **STOP — do not begin implementation.** The plan below is a first draft. Dean has not
+> yet reviewed or approved it. A new coding session that sees this entry MUST NOT start
+> writing code, creating manifests, modifying the Makefile, or adding Go test files based
+> on this plan. Open a discussion first, summarise the plan back to Dean, take feedback,
+> and wait for an explicit "go ahead and implement" before touching any code worktree.
+>
+> The plan itself documents this gate at the top of `planning/benchmark-wva-vs-keda-plan.md`.
+> When Dean approves, this block is removed and the status line updated.
+
+**Plan:** `planning/benchmark-wva-vs-keda-plan.md` — Type-3 detailed plan, ~1700 lines.
+Drafted 2026-05-13, **not yet reviewed/approved**.
+
+**Headline claim:** WVA delivers 25–40% lower cost-weighted GPU-hours than a tuned KEDA
+configuration at equivalent p99 ITL, because no per-deployment autoscaler can coordinate
+scale decisions across variants.
+
+**What the benchmark is:**
+- Model: `meta-llama/Llama-3.1-8B-Instruct`, decode-heavy (1000 in / 4000 out)
+- Pool: two variants of the same model — L4 (cost=6) + A100 (cost=40), 1:6.7 retail ratio
+- Traffic: 30-min four-phase staircase ramp, 3 → 25 RPS, Poisson
+- Compared systems: **WVA** (queueing model + saturation) vs **KEDA-naive** (single
+  queue-depth trigger) vs **KEDA-tuned** (KV + queue + ITL p99 + token rate, with
+  stabilization windows)
+- Headline metric: cost-weighted GPU-hours at equivalent SLO
+
+**Where WVA wins vs KEDA (from discussion):**
+- Large, structural: **cross-variant cost selection** — no KEDA config matches this
+- Modest, closable with tuning: proactive detection, cascade prevention, SLO-aware sizing
+- Lead with the cost story; do not lead with latency against well-tuned KEDA
+
+**Implementation entry points in the plan doc:**
+- § 6 — kind dry-run (start here; ~35 min total, free)
+- § 7.4 — kind vs OpenShift platform support table
+- § 7.5 — OpenShift sizing: Option 1 (6 L4 + 3 A100-80GB), Option 2 (6 homogeneous),
+  Option 3 (3-GPU smoke)
+- § 8 — full implementation guide for coder agent (file layout, Go types, KEDA
+  fixtures, orchestration skeleton, Makefile targets, env var contract, verification
+  checklist, implementation order)
+- § 8.13 — 10-step independently-testable implementation order
+
+**Entry points for REVIEW (not for implementation) in the plan doc:**
+1. § 1 — thesis and presentable overview; check the headline claim is what you want
+2. § 2 — scenario design (variants, pricing, traffic pattern); check variant choice +
+   cost ratio
+3. § 4 — KEDA-naive and KEDA-tuned configurations; check they are fair baselines
+4. § 7.5 — OpenShift sizing options; decide which option(s) to actually run
+5. § 8 — implementation guide (only relevant after approval)
+
+**Before any coding starts:**
+- Dean reviews the plan end-to-end.
+- Open questions resolved in conversation (e.g. cost ratio, sizing option, whether to
+  extend scenario schema vs orchestrate in test code).
+- Plan status changed from "Draft — NOT AUTHORIZED" to "Approved — ready for
+  implementation" in the frontmatter.
+- The STOP block above is removed from CURRENT.md.
+- Explicit instruction from Dean: "start implementing the benchmark" (or similar).
+- Only then does the coder begin at § 8.13 step 1.
+
+**Do not (even once approved):** modify WVA controller code — this work is driver-only.
+
+**Decisions already made (do not re-litigate):**
+- Three-way comparison (WVA / KEDA-naive / KEDA-tuned) — not a two-way
+- Decode-heavy workload — not prefill
+- Staircase ramp via chained GuideLLM jobs — not schema extension (§ 2.5 Option B)
+- KEDA modes create **no** VA and **no** HPA (direct deployment scaling)
+- KEDA-tuned uses tighter KV threshold (0.70 vs WVA's 0.80) — an honest concession
+- ThroughputAnalyzer intentionally **not** enabled in this round (re-run after TA3 merges)
 
 ---
 
