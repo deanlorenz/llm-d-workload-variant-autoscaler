@@ -3,8 +3,7 @@
 ## Overview
 
 The Throughput Analyzer is a **model-driven, proactive scaling analyzer** that estimates decode
-token throughput supply (μ_dec) and compares it against decode token demand (λ_dec) to drive
-scaling decisions.
+token throughput supply (μ_dec) and compares it against decode token demand (λ_dec) to drive scaling decisions.
 
 Where the Saturation Analyzer reacts to observed capacity exhaustion, the Throughput Analyzer
 predicts how much decode throughput the current replica fleet can sustain at a given KV cache
