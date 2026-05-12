@@ -1,5 +1,5 @@
 ---
-type: Type-3 plan
+type: Type-3 (task plan)
 status: Draft — NOT AUTHORIZED for implementation
 date: 2026-05-13
 scope: Benchmark plan — WVA vs KEDA on a heterogeneous GPU pool

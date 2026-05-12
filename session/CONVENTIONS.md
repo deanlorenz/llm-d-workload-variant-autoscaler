@@ -66,39 +66,42 @@ Commits to the plans branch: `git -C plans add <file> && git -C plans commit -m 
 
 ## Document Taxonomy
 
-Dean uses five document types with distinct roles and lifecycles. Never mix them.
+Dean uses six document types with distinct roles and lifecycles. Never mix them. Each type
+has a short name (shown in **bold**) to use in conversation and commit messages; the number
+stays authoritative for unambiguous reference.
 
-**Type 1 — Overall design** (`planning/TA-notation.md`, `TA-supply.md`, `TA-demand.md`, …)
-Concepts, algorithms, and goals of the overall mission. Written and frozen before coding starts.
+**Type 1 — design** (`planning/TA-notation.md`, `TA-supply.md`, `TA-demand.md`, …)
+Overall mission design — concepts, algorithms, goals. Written and frozen before coding starts.
 Only reopen for architectural replanning. Lives on the `plans` branch, invisible to code PRs.
 
-**Type 2 — Overall plan** (`planning/TA-Plan.md`)
-Mission-level living doc. Updated as the plan becomes concrete and implementation progresses.
-Captures alternatives considered and decisions made. Transient — no longer needed after mission
-completes. Lives alongside Type 1 on the `plans` branch.
+**Type 2 — roadmap** (`planning/TA-Plan.md`)
+Mission-level living roadmap. Updated as the plan becomes concrete and implementation
+progresses. Captures alternatives considered and decisions made. Transient — no longer needed
+after the mission completes. Lives alongside Type 1 on the `plans` branch.
 
-**Type 3 — Detailed phase plans** (`planning/TA-PR1-plan.md` … `TA-PR5-plan.md`, etc.)
-One per PR or implementation step. Written before coding starts. Living documents: track progress,
-record decisions and failed paths, capture enough state to resume cold from this doc alone.
-Lives alongside Type 1/2 on the `plans` branch.
+**Type 3 — task plan** (`planning/TA-PR1-plan.md` … `TA-PR5-plan.md`, etc.)
+Detailed phase plan, one per PR or implementation step. Written before coding starts. Living
+document: tracks progress, records decisions and failed paths, captures enough state to resume
+cold from this doc alone. Lives alongside Types 1/2 on the `plans` branch.
 
-**Type 4 — Post-implementation docs** (`docs/developer-guide/throughput-analyzer.md`, etc.)
-Part of each code PR — appears in the diff. Reflects actual current code only — never ahead of
-implementation. Must be self-sufficient for code review: a reviewer reading only the PR diff
-should understand the design from the Type 4 doc alone. Types 1/2/3 may be linked from the PR
-description for deeper context but are not required reading.
+**Type 4 — reference** (`docs/developer-guide/throughput-analyzer.md`, etc.)
+Post-implementation reference, part of each code PR — appears in the diff. Reflects actual
+current code only — never ahead of implementation. Must be self-sufficient for code review: a
+reviewer reading only the PR diff should understand the design from the Type 4 doc alone.
+Types 1/2/3 may be linked from the PR description for deeper context but are not required
+reading.
 
-**Type 5 — CURRENT.md** (`session/CURRENT.md`)
-Transient session state. Enables any new session to resume without prior memory. References other
-docs rather than duplicating them. Holds decisions/insights not yet captured elsewhere and removes
-them once they land in a permanent doc.
+**Type 5 — session state** (`session/CURRENT.md`)
+Transient session state. Enables any new session to resume without prior memory. References
+other docs rather than duplicating them. Holds decisions/insights not yet captured elsewhere
+and removes them once they land in a permanent doc.
 
-**Type 6 — Review docs** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
+**Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
 gaps, NTH items, and confirmed-correct items. Scoped to a branch or design doc. Carries a
 `Status: DRAFT` header until the user finalizes the findings in discussion; only `Status: FINAL`
-docs are ready for consumption by the plan agent. Never write to a `*-review.md` file unless you
-are acting as the review agent.
+docs are ready for consumption by the plan agent. Never write to a `*-review.md` file unless
+you are acting as the review agent.
 
 ### Agent roles and document ownership
 
@@ -106,18 +109,18 @@ Three distinct agent roles write to three non-overlapping doc domains:
 
 | Role | Invoked by | Writes | Reads |
 |---|---|---|---|
-| **Review agent** | `/design-review` | `*-review.md` (Type 6) | Type 1, 3, code |
-| **Plan agent** | explicit request | `*-plan.md` (Type 3) | Type 6 (FINAL only), Type 1 |
-| **Coder** | explicit request | code, Type 4 | Type 3, Type 4 |
+| **Review agent** | `/design-review` | reviews (Type 6) | designs (Type 1), task plans (Type 3), code |
+| **Plan agent** | explicit request | task plans (Type 3) | reviews (Type 6, FINAL only), designs (Type 1) |
+| **Coder** | explicit request | code, references (Type 4) | task plans (Type 3), references (Type 4) |
 
-Never write into another agent's domain. A coder should not edit a `*-review.md`; a review agent
-should not edit code or `*-plan.md` files.
+Never write into another agent's domain. A coder should not edit a review; a review agent
+should not edit code or task plans.
 
 ### Quick rule
 
-Before writing anything into CURRENT.md, ask: does this belong in a Type 1–4 doc instead? Only
-keep it in CURRENT.md if it is not yet captured elsewhere. When it is captured, replace the
-content with a link.
+Before writing anything into the session state (Type 5, CURRENT.md), ask: does this belong in
+a design, roadmap, task plan, or reference (Types 1–4) instead? Only keep it in session state
+if it is not yet captured elsewhere. When it is captured, replace the content with a link.
 
 ---
 
