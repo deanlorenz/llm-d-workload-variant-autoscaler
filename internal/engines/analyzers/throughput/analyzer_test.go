@@ -2,6 +2,8 @@ package throughput
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -60,7 +62,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 	Describe("Observe — basic state creation", func() {
 		It("creates variant state on first Observe", func() {
 			metrics := makeMetrics("v1", 3, 0.20, 0.15)
-			analyzer.Observe(ctx, modelID, namespace, metrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 
 			_, ok := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(ok).To(BeTrue())
@@ -68,7 +70,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 		It("records shape from first call", func() {
 			metrics := makeMetrics("v1", 3, 0.20, 0.15)
-			analyzer.Observe(ctx, modelID, namespace, metrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 
 			state, _ := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(state.Shape.AvgInputTokens).To(BeNumerically("~", 1024.0, 0.01))
@@ -77,7 +79,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 		It("adds observations to the window on each Observe call", func() {
 			metrics := makeMetrics("v1", 3, 0.20, 0.15)
-			analyzer.Observe(ctx, modelID, namespace, metrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 
 			state, _ := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(state.SampleCount).To(Equal(3))
@@ -91,7 +93,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			for i := range 6 {
 				baseK := 0.20 + float64(i)*0.10
 				metrics := makeMetrics("v1", 2, baseK, 0.05)
-				analyzer.Observe(ctx, modelID, namespace, metrics)
+				analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 			}
 
 			state, _ := analyzer.VariantState(modelID, namespace, "v1")
@@ -106,7 +108,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			// Build up some observations.
 			for i := range 3 {
 				metrics := makeMetrics("v1", 3, 0.20+float64(i)*0.10, 0.05)
-				analyzer.Observe(ctx, modelID, namespace, metrics)
+				analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 			}
 			stateBefore, _ := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(stateBefore.SampleCount).To(BeNumerically(">", 0))
@@ -116,7 +118,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			for i := range shifted {
 				shifted[i].AvgInputTokens = 1024 * 1.5 // +50%
 			}
-			analyzer.Observe(ctx, modelID, namespace, shifted)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, shifted)
 
 			stateAfter, _ := analyzer.VariantState(modelID, namespace, "v1")
 			// The window was cleared on shape change, then one cycle of 3 observations was added.
@@ -130,7 +132,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			for i := range bad {
 				bad[i].AvgITL = 0 // fails SanityIssueITLNonPositive
 			}
-			reports := analyzer.Observe(ctx, modelID, namespace, bad)
+			reports := analyzer.Observe(ctx, time.Now(), modelID, namespace, bad)
 
 			Expect(reports["v1"].OK()).To(BeFalse())
 			Expect(reports["v1"].Has(SanityIssueITLNonPositive)).To(BeTrue())
@@ -145,7 +147,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 		It("returns an OK report for a healthy variant", func() {
 			metrics := makeMetrics("v1", 3, 0.20, 0.10)
-			reports := analyzer.Observe(ctx, modelID, namespace, metrics)
+			reports := analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 			Expect(reports["v1"].OK()).To(BeTrue())
 		})
 	})
@@ -159,7 +161,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			metricsV2[2].AvgInputTokens = 2048
 
 			combined := append(metricsV1, metricsV2...)
-			analyzer.Observe(ctx, modelID, namespace, combined)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, combined)
 
 			stateV1, okV1 := analyzer.VariantState(modelID, namespace, "v1")
 			stateV2, okV2 := analyzer.VariantState(modelID, namespace, "v2")
@@ -230,8 +232,34 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 	Describe("Observe — empty metrics list", func() {
 		It("handles an empty metrics slice gracefully", func() {
-			reports := analyzer.Observe(ctx, modelID, namespace, []interfaces.ReplicaMetrics{})
+			reports := analyzer.Observe(ctx, time.Now(), modelID, namespace, []interfaces.ReplicaMetrics{})
 			Expect(reports).To(BeEmpty())
+		})
+	})
+
+	Describe("Observe — concurrent safety", func() {
+		It("is safe for concurrent Observe and VariantState calls", func() {
+			const goroutines = 10
+			var wg sync.WaitGroup
+			wg.Add(goroutines + 1)
+
+			for i := range goroutines {
+				go func(i int) {
+					defer wg.Done()
+					variant := fmt.Sprintf("v%d", i%3)
+					metrics := makeMetrics(variant, 2, 0.20+float64(i)*0.05, 0.05)
+					analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
+				}(i)
+			}
+
+			go func() {
+				defer wg.Done()
+				analyzer.VariantState(modelID, namespace, "v0")
+			}()
+
+			wg.Wait()
+			_, ok := analyzer.VariantState(modelID, namespace, "v0")
+			Expect(ok).To(BeTrue())
 		})
 	})
 })

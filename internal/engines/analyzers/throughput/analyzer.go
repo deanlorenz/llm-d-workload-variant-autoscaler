@@ -2,7 +2,6 @@ package throughput
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -57,10 +56,10 @@ func (a *ThroughputAnalyzer) Name() string {
 // (report.OK() == true) means that variant's metrics were healthy this cycle.
 func (a *ThroughputAnalyzer) Observe(
 	ctx context.Context,
+	now time.Time,
 	modelID, namespace string,
 	metrics []interfaces.ReplicaMetrics,
 ) map[string]SanityReport {
-	now := time.Now()
 	byVariant := groupByVariant(metrics)
 	reports := make(map[string]SanityReport, len(byVariant))
 
@@ -111,6 +110,15 @@ func (a *ThroughputAnalyzer) Observe(
 		state.observationWindow.Prune(now)
 	}
 
+	// Evict variant states not observed for longer than twice the observation
+	// max age. Prevents stale entries from deleted/recreated VAs from
+	// accumulating in memory and causing false shape-change signals on recreate.
+	for key, state := range a.variantStates {
+		if now.Sub(state.lastObservedAt) > 2*DefaultObservationMaxAge {
+			delete(a.variantStates, key)
+		}
+	}
+
 	return reports
 }
 
@@ -121,13 +129,14 @@ func (a *ThroughputAnalyzer) Analyze(
 	ctx context.Context,
 	input interfaces.AnalyzerInput,
 ) (*interfaces.AnalyzerResult, error) {
-	a.Observe(ctx, input.ModelID, input.Namespace, input.ReplicaMetrics)
+	now := time.Now()
+	a.Observe(ctx, now, input.ModelID, input.Namespace, input.ReplicaMetrics)
 
 	return &interfaces.AnalyzerResult{
 		AnalyzerName: AnalyzerName,
 		ModelID:      input.ModelID,
 		Namespace:    input.Namespace,
-		AnalyzedAt:   time.Now(),
+		AnalyzedAt:   now,
 		// RequiredCapacity and SpareCapacity are zero until PR-4 adds the
 		// ITL model fit and μ_dec vs λ_dec computation.
 	}, nil
@@ -158,10 +167,11 @@ func (a *ThroughputAnalyzer) VariantState(modelID, namespace, variantName string
 
 // --- helpers ---
 
-// variantKey builds the map key for a variant. The pipe delimiter is safe because
-// Kubernetes resource names follow DNS rules and cannot contain "|".
+// variantKey builds the map key for a variant. The null-byte delimiter is safe
+// because neither Kubernetes resource names nor operator-provided model IDs can
+// contain a null byte.
 func variantKey(namespace, modelID, variantName string) string {
-	return fmt.Sprintf("%s|%s|%s", namespace, modelID, variantName)
+	return namespace + "\x00" + modelID + "\x00" + variantName
 }
 
 // getOrCreateVariantState returns the variantState for the given key, creating
@@ -195,23 +205,34 @@ func groupByVariant(metrics []interfaces.ReplicaMetrics) map[string][]interfaces
 	return groups
 }
 
-// averageShapeMetrics computes the mean IL, OL, and prefix hit rate across a
-// slice of replica metrics. Replicas with zero OL or IL are excluded from the
-// average (they lack workload data this cycle).
+// averageShapeMetrics computes the VLLMRequestRate-weighted mean IL, OL, and
+// prefix hit rate across a slice of replica metrics. Replicas with zero or
+// negative IL or OL are excluded. When all eligible replicas have zero
+// VLLMRequestRate, falls back to an unweighted mean.
 func averageShapeMetrics(metrics []interfaces.ReplicaMetrics) (il, ol, hitRate float64) {
-	var sumIL, sumOL, sumHitRate float64
-	var count float64
+	var sumIL, sumOL, sumHitRate float64 // weighted accumulators
+	var sumILu, sumOLu, sumHRu float64   // unweighted fallback
+	var totalWeight, count float64
 	for _, m := range metrics {
-		if m.AvgInputTokens <= 0 || m.AvgOutputTokens <= 0 {
+		if m.AvgInputTokens <= DefaultMinTokensPerRequest || m.AvgOutputTokens <= DefaultMinTokensPerRequest {
 			continue
 		}
-		sumIL += m.AvgInputTokens
-		sumOL += m.AvgOutputTokens
-		sumHitRate += m.PrefixCacheHitRate
 		count++
+		sumILu += m.AvgInputTokens
+		sumOLu += m.AvgOutputTokens
+		sumHRu += m.PrefixCacheHitRate
+		if m.VLLMRequestRate > 0 {
+			sumIL += m.VLLMRequestRate * m.AvgInputTokens
+			sumOL += m.VLLMRequestRate * m.AvgOutputTokens
+			sumHitRate += m.VLLMRequestRate * m.PrefixCacheHitRate
+			totalWeight += m.VLLMRequestRate
+		}
 	}
 	if count == 0 {
 		return 0, 0, 0
 	}
-	return sumIL / count, sumOL / count, sumHitRate / count
+	if totalWeight == 0 {
+		return sumILu / count, sumOLu / count, sumHRu / count
+	}
+	return sumIL / totalWeight, sumOL / totalWeight, sumHitRate / totalWeight
 }

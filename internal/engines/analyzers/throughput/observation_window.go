@@ -3,6 +3,10 @@ package throughput
 import (
 	"math"
 	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/logging"
 )
 
 // ObservationWindow is a rolling window of (k, ITL_obs) pairs for one variant.
@@ -38,6 +42,8 @@ func newObservationWindow(maxSize int, maxAge time.Duration, minSamples int, min
 // When the window is at capacity, the oldest observation is evicted first.
 func (w *ObservationWindow) Add(k, itl float64, ts time.Time) {
 	if k < w.minK || k > w.maxK {
+		ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: k-value outside observable range, observation dropped",
+			"k", k, "minK", w.minK, "maxK", w.maxK)
 		return
 	}
 	if itl <= 0 || math.IsNaN(itl) {

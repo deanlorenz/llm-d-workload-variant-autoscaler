@@ -239,8 +239,8 @@ Per-variant state is minimal:
 
 | Field | What it holds |
 |---|---|
-| `ShapeTracker` | Three EMA floats: IL, OL, prefix hit rate |
-| `ObservationWindow` | Rolling slice of ≤ 10 `(k*, ITL_obs)` pairs + timestamps |
+| `ShapeTracker` | Current workload shape snapshot (IL, OL, hit rate); overwritten each cycle |
+| `ObservationWindow` | Rolling slice of ≤ 20 `(k*, ITL_obs)` pairs + timestamps |
 | `lastSanityReport` | Most recent sanity check result |
 | `lastObservedAt` | Timestamp of last observation |
 
@@ -479,7 +479,7 @@ use the same decode-rate framework.
 | `DefaultKSat` | 0.85 | KV utilization at which μ_dec_sat is evaluated |
 | `DefaultBaselineITLSec` | 0.006 | B in tier-2 ITL model (H100 near-zero-load baseline) |
 | `DefaultQueueDrainFactor` | 2.0 | Bounds queueing time to ≤ factor × ITL(k_sat) × OL |
-| `DefaultWindowMaxSize` | 100 | Max (k*, ITL) pairs in ObservationWindow |
+| `DefaultWindowMaxSize` | 20 | Max (k*, ITL) pairs in ObservationWindow |
 | `DefaultObservationMaxAge` | 30m | Observations older than this are pruned |
 | `DefaultMinSamples` | 10 | Minimum samples for OLS Ready flag |
 | `DefaultMinKSpread` | 0.30 | Minimum k-spread for OLS Ready flag |
