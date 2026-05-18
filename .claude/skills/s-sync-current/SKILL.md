@@ -71,13 +71,30 @@ None.
 
 ---
 
-## Step 5: Commit
+## Step 5: Delete processed handoff files
+
+For each handoff file that was successfully merged (doc existed, no errors):
+
+```bash
+# tracked files:
+git -C plans rm session/handoffs/<name>.md
+
+# untracked files (never committed — just delete):
+rm plans/session/handoffs/<name>.md
+```
+
+Determine whether each file is tracked with `git -C plans ls-files --error-unmatch session/handoffs/<name>.md`.
+If the command exits 0 the file is tracked; use `git rm`. If it exits non-zero, use plain `rm`.
+
+---
+
+## Step 6: Commit
 
 ```bash
 git -C plans add session/CURRENT.md
 git -C plans commit -m "session: sync CURRENT.md pending handoffs"
 ```
 
-If CURRENT.md has no changes (handoffs already match), report "CURRENT.md already up to date" and skip the commit.
+If CURRENT.md has no changes and no handoff files were deleted, report "CURRENT.md already up to date" and skip the commit.
 
 Print the commit SHA or the up-to-date message when done.
