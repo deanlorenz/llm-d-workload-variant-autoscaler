@@ -346,3 +346,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 |---|---|---|---|
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
+| plan-agent | `planning/PR1052-review.md` | READY | All 8 ev-shindin CHANGES_REQUESTED comments addressed (incl. concurrent-safety test); replies posted to PR #1052; TA2 rebased onto upstream/main, DCO fixed; final tip a8aac2b7 force-pushed to origin. PR ready for re-review. |
