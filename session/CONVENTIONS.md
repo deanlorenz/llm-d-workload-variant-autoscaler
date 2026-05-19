@@ -92,9 +92,11 @@ Types 1/2/3 may be linked from the PR description for deeper context but are not
 reading.
 
 **Type 5 — session state** (`session/CURRENT.md`)
-Transient session state. Enables any new session to resume without prior memory. References
-other docs rather than duplicating them. Holds decisions/insights not yet captured elsewhere
-and removes them once they land in a permanent doc.
+Living work tracker. Enables any new session to resume without prior memory. Contains
+per-task sections with work items, progress, open issues, and intermediate decisions.
+References other docs rather than duplicating them; removes content once it lands in a
+permanent doc. Updated continuously as work progresses — by the plan-agent directly, or
+by coding agents via handoff files.
 
 **Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
@@ -110,12 +112,12 @@ Three distinct agent roles write to three non-overlapping doc domains:
 | Role | Invoked by | Writes | Reads |
 |---|---|---|---|
 | **Review agent** | `/design-review` | reviews (Type 6), handoff files | designs (Type 1), task plans (Type 3), code |
-| **Plan agent** | explicit request | task plans (Type 3), CURRENT.md (via `/sync-current`) | reviews (Type 6, FINAL only), designs (Type 1), handoff files |
+| **Plan agent** | explicit request | task plans (Type 3), CURRENT.md directly | reviews (Type 6, FINAL only), designs (Type 1), handoff files |
 | **Coder** | explicit request | code, references (Type 4), handoff files | task plans (Type 3), references (Type 4) |
 
 Never write into another agent's domain. A coder should not edit a review; a review agent
-should not edit code or task plans. **No agent writes CURRENT.md directly except the plan
-agent running `/sync-current`.**
+should not edit code or task plans. **Only the plan agent writes CURRENT.md directly; all
+other agents communicate changes via handoff files.**
 
 ### Quick rule
 
@@ -150,43 +152,52 @@ resolving the last open task, summarize what was done and ask what to work on ne
 even when a detailed plan doc exists — the plan is background for the discussion, not a substitute
 for it.
 
-**Shared-state updates go through handoff files — two-phase protocol.**
+**Shared-state updates go through handoff files.**
 
-`session/CURRENT.md` is shared state. **No agent ever edits it directly.** All updates flow
-through a strict two-phase protocol:
+`session/CURRENT.md` is a shared document. Coding and review agents do not edit it directly;
+they write a **handoff file** and let the plan-agent apply the update via `/sync-current`.
 
-**Phase 1 — any agent produces a handoff file.**
-At the end of your work (before reporting back), create a file at
-`session/handoffs/<name>.md` describing what you produced. This is the only action required.
-You do **not** need to exit your worktree first — handoff files may be written from any
-worktree context. The handoff signals "this doc exists at this path with this status."
+**How it works:**
 
-**Phase 2 — plan-agent syncs on explicit instruction.**
-When Dean says "sync state" (or equivalent), the plan-agent runs `/sync-current` from the
-`plans` worktree. This merges all handoff files into CURRENT.md's `## Pending handoffs`
-table, deletes the processed handoff files, and commits. Phase 2 only ever happens in
-plan-agent context — never from a code worktree, and never without Dean's explicit instruction.
+1. A coding or review agent finishes a piece of work (or reaches a state worth recording).
+   It reads CURRENT.md, decides what needs to change, and writes a handoff file at
+   `session/handoffs/<session-name>.md`. It does not need to exit its worktree first.
 
-Create a handoff file whenever a session produces a document (plan, review, code change) that
-another agent will consume, or whenever the existence of that document should be reflected in
-CURRENT.md. This rule applies **regardless of the document's status** — DRAFT, READY, and FINAL
-documents all use the same handoff flow.
+2. When Dean says "sync state" (or equivalent), the plan-agent runs `/sync-current` from
+   the `plans` worktree. This reads every handoff file, applies the described updates to
+   CURRENT.md, deletes the processed files, and commits. This step is a deliberate,
+   explicit declaration — not a background process or automatic trigger.
 
-Handoff file format:
+**Handoff file format — minimal structure, freeform body.**
+
+The file must open with two header lines that make it self-describing without needing
+to read CONVENTIONS:
 
 ```
-to: plan-agent | coder | reviewer
-doc: <relative path from plans/ worktree root>
-status: DRAFT | READY | FINAL
-note: <one-line description>
+to: sync-current
+session: <short session name>
 ```
 
-The plan-agent may update CURRENT.md's durable sections (PR Status, Blocked on, Next steps,
-long-running paused features) directly — but only while acting as plan-agent in the `plans`
-worktree, and only after interpreting the completed handoffs. Coder and reviewer agents never
-touch CURRENT.md under any circumstances.
+The body is freeform prose or structured content — whatever gives the sync agent enough
+information to update CURRENT.md correctly. It may include: what was completed, what the
+session section in CURRENT should say, new or updated work items, pending handoffs to add
+to the table, blockers to remove, next steps to record. Be complete; the sync agent will
+apply exactly what the handoff describes.
 
-See `plans/.claude/skills/s-sync-current/SKILL.md` for the sync merge rules.
+**File naming:** use `<branch>-<topic>.md` (e.g. `ta2-review.md`, `ta3-e2e-step2.md`).
+Names only need to be unique enough to avoid conflicts between parallel sessions.
+
+**Starting a new session without an existing CURRENT entry:**
+If CURRENT.md has no section for your work, write a handoff that includes everything
+needed to create it: session name, task, scope, initial work items. A new session is not
+structurally different from any other state update.
+
+**Plan-agent and CURRENT.md:**
+The plan-agent may update CURRENT.md directly — either while applying synced handoffs
+or when establishing a new session section before handing off to a coder. It is the only
+role that edits CURRENT.md directly. Coding and review agents always go through handoffs.
+
+See `plans/.claude/skills/s-sync-current/SKILL.md` for how sync applies handoffs.
 
 **Type 4 docs reflect code, not plans.**
 `docs/developer-guide/throughput-analyzer.md` (and any other Type 4 doc) must always reflect the
