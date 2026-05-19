@@ -1,19 +1,14 @@
 # Current Work
 
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
 
 ---
 
-## Session in progress: Benchmark team discussion doc + TA2 review addressed
+## Session in progress: PR #1052 — address review, rebase, DCO enforcement
 
-This session produced `scratch/benchmark-team-discussion.md` — a 5–10 min team discussion
-doc covering what the benchmarking stack needs to support for the two WVA-vs-KEDA scenarios
-(requirements, llm-d setup, gaps, open questions). Pushed to fork:
-https://github.com/deanlorenz/llm-d-workload-variant-autoscaler/blob/plans/scratch/benchmark-team-discussion.md
-
-In a parallel session all 8 ev-shindin CHANGES_REQUESTED comments on TA2 (#1052) were
-addressed; replies posted; TA2 rebased onto upstream/main; DCO fixed; final tip `a8aac2b7`
-force-pushed. PR is ready for re-review. See `plan-agent` handoff below.
+PR #1052 (TA2) **MERGED** 2026-05-19. All 8 ev-shindin CHANGES_REQUESTED comments addressed,
+replies posted, TA2 rebased onto upstream/main, DCO fixed (pre-push hook + `commit.signOff`
+added). TA3 rebase is now unblocked.
 
 PR #1092 short review comment draft at `scratch/PR1092-short-draft.md` is still pending
 counter-proposal integration. See memory `project_pr1092_analysis.md` for full recap.
@@ -25,8 +20,8 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
-| TA2                   | #1052 | ev-shindin comments addressed; force-pushed 2026-05-18; awaiting re-review | `a8aac2b7` |
-| TA3                   | —     | Local only; rebase after TA2 merges                               | `7506634b` |
+| TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
+| TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
@@ -34,13 +29,11 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 
 ## Blocked on
 
-- **TA2 (#1052)** — awaiting re-review from ev-shindin; TA3 rebase waits on TA2 merge
 - **#1113 (engine-multi-analyzer)** — e2e-smoke pending; awaiting review; engine-queue-fix PR waits on this
 
 ## Next steps
 
-- **Now:** TA2 (#1052) awaiting re-review — no action until reviewer responds
-- After TA2 merges: rebase TA3, discuss TA3 PR-4+PR-5 before submitting
+- **Now:** rebase TA3 onto upstream/main, then discuss TA3 PR-4+PR-5 before submitting
 - After #1113 merges: open engine-queue-fix PR (force-push `01ed7d8` after rebasing onto new main tip)
 - **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark plan drafted at `planning/benchmark-wva-vs-keda-plan.md`. **Do not start coding.** The plan needs review + explicit go-ahead from Dean before any implementation begins — see the Benchmark section below.
 
@@ -352,5 +345,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 |---|---|---|---|
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
-| plan-agent | `planning/PR1052-review.md` | READY | All 8 ev-shindin CHANGES_REQUESTED comments addressed; replies posted; TA2 rebased + DCO fixed; tip a8aac2b7 force-pushed; PR ready for re-review |
-| plan-agent | `planning/PR1052-review.md` | READY | All 8 ev-shindin CHANGES_REQUESTED comments addressed (incl. concurrent-safety test); replies posted to PR #1052; TA2 rebased onto upstream/main, DCO fixed; final tip a8aac2b7 force-pushed to origin. PR ready for re-review. |
+| plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
