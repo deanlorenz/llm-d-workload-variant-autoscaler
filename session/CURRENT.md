@@ -4,11 +4,15 @@
 
 ---
 
-## Session in progress: PR #1052 — address review, rebase, DCO enforcement
+## Last session: PR #1052 — address review, rebase, DCO enforcement
 
 PR #1052 (TA2) **MERGED** 2026-05-19. All 8 ev-shindin CHANGES_REQUESTED comments addressed,
-replies posted, TA2 rebased onto upstream/main, DCO fixed (pre-push hook + `commit.signOff`
-added). TA3 rebase is now unblocked.
+replies posted, TA2 rebased onto upstream/main, DCO fixed (`repo/hooks/pre-push` +
+`commit.signOff = true`). TA3 rebase is now unblocked.
+
+Also improved workflow infrastructure: CONVENTIONS and `s-sync-current` skill updated to
+clarify the handoff protocol (freeform body, `to: sync-current` / `session:` headers,
+plan-agent is the only role that writes CURRENT.md directly).
 
 PR #1092 short review comment draft at `scratch/PR1092-short-draft.md` is still pending
 counter-proposal integration. See memory `project_pr1092_analysis.md` for full recap.
