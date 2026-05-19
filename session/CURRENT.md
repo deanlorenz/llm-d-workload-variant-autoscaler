@@ -4,15 +4,31 @@
 
 ---
 
-## Last session: PR #1052 — address review, rebase, DCO enforcement
+## Last session: Benchmark plan deep-dive — saturation_v2, simultaneous-saturation trap, L40+H100
 
-PR #1052 (TA2) **MERGED** 2026-05-19. All 8 ev-shindin CHANGES_REQUESTED comments addressed,
-replies posted, TA2 rebased onto upstream/main, DCO fixed (`repo/hooks/pre-push` +
-`commit.signOff = true`). TA3 rebase is now unblocked.
+Extensive benchmark planning session. Key outcomes:
 
-Also improved workflow infrastructure: CONVENTIONS and `s-sync-current` skill updated to
-clarify the handoff protocol (freeform body, `to: sync-current` / `session:` headers,
-plan-agent is the only role that writes CURRENT.md directly).
+- **GPU names corrected:** L4 → L40 throughout both plan docs.
+- **Scenario 1 variants changed:** L40+A100 → **L40+H100** (better cost ratio 1:4.3).
+  Cost weights: L40=15, H100=65.
+- **Peak RPS revised:** 25 → **35 RPS**. At 25 RPS with 2L40+1H100 both systems land at
+  57% utilisation — no steady-state difference. At 35 RPS (80% util for 2L40+1H100) WVA
+  is stable; KEDA fires both ScaledObjects simultaneously and is trapped at 2L40+2H100.
+- **Correct mechanism identified:** The steady-state cost gap comes from the
+  **simultaneous-saturation trap** — EPP equalises KV% across variants, so both KEDA
+  ScaledObjects fire simultaneously. WVA's aggregate optimizer adds only the cheapest
+  variant. KEDA reaches a locally-stable over-provisioned state it cannot escape without
+  cross-variant coordination. Cost advantage ~30–44% at steady state (Phase 2 peak).
+- **Analyzer confirmed:** saturation_v2 alone (`analyzerName: "saturation"`). No
+  multi-analyzer, no QueueingModel (not ready). saturation_v2 is token-based (k1/k2
+  dual-capacity), aggregate cross-variant, pending-replica-aware.
+- **New approach doc created:** `planning/benchmark-wva-vs-keda.md` (Type-1 design).
+  Readable entry point: scenarios, structural argument, phase tables, design decisions,
+  high-level gaps. Implementation reference plan has a forward-pointer to it.
+- **Homogeneous cluster variant documented** (§ 2.2b of plan): same scenario works
+  with cost weights as organisational tier labels on identical hardware.
+- **Team discussion doc updated and pushed:**
+  https://github.com/deanlorenz/llm-d-workload-variant-autoscaler/blob/plans/scratch/benchmark-team-discussion.md
 
 PR #1092 short review comment draft at `scratch/PR1092-short-draft.md` is still pending
 counter-proposal integration. See memory `project_pr1092_analysis.md` for full recap.
@@ -54,79 +70,62 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 > The plan itself documents this gate at the top of `planning/benchmark-wva-vs-keda-plan.md`.
 > When Dean approves, this block is removed and the status line updated.
 
-**Plan:** `planning/benchmark-wva-vs-keda-plan.md` — Type-3 detailed plan, ~1700 lines.
-Drafted 2026-05-13, **not yet reviewed/approved**.
+**Docs:**
+- `planning/benchmark-wva-vs-keda.md` — **Approach doc (Type-1, start here).** Scenarios,
+  structural argument, phase tables, design decisions, high-level gaps. ~300 lines, readable.
+- `planning/benchmark-wva-vs-keda-plan.md` — **Implementation reference (Type-3).** All
+  details: exact configs, Go types, Ginkgo skeleton, kind dry-run, OpenShift sizing, coder
+  guide (§ 8), implementation order (§ 8.13). ~2300 lines. Not reviewed/approved.
 
-**Headline claim:** WVA delivers 25–40% lower cost-weighted GPU-hours than a tuned KEDA
-configuration at equivalent p99 ITL, because no per-deployment autoscaler can coordinate
-scale decisions across variants.
+**Headline claim:** At 35 RPS peak load, WVA holds stably at 2L40+1H100 (cost 95/interval).
+KEDA is trapped at 2L40+2H100 (cost 160/interval) — **~30–44% lower cost-weighted
+GPU-hours at equivalent p99 ITL**, present at steady-state Phase 2 peak, not just ramp
+transients. Mechanism: EPP equalises KV% across variants → both KEDA ScaledObjects fire
+simultaneously → KEDA over-provisions both; WVA's aggregate optimizer adds only the cheaper
+variant (L40=15) and stops.
 
-**Two scenarios in the doc:**
+**Scenario 1 — Cost-Optimal Ramp:**
+- Pool: L40 (cost=15, max=2) + H100 (cost=65, max=3); 1:4.3 ratio; cluster 2×L40 + 16×H100
+- Traffic: 30-min staircase ramp, 3 → 35 RPS, decode-heavy (1000 in / 4000 out), Poisson
+- Analyzer: saturation_v2 alone (`scaleUpThreshold=0.85`, `scaleDownBoundary=0.70`)
+- Comparison: WVA / keda-naive / keda-tuned (KV threshold 0.70)
 
-**Scenario 1 — Cost-Optimal Ramp (§ 2–9):** Cost-efficiency argument.
-- Model: `meta-llama/Llama-3.1-8B-Instruct`, decode-heavy (1000 in / 4000 out)
-- Pool: two variants of the same model — L4 (cost=6) + A100 (cost=40), 1:6.7 retail ratio
-- Traffic: 30-min four-phase staircase ramp, 3 → 25 RPS, Poisson
-- Headline metric: cost-weighted GPU-hours at equivalent SLO
+**Scenario 2 — Starvation Prevention:**
+- Two pools, label-partitioned nodes (`gpu.partition=premium|basic`), homogeneous hardware
+- Pool-A (premium, H100 partition, cost=65), Pool-B (two variants: B-h100 cost=65, B-a100 cost=40)
+- WVA steers Pool-B to B-a100 (cheaper); KEDA fills both partitions; Pool-A starves under KEDA
+- Comparison: WVA / keda-naive / keda-tuned / keda-tuned-capped
 
-**Scenario 2 — Starvation Prevention (§ 12):** Multi-tenancy / coordination argument.
-- Two tenants sharing one cluster; GPU nodes partitioned into `gpu.partition=premium|basic`
-  (labels only; can run on homogeneous hardware — Option P2)
-- Three variants: pool-A-gpu1 (premium tenant, constrained to premium partition),
-  pool-B-gpu1 and pool-B-gpu2 (basic tenant, can use either)
-- Cost weights: pool-B-gpu2=30 < pool-B-gpu1=40 — WVA's cost gradient steers Pool-B to
-  basic partition, leaving premium for Pool-A
-- Traffic: 18-min three-phase — Pool-B ramps first, Pool-A joins 10 min later
-- Comparison adds a fourth KEDA mode: `keda-tuned-capped` (`maxReplicaCount: 0` on
-  pool-B-gpu1) — the honest best-effort KEDA countermeasure
-- Headline metric: Pool-A SLO violation rate during Pool-A spike phase
+**Entry points for REVIEW (before approving):**
+1. `planning/benchmark-wva-vs-keda.md` — full approach; check scenarios, claim, decisions
+2. `benchmark-wva-vs-keda-plan.md` § 2.2–2.2b — variant design, cost model, simultaneous-saturation analysis
+3. `benchmark-wva-vs-keda-plan.md` § 3 — WVA configuration (saturation_v2)
+4. `benchmark-wva-vs-keda-plan.md` § 4 — KEDA baselines; check they are fair
+5. `benchmark-wva-vs-keda-plan.md` § 7.5 — OpenShift sizing; decide which option to run
 
-**Where WVA wins vs KEDA (from discussion):**
-- Large, structural: **cross-variant cost selection** — no KEDA config matches this
-- Modest, closable with tuning: proactive detection, cascade prevention, SLO-aware sizing
-- Lead with the cost story; do not lead with latency against well-tuned KEDA
-
-**Implementation entry points in the plan doc:**
-- § 6 — kind dry-run (start here; ~35 min total, free)
-- § 7.4 — kind vs OpenShift platform support table
-- § 7.5 — OpenShift sizing: Option 1 (6 L4 + 3 A100-80GB), Option 2 (6 homogeneous),
-  Option 3 (3-GPU smoke)
-- § 8 — full implementation guide for coder agent (file layout, Go types, KEDA
-  fixtures, orchestration skeleton, Makefile targets, env var contract, verification
-  checklist, implementation order)
-- § 8.13 — 10-step independently-testable implementation order
-
-**Entry points for REVIEW (not for implementation) in the plan doc:**
-1. § 1 — thesis and presentable overview; check the headline claim is what you want
-2. § 2 — scenario design (variants, pricing, traffic pattern); check variant choice +
-   cost ratio
-3. § 4 — KEDA-naive and KEDA-tuned configurations; check they are fair baselines
-4. § 7.5 — OpenShift sizing options; decide which option(s) to actually run
-5. § 8 — implementation guide (only relevant after approval)
-
-**Before any coding starts:**
-- Dean reviews the plan end-to-end.
-- Open questions resolved in conversation (e.g. cost ratio, sizing option, whether to
-  extend scenario schema vs orchestrate in test code).
-- Plan status changed from "Draft — NOT AUTHORIZED" to "Approved — ready for
-  implementation" in the frontmatter.
-- The STOP block above is removed from CURRENT.md.
-- Explicit instruction from Dean: "start implementing the benchmark" (or similar).
-- Only then does the coder begin at § 8.13 step 1.
-
-**Do not (even once approved):** modify WVA controller code — this work is driver-only.
+**Entry points for IMPLEMENTATION (after approval):**
+- Kind dry-run: `benchmark-wva-vs-keda-plan.md` § 6
+- Coder guide: § 8 (file layout, Go types, Ginkgo skeleton, Makefile)
+- Implementation order: § 8.13 (10 steps)
 
 **Decisions already made (do not re-litigate):**
-- Two scenarios: cost argument (§ 2–9) + starvation argument (§ 12)
-- Scenario 1: three-way comparison (WVA / KEDA-naive / KEDA-tuned)
-- Scenario 2: four-way comparison (adds `keda-tuned-capped` as honest best-effort)
-- Decode-heavy workload — not prefill
-- Staircase ramp via chained GuideLLM jobs — not schema extension (§ 2.5 Option B)
-- Scenario 1 KEDA modes create **no** VA and **no** HPA (direct deployment scaling)
-- KEDA-tuned uses tighter KV threshold (0.70 vs WVA's 0.80) — an honest concession
-- ThroughputAnalyzer intentionally **not** enabled in this round (re-run after TA3 merges)
-- Scenario 2 uses Option P2 (label-partitioned homogeneous hardware) as default — runnable
-  on single-GPU-type clusters; Option P1 (true heterogeneous A100+L4) only for publication
+- Analyzer: saturation_v2 alone (no multi-analyzer, no QueueingModel — not ready)
+- Peak RPS: 35 (not 25 — 25 gives no steady-state gap)
+- Scenario 1 variants: L40 + H100 (not L40 + A100)
+- maxReplicas: L40=2 (hardware cap; enforceable via VA spec on any cluster)
+- Traffic: staircase ramp via chained GuideLLM jobs
+- KEDA-tuned KV threshold: 0.70 (honest concession; WVA aggregate threshold ~0.85)
+- ThroughputAnalyzer: disabled for this round (re-run after TA3 merges)
+- Scenario 2 hardware: homogeneous + label partition (Option P2, default)
+- Do not modify WVA controller code — driver-only work
+
+**Before any coding starts:**
+- Dean reviews approach doc and relevant plan sections.
+- Open questions resolved in conversation.
+- Plan frontmatter status updated to "Approved — ready for implementation".
+- STOP block above removed from CURRENT.md.
+- Explicit "go ahead and implement" from Dean.
+- Only then does the coder begin at § 8.13 step 1.
 
 **Benchmark future directions (not in scope for this round):**
 - **Dynamic cross-tenant reallocation under a Pool-A spike** — requires WVA's Limited
