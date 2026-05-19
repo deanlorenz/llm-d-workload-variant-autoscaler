@@ -1,8 +1,8 @@
 ---
 name: s-sync-current
-description: Read all pending handoff files in plans/session/handoffs/ and update the Pending handoffs section in CURRENT.md to reflect current agent pipeline state. Run this whenever you want CURRENT.md to reflect completed agent work. Invoke with /sync-current.
+description: Read all pending handoff files in plans/session/handoffs/, update the Pending handoffs section in CURRENT.md, delete the processed handoff files, and commit. Run this (as plan-agent, from plans worktree) whenever Dean says "sync state". Invoke with /sync-current.
 disable-model-invocation: true
-allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Read, TodoWrite
+allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Bash(rm:*), Read, TodoWrite
 ---
 
 # Sync CURRENT.md

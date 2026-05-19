@@ -109,12 +109,13 @@ Three distinct agent roles write to three non-overlapping doc domains:
 
 | Role | Invoked by | Writes | Reads |
 |---|---|---|---|
-| **Review agent** | `/design-review` | reviews (Type 6) | designs (Type 1), task plans (Type 3), code |
-| **Plan agent** | explicit request | task plans (Type 3) | reviews (Type 6, FINAL only), designs (Type 1) |
-| **Coder** | explicit request | code, references (Type 4) | task plans (Type 3), references (Type 4) |
+| **Review agent** | `/design-review` | reviews (Type 6), handoff files | designs (Type 1), task plans (Type 3), code |
+| **Plan agent** | explicit request | task plans (Type 3), CURRENT.md (via `/sync-current`) | reviews (Type 6, FINAL only), designs (Type 1), handoff files |
+| **Coder** | explicit request | code, references (Type 4), handoff files | task plans (Type 3), references (Type 4) |
 
 Never write into another agent's domain. A coder should not edit a review; a review agent
-should not edit code or task plans.
+should not edit code or task plans. **No agent writes CURRENT.md directly except the plan
+agent running `/sync-current`.**
 
 ### Quick rule
 
@@ -149,18 +150,27 @@ resolving the last open task, summarize what was done and ask what to work on ne
 even when a detailed plan doc exists — the plan is background for the discussion, not a substitute
 for it.
 
-**Shared-state updates go through handoff files.**
-`session/CURRENT.md` is a shared-state document that may be touched by multiple parallel agent
-sessions (plan agent, review agent, coder). To avoid races and overwrites, updates to its
-agent-output sections must be produced by **handoff files** at `session/handoffs/<name>.md`
-and merged into CURRENT.md by the `/sync-current` skill — not by direct edits.
+**Shared-state updates go through handoff files — two-phase protocol.**
+
+`session/CURRENT.md` is shared state. **No agent ever edits it directly.** All updates flow
+through a strict two-phase protocol:
+
+**Phase 1 — any agent produces a handoff file.**
+At the end of your work (before reporting back), create a file at
+`session/handoffs/<name>.md` describing what you produced. This is the only action required.
+You do **not** need to exit your worktree first — handoff files may be written from any
+worktree context. The handoff signals "this doc exists at this path with this status."
+
+**Phase 2 — plan-agent syncs on explicit instruction.**
+When Dean says "sync state" (or equivalent), the plan-agent runs `/sync-current` from the
+`plans` worktree. This merges all handoff files into CURRENT.md's `## Pending handoffs`
+table, deletes the processed handoff files, and commits. Phase 2 only ever happens in
+plan-agent context — never from a code worktree, and never without Dean's explicit instruction.
 
 Create a handoff file whenever a session produces a document (plan, review, code change) that
 another agent will consume, or whenever the existence of that document should be reflected in
 CURRENT.md. This rule applies **regardless of the document's status** — DRAFT, READY, and FINAL
-documents all use the same handoff flow. The handoff signals "this doc exists at this path with
-this status"; `/sync-current` reconciles the set of handoffs into CURRENT.md's `## Pending
-handoffs` table.
+documents all use the same handoff flow.
 
 Handoff file format:
 
@@ -171,10 +181,10 @@ status: DRAFT | READY | FINAL
 note: <one-line description>
 ```
 
-Durable sections of CURRENT.md (PR Status, Blocked on, Next steps, long-running paused features
-such as "TA3 Paused State") may be edited directly — they are project state, not agent-output
-state, and do not race against parallel agents. If you are unsure whether a section is durable
-or agent-output, ask.
+The plan-agent may update CURRENT.md's durable sections (PR Status, Blocked on, Next steps,
+long-running paused features) directly — but only while acting as plan-agent in the `plans`
+worktree, and only after interpreting the completed handoffs. Coder and reviewer agents never
+touch CURRENT.md under any circumstances.
 
 See `plans/.claude/skills/s-sync-current/SKILL.md` for the sync merge rules.
 
