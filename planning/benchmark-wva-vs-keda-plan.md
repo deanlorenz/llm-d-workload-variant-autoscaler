@@ -47,46 +47,27 @@ scope: Benchmark plan — WVA vs KEDA on a heterogeneous GPU pool
 
 ---
 
-## 1. Thesis and Presentable Overview
+## 1. Overview and References
 
-**Headline claim:** On a heterogeneous GPU pool serving a single model, WVA delivers
-equivalent latency at **25–40% lower cost-weighted GPU-hours** than a well-tuned KEDA
-configuration, because no per-deployment autoscaler can coordinate scale decisions across
-variants.
+> **This is the implementation reference.** For the readable approach document — scenarios,
+> structural argument, expected behavior, design decisions, and high-level gaps — see
+> [`benchmark-wva-vs-keda.md`](benchmark-wva-vs-keda.md).
 
-**What we are measuring:** cost efficiency and SLO compliance during a controlled traffic
-ramp, with the same model deployed on two GPU types at different cost tiers (L40 cheap,
-A100 expensive).
+**What this document contains.** Everything needed to implement and run the benchmark:
+exact variant configs, WVA and KEDA YAML, traffic parameters, kind dry-run guide,
+OpenShift sizing options, full coder implementation guide (§ 8), and implementation
+order (§ 8.13). It is deliberately verbose — the value is in the details.
 
-**Why this scenario:** The ramp exposes proactive vs reactive detection; the heterogeneous
-pool exposes cross-variant cost optimization; the scale-down phase exposes variant
-selection for cost removal. These three dimensions are the full story of what WVA does
-that HPA/KEDA cannot.
+**Two scenarios:**
+- § 2–10 — **Scenario 1: Cost-Optimal Ramp.** L40+H100 pool, 30-min staircase ramp
+  to 35 RPS, three-way comparison (WVA / KEDA-naive / KEDA-tuned). Demonstrates the
+  simultaneous-saturation trap and cost-ordered allocation.
+- § 12 — **Scenario 2: Starvation Prevention.** Two pools, label-partitioned nodes,
+  four-way comparison (adds keda-tuned-capped). Demonstrates cost-gradient-based
+  tenant protection without cross-autoscaler coordination.
 
-**Why this comparison:** Naive KEDA (one queue-depth trigger) is a strawman. The defensible
-comparison is KEDA with the same rich vLLM metrics WVA consumes — KV%, queue depth, ITL
-p99, token arrival rate — with tuned stabilization windows. Three systems are compared:
-WVA, KEDA-naive, KEDA-tuned.
-
-**Headline metric:** `cost_weighted_gpu_hours × slo_violation_multiplier`. Secondary:
-p99 ITL during ramp, time-to-first-new-replica-Ready, peak replica count.
-
-**One-line result (hypothesis):** WVA uses 25–40% fewer cost-weighted GPU-hours at
-equivalent or better p99 ITL. The gap against KEDA-naive is larger (40–60%) and driven by
-both cost and latency. The gap against KEDA-tuned is dominated by cost, with only a small
-latency edge during the ramp.
-
-**Second dimension — multi-tenant coordination (Scenario 2, § 12).** Under a partitioned
-GPU pool with a premium tenant constrained to one partition, WVA's cost-optimal scaling
-steers a basic tenant's workload away from the premium partition — preventing starvation
-structurally, without cross-autoscaler coordination. KEDA's best countermeasure
-(hard-capping basic-tenant replicas on the premium partition) protects the premium tenant
-but hurts the basic tenant's own scale-up latency. WVA achieves both.
-
-**This document covers two benchmark scenarios.** § 2–9 describe **Scenario 1** (the cost
-argument). § 12 describes **Scenario 2** (the starvation / multi-tenant argument). They
-share the implementation infrastructure (§ 8) but have distinct traffic patterns, variant
-topologies, and expected results.
+**Scenario variants and extensions:** § 2.2b (homogeneous cluster), § 10.1 (three-tier),
+§ 13 (uniform cluster detailed scenarios).
 
 ---
 
