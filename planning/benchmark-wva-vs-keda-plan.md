@@ -24,7 +24,7 @@ scope: Benchmark plan — WVA vs KEDA on a heterogeneous GPU pool
 > 1. Dean reviews this plan end-to-end.
 > 2. Open questions are resolved in discussion, including at least:
 >    - Which sizing option (§ 7.5.1 / .2 / .3) to run on OpenShift.
->    - Whether the L4 : A100 cost ratio of 1 : 6.7 is the right default or should be
+>    - Whether the L40 : A100 cost ratio of 1 : 6.7 is the right default or should be
 >      adjusted (§ 2.2).
 >    - Whether to extend the scenario YAML schema (§ 2.5 Option A) or orchestrate phases
 >      in test code (§ 2.5 Option B).
@@ -55,7 +55,7 @@ configuration, because no per-deployment autoscaler can coordinate scale decisio
 variants.
 
 **What we are measuring:** cost efficiency and SLO compliance during a controlled traffic
-ramp, with the same model deployed on two GPU types at different cost tiers (L4 cheap,
+ramp, with the same model deployed on two GPU types at different cost tiers (L40 cheap,
 A100 expensive).
 
 **Why this scenario:** The ramp exposes proactive vs reactive detection; the heterogeneous
@@ -96,7 +96,7 @@ topologies, and expected results.
 
 | Item | Value |
 |---|---|
-| Cluster | OpenShift with H100/A100/L4 nodes (same cluster already used for `docs/developer-guide/benchmark-guide.md`) |
+| Cluster | OpenShift with H100/A100/L40 nodes (same cluster already used for `docs/developer-guide/benchmark-guide.md`) |
 | Model | `meta-llama/Llama-3.1-8B-Instruct` |
 | llm-d release | v0.6.0 |
 | Gateway / EPP | `gaie-inference-scheduling-epp` (same as existing benchmark) |
@@ -108,7 +108,7 @@ Two deployments of the same model, one per GPU type:
 
 | Variant | GPU | cost-weight | min-max replicas | Rationale |
 |---|---|---|---|---|
-| `llama8b-l4` | NVIDIA L4 | 6 | 1–6 | Cheap, lower per-replica throughput; should absorb most load |
+| `llama8b-l40` | NVIDIA L40 | 6 | 1–6 | Cheap, lower per-replica throughput; should absorb most load |
 | `llama8b-a100` | NVIDIA A100-80GB | 40 | 1–3 | Expensive, higher per-replica throughput; overflow only |
 
 **Cost-weight rationale (retail pricing).** The cost-weight is arbitrary integer units
@@ -117,14 +117,14 @@ approximate retail on-demand cloud pricing in 2026:
 
 | GPU | Retail on-demand ($/hr, approx) | cost-weight used | Source |
 |---|---|---|---|
-| NVIDIA L4 | ~$0.60 | 6 | AWS `g6.xlarge` list price tier |
+| NVIDIA L40 | ~$0.60 | 6 | AWS `g6.xlarge` list price tier |
 | NVIDIA A100-80GB | ~$4.00 | 40 | AWS / GCP on-demand pricing |
 | NVIDIA H100-80GB | ~$6.50 | 65 | (alternative to A100 — see below) |
 | AMD MI300X | ~$6.50 | 65 | matches existing WVA accelerator inventory |
 
 The A100 cost-weight of 40 aligns with the value already registered in WVA's accelerator
 inventory (visible in the optimizer log in `docs/user-guide/hpa-integration.md` — `cost: 40`
-for `NVIDIA-A100-PCIE-80GB`). The L4 cost-weight of 6 gives a 1:6.7 ratio, which is
+for `NVIDIA-A100-PCIE-80GB`). The L40 cost-weight of 6 gives a 1:6.7 ratio, which is
 realistic retail pricing. (The original draft used 10:40 → 1:4, which understated the
 retail differential.)
 
@@ -133,17 +133,17 @@ as the variant cost spread grows. Two sensitivity variants worth running if time
 
 | Config | Cheap variant | Expensive variant | Ratio | Expected WVA cost advantage |
 |---|---|---|---|---|
-| **Retail (default)** | L4 = 6 | A100 = 40 | 1:6.7 | ~30% |
-| **Aggressive** | L4 = 6 | H100 = 65 | 1:10.8 | ~40% |
+| **Retail (default)** | L40 = 6 | A100 = 40 | 1:6.7 | ~30% |
+| **Aggressive** | L40 = 6 | H100 = 65 | 1:10.8 | ~40% |
 | **Extreme** | T4 = 3 | H100 = 65 | 1:21.7 | ~55% |
 
 These are defensible because the deployments ARE real retail price ratios for those GPU
 classes. Run the retail config for the headline number; run one aggressive config for a
 sensitivity bar in the report showing the gap scales linearly with the cost ratio.
 
-**Size the pool so L4 alone can (barely) absorb peak.** Peak = 25 RPS decode-heavy. L4
-per-replica capacity at target SLO ≈ 5 RPS → 5 L4 replicas suffice. This is the critical
-design choice — it makes "WVA picks L4" a visible dollar number. If the pool is
+**Size the pool so L40 alone can (barely) absorb peak.** Peak = 25 RPS decode-heavy. L40
+per-replica capacity at target SLO ≈ 5 RPS → 5 L40 replicas suffice. This is the critical
+design choice — it makes "WVA picks L40" a visible dollar number. If the pool is
 over-provisioned, all three systems look similar at steady state.
 
 ### 2.3 Traffic Pattern — Multi-Phase Ramp
@@ -164,7 +164,7 @@ over-provisioned, all three systems look similar at steady state.
 |---|---|---|---|
 | P0 Baseline | 5 min (300s) | 3 | Warm up; VA registers metrics; let both autoscalers settle |
 | P1 Ramp | 7 min (420s) | linear 3 → 25 | Exposes proactive vs reactive detection |
-| P2 Peak | 10 min (600s) | 25 | Exposes variant selection — WVA picks L4 |
+| P2 Peak | 10 min (600s) | 25 | Exposes variant selection — WVA picks L40 |
 | P3 Drop | 8 min (480s) | 3 | Exposes scale-down variant selection (A100 first for WVA) |
 
 **Total run time:** 30 min per system × 3 systems = 90 min experiment time, plus ~15 min
@@ -300,11 +300,11 @@ Two VA resources, one per variant. Both target the same `modelID` so WVA sees th
 variants of one model and runs cross-variant optimization.
 
 ```yaml
-# va-llama8b-l4.yaml
+# va-llama8b-l40.yaml
 apiVersion: llmd.ai/v1alpha1
 kind: VariantAutoscaling
 metadata:
-  name: llama8b-l4
+  name: llama8b-l40
   namespace: llmd-bench
 spec:
   modelID: "meta-llama/Llama-3.1-8B-Instruct"
@@ -313,9 +313,9 @@ spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ms-bench-llama8b-l4-decode
+    name: ms-bench-llama8b-l40-decode
   accelerator:
-    type: NVIDIA-L4-24GB
+    type: NVIDIA-L40-48GB
     cost: 6
 ---
 # va-llama8b-a100.yaml
@@ -363,12 +363,12 @@ This is the standard integration; no experimental tuning here.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: llama8b-l4-scaler
+  name: llama8b-l40-scaler
   namespace: llmd-bench
 spec:
   scaleTargetRef:
     kind: Deployment
-    name: ms-bench-llama8b-l4-decode
+    name: ms-bench-llama8b-l40-decode
   pollingInterval: 15          # KEDA default
   cooldownPeriod:  300         # KEDA default
   minReplicaCount: 1
@@ -381,7 +381,7 @@ spec:
       query: |
         avg(vllm:num_requests_waiting{
           model_name="meta-llama/Llama-3.1-8B-Instruct",
-          deployment="ms-bench-llama8b-l4-decode"
+          deployment="ms-bench-llama8b-l40-decode"
         })
       threshold: "3"
       metricType: AverageValue
@@ -409,12 +409,12 @@ can achieve.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: llama8b-l4-scaler-tuned
+  name: llama8b-l40-scaler-tuned
   namespace: llmd-bench
 spec:
   scaleTargetRef:
     kind: Deployment
-    name: ms-bench-llama8b-l4-decode
+    name: ms-bench-llama8b-l40-decode
   pollingInterval:        5
   cooldownPeriod:       120
   initialCooldownPeriod: 60
@@ -440,7 +440,7 @@ spec:
     metadata:
       serverAddress: https://kube-prometheus-stack-prometheus.workload-variant-autoscaler-monitoring.svc.cluster.local:9090
       query: |
-        avg(vllm:gpu_cache_usage_perc{deployment="ms-bench-llama8b-l4-decode"})
+        avg(vllm:gpu_cache_usage_perc{deployment="ms-bench-llama8b-l40-decode"})
       threshold: "0.70"
       metricType: AverageValue
       unsafeSsl: "true"
@@ -450,7 +450,7 @@ spec:
     metadata:
       serverAddress: https://kube-prometheus-stack-prometheus.workload-variant-autoscaler-monitoring.svc.cluster.local:9090
       query: |
-        avg(vllm:num_requests_waiting{deployment="ms-bench-llama8b-l4-decode"})
+        avg(vllm:num_requests_waiting{deployment="ms-bench-llama8b-l40-decode"})
       threshold: "3"
       metricType: AverageValue
       unsafeSsl: "true"
@@ -463,7 +463,7 @@ spec:
         histogram_quantile(0.99,
           sum by (le, deployment) (
             rate(vllm:time_per_output_token_seconds_bucket{
-              deployment="ms-bench-llama8b-l4-decode"
+              deployment="ms-bench-llama8b-l40-decode"
             }[1m])
           )
         )
@@ -477,11 +477,11 @@ spec:
       serverAddress: https://kube-prometheus-stack-prometheus.workload-variant-autoscaler-monitoring.svc.cluster.local:9090
       query: |
         sum(rate(vllm:prompt_tokens_total{
-          deployment="ms-bench-llama8b-l4-decode"
+          deployment="ms-bench-llama8b-l40-decode"
         }[30s]))
         /
         count(kube_pod_info{
-          pod=~"ms-bench-llama8b-l4-decode-.*",
+          pod=~"ms-bench-llama8b-l40-decode-.*",
           pod_ip!=""
         })
       threshold: "4000"         # tokens/sec/replica — hand-tuned near per-replica capacity
@@ -490,10 +490,10 @@ spec:
 ```
 
 **Per-variant differences:**
-- L4 variant: `threshold: "4000"` on arrival rate (L4 per-replica capacity).
+- L40 variant: `threshold: "4000"` on arrival rate (L40 per-replica capacity).
 - A100 variant: `threshold: "12000"` on arrival rate (A100 is ~3× throughput).
 - ITL threshold is the same (it's an SLO, not a capacity).
-- `maxReplicaCount`: 6 on L4, 3 on A100.
+- `maxReplicaCount`: 6 on L40, 3 on A100.
 
 **KEDA trigger combination semantics:** KEDA takes the **maximum** scale target across
 triggers (any-up logic). This matches WVA's combine algorithm for scale-up. That is
@@ -540,7 +540,7 @@ narrative.
 - **Cross-variant cost selection.** Both `ScaledObject`s will scale their deployments in
   parallel because they see the same signals rising. No KEDA configuration changes this.
   The only workaround is artificially detuning the A100 scaler (e.g., threshold 0.90 on
-  KV), but this also delays A100 scale-up when it is genuinely needed for traffic L4
+  KV), but this also delays A100 scale-up when it is genuinely needed for traffic L40
   cannot handle — a manual, brittle trade-off.
 - **Scale-down cost selection.** When traffic drops, KEDA-tuned will scale down whichever
   variant's metrics drop below threshold first. There is no "prefer to remove A100"
@@ -594,7 +594,7 @@ separation** — the harness assumes one deployment, one variant.
 | P50/P90 TTFT and ITL per phase | Distribution shape |
 | Time-to-first-new-replica-Ready from Phase 1 start | Proactive vs reactive detection |
 | Peak replica count per variant | Over-provisioning indicator |
-| Replica timeline per variant (L4 + A100 count vs time) | **Key visual** — the cost-optimization story |
+| Replica timeline per variant (L40 + A100 count vs time) | **Key visual** — the cost-optimization story |
 | KV cache utilization per variant | Shows which variant is actually loaded |
 | Error count and incomplete-request count | Correctness |
 | Achieved RPS vs offered RPS | Load-generator health check |
@@ -663,9 +663,9 @@ range-query wrapper, pod→GPU mapping. These work as-is across variants.
 
 ### 5.5 Visualizations to Produce
 
-1. **Replica timeline stacked chart** — L4 replicas (green) + A100 replicas (red) on a
+1. **Replica timeline stacked chart** — L40 replicas (green) + A100 replicas (red) on a
    shared time axis, one subplot per system (WVA, KEDA-naive, KEDA-tuned). This is the
-   money shot: WVA should show a flat A100=1 across the peak, with L4 climbing to 5–6;
+   money shot: WVA should show a flat A100=1 across the peak, with L40 climbing to 5–6;
    KEDA-tuned will show both climbing in parallel.
 2. **Cost-weighted replica-hours bar chart** — one bar per system, stacked by variant.
 3. **P99 ITL time series** — three overlay lines, one per system. Expect WVA and
@@ -720,9 +720,9 @@ ENABLE_SCALE_TO_ZERO=false \
 # Label workers so the Gaudi / A100 / MI300X emulator set matches our two-variant test.
 # The kind-emulator install already registers A100 and MI300X accelerators — we repurpose:
 #   worker  → A100  (expensive)
-#   worker2 → labeled as L4 (cheap)
+#   worker2 → labeled as L40 (cheap)
 kubectl label node kind-inferno-gpu-cluster-worker  nvidia.com/gpu.product=NVIDIA-A100-PCIE-80GB --overwrite
-kubectl label node kind-inferno-gpu-cluster-worker2 nvidia.com/gpu.product=NVIDIA-L4-24GB --overwrite
+kubectl label node kind-inferno-gpu-cluster-worker2 nvidia.com/gpu.product=NVIDIA-L40-48GB --overwrite
 ```
 
 ### 6.2 What the Kind Run Validates
@@ -730,7 +730,7 @@ kubectl label node kind-inferno-gpu-cluster-worker2 nvidia.com/gpu.product=NVIDI
 | Check | Pass criterion |
 |---|---|
 | Two VAs with same `modelID` are both registered by WVA | `kubectl get va -n llm-d-sim` shows both; optimizer log prints two variants |
-| WVA optimizer makes **cross-variant** decisions | Optimizer log shows `accelerator: L4` in cheapest-variant selection when both variants have capacity |
+| WVA optimizer makes **cross-variant** decisions | Optimizer log shows `accelerator: L40` in cheapest-variant selection when both variants have capacity |
 | KEDA ScaledObjects (both flavours) reach `READY=True` | `kubectl get scaledobject -n llm-d-sim` |
 | Multi-phase GuideLLM orchestration works end-to-end | Four sequential jobs complete without error; timeline has four distinct rate regimes |
 | Per-variant timeline split captures both deployments | Result JSON contains 2 entries in `variants[]`, each with its own `replica_timeline` |
@@ -761,7 +761,7 @@ Three systems on kind = ~35 min wall time total. Fits in a single development cy
   real llm-d EPP v0.5.0+ being present. Run with `E2E_TESTS_ENABLED=true` and the EPP
   v0.5.0 patch per `CURRENT.md § Known infra issues` to keep them alive.
 - **Cost-weight behaviour is real.** The WVA optimizer runs the same code path on kind
-  as on OpenShift. If WVA correctly picks L4 on kind, it will correctly pick L4 on the
+  as on OpenShift. If WVA correctly picks L40 on kind, it will correctly pick L40 on the
   real cluster. This is the main reason the kind dry-run is valuable.
 - **KEDA needs to be installed in the kind cluster.** `helm install keda kedacore/keda
   -n keda-system --create-namespace` — the same command as OpenShift.
@@ -788,7 +788,7 @@ Only proceed to the OpenShift run if **all** of the following hold on kind:
 
 1. All three systems complete their full phase sequence without timeout or pod crashes.
 2. The per-variant replica timeline clearly differs between WVA and KEDA-tuned — WVA
-   should show lopsided L4-heavy allocation, KEDA-tuned should show roughly proportional
+   should show lopsided L40-heavy allocation, KEDA-tuned should show roughly proportional
    scaling.
 3. Cost-weighted GPU-hours strictly orders `wva < keda-tuned < keda-naive`.
 4. The comparison script produces the four PNGs without manual intervention.
@@ -811,13 +811,13 @@ Estimated effort in parentheses.
    and a per-phase GuideLLM invocation. (M)
 
 3. **Variant setup helpers** — a `SetupTwoVariantScenario` fixture that creates both
-   deployments (L4 and A100 flavors of `meta-llama/Llama-3.1-8B-Instruct`), both VAs, both
+   deployments (L40 and A100 flavors of `meta-llama/Llama-3.1-8B-Instruct`), both VAs, both
    HPAs, and both KEDA ScaledObjects. Mode is switched via env var
    `AUTOSCALER_MODE=wva|keda-naive|keda-tuned`. (M)
 
 4. **KEDA manifests** in `config/samples/keda/benchmark-ramp/`:
-   - `scaledobject-naive-l4.yaml`, `scaledobject-naive-a100.yaml`
-   - `scaledobject-tuned-l4.yaml`, `scaledobject-tuned-a100.yaml`
+   - `scaledobject-naive-l40.yaml`, `scaledobject-naive-a100.yaml`
+   - `scaledobject-tuned-l40.yaml`, `scaledobject-tuned-a100.yaml`
    - `README.md` explaining both configurations and the tuning rationale. (S)
 
 5. **Cost-weighted metric aggregation** — extend `hpa_helpers.go::PrefillResult` with
@@ -852,8 +852,8 @@ numbers.
 - Prometheus stack already running (`workload-variant-autoscaler-monitoring` namespace).
 - Prometheus Adapter configured to expose `wva_desired_replicas` — required for the WVA
   run; not needed for the KEDA modes (they target raw vLLM metrics).
-- `cost: 6` (L4) and `cost: 40` (A100) values registered in WVA's accelerator-cost
-  ConfigMap. A100 is already present; L4 needs to be added.
+- `cost: 6` (L40) and `cost: 40` (A100) values registered in WVA's accelerator-cost
+  ConfigMap. A100 is already present; L40 needs to be added.
 - HuggingFace token with access to `meta-llama/Llama-3.1-8B-Instruct`.
 - EPP v0.5.0 patch applied per `CURRENT.md § Known infra issues`.
 
@@ -890,14 +890,14 @@ GPU worst-case occurs during Phase 2 peak under KEDA-naive (the over-provisioner
 
 | Resource | Minimum | Headroom target | Notes |
 |---|---|---|---|
-| **NVIDIA L4 GPUs** | 6 | 7–8 | One per L4 replica at `maxReplicas=6` |
+| **NVIDIA L40 GPUs** | 6 | 7–8 | One per L40 replica at `maxReplicas=6` |
 | **NVIDIA A100-80GB GPUs** | 3 | 4 | One per A100 replica at `maxReplicas=3` |
 | CPU (total worker capacity) | ~50 cores | 64 cores | 4–8 per vLLM pod × up to 9 pods + overhead |
 | RAM (total worker capacity) | ~200 GB | 256 GB | ~24 GB per vLLM pod + system |
 | Ephemeral / PVC storage | 100 GB | 200 GB | Model weights cache + image pulls |
 | Control-plane / infra | standard OpenShift | — | WVA, Prometheus, EPP, Gateway, KEDA all fit on existing infra |
 
-Cloud-equivalent: roughly 6× AWS `g6.xlarge` (1 L4 each) + 1× `p4de.24xlarge` (8
+Cloud-equivalent: roughly 6× AWS `g6.xlarge` (1 L40 each) + 1× `p4de.24xlarge` (8
 A100-80GB, only 3 used). On-premise equivalent: 2–3 worker nodes each with 3–4 L4s, and
 1 node with 3–4 A100-80GBs.
 
@@ -916,7 +916,7 @@ variants with `cost: 6` and `cost: 40`; WVA's cost-optimization code path is ide
 
 | Resource | Minimum |
 |---|---|
-| GPUs of one type (all L4, all A10, or all A100) | **6** |
+| GPUs of one type (all L40, all A10, or all A100) | **6** |
 | CPU / RAM / storage | same as Option 1 |
 
 **What remains accurately measured:**
@@ -927,9 +927,9 @@ variants with `cost: 6` and `cost: 40`; WVA's cost-optimization code path is ide
 
 **What weakens:**
 - Realistic per-GPU throughput differentials. Since both variants have identical real
-  capacity, the KEDA-tuned `threshold: "4000"` (L4) vs `"12000"` (A100) split does not
+  capacity, the KEDA-tuned `threshold: "4000"` (L40) vs `"12000"` (A100) split does not
   match reality — tune both triggers to the true capacity of the underlying GPU.
-- The "KEDA-tuned picks the wrong variant because L4 ITL is higher" story is weaker.
+- The "KEDA-tuned picks the wrong variant because L40 ITL is higher" story is weaker.
 
 **Bottom line:** the cost argument stands; the latency-differential argument narrows.
 Recommend Option 2 for early iteration and budget-constrained runs; Option 1 for
@@ -942,7 +942,7 @@ For validating the pipeline end-to-end on real OpenShift before committing to a 
 | Resource | Minimum |
 |---|---|
 | GPUs (any type) | 3 |
-| `maxReplicas` per variant | 2 (L4), 1 (A100) or single-variant with 3 |
+| `maxReplicas` per variant | 2 (L40), 1 (A100) or single-variant with 3 |
 | Phase durations | kind-compressed (60 / 180 / 240 / 180s) |
 | Total runtime | ~35 min for all three modes |
 
@@ -960,7 +960,7 @@ Run these in order; each step reduces risk for the next.
    cluster-specific quirks.
 3. **Option 2 on OpenShift** (~18 GPU-hours, homogeneous) — produces the cost-argument
    numbers at reduced infrastructure cost.
-4. **Option 1 on OpenShift** (~18 L4-hours + 9 A100-hours) — produces the publishable
+4. **Option 1 on OpenShift** (~18 L40-hours + 9 A100-hours) — produces the publishable
    headline numbers with real per-GPU latency differentials.
 
 Steps 3 and 4 each produce a complete result set; you can stop at step 3 if the
@@ -985,9 +985,9 @@ test/benchmark/
   scenarios/cost_optimal_ramp.yaml      # shared prompt/output shape + phase rates
 
 config/samples/keda/benchmark-ramp/
-  scaledobject-naive-l4.yaml
+  scaledobject-naive-l40.yaml
   scaledobject-naive-a100.yaml
-  scaledobject-tuned-l4.yaml
+  scaledobject-tuned-l40.yaml
   scaledobject-tuned-a100.yaml
   README.md
 
@@ -1026,9 +1026,9 @@ const (
 
 // Variant describes one of the two deployments participating in the ramp.
 type Variant struct {
-    Name            string  // e.g. "llama8b-l4"
-    DeploymentName  string  // e.g. "ms-bench-llama8b-l4-decode"
-    GPULabel        string  // e.g. "NVIDIA-L4-24GB" — must match nvidia.com/gpu.product
+    Name            string  // e.g. "llama8b-l40"
+    DeploymentName  string  // e.g. "ms-bench-llama8b-l40-decode"
+    GPULabel        string  // e.g. "NVIDIA-L40-48GB" — must match nvidia.com/gpu.product
     CostWeight      float64 // e.g. 6.0
     MinReplicas     int32
     MaxReplicas     int32
@@ -1204,7 +1204,7 @@ func BuildNaiveTriggers(deploymentName, monitoringNS string) []kedav1alpha1.Scal
 }
 
 // BuildTunedTriggers returns the four-trigger (KV + queue + ITL + token-rate) KEDA config.
-// perReplicaTokenCapacity is hand-tuned per GPU type (L4≈4000, A100≈12000 tokens/sec).
+// perReplicaTokenCapacity is hand-tuned per GPU type (L40≈4000, A100≈12000 tokens/sec).
 func BuildTunedTriggers(deploymentName, monitoringNS string, perReplicaTokenCapacity int) []kedav1alpha1.ScaleTriggers {
     prom := fmt.Sprintf("https://kube-prometheus-stack-prometheus.%s.svc.cluster.local:9090", monitoringNS)
     return []kedav1alpha1.ScaleTriggers{
@@ -1295,7 +1295,7 @@ var _ = Describe("Cost-Optimal Ramp Benchmark", Ordered, Label("benchmark", "cos
         testCtx, testCancel = context.WithCancel(context.Background())
         mode = RampMode(testconfig.GetEnv("AUTOSCALER_MODE", string(RampModeWVA)))
         variants = []Variant{
-            {Name: "llama8b-l4",   DeploymentName: "ms-bench-llama8b-l4-decode",   GPULabel: "NVIDIA-L4-24GB",        CostWeight: benchCfg.CostRampL4Cost,  MinReplicas: 1, MaxReplicas: 6},
+            {Name: "llama8b-l40",   DeploymentName: "ms-bench-llama8b-l40-decode",   GPULabel: "NVIDIA-L40-48GB",        CostWeight: benchCfg.CostRampL4Cost,  MinReplicas: 1, MaxReplicas: 6},
             {Name: "llama8b-a100", DeploymentName: "ms-bench-llama8b-a100-decode", GPULabel: "NVIDIA-A100-PCIE-80GB", CostWeight: benchCfg.CostRampA100Cost, MinReplicas: 1, MaxReplicas: 3},
         }
         result = RampResult{Mode: mode, ModelID: benchCfg.ModelID, TargetITLms: 60.0}
@@ -1505,9 +1505,9 @@ def plot_replica_timelines(results, out):
     fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
     for ax, r in zip(axes, results):
         elapsed = [s["elapsed_sec"] for s in r["variants"][0]["replica_timeline"]]
-        l4      = [s["spec_replicas"] for s in r["variants"][0]["replica_timeline"]]
+        l40      = [s["spec_replicas"] for s in r["variants"][0]["replica_timeline"]]
         a100    = [s["spec_replicas"] for s in r["variants"][1]["replica_timeline"]]
-        ax.stackplot(elapsed, l4, a100, labels=["L4", "A100"], colors=["#4caf50", "#f44336"])
+        ax.stackplot(elapsed, l40, a100, labels=["L40", "A100"], colors=["#4caf50", "#f44336"])
         ax.set_title(r["mode"])
         ax.set_ylabel("Replicas")
         ax.legend(loc="upper left")
@@ -1578,7 +1578,7 @@ test-cost-optimal-ramp-kind:
 | `BENCHMARK_SPIKE_DURATION` | 420 | Phase 1 seconds (180 on kind) |
 | `BENCHMARK_SUSTAINED_DURATION` | 600 | Phase 2 seconds (240 on kind) |
 | `BENCHMARK_COOLDOWN_DURATION` | 480 | Phase 3 seconds (180 on kind) |
-| `COST_RAMP_L4_COST` | 6 | L4 cost weight |
+| `COST_RAMP_L4_COST` | 6 | L40 cost weight |
 | `COST_RAMP_A100_COST` | 40 | A100 cost weight |
 | `COST_RAMP_MODEL_ID` | `meta-llama/Llama-3.1-8B-Instruct` | Model ID for both variants |
 | `BENCHMARK_GRAFANA_ENABLED` | true | Capture Grafana snapshot |
@@ -1598,7 +1598,7 @@ Before declaring each run successful, the test should self-check:
    - WVA mode: 2 VAs + 2 HPAs; 0 ScaledObjects.
    - KEDA modes: 0 VAs + 0 HPAs; 2 ScaledObjects.
 3. **Per-variant metrics are flowing.** Prometheus range query for
-   `vllm:kv_cache_usage_perc{deployment="ms-bench-llama8b-l4-decode"}` returns non-empty
+   `vllm:kv_cache_usage_perc{deployment="ms-bench-llama8b-l40-decode"}` returns non-empty
    for the last 2 minutes. Same for A100.
 4. **Phase boundaries align.** Total duration = sum of four phase durations ± 30s.
 5. **Result JSON is valid.** `jq '.cost_weighted_gpu_hours' /tmp/ramp-results-$MODE.json`
@@ -1651,7 +1651,7 @@ Numbers below are directional predictions, not committed targets.
 | P99 ITL during Phase 1 Ramp (ms) | ~55 | ~85 | ~62 |
 | P99 ITL during Phase 2 Peak (ms) | ~55 | ~58 | ~55 |
 | Time-to-first-new-replica-Ready (s) | 60 | 110 | 75 |
-| L4 replicas at Phase 2 steady state | 5 | 3 | 3 |
+| L40 replicas at Phase 2 steady state | 5 | 3 | 3 |
 | A100 replicas at Phase 2 steady state | 1 | 3 | 2 |
 | Cost-weighted GPU-hours (normalized) | 1.00 | 1.55 | 1.30 |
 | SLO violation rate (ITL > 60ms) | ~2% | ~12% | ~4% |
@@ -1677,7 +1677,7 @@ Numbers below are directional predictions, not committed targets.
    Phase 0 Baseline. Document as-is; do not hide it.
 
 4. **Per-replica capacity estimation for KEDA-tuned arrival-rate trigger** is
-   hand-tuned. If L4 per-replica capacity drifts from 4000 tokens/sec, the trigger
+   hand-tuned. If L40 per-replica capacity drifts from 4000 tokens/sec, the trigger
    becomes inaccurate. This is **exactly** the manual-tuning fragility WVA avoids — call
    this out in the narrative rather than hide it.
 
@@ -1704,7 +1704,7 @@ heterogeneous GPUs? Or is there a structural gap?
 
 ### The experiment
 - Model: Llama-3.1-8B-Instruct
-- Pool: two variants — L4 (cost=6, max 6 replicas) + A100 (cost=40, max 3 replicas);
+- Pool: two variants — L40 (cost=6, max 6 replicas) + A100 (cost=40, max 3 replicas);
   1:6.7 cost ratio chosen to match retail cloud pricing
 - Traffic: 30-min staircase ramp, 3 → 25 RPS decode-heavy (1000 in / 4000 out), Poisson
 - Compared: WVA (queueing model + saturation) vs KEDA-naive (queue-depth) vs
@@ -1720,7 +1720,7 @@ per-deployment autoscaler architecture provides. Against KEDA-naive the gap wide
 
 ### The picture
 A stacked-area plot showing replica counts per variant. WVA keeps A100 flat at 1 and
-grows L4 to 5–6 during peak. KEDA-tuned grows both in parallel to ~3+2. Same capacity,
+grows L40 to 5–6 during peak. KEDA-tuned grows both in parallel to ~3+2. Same capacity,
 different cost.
 
 ### What this is and is not
@@ -1861,14 +1861,14 @@ hardware availability.
 | Partition | GPU | Count |
 |---|---|---|
 | GPU1 (premium) | A100-80GB | 2 |
-| GPU2 (basic) | L4 | 4 |
+| GPU2 (basic) | L40 | 4 |
 
 Matches the production pattern. Use for publication-quality numbers on clusters that
 have both GPU types.
 
 #### Option P2 — Homogeneous hardware with label partitioning (benchmark-friendly, DEFAULT)
 
-All workers use the same GPU (any type — L4, A10, A100). Label them artificially to
+All workers use the same GPU (any type — L40, A10, A100). Label them artificially to
 create the partition:
 
 ```bash
