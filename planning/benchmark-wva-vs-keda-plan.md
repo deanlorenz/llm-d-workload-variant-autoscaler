@@ -106,45 +106,154 @@ topologies, and expected results.
 
 Two deployments of the same model, one per GPU type:
 
-| Variant | GPU | cost-weight | min-max replicas | Rationale |
+| Variant | GPU | cost-weight | min–max replicas | Rationale |
 |---|---|---|---|---|
-| `llama8b-l40` | NVIDIA L40 | 6 | 1–6 | Cheap, lower per-replica throughput; should absorb most load |
-| `llama8b-a100` | NVIDIA A100-80GB | 40 | 1–3 | Expensive, higher per-replica throughput; overflow only |
+| `llama8b-l40` | NVIDIA L40 (48 GB) | 15 | 1–2 | Cheap; hardware-capped at 2 nodes; barely covers peak alone |
+| `llama8b-h100` | NVIDIA H100-80GB | 65 | 1–3 | Expensive; overflow only; WVA minimises its use |
 
 **Cost-weight rationale (retail pricing).** The cost-weight is arbitrary integer units
 used by WVA's optimizer; only the ratio between variants matters. Values chosen to
 approximate retail on-demand cloud pricing in 2026:
 
-| GPU | Retail on-demand ($/hr, approx) | cost-weight used | Source |
+| GPU | Retail on-demand ($/hr, approx) | cost-weight used | Memory BW |
 |---|---|---|---|
-| NVIDIA L40 | ~$0.60 | 6 | AWS `g6.xlarge` list price tier |
-| NVIDIA A100-80GB | ~$4.00 | 40 | AWS / GCP on-demand pricing |
-| NVIDIA H100-80GB | ~$6.50 | 65 | (alternative to A100 — see below) |
-| AMD MI300X | ~$6.50 | 65 | matches existing WVA accelerator inventory |
+| NVIDIA L40 (48 GB) | ~$1.50 | 15 | ~864 GB/s GDDR6 |
+| NVIDIA H100-80GB SXM | ~$6.50 | 65 | ~3,350 GB/s HBM3 |
 
-The A100 cost-weight of 40 aligns with the value already registered in WVA's accelerator
-inventory (visible in the optimizer log in `docs/user-guide/hpa-integration.md` — `cost: 40`
-for `NVIDIA-A100-PCIE-80GB`). The L40 cost-weight of 6 gives a 1:6.7 ratio, which is
-realistic retail pricing. (The original draft used 10:40 → 1:4, which understated the
-retail differential.)
+Cost ratio L40:H100 = 15:65 = **1:4.3**. This is the ratio that determines the
+headline cost advantage; higher ratios produce wider gaps. A sensitivity run with
+different weights is not needed — the hardware cost differential is already large.
 
-**Optional: pricing that exaggerates WVA benefit.** The cost story becomes more dramatic
-as the variant cost spread grows. Two sensitivity variants worth running if time allows:
+**Per-replica decode throughput (Llama-3.1-8B, 1000 in / 4000 out, target ITL < 60 ms).**
+Throughput in decode-heavy workloads scales roughly with memory bandwidth:
 
-| Config | Cheap variant | Expensive variant | Ratio | Expected WVA cost advantage |
-|---|---|---|---|---|
-| **Retail (default)** | L40 = 6 | A100 = 40 | 1:6.7 | ~30% |
-| **Aggressive** | L40 = 6 | H100 = 65 | 1:10.8 | ~40% |
-| **Extreme** | T4 = 3 | H100 = 65 | 1:21.7 | ~55% |
+| GPU | Approx tokens/sec | Approx RPS at SLO |
+|---|---|---|
+| NVIDIA L40 | ~14,000 | ~12 RPS |
+| NVIDIA H100-80GB | ~24,000 | ~20 RPS |
 
-These are defensible because the deployments ARE real retail price ratios for those GPU
-classes. Run the retail config for the headline number; run one aggressive config for a
-sensitivity bar in the report showing the gap scales linearly with the cost ratio.
+These are conservative estimates; actual values depend on batch size and KV pressure.
+They feed the KEDA-tuned arrival-rate trigger thresholds (§ 4.2) and set the "barely
+absorbs peak" constraint below.
 
-**Size the pool so L40 alone can (barely) absorb peak.** Peak = 25 RPS decode-heavy. L40
-per-replica capacity at target SLO ≈ 5 RPS → 5 L40 replicas suffice. This is the critical
-design choice — it makes "WVA picks L40" a visible dollar number. If the pool is
-over-provisioned, all three systems look similar at steady state.
+**The pool is hardware-constrained so L40 alone barely covers peak.**
+Peak = 25 RPS. With max_L40 = 2 (only 2 L40 nodes in the cluster):
+  2 replicas × 12 RPS = 24 RPS ≈ 25 RPS target.
+
+At peak the L40 pool operates at ~100% utilisation — KV cache fills, ITL approaches the
+SLO boundary. A single H100 replica (min=1) provides the overflow headroom:
+  2 L40 + 1 H100 = 24 + 20 = 44 RPS effective capacity at the SLO target.
+
+This constraint is **hardware-imposed**, not an artificial `maxReplicas` cap. The
+"barely covers peak" property is what makes the WVA-vs-KEDA cost difference visible: at
+peak load the L40 KV% exceeds KEDA's trigger threshold, causing KEDA to defensively
+scale up H100 even though the SLO is already met. WVA's queueing model knows the SLO
+is satisfied and holds H100 at minimum.
+
+### 2.2a Per-Phase Behavior: WVA (saturation_v2) vs KEDA with L40 + H100
+
+This section traces each phase with the accurate saturation_v2 mechanism. All systems
+start at L40=1, H100=1 (min replicas).
+
+**How saturation_v2 differs from KEDA's per-variant thresholds**
+
+saturation_v2 computes an **aggregate** demand/supply ratio across ALL variants:
+```
+totalDemand         = Σ (TokensInUse + QueueLength × AvgInputTokens) across all replicas
+totalAnticipatedSupply = Σ (ReadyReplicas + PendingReplicas) × PerReplicaCapacity
+```
+Scale-up fires when `totalDemand / totalAnticipatedSupply > 0.85`. Critically,
+**pending replicas count in the supply estimate** — a replica being started is already
+factored into the anticipated capacity. The optimizer then distributes required capacity
+to the cheapest variant (L40=15) before the expensive one (H100=65).
+
+KEDA has two independent ScaledObjects. Each fires on its own variant's KV% > 0.70,
+with no visibility into the other variant's state or pending replicas.
+
+---
+
+**Phase 0 — Baseline (3 RPS, 5 min)**
+
+Both systems idle at L40=1, H100=1. Token demand is low (~25% utilization). v2 begins
+accumulating k2 observations but does not act. No difference.
+
+---
+
+**Phase 1 — Ramp (3 → 25 RPS staircase, 7 min)**
+
+*Step: L40 hits capacity (~12 RPS with 1 replica):*
+
+L40 replica queue fills (`queueLength ≥ 5`). EPP starts routing overflow to H100.
+
+- **WVA (v2):** `totalDemand / totalAnticipatedSupply > 0.85` → fires. Optimizer adds
+  capacity to L40 first (cost=15). L40 scales 1→2 (pending, ~90s startup). v2 includes
+  the pending L40 replica in `totalAnticipatedSupply` → aggregate drops below 0.85 →
+  **H100 stays at 1** ✓
+- **KEDA-naive:** L40 queue depth fires the L40 ScaledObject → L40 scales 1→2. H100
+  ScaledObject also sees rising KV% (EPP routed overflow there) → **H100 scales 1→2**
+  during the ~90s L40 startup window.
+- **KEDA-tuned:** Same as naive for H100: L40 ScaledObject fires; H100 ScaledObject
+  fires independently because H100 KV% > 0.70 while L40 is pending → **H100 scales
+  1→2** prematurely. After L40 comes online, H100 is over-provisioned but the 180s
+  stabilisation window prevents immediate scale-down.
+
+*This pattern repeats at each staircase step.* KEDA fires H100 at every transition
+where L40 is pending; WVA suppresses it each time.
+
+---
+
+**Phase 2 — Peak (25 RPS, 10 min)**
+
+With L40=2, H100=1 and capacity-proportional EPP routing:
+- Pool utilization = 25/44 = **57%** → well below both v2's 0.85 and KEDA's 0.70
+- **Both WVA and KEDA-tuned stabilise at L40=2, H100=1**
+
+The steady-state replica count at 25 RPS peak is the same for all three systems. The
+cost difference at Phase 2 steady state is **zero** — it all occurs at ramp and drop.
+
+| | L40 | H100 | Cost/interval (steady state) |
+|---|---|---|---|
+| **WVA** | 2 | 1 | 2×15 + 1×65 = **95** |
+| **KEDA-naive** | 2 | 1–2 | **95–160** (settling after ramp spike) |
+| **KEDA-tuned** | 2 | 1–2 | **95–160** (settling after ramp spike) |
+
+KEDA reaches H100=1 eventually (180s stabilisation window after each premature spike),
+but pays the extra H100-hours during the transition.
+
+---
+
+**Phase 3 — Drop (25 → 3 RPS, 8 min)**
+
+- **WVA:** `spareCapacity = totalSupply − totalDemand / 0.70 > 0` signals immediately
+  as load falls. Optimizer releases H100 first (cost-ordered), then L40 once spare
+  capacity covers both.
+- **KEDA-naive/tuned:** H100 ScaledObject has a 180 s stabilisation window → holds
+  H100 at its current count for 3 min after load drops.
+
+---
+
+**Cost summary (cost-units × minutes, normalized to WVA=1.00)**
+
+The cost gap comes from two sources: (A) KEDA H100 spikes during each ramp transition
+(~90s premature H100=2 + 180s stabilisation to scale back), and (B) scale-down lag.
+
+| Phase | WVA | KEDA-naive | KEDA-tuned |
+|---|---|---|---|
+| P0 Baseline (5 min) | 1×15+1×65=80 | 80 | 80 |
+| P1 Ramp — per step transient | H100=1 throughout | H100=2 for ~4–5 min | H100=2 for ~4–5 min |
+| P2 Peak (10 min) | 95 | ~95 (settled) | ~95 (settled) |
+| P3 Drop — lag | scale-down immediate | H100 holds 3 min extra | H100 holds 3 min extra |
+
+Estimated cost advantage (directional): **~15–25%** over the full run. The gap is
+real but modest at 25 RPS because steady-state is the same; it is larger at higher
+peak loads where the ramp transitions are more frequent or deeper.
+
+**What this benchmark demonstrates:** WVA's pending-replica awareness prevents
+KEDA's "fire first, correct later" pattern at each ramp step. Combined with cost-ordered
+scale-down, WVA accumulates significantly fewer expensive H100 GPU-hours over a
+multi-phase run, despite reaching the same steady-state allocation at peak.
+
+---
 
 ### 2.3 Traffic Pattern — Multi-Phase Ramp
 
@@ -240,59 +349,72 @@ step levels.
 
 ### 3.1 Analyzer Selection
 
-Use the **QueueingModel analyzer** (`docs/slo-queuemodel.md`). It is the most
-differentiated against HPA/KEDA — it targets SLO prospectively via the learned
-`(α, β, γ)` queueing model rather than reacting to a metric threshold.
+Use **saturation_v2** (`analyzerName: "saturation"`) — the single, fully-ready analyzer
+for this benchmark. Do not mix analyzers; this is not a multi-analyzer benchmark.
 
-Saturation analyzer (v1 or v2) runs in parallel as a guardrail, per the multi-analyzer
-framework. Its role here is fallback, not headline.
+saturation_v2 is a token-based dual-capacity model:
+- **k1** (memory-bound) = `TotalKvCapacityTokens × kvCacheThreshold` — the KV cache
+  capacity in tokens up to the configured fraction.
+- **k2** (compute-bound) = learned from queue-saturated observations: when
+  `queueLength ≥ queueLengthThreshold`, the current `tokensInUse` is recorded as the
+  compute limit. A rolling average per workload bucket (short/medium/long output) is
+  maintained across observations and survives scale-down cycles.
+- **effectiveCapacity = min(k1, k2)** — whichever bound is active for the current
+  workload shape. This makes the analyzer correct for both decode-heavy (memory-bound,
+  k1 dominates) and prefill-heavy (compute-bound, k2 dominates) traffic.
+- **demand** = `TokensInUse + QueueLength × AvgInputTokens` (actual token pressure on
+  a replica, not a percentage).
+- **Scale-up** fires when `totalDemand / totalAnticipatedSupply > scaleUpThreshold`.
+  **`totalAnticipatedSupply` includes pending (not yet Ready) replicas.** When L40
+  replicas are starting up (60–90 s startup), v2 already counts their capacity in the
+  supply estimate and suppresses premature H100 scale-up.
+- **Scale-down** fires when `totalSupply − totalDemand / scaleDownBoundary > 0`.
 
-Do **not** enable the ThroughputAnalyzer (TA) for this benchmark yet — TA3 has not
-merged. Re-run this benchmark with TA enabled once PR-5 lands; expect the latency-during-ramp
-gap to widen.
+The aggregate demand and supply are summed **across all variants** of the model.
+The optimizer then distributes any required capacity to the cheapest variant first.
 
-### 3.2 ConfigMap: `wva-queueing-model-config`
+**Why saturation_v2 rather than v1:**
+v1 uses KV% as a percentage threshold per replica and scales one replica at a time.
+v2 uses absolute token counts and can scale by N replicas in one decision. It separates
+memory-bound from compute-bound constraints via k1/k2, making it robust across workload
+shapes. The pending-replica awareness in `totalAnticipatedSupply` is the key structural
+property that prevents KEDA-like over-provisioning at ramp transitions.
+
+Do **not** enable the ThroughputAnalyzer (TA) — TA3 has not merged. Re-run this
+benchmark with TA enabled once PR-5 lands; the proactive ramp advantage will widen.
+
+**Follow-up:** Once the QueueingModel analyzer is ready, re-run Scenario 1. The
+QueueingModel knows exactly how many replicas meet the target SLO — it will hold H100
+at minimum even at steady-state peak, producing a larger and more principled cost gap.
+
+### 3.2 ConfigMap: `wva-saturation-scaling-config`
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: wva-queueing-model-config
+  name: wva-saturation-scaling-config
   namespace: workload-variant-autoscaler-system
 data:
   default: |
-    sloMultiplier: 3.0
-    tuningEnabled: true
-
-  llama8b-bench: |
-    model_id: "meta-llama/Llama-3.1-8B-Instruct"
-    namespace: "llmd-bench"
-    targetTTFT: 500.0
-    targetITL:   60.0
-    sloMultiplier: 3.0
+    analyzerName:         saturation   # selects saturation_v2 token-based analyzer
+    kvCacheThreshold:     0.80         # k1 = TotalKvCapacityTokens × 0.80
+    queueLengthThreshold: 5            # queue depth above which k2 is observed
+    scaleUpThreshold:     0.85         # scale up when demand/anticipatedSupply > 0.85
+    scaleDownBoundary:    0.70         # scale down when demand/supply < 0.70
 ```
 
 **Rationale:**
-- `sloMultiplier: 3.0` → target utilization ρ = 0.67. Default from `defaults.go`; balances
-  throughput vs tail latency. Aggressive enough to expose cost savings, conservative
-  enough to keep p99 ITL within budget.
-- Explicit SLO (`targetITL: 60 ms`) skips the observation-based fallback and gives a
-  stable target throughout the run — critical for a benchmark.
-- `targetTTFT: 500 ms` is the standard value from the existing optimizer logs.
-- `tuningEnabled: true` is mandatory (the EKF must run).
-
-### 3.3 ConfigMap: `wva-saturation-scaling-config`
-
-Keep as a guardrail with production defaults:
-
-```yaml
-data:
-  default: |
-    kvCacheThreshold:     0.80
-    queueLengthThreshold: 5
-    kvSpareTrigger:       0.10
-    queueSpareTrigger:    3
-```
+- `scaleUpThreshold: 0.85` means scale up when token demand exceeds 85% of anticipated
+  token supply. At equilibrium without queue pressure, this corresponds to approximately
+  KV% > 68% — slightly below KEDA-tuned's 70% KV threshold. The key difference is not
+  the threshold level but the aggregate cross-variant view and pending-replica awareness.
+- `scaleDownBoundary: 0.70` matches the scale-down boundary so the optimizer can release
+  H100 replicas promptly once the load drops (cost-ordered release).
+- `kvCacheThreshold: 0.80` is the fraction of the KV buffer treated as usable capacity
+  (k1). Keeps a 20% headroom for burst requests.
+- `queueLengthThreshold: 5` triggers k2 observation when the replica queue is non-trivial,
+  updating the rolling average of compute-bound capacity for the decode-heavy workload bucket.
 
 ### 3.4 VariantAutoscaling Resources
 
@@ -316,13 +438,13 @@ spec:
     name: ms-bench-llama8b-l40-decode
   accelerator:
     type: NVIDIA-L40-48GB
-    cost: 6
+    cost: 15
 ---
-# va-llama8b-a100.yaml
+# va-llama8b-h100.yaml
 apiVersion: llmd.ai/v1alpha1
 kind: VariantAutoscaling
 metadata:
-  name: llama8b-a100
+  name: llama8b-h100
   namespace: llmd-bench
 spec:
   modelID: "meta-llama/Llama-3.1-8B-Instruct"
@@ -331,10 +453,10 @@ spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ms-bench-llama8b-a100-decode
+    name: ms-bench-llama8b-h100-decode
   accelerator:
-    type: NVIDIA-A100-PCIE-80GB
-    cost: 40
+    type: NVIDIA-H100-80GB-SXM
+    cost: 65
 ```
 
 ### 3.5 HPA Integration
@@ -1645,22 +1767,34 @@ The coder should implement in this order; each step is independently testable.
 ## 9. Expected Results — Scenario 1
 
 Numbers below are directional predictions, not committed targets.
+Analyzer: saturation_v2. L40 capacity ~12 RPS/replica, H100 ~20 RPS/replica, cost L40=15, H100=65.
 
 | Metric | WVA | KEDA-naive | KEDA-tuned |
 |---|---|---|---|
 | P99 ITL during Phase 1 Ramp (ms) | ~55 | ~85 | ~62 |
-| P99 ITL during Phase 2 Peak (ms) | ~55 | ~58 | ~55 |
-| Time-to-first-new-replica-Ready (s) | 60 | 110 | 75 |
-| L40 replicas at Phase 2 steady state | 5 | 3 | 3 |
-| A100 replicas at Phase 2 steady state | 1 | 3 | 2 |
-| Cost-weighted GPU-hours (normalized) | 1.00 | 1.55 | 1.30 |
-| SLO violation rate (ITL > 60ms) | ~2% | ~12% | ~4% |
+| P99 ITL during Phase 2 Peak (ms) | ~55 | ~55 | ~55 |
+| Time-to-first-new-replica-Ready (s) | ~75 | ~110 | ~80 |
+| L40 replicas at Phase 2 steady state | 2 | 2 | 2 |
+| H100 replicas at Phase 2 steady state | 1 | 1 | 1 |
+| Peak H100 replicas during ramp transitions | 1 | 2 | 2 |
+| Cost-weighted GPU-hours (normalized) | 1.00 | 1.20–1.30 | 1.15–1.25 |
+| SLO violation rate (ITL > 60ms) | ~2% | ~12% | ~3% |
 
 **Derived claims for the write-up:**
-- WVA vs KEDA-tuned: **~30% cost reduction at equivalent SLO compliance**.
-- WVA vs KEDA-naive: **~35% cost reduction with 3× fewer SLO violations**.
-- The WVA-vs-KEDA-tuned latency gap is small (~10% during ramp) and disappears at steady
-  state. The cost gap is persistent.
+- WVA vs KEDA-tuned: **~15–25% cost reduction** over the full run, driven by
+  suppression of premature H100 scale-up during ramp transitions (pending-replica
+  awareness) and faster cost-ordered scale-down after load drops.
+- WVA vs KEDA-naive: same cost advantage plus **~5× fewer SLO violations** during ramp.
+- **At Phase 2 steady state all three systems converge to L40=2, H100=1.** The cost
+  gap is entirely in transient behavior: KEDA fires H100 prematurely at each ramp step
+  (while L40 replicas are pending) and holds H100 for an extra 180s on scale-down.
+- The latency gap is modest and limited to the ramp phase. Don't lead with latency.
+
+**Note on expected cost advantage magnitude:**
+The 15–25% range assumes saturation_v2 with the pending-replica mechanism. This is
+smaller than the 32–47% estimate in § 2.2a (which assumed QueueingModel-level
+SLO-aware behavior). The QueueingModel follow-up run (once ready) is expected to widen
+the gap by holding H100=1 at peak through SLO math rather than relying on thresholds.
 
 ---
 
@@ -1694,6 +1828,37 @@ Numbers below are directional predictions, not committed targets.
 
 ---
 
+## 10.1 Optional Extension — Three-Tier Scenario (L40 + A100 + H100)
+
+The cluster has 2×L40, 24×A100, and 16×H100. Scenario 1 uses only L40 and H100 to
+maximise the cost ratio (1:4.3). A follow-up run can add A100 as a mid-tier variant,
+demonstrating WVA's ability to exhaust the cheapest GPU tier first before climbing the
+cost ladder.
+
+**Setup delta from Scenario 1:**
+- Third variant `llama8b-a100`: cost=40, min=0, max=6.
+- WVA sees three variants per `modelID`; optimizer picks cheapest available first:
+  L40 (15) → A100 (40) → H100 (65).
+- KEDA adds a third ScaledObject for A100 with the same trigger logic as the other two.
+
+**Expected WVA behavior at 25 RPS peak:**
+- 2 L40 (24 RPS) + 1 A100 (~12 RPS): total 36 RPS — covers peak with A100 as mid tier.
+  H100 stays at min=1, unused.
+- KEDA-tuned: L40=2 KV fills → scales A100 to 2–3, and H100 ScaledObject also fires
+  if H100 KV is elevated → both A100 and H100 grow unnecessarily.
+
+**Headline:** WVA uses zero H100 replicas beyond minimum during peak; KEDA provisions
+both A100 and H100 defensively. The three-tier story shows WVA climbing the cost ladder
+only as far as needed, which is the core value proposition for heterogeneous GPU fleets.
+
+**Why this is a follow-up, not the first run:**
+- Three ScaledObjects increase KEDA baseline complexity; harder to make the "honest
+  competitor" argument for KEDA-tuned with three independent triggers.
+- Two-variant Scenario 1 isolates the core mechanism cleanly. Run it first, establish
+  the baseline, then extend to three tiers in a second paper/report section.
+
+---
+
 ## 11. Presentable Overview (Condensed)
 
 For use in decks / proposals.
@@ -1704,24 +1869,28 @@ heterogeneous GPUs? Or is there a structural gap?
 
 ### The experiment
 - Model: Llama-3.1-8B-Instruct
-- Pool: two variants — L40 (cost=6, max 6 replicas) + A100 (cost=40, max 3 replicas);
-  1:6.7 cost ratio chosen to match retail cloud pricing
+- Pool: two variants — L40 48 GB (cost=15, max 2 replicas, hardware cap) + H100 80 GB
+  (cost=65, max 3 replicas); 1:4.3 cost ratio; L40 pool barely covers 25 RPS peak
+- Autoscaler: WVA with saturation_v2 (token-based, aggregate cross-variant, pending-replica-aware)
 - Traffic: 30-min staircase ramp, 3 → 25 RPS decode-heavy (1000 in / 4000 out), Poisson
-- Compared: WVA (queueing model + saturation) vs KEDA-naive (queue-depth) vs
-  KEDA-tuned (KV + queue + ITL p99 + token rate, with stabilization windows)
+- Compared: WVA vs KEDA-naive (queue-depth) vs KEDA-tuned (KV + queue + ITL p99 + token rate)
 - Metric: cost-weighted GPU-hours at equivalent SLO
 - Validation path: kind-emulator dry-run first (~35 min total), then OpenShift (half day)
 
 ### The claim
-WVA uses **25–40% fewer cost-weighted GPU-hours** than KEDA-tuned at equivalent p99 ITL.
-The gap is not closable by tuning — it comes from cross-variant coordination, which no
-per-deployment autoscaler architecture provides. Against KEDA-naive the gap widens to
-40–60% and also includes latency.
+WVA uses **~15–25% fewer cost-weighted GPU-hours** than KEDA-tuned at equivalent p99 ITL.
+The gap comes from two structural properties of saturation_v2: (1) pending-replica
+awareness prevents premature H100 scale-up at each ramp step while L40 replicas are
+starting, and (2) cost-ordered scale-down releases H100 immediately after load drops
+while KEDA's stabilisation windows hold it for 3 additional minutes.
+All three systems converge to the same steady-state replica count at peak (L40=2, H100=1).
+The cost gap is in ramp transitions and drop — not steady state.
 
 ### The picture
-A stacked-area plot showing replica counts per variant. WVA keeps A100 flat at 1 and
-grows L40 to 5–6 during peak. KEDA-tuned grows both in parallel to ~3+2. Same capacity,
-different cost.
+A replica-count timeline showing H100 replicas spiking to 2 during each ramp step for
+KEDA (both naive and tuned), while WVA holds H100 flat at 1 throughout. After peak,
+KEDA holds H100=2 for 3 extra minutes; WVA releases it immediately. Same p99 ITL at
+steady state, different ramp and drop cost.
 
 ### What this is and is not
 - **Is:** a defensible cost argument for operators with heterogeneous accelerator pools.
@@ -2128,3 +2297,118 @@ observable. Good for pipeline validation, not for publication numbers.
    frequent tenant turnover this is unmaintainable. WVA's cost-gradient approach is
    self-maintaining — new tenants get cost assignments and the structural preference
    falls out automatically.
+
+---
+
+## 13. Benchmark Possibilities on a Uniform Cluster
+
+On a cluster where all GPUs are the same type (e.g., all A100 or all H100), WVA's
+heterogeneous cost-variant selection does not apply directly — every replica carries the
+same cost weight. This section explores which WVA advantages remain demonstrable and
+which require heterogeneous hardware.
+
+---
+
+### 13.1 What WVA Still Demonstrates on Uniform Hardware
+
+**Scenario 2 (Starvation Prevention) works unchanged.**
+Scenario 2 uses label-based partitioning (Option P2 — the default). GPU nodes are
+labeled `gpu.partition=premium|basic` and cost weights reflect labels, not hardware.
+On a cluster of identical GPUs, Pool-B's cost gradient (pool-B-a100=40 < pool-B-h100=65
+in heterogeneous terms; on uniform hardware the labels take those roles) still steers
+Pool-B away from the premium partition. The starvation-prevention argument is fully
+demonstrable on homogeneous hardware. This is already the recommended default for
+Scenario 2 in § 12.3.
+
+**SLO-aware replica efficiency (Scenario U1).**
+WVA's queueing model provisions exactly the number of replicas needed to meet the target
+p99 ITL. KEDA-tuned defends aggressively by setting a conservative KV threshold (e.g.,
+70%) and scaling up before the SLO is actually at risk. This over-provisioning is
+measurable even on uniform hardware.
+
+- Setup: single pool, single model, uniform GPU type, same 30-min ramp.
+- Metric: total replica-hours at equivalent p99 ITL compliance.
+- Expected advantage: WVA ~10–20% fewer replica-hours than KEDA-tuned; KEDA-naive
+  has better utilization but worse SLO compliance during the ramp.
+- Limitation: without a cost-weight multiplier (all replicas cost the same), the
+  absolute dollar difference is smaller than in Scenario 1. The story is "efficiency"
+  rather than "cost".
+
+---
+
+### 13.2 Scenario U1 — SLO-Efficient Scaling (Uniform Hardware)
+
+**The question.** Does WVA provision fewer total replicas than KEDA at equivalent p99
+ITL, even when all GPUs cost the same?
+
+**The experiment.**
+- Same model, single GPU type (e.g., all A100), single pool, two VAs (or one VA with
+  uniform cost weights).
+- Same 30-min staircase ramp (3 → 25 RPS).
+- WVA (QueueingModel, `targetITL=60ms`) vs KEDA-naive vs KEDA-tuned.
+- Metric: total replica-hours (= replica count integrated over time) at equivalent SLO.
+
+**Why KEDA over-provisions.**
+KEDA-tuned fires a scale-up when KV% exceeds the threshold (e.g., 70%). But the
+relationship between KV% and p99 ITL is non-linear — at 70% KV a well-batched vLLM
+instance can still meet 60 ms ITL. KEDA does not know this; WVA's queueing model does.
+Result: KEDA-tuned adds replicas before they are needed and holds them through the
+stabilisation window.
+
+**Expected results.**
+
+| Metric | WVA | KEDA-naive | KEDA-tuned |
+|---|---|---|---|
+| P99 ITL during ramp (ms) | ~55 | ~80 | ~60 |
+| Replicas at peak | 3 | 3 | 4 |
+| Total replica-hours (normalized) | 1.00 | 0.95 | 1.18 |
+| SLO violation rate | ~2% | ~10% | ~3% |
+
+WVA sits on the Pareto frontier: fewer replica-hours than KEDA-tuned, fewer SLO
+violations than KEDA-naive.
+
+**Limitation vs Scenario 1.** Without the L40:H100 cost ratio (1:4.3), the replica-hour
+difference (~18%) is modest. The narrative must shift from "cost" to "SLO-precision" —
+defensible but less dramatic. Scenario 1 on heterogeneous hardware is the stronger
+headline; Scenario U1 is a supporting argument or a fallback for teams without mixed
+GPU inventory.
+
+---
+
+### 13.3 Scenario U3 — Proactive Detection on Rapid Ramps (Requires TA3)
+
+**When ThroughputAnalyzer (TA3) is available**, a uniform cluster can demonstrate WVA's
+proactive-detection advantage on sharp demand spikes.
+
+**The question.** Does WVA's rate-based early warning (token-arrival acceleration in the
+scheduler queue) allow faster scale-up than KEDA's threshold-based triggers, reducing
+p99 ITL spikes during sudden load increases?
+
+**The experiment.**
+- Single pool, uniform GPUs.
+- Traffic: sharp step increase (+3× in under 60 s), not a gradual ramp.
+- WVA (QueueingModel + ThroughputAnalyzer) vs KEDA-tuned.
+- Metric: time-to-first-new-replica-Ready from step onset; p99 ITL peak and duration
+  during the step.
+
+**Why this works on uniform hardware.** The ThroughputAnalyzer detects demand
+acceleration in the scheduler queue before KV pressure builds. KEDA cannot act until a
+metric threshold is breached. The faster response is measurable regardless of GPU type.
+
+**Status.** Requires TA3 (PR-4 + PR-5) to merge. Intended as a follow-up run after the
+main Scenario 1 results are published.
+
+---
+
+### 13.4 Summary: Uniform vs Heterogeneous Cluster
+
+| Scenario | Uniform cluster | Heterogeneous cluster | Primary metric |
+|---|---|---|---|
+| Scenario 1 — Cost-optimal ramp | ✗ Weak (no cost multiplier) | ✅ **Strong** | Cost-weighted GPU-hours |
+| Scenario 2 — Starvation prevention | ✅ Works (Option P2) | ✅ Works (Option P1 or P2) | Pool-A SLO violations |
+| Scenario U1 — SLO efficiency | ✅ Moderate | ✅ Included in Scenario 1 | Total replica-hours |
+| Scenario U3 — Proactive detection | ✅ Strong (post-TA3) | ✅ Also demonstrable | Scale-up latency, ITL spike |
+
+For teams with a uniform cluster: **run Scenario 2 first** (same code, label-partitioned
+nodes, directly demonstrates the structural starvation-prevention argument). Add Scenario
+U1 as a secondary result. Defer Scenario U3 until TA3 merges.
