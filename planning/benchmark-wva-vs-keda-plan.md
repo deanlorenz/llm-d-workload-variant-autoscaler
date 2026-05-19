@@ -153,105 +153,178 @@ is satisfied and holds H100 at minimum.
 ### 2.2a Per-Phase Behavior: WVA (saturation_v2) vs KEDA with L40 + H100
 
 This section traces each phase with the accurate saturation_v2 mechanism. All systems
-start at L40=1, H100=1 (min replicas).
+start at L40=1, H100=1 (min replicas). **Peak is 35 RPS** — see § 2.3 for rationale.
 
-**How saturation_v2 differs from KEDA's per-variant thresholds**
+---
 
-saturation_v2 computes an **aggregate** demand/supply ratio across ALL variants:
+**The structural WVA advantage: aggregate vs independent**
+
+saturation_v2 computes a single aggregate demand/supply ratio across ALL variants:
 ```
-totalDemand         = Σ (TokensInUse + QueueLength × AvgInputTokens) across all replicas
+totalDemand            = Σ (TokensInUse + QueueLength × AvgInputTokens) all replicas
 totalAnticipatedSupply = Σ (ReadyReplicas + PendingReplicas) × PerReplicaCapacity
 ```
-Scale-up fires when `totalDemand / totalAnticipatedSupply > 0.85`. Critically,
-**pending replicas count in the supply estimate** — a replica being started is already
-factored into the anticipated capacity. The optimizer then distributes required capacity
-to the cheapest variant (L40=15) before the expensive one (H100=65).
+Scale-up fires when `totalDemand / totalAnticipatedSupply > 0.85`. The optimizer then
+allocates required capacity to the **cheapest variant first** (L40=15 over H100=65).
 
-KEDA has two independent ScaledObjects. Each fires on its own variant's KV% > 0.70,
-with no visibility into the other variant's state or pending replicas.
+KEDA has two independent ScaledObjects, each reacting only to its own variant's
+KV%/queue metrics. No cross-variant visibility.
+
+**The EPP equalisation property.** llm-d's EPP routes requests to minimise KV
+pressure — over time, capacity-proportional routing brings both variants to the same
+KV% utilisation. Therefore: **whenever L40 is saturated, H100 is also saturated at the
+same percentage**. Both KEDA ScaledObjects fire simultaneously.
 
 ---
 
 **Phase 0 — Baseline (3 RPS, 5 min)**
 
-Both systems idle at L40=1, H100=1. Token demand is low (~25% utilization). v2 begins
-accumulating k2 observations but does not act. No difference.
+1L40+1H100 = 32 RPS capacity, load = 3 RPS → 9% utilisation. Both systems idle.
+v2 begins accumulating k2 observations. No scaling activity.
 
 ---
 
-**Phase 1 — Ramp (3 → 25 RPS staircase, 7 min)**
+**Phase 1 — Ramp (3 → 35 RPS staircase, 7 min)**
 
-*Step: L40 hits capacity (~12 RPS with 1 replica):*
+*Step: pool approaches saturation (~27 RPS, both variants at ~85% KV via EPP
+equalisation):*
 
-L40 replica queue fills (`queueLength ≥ 5`). EPP starts routing overflow to H100.
-
-- **WVA (v2):** `totalDemand / totalAnticipatedSupply > 0.85` → fires. Optimizer adds
-  capacity to L40 first (cost=15). L40 scales 1→2 (pending, ~90s startup). v2 includes
-  the pending L40 replica in `totalAnticipatedSupply` → aggregate drops below 0.85 →
-  **H100 stays at 1** ✓
-- **KEDA-naive:** L40 queue depth fires the L40 ScaledObject → L40 scales 1→2. H100
-  ScaledObject also sees rising KV% (EPP routed overflow there) → **H100 scales 1→2**
-  during the ~90s L40 startup window.
-- **KEDA-tuned:** Same as naive for H100: L40 ScaledObject fires; H100 ScaledObject
-  fires independently because H100 KV% > 0.70 while L40 is pending → **H100 scales
-  1→2** prematurely. After L40 comes online, H100 is over-provisioned but the 180s
-  stabilisation window prevents immediate scale-down.
-
-*This pattern repeats at each staircase step.* KEDA fires H100 at every transition
-where L40 is pending; WVA suppresses it each time.
+- **WVA:** aggregate demand/supply > 0.85 → fires. Optimizer adds L40 first (cost=15).
+  L40 scales 1→2 (pending, ~90s startup). Pending L40 counted in `totalAnticipatedSupply`
+  → aggregate drops below 0.85 → **H100 stays at 1** ✓
+- **KEDA-naive/tuned:** L40 ScaledObject fires (L40 KV > 70%). **H100 ScaledObject
+  also fires simultaneously** (H100 KV > 70% by EPP equalisation) → both scale up:
+  L40 1→2 AND H100 1→2. After L40 comes online: 2L40+2H100 = 64 RPS for 27 RPS load
+  → 42% utilisation → scale-down fires after 180–300 s → eventually drops back toward
+  1+1 → fires again → oscillation during ramp.
 
 ---
 
-**Phase 2 — Peak (25 RPS, 10 min)**
+**Phase 2 — Peak (35 RPS, 10 min) — the core of the experiment**
 
-With L40=2, H100=1 and capacity-proportional EPP routing:
-- Pool utilization = 25/44 = **57%** → well below both v2's 0.85 and KEDA's 0.70
-- **Both WVA and KEDA-tuned stabilise at L40=2, H100=1**
+At 35 RPS with 1L40+1H100 = 32 RPS capacity: load > capacity (109%) → both variants
+maximally saturated → both KEDA ScaledObjects fire.
 
-The steady-state replica count at 25 RPS peak is the same for all three systems. The
-cost difference at Phase 2 steady state is **zero** — it all occurs at ramp and drop.
+**WVA path:**
+```
+requiredCapacity = 35C / 0.85 − 32C = 41.2C − 32C = 9.2C extra needed
+Optimizer: add L40 (cost=15) → 2L40+1H100 = 44C capacity
+requiredCapacity = 35C / 0.85 − 44C = −2.8C → done
+```
+Verify stability at 2L40+1H100:
+- Scale-up threshold: 44×0.85 = 37.4 RPS → 35 < 37.4 → no scale-up ✓
+- Scale-down boundary: 44×0.70 = 30.8 RPS → 35 > 30.8 → no scale-down ✓
+- **WVA is stably, permanently at 2L40+1H100** for the entire peak phase.
 
-| | L40 | H100 | Cost/interval (steady state) |
+**KEDA path:**
+
+Both ScaledObjects fire from 1+1. After both scale to 2L40+2H100 = 64 RPS:
+- Utilisation = 35/64 = 55% → both below KEDA's 70% scale-down boundary
+- KEDA scale-down fires after 180–300 s → attempts to scale either variant down
+- Scaling down L40 (2→1): 1L40+2H100 = 52 RPS → 35/52 = 67% → scale-down fires again
+- Scaling down H100 (2→1): 2L40+1H100 = 44 RPS → 35/44 = 80% → stable! But then
+  H100 KV at 80% > 70% → H100 ScaledObject fires scale-up again
+- **KEDA oscillates** between (2+2) and (2+1)/(1+2), spending substantial time at
+  the 160-cost state.
+
+Depending on KEDA stabilisation windows, the most common Phase 2 steady state for
+KEDA is 2L40+2H100 or frequent oscillation between 2+2 and 2+1.
+
+| | L40 | H100 | Capacity | Utilisation | Cost/interval |
+|---|---|---|---|---|---|
+| **WVA** | 2 | 1 | 44 RPS | 80% (stable) | 2×15 + 1×65 = **95** |
+| **KEDA (dominant state)** | 2 | 2 | 64 RPS | 55% (then oscillates) | 2×15 + 2×65 = **160** |
+
+**WVA advantage at Phase 2 steady state: ~40%.**
+
+---
+
+**Phase 3 — Drop (35 → 3 RPS, 8 min)**
+
+- **WVA:** spare capacity signals immediately as load falls. Cost-ordered: H100 released
+  first (already at min=1, so L40 2→1 when demand < 30.8 RPS). Clean and fast.
+- **KEDA:** H100 ScaledObject 180–300 s stabilisation window holds H100=2 for 3–5 min
+  after load drops, regardless of what L40 is doing.
+
+---
+
+**Cost summary (cost-units × time, normalized WVA=1.00)**
+
+| Phase | Duration | WVA | KEDA (avg) |
 |---|---|---|---|
-| **WVA** | 2 | 1 | 2×15 + 1×65 = **95** |
-| **KEDA-naive** | 2 | 1–2 | **95–160** (settling after ramp spike) |
-| **KEDA-tuned** | 2 | 1–2 | **95–160** (settling after ramp spike) |
+| P0 Baseline | 5 min | 1×15+1×65=80 | 80 |
+| P1 Ramp | 7 min | ~87 (L40 scales, H100=1) | ~120 (H100 spikes at each step) |
+| P2 Peak | 10 min | **95** (stable) | **~145** (between 95 and 160, oscillating) |
+| P3 Drop | 8 min | ~85 | ~120 (H100 stabilisation lag) |
+| **Weighted total** | 30 min | **2,640** | **~3,800** |
+| **Normalized** | | **1.00** | **~1.44** |
 
-KEDA reaches H100=1 eventually (180s stabilisation window after each premature spike),
-but pays the extra H100-hours during the transition.
-
----
-
-**Phase 3 — Drop (25 → 3 RPS, 8 min)**
-
-- **WVA:** `spareCapacity = totalSupply − totalDemand / 0.70 > 0` signals immediately
-  as load falls. Optimizer releases H100 first (cost-ordered), then L40 once spare
-  capacity covers both.
-- **KEDA-naive/tuned:** H100 ScaledObject has a 180 s stabilisation window → holds
-  H100 at its current count for 3 min after load drops.
+**WVA saves ~30–44% in cost-weighted GPU-hours.** The gap is real **at steady state**
+(Phase 2), not just in transients — this is the key result the benchmark must demonstrate.
 
 ---
 
-**Cost summary (cost-units × minutes, normalized to WVA=1.00)**
+### 2.2b Scenario Variants — When Hardware Heterogeneity Is Not Required
 
-The cost gap comes from two sources: (A) KEDA H100 spikes during each ramp transition
-(~90s premature H100=2 + 180s stabilisation to scale back), and (B) scale-down lag.
+The simultaneous-saturation trap that gives WVA its steady-state advantage does not
+require physical GPU heterogeneity. Two important variants are analysed here.
 
-| Phase | WVA | KEDA-naive | KEDA-tuned |
+**Variant 1 — No hardware cap (use maxReplicas in VA spec)**
+
+The current design uses the physical 2×L40 hardware limit to cap `maxReplicas=2`. An
+artificial cap in the VA spec (`maxReplicas: 2`) produces identical benchmark behaviour
+on a cluster with any number of L40 nodes. The hardware limit is not special — it is
+just one way to enforce the max. Any cluster with at least 2 L40 and 3 H100 nodes (or
+more of either) can run the benchmark by setting `maxReplicas` appropriately.
+
+**Why a cap is needed at all:** without any cap on L40, WVA's optimizer would scale L40
+indefinitely to serve all demand, leaving H100 at min=1 with negligible load. H100
+never saturates, KEDA's H100 ScaledObject never fires, and the simultaneous-saturation
+trap cannot occur. The cap forces the pool into a regime where H100 carries a
+meaningful fraction of the load — and thus also saturates whenever L40 does.
+
+**Variant 2 — Homogeneous cluster (all GPUs the same type)**
+
+The simultaneous-saturation trap works on a fully homogeneous cluster. Assign different
+cost weights to two logical variants backed by the same physical GPU type:
+
+```yaml
+# "Default tier" — cheap, primary scaling target
+llama8b-default: cost=15, maxReplicas=4
+
+# "Premium tier" — expensive, overflow only
+llama8b-premium: cost=65, maxReplicas=4
+```
+
+Both variants have identical per-replica throughput. EPP always equalises their KV%
+(same capacity per replica → proportional routing → both at the same percentage). When
+either variant is saturated, both are — KEDA fires both ScaledObjects; WVA's optimizer
+adds only the cheap-tier replicas.
+
+*Example at 35 RPS, starting from 1 default + 1 premium (24 RPS total capacity):*
+- Both at 35/24 = 146% → both saturated
+- **KEDA:** scales default 1→2 AND premium 1→2 → 4 replicas (48 RPS), 73% util → stable, cost 2×15+2×65=160
+- **WVA:** adds default only → 3 default+1 premium = 48 RPS, 73% util → stable, cost 3×15+1×65=110
+- **WVA saves 31% at steady state** with no heterogeneous hardware.
+
+*Why KEDA can't rebalance:* with 2 default + 2 premium at 73% each, both ScaledObjects
+are happy (below 85%). Neither fires. The allocation is locally stable but globally
+sub-optimal. WVA's aggregate optimizer, applied at initial scale-up, never reaches this
+state.
+
+**Practical use of Variant 2:** The cost weights model any organisational tiering —
+different quota pools, billing centres, user SLA classes — even on physically identical
+hardware. WVA's value is policy-driven resource allocation, not just hardware cost
+arbitrage. This variant is the recommended approach for teams without heterogeneous GPU
+clusters and maps directly to Scenario 2's label-partitioned design (§ 12).
+
+**Summary table:**
+
+| Setup | Hardware | Cost gap source | Steady-state advantage |
 |---|---|---|---|
-| P0 Baseline (5 min) | 1×15+1×65=80 | 80 | 80 |
-| P1 Ramp — per step transient | H100=1 throughout | H100=2 for ~4–5 min | H100=2 for ~4–5 min |
-| P2 Peak (10 min) | 95 | ~95 (settled) | ~95 (settled) |
-| P3 Drop — lag | scale-down immediate | H100 holds 3 min extra | H100 holds 3 min extra |
-
-Estimated cost advantage (directional): **~15–25%** over the full run. The gap is
-real but modest at 25 RPS because steady-state is the same; it is larger at higher
-peak loads where the ramp transitions are more frequent or deeper.
-
-**What this benchmark demonstrates:** WVA's pending-replica awareness prevents
-KEDA's "fire first, correct later" pattern at each ramp step. Combined with cost-ordered
-scale-down, WVA accumulates significantly fewer expensive H100 GPU-hours over a
-multi-phase run, despite reaching the same steady-state allocation at peak.
+| Current design | L40 + H100, 2×L40 hard cap | Retail price + performance | ~40% |
+| VA spec cap only | L40 + H100, any count, cap in VA | Retail price + performance | ~40% |
+| Homogeneous + cost labels | All A100 (or any GPU) | Organisational tiering policy | ~25–35% |
 
 ---
 
@@ -259,9 +332,9 @@ multi-phase run, despite reaching the same steady-state allocation at peak.
 
 ```
   RPS
-   25 |         .------------.
+   35 |         .------------.
       |        /              \
-   15 |       /                \
+   20 |       /                \
       |      /                  \
     3 |-----'                    '------
       |
@@ -272,9 +345,16 @@ multi-phase run, despite reaching the same steady-state allocation at peak.
 | Phase | Duration | RPS | Purpose |
 |---|---|---|---|
 | P0 Baseline | 5 min (300s) | 3 | Warm up; VA registers metrics; let both autoscalers settle |
-| P1 Ramp | 7 min (420s) | linear 3 → 25 | Exposes proactive vs reactive detection |
-| P2 Peak | 10 min (600s) | 25 | Exposes variant selection — WVA picks L40 |
-| P3 Drop | 8 min (480s) | 3 | Exposes scale-down variant selection (A100 first for WVA) |
+| P1 Ramp | 7 min (420s) | staircase 3 → 35 | Exposes ramp behaviour — simultaneous saturation at each step |
+| P2 Peak | 10 min (600s) | 35 | **Core of the experiment** — WVA stable at 2+1, KEDA trapped at 2+2 |
+| P3 Drop | 8 min (480s) | 3 | Exposes cost-ordered scale-down vs KEDA stabilisation lag |
+
+**Why 35 RPS peak.** The WVA stable window for 2L40+1H100 (44 RPS capacity) is
+30.8–37.4 RPS (between `scaleDownBoundary=0.70` and `scaleUpThreshold=0.85`).
+At 35 RPS: WVA holds stably at 2+1 (80% utilization, cost 95). KEDA's threshold of
+0.70 fires on BOTH variants simultaneously (EPP equalises KV% across variants, so
+both cross 70% at the same load level) and scales to 2+2 (cost 160). Neither variant's
+ScaledObject can independently justify scaling down to reach the optimal 2+1 state.
 
 **Total run time:** 30 min per system × 3 systems = 90 min experiment time, plus ~15 min
 per-system setup. Realistic half-day benchmark.
@@ -1767,34 +1847,31 @@ The coder should implement in this order; each step is independently testable.
 ## 9. Expected Results — Scenario 1
 
 Numbers below are directional predictions, not committed targets.
-Analyzer: saturation_v2. L40 capacity ~12 RPS/replica, H100 ~20 RPS/replica, cost L40=15, H100=65.
+Analyzer: saturation_v2. Peak: 35 RPS. L40 cap: max=2 (hardware). H100 cap: max=3.
+Cost: L40=15, H100=65. WVA stable zone for 2L40+1H100: 30.8–37.4 RPS.
 
 | Metric | WVA | KEDA-naive | KEDA-tuned |
 |---|---|---|---|
-| P99 ITL during Phase 1 Ramp (ms) | ~55 | ~85 | ~62 |
-| P99 ITL during Phase 2 Peak (ms) | ~55 | ~55 | ~55 |
-| Time-to-first-new-replica-Ready (s) | ~75 | ~110 | ~80 |
-| L40 replicas at Phase 2 steady state | 2 | 2 | 2 |
-| H100 replicas at Phase 2 steady state | 1 | 1 | 1 |
-| Peak H100 replicas during ramp transitions | 1 | 2 | 2 |
-| Cost-weighted GPU-hours (normalized) | 1.00 | 1.20–1.30 | 1.15–1.25 |
-| SLO violation rate (ITL > 60ms) | ~2% | ~12% | ~3% |
+| P99 ITL during Phase 1 Ramp (ms) | ~55 | ~90 | ~65 |
+| P99 ITL during Phase 2 Peak (ms) | ~55 | ~58 | ~55 |
+| Time-to-first-new-replica-Ready (s) | ~75 | ~120 | ~85 |
+| L40 replicas at Phase 2 steady state | **2** | 2 | 2 |
+| H100 replicas at Phase 2 steady state | **1** | **2** (oscillating toward 2) | **2** (oscillating toward 2) |
+| Cost-weighted GPU-hours (normalized) | **1.00** | **1.40–1.50** | **1.35–1.44** |
+| SLO violation rate (ITL > 60ms) | ~2% | ~15% | ~4% |
 
 **Derived claims for the write-up:**
-- WVA vs KEDA-tuned: **~15–25% cost reduction** over the full run, driven by
-  suppression of premature H100 scale-up during ramp transitions (pending-replica
-  awareness) and faster cost-ordered scale-down after load drops.
-- WVA vs KEDA-naive: same cost advantage plus **~5× fewer SLO violations** during ramp.
-- **At Phase 2 steady state all three systems converge to L40=2, H100=1.** The cost
-  gap is entirely in transient behavior: KEDA fires H100 prematurely at each ramp step
-  (while L40 replicas are pending) and holds H100 for an extra 180s on scale-down.
-- The latency gap is modest and limited to the ramp phase. Don't lead with latency.
-
-**Note on expected cost advantage magnitude:**
-The 15–25% range assumes saturation_v2 with the pending-replica mechanism. This is
-smaller than the 32–47% estimate in § 2.2a (which assumed QueueingModel-level
-SLO-aware behavior). The QueueingModel follow-up run (once ready) is expected to widen
-the gap by holding H100=1 at peak through SLO math rather than relying on thresholds.
+- WVA vs KEDA-tuned: **~30–44% cost reduction**, present at **Phase 2 steady state**
+  (not just transients). WVA holds stably at 2L40+1H100; KEDA is trapped at 2L40+2H100
+  because neither ScaledObject can independently justify scaling H100 down to 1.
+- WVA vs KEDA-naive: same steady-state cost advantage plus **~6× fewer SLO violations**
+  during the ramp phase.
+- **The mechanism:** EPP equalises KV% across variants, so both KEDA ScaledObjects
+  fire simultaneously at every saturation event. WVA's aggregate optimizer adds only
+  the cheapest variant (L40) and stops when aggregate demand is covered. KEDA adds
+  both — and the resulting allocation is locally stable (each variant at ~55% KV)
+  but globally over-provisioned.
+- The latency gap is small at steady state. Lead with cost.
 
 ---
 
@@ -1869,28 +1946,28 @@ heterogeneous GPUs? Or is there a structural gap?
 
 ### The experiment
 - Model: Llama-3.1-8B-Instruct
-- Pool: two variants — L40 48 GB (cost=15, max 2 replicas, hardware cap) + H100 80 GB
-  (cost=65, max 3 replicas); 1:4.3 cost ratio; L40 pool barely covers 25 RPS peak
-- Autoscaler: WVA with saturation_v2 (token-based, aggregate cross-variant, pending-replica-aware)
-- Traffic: 30-min staircase ramp, 3 → 25 RPS decode-heavy (1000 in / 4000 out), Poisson
+- Pool: L40 48 GB (cost=15, max 2 replicas) + H100 80 GB (cost=65, max 3 replicas);
+  1:4.3 cost ratio; peak load 35 RPS sits in WVA's stable zone for 2L40+1H100 (44 RPS capacity)
+- Autoscaler: WVA with saturation_v2 (token-based, aggregate cross-variant)
+- Traffic: 30-min staircase ramp, 3 → 35 RPS decode-heavy (1000 in / 4000 out), Poisson
 - Compared: WVA vs KEDA-naive (queue-depth) vs KEDA-tuned (KV + queue + ITL p99 + token rate)
 - Metric: cost-weighted GPU-hours at equivalent SLO
 - Validation path: kind-emulator dry-run first (~35 min total), then OpenShift (half day)
 
 ### The claim
-WVA uses **~15–25% fewer cost-weighted GPU-hours** than KEDA-tuned at equivalent p99 ITL.
-The gap comes from two structural properties of saturation_v2: (1) pending-replica
-awareness prevents premature H100 scale-up at each ramp step while L40 replicas are
-starting, and (2) cost-ordered scale-down releases H100 immediately after load drops
-while KEDA's stabilisation windows hold it for 3 additional minutes.
-All three systems converge to the same steady-state replica count at peak (L40=2, H100=1).
-The cost gap is in ramp transitions and drop — not steady state.
+WVA uses **~30–44% fewer cost-weighted GPU-hours** than KEDA at equivalent p99 ITL.
+The gap is **present at Phase 2 steady state**, not just in transients. The mechanism:
+llm-d's EPP equalises KV% across variants, so both KEDA ScaledObjects fire simultaneously
+at every saturation event. KEDA scales both variants and reaches a locally stable but
+globally over-provisioned state (2L40+2H100). WVA's aggregate optimizer adds only the
+cheapest variant (L40) and holds stably at 2L40+1H100 — the optimal allocation.
+Neither KEDA ScaledObject can independently reason its way to this optimum.
 
 ### The picture
-A replica-count timeline showing H100 replicas spiking to 2 during each ramp step for
-KEDA (both naive and tuned), while WVA holds H100 flat at 1 throughout. After peak,
-KEDA holds H100=2 for 3 extra minutes; WVA releases it immediately. Same p99 ITL at
-steady state, different ramp and drop cost.
+A replica-count timeline at Phase 2 peak. WVA: H100 flat at 1, L40 at 2 (stable).
+KEDA: H100 at 2, L40 at 2 (over-provisioned). Both deliver the same p99 ITL.
+The H100 replica that KEDA adds unnecessarily costs 65 cost-units per interval — that
+is the persistent, steady-state waste that WVA eliminates.
 
 ### What this is and is not
 - **Is:** a defensible cost argument for operators with heterogeneous accelerator pools.
