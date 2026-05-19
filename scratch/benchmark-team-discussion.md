@@ -9,8 +9,8 @@ Source plan: `plans/planning/benchmark-wva-vs-keda-plan.md` (full design, ~1700 
 
 ## 1. The two scenarios
 
-**Scenario 1 — Cost-optimal ramp.** One pool, two variants of the same model (L4 + A100).
-A 30-minute staircase ramp (3 → 25 RPS) exposes whether WVA selects the cheap variant (L4)
+**Scenario 1 — Cost-optimal ramp.** One pool, two variants of the same model (A100 + H100).
+A 30-minute staircase ramp (3 → 25 RPS) exposes whether WVA selects the cheap variant (A100)
 while KEDA grows both in parallel. Metric: cost-weighted GPU-hours at equivalent p99 ITL.
 
 **Scenario 2 — Starvation prevention.** Two pools sharing the cluster. Pool-B (basic
@@ -23,7 +23,7 @@ needs those slots? Metric: Pool-A SLO violation rate during the joint-load phase
 |---|---|---|
 | Pools | 1 | 2 (Pool-A, Pool-B) |
 | llm-d stacks (EPPs) | 1 | 2 (one per pool) |
-| Deployments / variants | 2 (L4 + A100, same pool) | 3 (pool-A-gpu1; pool-B-gpu1 + pool-B-gpu2) |
+| Deployments / variants | 2 (A100 + H100, same pool) | 3 (pool-A-h100; pool-B-a100 + pool-B-h100) |
 | Traffic drivers | 1 GuideLLM, 4 sequential phases | 2 GuideLLM jobs, concurrent, 3 phases each |
 | Run length | 30 min × 3 modes | 18 min × 4 modes |
 | Compared modes | wva / keda-naive / keda-tuned | wva / keda-naive / keda-tuned / keda-tuned-capped |
@@ -62,12 +62,14 @@ selection criteria matches all deployments with that label. WVA's VariantAutosca
 resources each target one deployment and carry the same `modelID` — that is how WVA
 groups variants for cross-variant optimization.
 
-**Scenario 1:** one pool label, two deployments (L4 + A100), two VAs, one EPP.
+**Scenario 1:** one pool label, two deployments (A100 cost=40, H100 cost=65), two VAs, one EPP.
 
 **Scenario 2:** two pool labels.
-- Pool-A: one deployment (gpu1/premium partition), one VA.
-- Pool-B: two deployments (gpu1 + gpu2), two VAs sharing Pool-B's `modelID`.
-  WVA's cross-variant cost optimization runs within Pool-B; Pool-A is a separate model.
+- Pool-A: one deployment (H100/premium partition, cost=65), one VA.
+- Pool-B: two deployments — pool-B-a100 (A100/basic partition, cost=40, preferred by WVA)
+  and pool-B-h100 (H100/premium partition, cost=65, avoided by WVA) — two VAs sharing
+  Pool-B's `modelID`. WVA's cross-variant optimization runs within Pool-B; Pool-A is a
+  separate model.
 - Two EPPs (one per pool), both in the same namespace.
 
 ### 2.3 KEDA configuration (detail)
@@ -79,7 +81,7 @@ Each mode is a directory of manifests applied before a run:
 fixtures/keda/
   naive/           one ScaledObject per variant, queue-depth trigger only
   tuned/           four triggers (KV + queue + ITL p99 + token rate) + stabilisation
-  tuned-capped/    Scenario 2 only — pool-B-gpu1 hard-capped at maxReplicaCount=0
+  tuned-capped/    Scenario 2 only — pool-B-h100 hard-capped at maxReplicaCount=0
 ```
 
 Benchmark code applies the right directory before a run and deletes after. KEDA is
@@ -140,7 +142,7 @@ GPU-hour calculation and for the per-variant replica timeline charts.
 | G8 | Node-partition labeling | Label nodes `gpu.partition=premium\|basic` before test; revert on teardown |
 | G9 | Per-variant `nodeSelector` | Selector field threaded through deployment fixtures |
 | G10 | Pool-A pending-replica metric | `kube_deployment_status_replicas_unavailable` added to monitor loop |
-| G11 | `keda-tuned-capped` mode | Separate manifest set; `maxReplicaCount: 0` on pool-B-gpu1 ScaledObject |
+| G11 | `keda-tuned-capped` mode | Separate manifest set; `maxReplicaCount: 0` on pool-B-h100 ScaledObject |
 
 ### 3.4 Lower priority — output analysis
 
@@ -159,8 +161,9 @@ Can be done manually for a first run; automate later if the benchmark becomes re
 4. **Harness driver shape (Scenario 2):** H1 (single harness, both pools in one test,
    aligned phase boundaries) vs. H2 (two harness instances, external phase coordination)?
 5. **KEDA manifests:** existing fixtures anywhere in the repo, or build from scratch?
-6. **Sizing for OpenShift:** § 7.5 of the plan lists three options (6 L4 + 3 A100;
-   6 homogeneous; 3-GPU smoke). Which can we provision?
+6. **Sizing:** cluster has 2×L40, 24×A100, 16×H100. Scenario 1 needs ~6 A100 + 3 H100;
+   Scenario 2 needs H100 nodes as premium partition + A100 nodes as basic partition.
+   How many nodes to dedicate, and for how long?
 
 ---
 
