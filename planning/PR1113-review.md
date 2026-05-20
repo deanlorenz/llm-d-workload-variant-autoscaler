@@ -52,14 +52,19 @@ would cause a data race that silently corrupts rather than panics.
 
 ## Pending Actions
 
-- [ ] **`engine_v2.go:140`** — Normalize `RequiredCapacity` by the analyzer's own `TotalCapacity`
-      before combining across analyzers.
-- [ ] **`engine_v2.go:206`** — Resolve the `AnalyzerScoreConfig` threshold mismatch: either
-      (a) restrict `ScaleUpThreshold`/`ScaleDownBoundary` fields to saturation-only in the struct
-      and doc, or (b) route per-analyzer thresholds to each analyzer at call time.
-- [ ] **`engine.go:231`** — Enforce the "register before StartOptimizeLoop" contract: add a
-      `sync.RWMutex` around the map or gate registration with an `initialized` flag that panics
-      on late calls.
+- [ ] **`engine_v2.go:140`** — In the `t > 0` branch, change line 140 to
+      `totalWeighted += (er.result.RequiredCapacity / t) * er.score`, and line 187 to
+      `combined.Score = priority * totalWeighted * satTotal`. Backward-compatible for
+      saturation-only; fixes cross-analyzer scale mismatch in the optimizer demand budget.
+- [ ] **`engine_v2.go:206` + `config/saturation_scaling.go`** — Remove
+      `ScaleUpThreshold`/`ScaleDownBoundary` from `AnalyzerScoreConfig` (Option A).
+      Delete the saturation-override loop at lines 206–214 of `runAnalyzersAndScore`.
+      Update `Validate()` and the doc table accordingly. (Decision: these fields are
+      saturation-specific; the global config fields already serve this purpose.)
+- [ ] **`engine.go:231`** — Option C: snapshot `analyzers` map to a frozen slice in
+      `StartOptimizeLoop` before launching the goroutine; add a `started` bool that causes
+      `RegisterAnalyzer` to panic on late calls. Natural place to also call any per-analyzer
+      `Init(ctx)` if needed in future.
 
 ---
 
@@ -141,7 +146,7 @@ restructuring.
 
 **Option C — Thread to all analyzers (future-proof).**
 For each enabled non-saturation analyzer, apply its entry's threshold overrides to a
-local copy of `config` before building `AnalyzerInput`. Analyers that don't use them
+local copy of `config` before building `AnalyzerInput`. Analyzers that don't use them
 ignore them; ones that do (e.g., a future utilization-based analyzer) get per-entry
 control. Adds a config-copy loop but is mechanically consistent.
 
@@ -165,7 +170,7 @@ In practice `main.go` is sequential (New → Register → Start), so there is no
 today. But the Go race detector will flag it, and it is one wrong call site away from
 production corruption.
 
-**Dean's observation — "initiate the operation while registrating":**
+**Dean's observation — "initiate the operation while registering":**
 If we treat registration as a one-time initialization event, we can call any per-analyzer
 setup (register metric queries, allocate state, etc.) inside `RegisterAnalyzer` rather
 than lazily on first `Analyze()` call. Doing this requires that registration happens in
