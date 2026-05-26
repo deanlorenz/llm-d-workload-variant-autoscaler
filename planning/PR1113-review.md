@@ -52,109 +52,113 @@ would cause a data race that silently corrupts rather than panics.
 
 ## Pending Actions
 
-- [ ] **`engine_v2.go:140`** — In the `t > 0` branch, change line 140 to
-      `totalWeighted += (er.result.RequiredCapacity / t) * er.score`, and line 187 to
-      `combined.Score = priority * totalWeighted * satTotal`. Backward-compatible for
-      saturation-only; fixes cross-analyzer scale mismatch in the optimizer demand budget.
-- [ ] **`engine_v2.go:206` + `config/saturation_scaling.go`** — Remove
-      `ScaleUpThreshold`/`ScaleDownBoundary` from `AnalyzerScoreConfig` (Option A).
-      Delete the saturation-override loop at lines 206–214 of `runAnalyzersAndScore`.
-      Update `Validate()` and the doc table accordingly. (Decision: these fields are
-      saturation-specific; the global config fields already serve this purpose.)
-- [ ] **`engine.go:231`** — Option C: snapshot `analyzers` map to a frozen slice in
-      `StartOptimizeLoop` before launching the goroutine; add a `started` bool that causes
-      `RegisterAnalyzer` to panic on late calls. Natural place to also call any per-analyzer
-      `Init(ctx)` if needed in future.
+- [ ] **Item 1 — combine + optimizer fix.** Bug: `totalWeighted` mixes raw RC values
+      across analyzers with different unit scales. Combine-level fix (agreed): normalize
+      inside the `t > 0` branch with `(RC_i / T_i) * score_i`. Two paths for `Score`'s
+      scale and how the optimizer consumes it; **Path B preferred** — engine owns
+      recalibration, optimizer queries a Combiner after each allocation. Path A (minimal:
+      keep `Score × satTotal`, defer recalibration to a follow-up) noted as fallback.
+      See Discussion below and Appendix A.
+- [ ] **Item 2 — per-analyzer threshold overrides (Option C).** Reversed from earlier
+      Option A. Thresholds are universally meaningful as utilization fractions; per-analyzer
+      overrides are legitimate. The current engine routes them only to saturation — bug.
+      Thread the effective threshold (per-analyzer override or global default) into each
+      analyzer's `AnalyzerInput`; remove the saturation-only block at `engine_v2.go:206–214`.
+      Interface change required. See Discussion below and Appendix B.
+- [ ] **Item 3 — `RegisterAnalyzer` race (Option C, unchanged).** Snapshot `analyzers`
+      to a frozen slice in `StartOptimizeLoop` before the goroutine launches; `started`
+      bool causes late `RegisterAnalyzer` to panic. The snapshot step is the natural
+      place to call any future per-analyzer `Init(ctx)`.
 
 ---
 
 ## Discussion
 
-### Item 1 — RC normalization in `totalWeighted` (`engine_v2.go:140`)
+### Item 1 — RC normalization, combine output, and recalibration
 
-**The bug is real.** The combine loop normalizes `excessFracs` and `slackFracs` by the
-analyzer's own `TotalCapacity` (`t`), so those fractions are dimensionless. But
-`totalWeighted` (line 140) accumulates raw `RC * score` without normalization:
+**The bug.** Line 140 accumulates raw `RequiredCapacity * score` across analyzers.
+Saturation outputs RC in tokens (~50 000), TA in tok/s (~100). The weighted sum is
+dimensionally inconsistent — the larger-magnitude analyzer dominates regardless of
+its score weight. `totalWeighted` flows directly into `combined.Score`, so fair-share
+ordering across models is broken once a non-saturation analyzer is enabled.
 
-```go
-totalWeighted += er.result.RequiredCapacity * er.score   // ❌ raw RC, not normalized
-```
+**The combine-level fix (agreed).** Move accumulation inside the `t > 0` branch and
+normalize: `totalWeighted += (RC_i / T_i) * score_i`. Each term is now a dimensionless
+utilization-excess fraction, comparable across analyzers regardless of unit scale.
 
-`totalWeighted` flows directly into `combined.Score = priority * totalWeighted`, which
-the greedy optimizer uses as the demand budget for fair-share replica allocation
-([`greedy_score_optimizer.go:112`](../engine-multi-analyzer/internal/engines/pipeline/greedy_score_optimizer.go)).
-If saturation (token-scale RC, e.g., 50 000 tokens) and TA (different unit scale) both
-contribute, the weighted sum is dimensionally inconsistent and one analyzer dominates.
+**The harder question — what does `Score` mean and how does the optimizer consume it?**
+The reviewer's comment is satisfied by the normalization above, but it leaves the output
+scale ambiguous: what to multiply `totalWeighted` by? Two competing requirements pull in
+opposite directions:
+- Score should be analyzer-independent (no `× satTotal` baked in — that's saturation-specific).
+- The existing optimizer's `n = ceil(target / vc.PerReplicaCapacity)` math assumes saturation
+  token units for `target` (since `vc.PerReplicaCapacity` is saturation's).
 
-**Fix:** normalize inside the `t > 0` branch and scale back at the output:
+**Recalibration is the real issue.** After partial allocation, per-analyzer gaps shift
+unequally. A specific variant might fully close one analyzer's gap while barely moving
+another's; the bottleneck shifts. The current optimizer's single-scalar `remaining`,
+decremented by `n × PRC` after each allocation, cannot model this — it tracks one number
+in saturation tokens and has no way to recompute which analyzer is now the bottleneck.
 
-```go
-// line 140 — inside t > 0 branch:
-totalWeighted += (er.result.RequiredCapacity / t) * er.score
+The clean architecture: optimizer allocates → engine recalibrates → optimizer queries the
+new combined state. The engine has the per-analyzer per-variant `PerReplicaCapacity` it
+needs already — every analyzer fills its own `AnalyzerResult.VariantCapacities[].PerReplicaCapacity`,
+so the engine can build a `PRC[analyzer][variant]` matrix from the existing analyzer outputs.
+Recalibration is then pure arithmetic on the combined state: `T_i' = T_i + n × PRC[i][v]`,
+`RC_i' = max(0, RC_i − n × PRC[i][v])`, `SC_i' = SC_i + n × PRC[i][v]`. No analyzer
+re-invocation needed.
 
-// line 187 — output:
-combined.Score = priority * totalWeighted * satTotal
-```
+**Path A — minimal fix, defer recalibration.** Normalize `totalWeighted` as agreed, keep
+`Score = priority * totalWeighted * satTotal` for backward compatibility with the existing
+optimizer math. Document that with multiple analyzers enabled, replica sizing is
+approximated against saturation's capacity scale; per-analyzer-aware allocation requires
+the recalibration architecture, deferred to a follow-up PR. Backward-compatible for
+saturation-only — current tests pass unchanged.
 
-For saturation-only (today), `t == satTotal`, so `(satRC/satTotal)*satScore*satTotal == satRC*satScore` — no behaviour change. For mixed analyzers, each RC is converted to a utilization fraction, weighted, then denormalized back to saturation's capacity scale. The optimizer always sees values in saturation-token units, which it already understands.
+**Path B — implement recalibration in this PR (preferred).** `combineAnalyzerResults`
+returns a `Combiner` (or equivalent state object) holding per-analyzer state and the
+per-variant PRC matrix. The Combiner exposes a fair-share `Score()`, scale-up / scale-down
+gates, and an `AfterAllocation(variant, n)` method that returns an updated Combiner.
+Score and gates are dimensionless. The optimizer's `fairShareScaleUp` and
+`allocateToVariants` change to call Combiner methods instead of decrementing a scalar
+`remaining`. See Appendix A for the interface sketch and the optimizer's revised flow.
 
-Cold-start case (`t == 0, RC > 0`): skip from `totalWeighted` accumulation (the cold-start
-branch overrides `combined.Score` to 0 anyway via `combined.SpareCapacity = 0` — fine).
+**Recommendation: Path B.** This PR exists specifically to unblock TA (a non-saturation
+analyzer) — TA is the next PR. Path A leaves a structural gap that bites the moment TA is
+added to `config.Analyzers`. Per-analyzer per-variant `PerReplicaCapacity` is already part
+of the analyzer API, so Path B has the data it needs. The optimizer simplifies (no PRC
+division). Path A is documented as a fallback if Path B's scope is unacceptable for the
+reviewer.
 
 ---
 
-### Item 2 — `AnalyzerScoreConfig` thresholds: what do they mean and for whom?
+### Item 2 — `AnalyzerScoreConfig` thresholds: keep, but apply to all analyzers
 
-**What the thresholds do in saturation:**
-`ScaleUpThreshold` and `ScaleDownBoundary` are inputs to the capacity formula in
-`saturation_v2/analyzer.go`:
+**Earlier draft recommended Option A (remove the threshold fields). That is reversed.**
 
-```
-RC = totalDemand / ScaleUpThreshold − totalAnticipatedSupply
-SC = totalSupply − totalDemand / ScaleDownBoundary
-```
+**Why thresholds belong on `AnalyzerScoreConfig`.** The threshold is universally meaningful
+as a utilization fraction. Every analyzer reduces to a "demand vs supply" comparison in its
+own units, and "scale up at 0.8 / scale down at 0.6" applies to all of them. Per-analyzer
+overrides are legitimate: saturation may want bigger margins than TA (or vice versa)
+because each analyzer has different noise characteristics and different recovery dynamics.
 
-This is saturation-specific math — they set headroom margins so the analyzer scales up
-before hitting 100% utilisation. They are **not** a bound on the combined WVA score;
-they affect how much RC/SC the saturation analyzer emits before the combine step.
+**The bug is in the engine, not the API.** The current code at `engine_v2.go:206–214` only
+applies overrides to the saturation entry; non-saturation entries' overrides are silently
+dropped. `Validate()` checks both fields for all entries and the doc table claims they
+"override global" — so the API promises something the engine doesn't deliver.
 
-**Are they meaningful for other analyzers?**
-No. The ThroughputAnalyzer's scaling signal comes from ITL model degradation
-(`itl_model.go`) — a completely different formula. There is no `demand/threshold` step.
-Passing `ScaleUpThreshold` to TA via `input.Config` would be harmless (TA ignores it)
-but also meaningless. Future analyzers (SLO, queueing model) also have their own scaling
-math.
+**The fix (Option C).** The engine resolves the effective threshold per analyzer (per-entry
+override or global default) and threads it into each analyzer's `AnalyzerInput` before
+invocation. Each analyzer applies the threshold inside its own formula — saturation's
+`RC = demand/threshold − supply`, TA's ITL-degradation comparison, etc. The threshold's
+semantic meaning is "scale up at this utilization fraction," and each analyzer is responsible
+for honouring that intent in whatever math it does. The saturation-only block at lines
+206–214 disappears; saturation becomes just another analyzer entry.
 
-**Current engine behaviour:** only the saturation entry's per-analyzer threshold overrides
-are applied (lines 206–214 of `runAnalyzersAndScore`); all other entries' overrides are
-silently dropped. The struct, `Validate()`, and doc all imply they apply to every analyzer.
-
-**Options — choose one:**
-
-**Option A — Remove from AnalyzerScoreConfig (simplest).**
-Drop `ScaleUpThreshold`/`ScaleDownBoundary` from `AnalyzerScoreConfig`. Saturation's
-thresholds stay at the global `SaturationScalingConfig` level. Users who want different
-per-model saturation thresholds configure them at the model config level, not inside the
-`analyzers` list. Clean, no silent-drop, no broken promises. Lose the ability to override
-thresholds inline in the analyzer entry — but that's fine if the only user is saturation.
-
-**Option B — Restrict to saturation in doc + Validate (minimal).**
-Keep the fields but add a doc comment: "only applies to the `saturation` analyzer; ignored
-for other analyzers." Update `Validate()` to skip the pair-relationship check for
-non-saturation entries (currently it validates all entries). Honest API, no code
-restructuring.
-
-**Option C — Thread to all analyzers (future-proof).**
-For each enabled non-saturation analyzer, apply its entry's threshold overrides to a
-local copy of `config` before building `AnalyzerInput`. Analyzers that don't use them
-ignore them; ones that do (e.g., a future utilization-based analyzer) get per-entry
-control. Adds a config-copy loop but is mechanically consistent.
-
-**Recommendation:** Option A is the right call for now. These thresholds are tightly
-coupled to the saturation formula. No other current or near-term analyzer uses them.
-Option C adds complexity for a hypothetical future use. Option B is a band-aid. Remove
-them from `AnalyzerScoreConfig` and update the docs. The engine code at lines 206–214
-that patches the global config from the saturation entry's overrides can be removed.
+**Interface implication.** `AnalyzerInput.Config` is currently `*SaturationScalingConfig` —
+saturation-specific. Threading per-analyzer thresholds cleanly requires either generalizing
+that field or extracting a common threshold field at the input level. See Appendix B for
+two concrete sketches.
 
 ---
 
@@ -205,3 +209,103 @@ registered analyzers before the loop runs, cleanly separating "setup" from "stea
 
 If a full refactor is in scope, Option B (constructor) is the gold standard. For a
 minimal fix that satisfies the reviewer, Option A (RWMutex) is fine.
+
+---
+
+## Appendix A — Combiner interface (Path B)
+
+Sketch — to be refined during implementation. The shape, not the final API.
+
+```go
+// Combiner holds per-analyzer state for a single model and exposes the scalars the
+// optimizer needs, plus a method to project state forward after a hypothetical
+// allocation. Returned by combineAnalyzerResults; consumed by the optimizer.
+type Combiner interface {
+    // Score returns the dimensionless fair-share metric for this model:
+    //   priority * Σ_i (RC_i / T_i) * analyzerScore_i
+    Score() float64
+
+    // NeedsScaleUp returns true when at least one analyzer's utilization excess
+    // is positive (any-up rule).
+    NeedsScaleUp() bool
+
+    // NeedsScaleDown returns true when every enabled analyzer with valid data
+    // has positive utilization slack (all-down rule).
+    NeedsScaleDown() bool
+
+    // VariantCapacities returns the saturation-derived per-variant data
+    // (Cost, AcceleratorName, Role) the optimizer uses for variant selection.
+    // Per-analyzer per-variant PerReplicaCapacity is held internally for
+    // AfterAllocation arithmetic.
+    VariantCapacities() []interfaces.VariantCapacity
+
+    // AfterAllocation returns a new Combiner reflecting the addition of n
+    // replicas of variant v. Pure arithmetic on cached state — no analyzer
+    // re-invocation. For each analyzer i:
+    //   T_i'  = T_i + n × PRC[i][v]
+    //   RC_i' = max(0, RC_i − n × PRC[i][v])
+    //   SC_i' = SC_i + n × PRC[i][v]
+    AfterAllocation(variant string, n int) Combiner
+}
+```
+
+**Optimizer flow with Combiner:**
+
+```
+for each model:
+    c := req.Combiner
+    if !c.NeedsScaleUp() { continue }
+    while c.NeedsScaleUp() && availableGPUs > 0:
+        v := pickCheapestViable(c.VariantCapacities(), availableGPUs)
+        n := decideAllocation(c, v)         // smallest unit, or batch
+        targets[v] += n
+        availableGPUs -= n × gpusPerReplica(v)
+        c = c.AfterAllocation(v, n)         // engine recomputes
+```
+
+Fair-share ordering across models uses `c.Score()` directly. After each model's inner
+loop, the outer fair-share loop re-evaluates ordering using the updated scores. The
+optimizer never sees per-analyzer state — it just queries scalars and asks the engine
+to project.
+
+**Construction.** `combineAnalyzerResults` builds the Combiner by iterating the per-analyzer
+results and copying out per-variant `PerReplicaCapacity` into the internal matrix. Saturation's
+`VariantCapacities` are also stashed for cost/accelerator-name lookup.
+
+---
+
+## Appendix B — Item 2: passing thresholds to analyzers
+
+Two sketches for threading per-analyzer thresholds into `AnalyzerInput`.
+
+**Option B.1 — extract a common threshold field on `AnalyzerInput` (smallest change).**
+
+```go
+type AnalyzerInput struct {
+    ModelID        string
+    Namespace      string
+    ReplicaMetrics []ReplicaMetrics
+    VariantStates  []VariantReplicaState
+    Config         AnalyzerConfig
+    SchedulerQueue *SchedulerQueueMetrics
+
+    // New: effective thresholds resolved by the engine — per-analyzer override
+    // from AnalyzerScoreConfig applied over the global default.
+    ScaleUpThreshold  float64
+    ScaleDownBoundary float64
+}
+```
+
+Engine resolves per-analyzer thresholds in `runAnalyzersAndScore` and writes them into
+each analyzer's input. Saturation's `Analyze()` reads from `input.ScaleUpThreshold` instead
+of `config.ScaleUpThreshold`. Other analyzers may apply or ignore them as appropriate. No
+change to `AnalyzerConfig`.
+
+**Option B.2 — generalize `AnalyzerConfig`.**
+
+`AnalyzerInput.Config` becomes a generic config object exposing
+`EffectiveThresholds() (up, down float64)`. Larger interface change, but keeps thresholds
+co-located with config rather than splitting them across two fields.
+
+**Recommendation:** Option B.1 — minimal API surface, no new interfaces, easy to back out
+if the design shifts. Saturation_v2 is the only current consumer; the change is mechanical.

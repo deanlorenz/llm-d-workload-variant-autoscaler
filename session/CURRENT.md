@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-26
 
 ---
 
@@ -42,7 +42,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
-| engine-multi-analyzer | #1113 | DCO ✅ lint-and-test ✅ e2e-smoke 🔄 pending; awaiting review     | `a93bc5d` |
+| engine-multi-analyzer | #1113 | CI ✅ all green; CHANGES_REQUESTED by ev-shindin; fix design WIP   | `a93bc5d` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
 ---
@@ -191,6 +191,27 @@ Next step:
 - `5bbe8af` — implementation: generic `analyzers` map, `runAnalyzersAndScore()`, `combineAnalyzerResults()` any-up/all-down, `engine_combine_test.go` (31 specs)
 - `db59b53` — docs: Multi-Analyzer Pipeline section in `saturation-scaling-config.md` and `saturation-analyzer.md`
 - `a93bc5d` — `RegisterAnalyzer(name, interfaces.Analyzer)` method on `Engine`
+
+**Review status (2026-05-26):** CHANGES_REQUESTED by ev-shindin on three items
+(`engine_v2.go:140` RC normalization, `:206` threshold scope, `engine.go:231`
+register-analyzer race). CI green. Fix design at `planning/PR1113-review.md`
+status DRAFT — **WIP, pending Dean's approval before reviewer discussion or
+implementation**. Latest revision (2026-05-26) reframes Item 1 around the
+recalibration problem (single-scalar `remaining` cannot model partial
+allocation across multi-analyzer per-variant `PerReplicaCapacity` matrix),
+documents Path A (minimal: keep `Score × satTotal`, defer recalibration) and
+Path B (preferred: engine returns a `Combiner` with `AfterAllocation(v, n)`
+arithmetic recalibration; dimensionless Score and gates; optimizer simplifies).
+Item 2 recommendation flipped from Option A (remove threshold fields) to
+Option C (thread to all analyzers — thresholds are universally meaningful as
+utilization fractions, per-analyzer overrides legitimate). Item 3 unchanged
+(Option C: snapshot on `StartOptimizeLoop`). Appendix A sketches the
+`Combiner` interface; Appendix B sketches threshold-passing options.
+
+**Next session:** Dean to read updated `planning/PR1113-review.md`, then either
+revise the doc, take it to ev-shindin, or (if approved) start implementation.
+Path B is the preferred direction but both paths kept in the doc for the
+reviewer discussion.
 
 ### engine-queue-fix
 
@@ -349,3 +370,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
+| Dean (self) | `planning/PR1113-review.md` | DRAFT (WIP) | PR #1113 fix design — Item 1 reframed around recalibration with Path A / Path B; Item 2 flipped from Option A to Option C; Item 3 unchanged. Appendix A (Combiner) and Appendix B (threshold passing) added. Pending Dean's approval before reviewer discussion or implementation |
