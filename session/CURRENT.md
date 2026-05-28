@@ -1,8 +1,60 @@
 # Current Work
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-29
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state.
+
+---
+
+## Last session (PR1113): design settled — 3-PR split, scale-down independence, rebase-impact integration
+
+Two-day arc on `planning/PR1113-review.md` produced a settled fix design. Key outcomes:
+
+- **Item 1 — direction settled:** delete the engine-side combine entirely; pass
+  `[]NamedAnalyzerResult` through to the optimizers via `ModelScalingRequest`.
+  Each optimizer consumes the per-analyzer slice via shared free functions in
+  `pipeline/` (`needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`,
+  `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation`,
+  `allocateForModel`). No new public interface, no helper object, no
+  Combiner — the slice itself is the working state, mutated in place during
+  allocation. Pickers are the only optimizer-specific bit (cost-greedy for
+  CostAware; fair-share-bounded for Greedy).
+- **Item 2 — direction settled:** engine post-processes RC/SC for **all**
+  analyzers using the universal formula `RC = max(0, TotalDemand/scaleUp − TotalSupply)`
+  / `SC = max(0, TotalSupply − TotalDemand/scaleDown)` with the model's
+  global thresholds. Per-analyzer override resolution and the
+  `ThresholdApplied` opt-out flag are deferred to follow-up PRs (captured
+  in Appendix B as design context, not lost).
+- **Item 3 — direction settled:** snapshot `analyzers` to a frozen slice on
+  `StartOptimizeLoop`; `started bool` causes late `RegisterAnalyzer` to panic.
+- **Implementation roadmap — 3 PRs / 7 commits.** Race-safe registration PR
+  (1 commit, fresh) + Universal threshold calibration PR (1 commit, fresh)
+  + Optimizer redesign PR (5 commits, force-push to #1113 with retitled
+  description). The first two land independently; the redesign rebases over
+  whatever has merged. Tracking-issue draft for the redesign PR captured in
+  Appendix C.
+- **Scale-down framing redrafted (today):** each model is processed
+  **independently** — no shared scarce resource exists during scale-down
+  (cluster GPU budget only grows), `SC_i ≥ 0` is local to each model's
+  slice, no per-(variant) cross-model `MinReplicas` floor. So no inter-model
+  fair-share, ordering, or prioritization. Future direction kept: smart
+  Greedy scale-down that picks variants to maximize future scale-up
+  opportunity (the one place a cross-model view matters for scale-down).
+- **Rebase-impact integration (today):** Dean fast-forwarded `main` to
+  `589646d7` (33 upstream commits). Research-agent handoff (now consumed)
+  validated the design against new main: no item-level redesign needed.
+  Surfaced one refinement: Item 2's deletion scope grows — both the
+  override-resolution loop at `engine_v2.go:87-100` (precursor on main
+  today) and the override-application wrapper at `:206-214` (added by
+  #1113) become dead code under the universal post-step. Caveats note
+  added for PR #1026's `"unknown"` accelerator sentinel; migration audit
+  footnoted with `TryAllocate(ctx, ...)` signature change.
+- **Latest commit on plans:** `ccd64983` — scale-down independence + rebase
+  integration. 4 commits ahead of `origin/plans`.
+
+Doc is no longer WIP-with-open-questions; it's design-settled and ready for
+either reviewer discussion or implementation kickoff. Status header on the
+doc still says DRAFT pending Dean's final approval.
 
 ---
 
@@ -44,7 +96,9 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
-| engine-multi-analyzer | #1113 | CI ✅ all green; CHANGES_REQUESTED by ev-shindin; fix design WIP   | `a93bc5d` |
+| engine-multi-analyzer | #1113 | CI ✅ green; CHANGES_REQUESTED by ev-shindin; reframed as **analyzer-registration PR** (race fix added as new commit) | `a93bc5d` |
+| multi-analyzer-threshold | — | Local + origin; empty branch off `main`@`589646d7`; coder session pending (Item 2) | `589646d7` |
+| multi-analyzer-optimizer | — | Local + origin; empty branch off `main`@`589646d7`; coder session pending (Item 1) | `589646d7` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
 
 ---
@@ -181,6 +235,30 @@ Next step:
 
 ---
 
+## Multi-Analyzer Split — coder sessions
+
+Three branches, three parallel coder sessions, one per item from
+`planning/PR1113-review.md` Implementation roadmap. All three sessions are
+governed by **`planning/multi-analyzer-coder-rules.md`** (worktree scope,
+no pushes, dev-guide updates, handoff files, WIP-until-Dean-reviews).
+
+| Branch | Worktree | Item | Roadmap section in PR1113-review.md |
+|---|---|---|---|
+| `engine-multi-analyzer` | `engine-multi-analyzer/` | Item 3 — analyzer registration; race-fix commit | "Item 3 — `RegisterAnalyzer` race fix" |
+| `multi-analyzer-threshold` | `multi-analyzer-threshold/` | Item 2 — engine universal threshold post-step | "Item 2 — engine universal threshold post-step" |
+| `multi-analyzer-optimizer` | `multi-analyzer-optimizer/` | Item 1 — delete combine; per-analyzer slice → optimizers | "Item 1 — delete combine; per-analyzer slice flows to optimizers" |
+
+`multi-analyzer-threshold` and `multi-analyzer-optimizer` are empty branches
+off `main`@`589646d7` (pushed to origin with upstream tracking, no PR
+created). `engine-multi-analyzer` already has #1113's three commits and gets
+the race-fix commit on top.
+
+After each coder session, the agent writes a handoff to
+`session/handoffs/<branch>-<topic>.md`. Dean reviews, then the plan-agent
+runs `/sync-current` to apply.
+
+---
+
 ## ENGINE PRs
 
 ### engine-multi-analyzer (PR #1113)
@@ -194,26 +272,40 @@ Next step:
 - `db59b53` — docs: Multi-Analyzer Pipeline section in `saturation-scaling-config.md` and `saturation-analyzer.md`
 - `a93bc5d` — `RegisterAnalyzer(name, interfaces.Analyzer)` method on `Engine`
 
-**Review status (2026-05-26):** CHANGES_REQUESTED by ev-shindin on three items
+**Review status (2026-05-29):** CHANGES_REQUESTED by ev-shindin on three items
 (`engine_v2.go:140` RC normalization, `:206` threshold scope, `engine.go:231`
 register-analyzer race). CI green. Fix design at `planning/PR1113-review.md`
-status DRAFT — **WIP, pending Dean's approval before reviewer discussion or
-implementation**. Latest revision (2026-05-26) reframes Item 1 around the
-recalibration problem (single-scalar `remaining` cannot model partial
-allocation across multi-analyzer per-variant `PerReplicaCapacity` matrix),
-documents Path A (minimal: keep `Score × satTotal`, defer recalibration) and
-Path B (preferred: engine returns a `Combiner` with `AfterAllocation(v, n)`
-arithmetic recalibration; dimensionless Score and gates; optimizer simplifies).
-Item 2 recommendation flipped from Option A (remove threshold fields) to
-Option C (thread to all analyzers — thresholds are universally meaningful as
-utilization fractions, per-analyzer overrides legitimate). Item 3 unchanged
-(Option C: snapshot on `StartOptimizeLoop`). Appendix A sketches the
-`Combiner` interface; Appendix B sketches threshold-passing options.
+status DRAFT — **design settled, pending Dean's final approval before
+reviewer discussion or implementation**. Re-validated against rebased main
+`589646d7` on 2026-05-29; no item-level redesign needed.
 
-**Next session:** Dean to read updated `planning/PR1113-review.md`, then either
-revise the doc, take it to ev-shindin, or (if approved) start implementation.
-Path B is the preferred direction but both paths kept in the doc for the
-reviewer discussion.
+Settled design (per-item):
+- **Item 1:** delete engine-side combine; pass `[]NamedAnalyzerResult` to
+  optimizers via `ModelScalingRequest`. Shared free functions in `pipeline/`
+  (`needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`,
+  `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation`,
+  `allocateForModel`). No new public interface, no Combiner. Slice
+  mutated in place. Pickers are the only optimizer-specific divergence.
+  Scale-down processes each model independently (no shared scarce resource).
+- **Item 2:** engine post-processes RC/SC for all analyzers using universal
+  formula with the model's global thresholds. Deletes BOTH saturation-only
+  blocks: override-resolution loop at `engine_v2.go:87-100` (precursor on
+  main) and override-application wrapper at `:206-214` (added by #1113).
+  Per-analyzer overrides + `ThresholdApplied` flag deferred to follow-up
+  PRs (captured in Appendix B).
+- **Item 3:** snapshot `analyzers` on `StartOptimizeLoop`; `started bool`
+  → late `RegisterAnalyzer` panics.
+
+Implementation roadmap: **3 PRs / 7 commits.** Race-safe registration PR
+(1 commit, fresh) + Universal threshold calibration PR (1 commit, fresh) +
+Optimizer redesign PR (5 commits, force-push to #1113 with retitled
+description and tracking issue from Appendix C). First two land independently;
+redesign rebases over whatever has merged.
+
+**Next session:** Dean to give final approval on `planning/PR1113-review.md`,
+then either take it to ev-shindin (preferred — get reviewer alignment on the
+3-PR split before any implementation) or kick off the race-safe registration
+PR (smallest, self-contained, ev-shindin's `engine.go:231` thread).
 
 ### engine-queue-fix
 
@@ -372,4 +464,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
-| Dean (self) | `planning/PR1113-review.md` | DRAFT (WIP) | PR #1113 fix design — Item 1 reframed around recalibration with Path A / Path B; Item 2 flipped from Option A to Option C; Item 3 unchanged. Appendix A (Combiner) and Appendix B (threshold passing) added. Pending Dean's approval before reviewer discussion or implementation |
+| Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on delete-combine + per-analyzer slice (Item 1), engine universal threshold post-step (Item 2), snapshot-on-Start (Item 3). 3-PR / 7-commit roadmap. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |

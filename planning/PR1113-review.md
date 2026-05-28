@@ -77,6 +77,20 @@ would cause a data race that silently corrupts rather than panics.
       in `StartOptimizeLoop` before the goroutine launches; `started` bool causes
       late `RegisterAnalyzer` to panic. The snapshot step is the natural place to
       call any future per-analyzer `Init(ctx)`.
+- [ ] **When responding to the PR — explain the 3-PR split to ev-shindin.** The
+      original PR addresses three independent issues raised in one review thread,
+      but the fixes have very different scope and risk: the race fix and the
+      threshold-scope fix are 1-commit, self-contained, low-risk; the combine
+      deletion is a structural redesign of the engine→optimizer interface
+      (5 commits, touches both optimizers and migrates 31 tests). Bundling all
+      three blocks the small fixes behind reviewer alignment on the redesign.
+      Splitting lets the small fixes land quickly and surfaces the redesign
+      with its own focused issue + PR description for cleaner review. Rationale
+      to surface in the response: (1) per-comment thread closure — each PR
+      closes exactly one of ev-shindin's three review threads; (2) reviewable
+      diff size — small PRs get reviewed faster; (3) merge ordering — small
+      fixes don't gate or get gated by the redesign, the redesign rebases over
+      whatever has merged. See Implementation roadmap for the split.
 
 ---
 
