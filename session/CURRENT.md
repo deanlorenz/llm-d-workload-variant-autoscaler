@@ -2,6 +2,8 @@
 
 **Last updated:** 2026-05-26
 
+> ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state.
+
 ---
 
 ## Last session: Benchmark plan deep-dive — saturation_v2, simultaneous-saturation trap, L40+H100
