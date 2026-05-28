@@ -5,6 +5,7 @@
 **PR:** [engines/saturation: generic multi-analyzer pipeline with any-up/all-down combine](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1113)
 **Head:** `a93bc5d`
 **Reviewed:** 2026-05-20
+**Re-validated:** 2026-05-29 against main `589646d7` (post fast-forward, 33 upstream commits since the original review base `cf649c84`). No item-level redesign needed; line numbers in `engine.go` shift slightly post-rebase. See per-item notes below.
 
 ---
 
@@ -118,9 +119,15 @@ Shared pure functions over `[]NamedAnalyzerResult`:
 - `bottleneckReplicas(s, v)` = `max_i(ceil(RC_i / PRC[i][v]))` — replicas of
   variant `v` needed to close the worst-stressed analyzer's *calibrated* gap.
   PRC is read directly from `s[i].Result.VariantCapacities[v].PerReplicaCapacity`.
-- `applyAllocation(s, v, n)` — mutate the slice for the addition of n replicas
-  of `v` (`TotalSupply`, `RequiredCapacity`, `SpareCapacity` arithmetic per
-  analyzer).
+- `safeRemovalReplicas(s, v)` = `min_i(floor(SC_i / PRC[i][v]))` — most
+  replicas of `v` we can remove while keeping every analyzer's `SC_i ≥ 0`
+  (scale-down companion to `bottleneckReplicas`).
+- `applyAllocation(s, v, n)` — mutate the slice for the addition of n
+  replicas of `v` (`TotalSupply`, `RequiredCapacity`, `SpareCapacity`
+  arithmetic per analyzer).
+- `applyDeallocation(s, v, n)` — mutate the slice for the removal of n
+  replicas of `v` (symmetric companion to `applyAllocation`; decreases
+  `TotalSupply` and `SpareCapacity` by `n × PRC` per analyzer).
 
 The inner allocation loop is itself shared: pick a variant, compute n, cap by
 `maxReplicas` and other constraints, mutate the slice, repeat until the gate
@@ -173,6 +180,12 @@ already available from each analyzer's `VariantCapacities`.
 is the next PR. The structural gap left by a `totalWeighted`-only fix would bite
 immediately on that PR. Deleting the combine now removes that gap.
 
+TA's analyzer package landed on main via PR #1052 (TA2, merged 2026-05-19); only
+the engine-side wiring (TA3 PR-5: `RegisterAnalyzer` + `RegisterThroughputAnalyzerQueries`
+calls in `main.go`) remains. The combine bug becomes a production concern as soon
+as #1113 *and* TA3 PR-5 both land on main, which makes the per-analyzer-slice fix
+the right scope for #1113 itself rather than a follow-up.
+
 **Alternative considered: minimal `totalWeighted` fix.** Normalize `totalWeighted`
 inside the `t > 0` branch with `(RC_i / T_i) * score_i`; keep
 `Score = priority * totalWeighted * satTotal` for backward compat with the existing
@@ -202,11 +215,17 @@ queueing-model analyzer may translate "target utilization" through a non-linear 
 between replicas and latency. The analyzer encapsulates *how* to apply the threshold;
 the engine just owns the *value*.
 
-**The bug.** The current code at `engine_v2.go:206–214` applies per-entry threshold
-overrides only to the saturation entry; non-saturation entries' overrides are
-silently dropped. `Validate()` checks both fields for all entries and the doc
-table claims they "override global" — so the API promises something the engine
-doesn't deliver.
+**The bug.** The same anti-pattern exists in two places. On main today
+(`engine_v2.go:87–100`, predating #1113) a per-analyzer threshold-override
+**resolution** loop walks `config.Analyzers` and only honors entries whose
+`Name == interfaces.SaturationAnalyzerName` — saturation overrides take
+effect, every other analyzer's overrides are silently dropped at resolution
+time. PR #1113 then layers a multi-analyzer wrapper that applies the resolved
+threshold (`engine_v2.go:206–214`) only to the saturation result, again
+saturation-only. Net effect: `Validate()` checks both fields for all entries
+and the doc table claims they "override global," but the engine never
+honors them for any analyzer except saturation, neither at resolution nor
+at application.
 
 **The fix (this PR) — engine applies the universal formula to all analyzers
 using global thresholds.** After each analyzer returns, the engine post-processes
@@ -216,9 +235,11 @@ and the universal formula on the analyzer's raw signals:
 `SC = max(0, TotalSupply − TotalDemand/scaleDown)`. Both inputs are already on
 `AnalyzerResult`. Every analyzer's RC/SC is now calibrated by the engine using
 the same logic that saturation_v2 currently applies in-analyzer, applied
-universally. The saturation-only override block at `engine_v2.go:206–214` is
-deleted. Saturation_v2's in-analyzer formula becomes redundant under the engine
-post-step (same inputs, same output) and can be simplified out in a follow-up.
+universally. Both saturation-only blocks are deleted: the override-resolution
+loop at `engine_v2.go:87–100` (precursor on main) and the override-application
+wrapper at `engine_v2.go:206–214` (added by #1113). Saturation_v2's in-analyzer
+formula becomes redundant under the engine post-step (same inputs, same output)
+and can be simplified out in a follow-up.
 
 **Implementation note.** Verify that `SaturationScalingConfig.ScaleUpThreshold` /
 `ScaleDownBoundary` are intended as model-level globals (apply to all analyzers
@@ -296,19 +317,27 @@ unaffected). Move tests; do not remove until parity coverage exists at the new l
 
 - **`pipeline/` shared helpers (new file).** Free functions over the
   `[]NamedAnalyzerResult` slice the engine hands to the optimizer:
-  `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas(s, v)`,
-  `applyAllocation(s, v, n)`. Plus a shared inner allocation loop parameterized
-  by a `pickVariant` callback. Private to the pipeline package. Mutation is
-  in-place on the slice's `AnalyzerResult` fields (`RequiredCapacity`,
-  `SpareCapacity`, `TotalSupply`); the engine hands ownership to the optimizer
-  and no other reader exists. PRC is read directly from
-  `Result.VariantCapacities[v].PerReplicaCapacity`. RC/SC come from the analyzer
-  already calibrated by the engine universal post-step (Item 2).
+  - Gate predicates: `needsScaleUp(s)`, `needsScaleDown(s)`.
+  - Scale-up: `bottleneckReplicas(s, v)`, `applyAllocation(s, v, n)`.
+  - Scale-down: `safeRemovalReplicas(s, v)`, `applyDeallocation(s, v, n)`
+    (symmetric companions).
+  - Shared inner allocation loop parameterized by a `pickVariant` callback
+    (used for both directions; the picker selects the variant and direction-
+    appropriate cap on n).
+
+  Private to the pipeline package. Mutation is in-place on the slice's
+  `AnalyzerResult` fields (`RequiredCapacity`, `SpareCapacity`,
+  `TotalSupply`); the engine hands ownership to the optimizer and no other
+  reader exists. PRC is read directly from
+  `Result.VariantCapacities[v].PerReplicaCapacity`. RC/SC come from the
+  analyzer already calibrated by the engine universal post-step (Item 2).
 - **`saturation/engine_v2.go` — engine universal post-step.** After each
   analyzer's `Analyze()` returns, post-process `Result.RequiredCapacity` and
   `Result.SpareCapacity` using the universal formula and the model's global
-  threshold values from `SaturationScalingConfig`. Delete the saturation-only
-  override block at lines 206–214. Verify `SaturationScalingConfig.ScaleUpThreshold` /
+  threshold values from `SaturationScalingConfig`. Delete **both**
+  saturation-only blocks: the override-resolution loop at lines 87–100
+  (precursor on main today) and the override-application wrapper at lines
+  206–214 (added by #1113). Verify `SaturationScalingConfig.ScaleUpThreshold` /
   `ScaleDownBoundary` are model-level globals (not saturation-specific) and
   rename / move the fields if needed.
 - **`pipeline/greedy_score_optimizer.go`** — primary `Score` consumer today.
@@ -324,7 +353,9 @@ unaffected). Move tests; do not remove until parity coverage exists at the new l
   SpareCapacity,VariantCapacities}` reads with the working-copy slice + shared
   helpers. Provides a "cheapest viable variant" `pickVariant` to the shared inner
   loop. RC/SC magnitudes in reason strings (lines 285, 288) — pull from saturation's
-  entry by convention or drop from the message.
+  entry by convention or drop from the message. (Note: `TryAllocate` now takes
+  `ctx context.Context` as first param as of PR #1026 — mechanical pass-through,
+  not part of the redesign itself.)
 - **`pipeline/cost_aware_optimizer_test.go`** — add tests covering scale-up sizing
   and scale-down behavior over the per-analyzer slice; gate-rule coverage.
 - **`engine_combine_test.go`** — delete only after parity coverage exists at
@@ -346,6 +377,231 @@ unaffected). Move tests; do not remove until parity coverage exists at the new l
 
 ---
 
+## Implementation roadmap
+
+Three PRs total — split by item, processed in reverse order (simplest first).
+Each PR's commits are small enough that the reviewer can read them
+independently and confirm each does exactly what its message says. Each
+commit compiles cleanly and tests pass.
+
+**Three Multi-Analyzer support PRs:**
+
+- **Race-safe registration PR** — Item 3. Fresh PR, 1 commit. Closes
+  ev-shindin's `engine.go:231` thread. Smallest scope; can merge quickly.
+  Independent of the others.
+  Suggested title: `engines: race-safe analyzer registration (snapshot on Start)`.
+- **Universal threshold calibration PR** — Item 2. Fresh PR, 1 commit. Closes
+  ev-shindin's `engine_v2.go:206` thread. Small. Independent of the others.
+  Suggested title: `engines: universal threshold calibration for all analyzers`.
+- **Optimizer redesign PR** — Item 1. Retitle and force-push #1113. 5 commits.
+  Closes ev-shindin's `engine_v2.go:140` thread; supersedes the original
+  combine implementation. Steps:
+  1. Create the tracking issue (draft in Appendix C).
+  2. Force-push the 5 Item 1 commits onto `engine-multi-analyzer`.
+  3. Retitle #1113 and update its description to reference the tracking
+     issue and this design doc.
+  Suggested title: `engines/pipeline: per-analyzer signals through to optimizer`.
+
+The race-safe registration and universal threshold PRs can land in parallel;
+they don't gate the optimizer redesign PR and aren't gated by it. The
+optimizer redesign's force-push should rebase over whatever has merged at
+the time.
+
+### Item 3 — `RegisterAnalyzer` race fix (race-safe registration PR: 1 commit, self-contained)
+
+**Commit 3.1 — snapshot `analyzers` on `StartOptimizeLoop`; panic on late
+`RegisterAnalyzer`.**
+
+- Add `started bool` and `analyzersSnapshot []analyzerEntry` fields to
+  `Engine`. `analyzerEntry` is a small unexported struct binding name and
+  analyzer instance: `struct { name string; a interfaces.Analyzer }` (or
+  similar — pick what fits the existing iteration pattern in
+  `runAnalyzersAndScore`).
+- In `StartOptimizeLoop`: build `e.analyzersSnapshot` from `e.analyzers`
+  before launching the goroutine; set `started = true`. The optimize
+  goroutine and `runAnalyzersAndScore` iterate `e.analyzersSnapshot`,
+  never `e.analyzers`.
+- `RegisterAnalyzer` checks `started` and panics with a clear message on
+  a late call (e.g., `"RegisterAnalyzer called after StartOptimizeLoop"`).
+- Tests: panic on late call; analyzers registered before `Start` work as
+  before.
+
+Independent of Items 1 and 2.
+
+---
+
+### Item 2 — engine universal threshold post-step (universal threshold calibration PR: 1 commit, self-contained)
+
+**Commit 2.1 — engine applies the universal formula post-analyzer; delete
+the saturation-only override block.**
+
+- Verify `SaturationScalingConfig.ScaleUpThreshold` / `ScaleDownBoundary` are
+  intended as model-level globals; rename the struct or move the fields if
+  needed (mechanical; only one in-codebase consumer today).
+- After each analyzer's `Analyze()` returns, recompute `RC` and `SC` from
+  the analyzer's own `TotalDemand` / `TotalSupply` and the model's global
+  thresholds:
+  `RC = max(0, TotalDemand/scaleUp − TotalSupply)`,
+  `SC = max(0, TotalSupply − TotalDemand/scaleDown)`.
+- Saturation_v2's in-analyzer formula yields the same value under the same
+  inputs; behavior preserved. The in-analyzer formula can be simplified out
+  in a follow-up.
+- Delete **both** saturation-only blocks: the override-resolution loop at
+  `engine_v2.go:87–100` (precursor on main, predates #1113) and the
+  override-application wrapper at `engine_v2.go:206–214` (added by #1113).
+  Once the engine resolves and applies thresholds universally, both are
+  dead code.
+- Tests: post-step formula produces the expected RC/SC for representative
+  inputs; saturation_v2's effective output unchanged; non-saturation analyzers
+  now get calibrated RC/SC.
+
+Per-analyzer override resolution and the `ThresholdApplied` opt-out flag are
+deferred — see Future directions and Appendix B.
+
+Independent of Items 1 and 3.
+
+---
+
+### Item 1 — delete combine; per-analyzer slice flows to optimizers (optimizer redesign PR: 5 commits, force-push to #1113)
+
+The largest item. Broken into smaller commits so each can be confirmed in
+isolation. Each commit compiles and tests pass. Tracking issue draft in
+Appendix C.
+
+**Scale-down handling.** Goal: remove as much cost as possible. Constraint:
+after scale-down, every analyzer must stay below its scale-down threshold —
+equivalently, `SC_i ≥ 0` for every analyzer (since `SC_i = T_i − TotalDemand_i / scaleDownBoundary`, and `SC_i = 0` means utilization is exactly at the
+boundary, the limit we don't want to cross). The 0-boundary mirrors the
+non-negative variant capacity itself.
+
+Math: removing `n` replicas of variant `v` decreases each analyzer's `T_i`
+and `SC_i` by `n × PRC[i][v]`. To keep `SC_i ≥ 0` for all analyzers,
+`n ≤ min_i(floor(SC_i / PRC[i][v]))` — the analyzer for which `SC_i / PRC[i][v]`
+is smallest sets the cap (it would hit its scale-down boundary first).
+
+Structurally symmetric to scale-up: the same shared inner loop pattern
+operates over the per-analyzer slice, with companion helpers — the picker
+chooses which variant; `safeRemovalReplicas(s, v) = min_i(floor(SC_i / PRC[i][v]))`
+is the per-variant cap; `applyDeallocation(s, v, n)` decreases
+`TotalSupply` and `SpareCapacity` by `n × PRC` per analyzer. Per-analyzer
+recalibration applies during partial scale-down: the bottleneck analyzer
+(now: which has the smallest `SC_i / PRC` for the next variant being
+considered) can shift after each variant's removal.
+
+What differs from scale-up: scale-down processes **each model
+independently**. Scale-up models compete for a shared scarce resource (the
+cluster GPU budget) — the optimizer must order and bound contributions
+across models. Scale-down has no such shared resource: removing a replica
+from model A's variant `v` does not constrain model B's scale-down options,
+and vice versa. The `SC_i ≥ 0` constraint is local to a model's own
+per-analyzer slice; the cluster GPU budget only grows as replicas are
+removed, never shrinks. There is no per-(variant) cross-model `MinReplicas`
+floor to coordinate around either. So no inter-model fair-share, no
+ordering across models, no cross-model prioritization — each model's
+scale-down decision runs in isolation against its own slice.
+
+Both optimizers take the same path; they differ only in the picker:
+
+- `CostAwareOptimizer` — most-expensive viable variant first (drains cost
+  fastest); spill to next when that variant's `safeRemovalReplicas` reaches 0.
+- `GreedyByScoreOptimizer` — same most-expensive picker for now. A future
+  enhancement could let Greedy choose scale-down variants to maximize future
+  scale-up opportunity across competing models (free up scarce accelerators
+  that other models could use) — the one place where a cross-model view
+  would matter for scale-down. Noted in Future directions.
+
+**Commit 1.1 — add `NamedAnalyzerResult` type and parallel `AnalyzerResults`
+field on `ModelScalingRequest`.**
+
+- Define `NamedAnalyzerResult { Name, Score, Result *AnalyzerResult }` in
+  the `pipeline` package alongside `ModelScalingRequest` (the only consumer).
+- Add `ModelScalingRequest.AnalyzerResults []NamedAnalyzerResult` alongside
+  the existing `Result *AnalyzerResult`.
+- Engine populates both fields: `Result` via the existing
+  `combineAnalyzerResults`; `AnalyzerResults` by transforming the
+  `[]enabledAnalyzerResult` slice the engine already collects internally
+  in `runAnalyzersAndScore` (mechanical: each `enabledAnalyzerResult` →
+  `NamedAnalyzerResult { Name: aw.Name, Score: aw.Score, Result: ar.result }`).
+- Optimizers continue to read `Result`. No behavior change. Plumbing only.
+
+**Commit 1.2 — add shared helpers in `pipeline/`.**
+
+- New file (e.g. `pipeline/analyzer_helpers.go`): scale-up
+  (`needsScaleUp`, `bottleneckReplicas`, `applyAllocation`), scale-down
+  (`needsScaleDown`, `safeRemovalReplicas`, `applyDeallocation`),
+  `pickVariantFn`, `allocateForModel`. Sketches in Appendix A.
+- Unit tests for each helper. Test parity target: the 31 Ginkgo specs in
+  `engine_combine_test.go`. Migrate spec-by-spec at the right layer:
+  - **Helper-level tests (this commit)** — gate predicates (any-up /
+    all-down), replica sizing under multi-analyzer (`bottleneckReplicas` /
+    `safeRemovalReplicas`), arithmetic mutation (`applyAllocation` /
+    `applyDeallocation`), cold-start handling, cross-analyzer
+    dimensionless comparisons.
+  - **Optimizer-level tests (deferred to 1.4)** — specs that assert
+    `Score` values move there, since the helpers don't produce a Score.
+  Keep `engine_combine_test.go` intact through this commit; deleted in 1.5
+  once parity is in place.
+- Helpers are unused by optimizers at this commit. Just landing the
+  building blocks.
+
+**Commit 1.3 — migrate `CostAwareOptimizer` to per-analyzer slice + helpers.**
+
+- Switch `CostAwareOptimizer` to read `req.AnalyzerResults`.
+- Provide a cost-greedy `pickVariantFn`.
+- Replace `costAwareScaleUp` / `costAwareScaleDown` body with calls to
+  `allocateForModel`.
+- Update `cost_aware_optimizer_test.go`: gate-rule and replica-sizing
+  coverage over the per-analyzer slice. Pre-existing CostAware tests still
+  pass (they exercised the same outputs).
+- Greedy still uses the old `req.Result` path; both optimizers coexist on
+  the new+old fields.
+
+**Commit 1.4 — migrate `GreedyByScoreOptimizer` to per-analyzer slice +
+helpers.**
+
+- Switch `GreedyByScoreOptimizer` to read `req.AnalyzerResults`.
+- Add `fairShareValue(priority, s)` helper (private to the optimizer).
+- Provide a fair-share-bounded `pickVariantFn`.
+- Replace `fairShareScaleUp` / `allocateToVariants` with the shared inner
+  loop.
+- Update `greedy_score_optimizer_test.go`: gain optimizer-level tests
+  covering scenarios still in `engine_combine_test.go` (so that file can be
+  removed in 1.5 without losing coverage). Specs that assert fair-share
+  `Score` values land here (see Commit 1.2 note on test layer placement).
+- **P/D disaggregation handling.** Greedy's existing `allocateByRole`
+  distributes replicas between roles using `req.Result.RoleCapacities`. In
+  the new design (no combined `Result`): when `req.Disaggregated == true`,
+  the picker reads `RoleCapacities` from the analyzer that populates it.
+  `RoleCapacities` is on every `AnalyzerResult` by interface, but **today
+  only saturation_v2 fills it in** — TA and other analyzers leave it empty.
+  So in this PR the optimizer finds `RoleCapacities` on the saturation
+  entry of `s` as a matter of fact, not design choice. Once another
+  analyzer begins populating its own `RoleCapacities`, a cross-analyzer
+  aggregation strategy is needed (deferred — see Caveats).
+- Both optimizers now use the new path; the old combined `Result` is no
+  longer read.
+
+**Commit 1.5 — delete combine; rename `runAnalyzersAndScore` →
+`runAnalyzers`; remove the old fields and tests.**
+
+- Delete `combineAnalyzerResults` and `engine_combine_test.go` (parity
+  coverage now lives in 1.2 helper tests + 1.3 / 1.4 optimizer tests).
+- Rename `runAnalyzersAndScore` → `runAnalyzers`; engine no longer aggregates.
+- Drop `ModelScalingRequest.Result *AnalyzerResult`.
+- Drop `AnalyzerResult.Score` (no consumers left after 1.3 / 1.4).
+- Adjust `collectV2ModelRequest` to only populate `AnalyzerResults`.
+- Coordinate with the `engine-queue-fix` branch — the rename + signature
+  change here lands on top of #1113.
+
+---
+
+**Totals: 3 PRs / 7 commits** (race-safe registration: 1, universal threshold
+calibration: 1, optimizer redesign: 5). The first two land independently;
+the optimizer redesign is a force-push to #1113 once the tracking issue
+is filed.
+
+---
+
 ## Caveats (flagged, not fixed in this PR)
 
 - **Variant identity from saturation's `VariantCapacities`.** Cost,
@@ -354,6 +610,12 @@ unaffected). Move tests; do not remove until parity coverage exists at the new l
   entry. These are properties of the cluster and the variant, not of any
   analyzer; ideally they live in a separate cluster-state source. Pre-existing
   coupling, not introduced by this refactor. Note in the docs and leave for follow-up.
+  *Sentinel handling:* as of PR #1026, `AcceleratorName` may carry the
+  `"unknown"` sentinel rather than a real type when the cluster cannot resolve
+  the variant's accelerator at decision time. The optimizer should pass it
+  through verbatim; resolution happens later in
+  `DefaultLimiter.resolveUnknownAccelerators` (homogeneous: pick the only
+  type; heterogeneous: log + skip). No change to the redesign.
 - **`RoleCapacities` aggregation across analyzers.** Currently per-analyzer
   (saturation produces it via `aggregateByRole`). Greedy's P/D logic in
   `allocateByRole` consumes it. With multiple analyzers enabled, the
@@ -389,6 +651,15 @@ unaffected). Move tests; do not remove until parity coverage exists at the new l
   translate it internally into the per-analyzer threshold values appropriate
   for that analyzer's math. Captured here so the present "two numbers per
   analyzer" choice is understood as a starting point, not the final answer.
+- **Smart Greedy scale-down (multi-model foresight).** This PR has both
+  optimizers use the same most-expensive-first picker for scale-down.
+  Greedy could be smarter: choose scale-down variants to maximize future
+  scale-up opportunity across competing models — i.e., free up scarce
+  accelerators that other models are likely to need. This is the one
+  place where a cross-model view would matter for scale-down (otherwise
+  models scale down independently — see Item 1 scale-down handling).
+  Requires looking beyond the single model being scaled down and
+  considering the cluster's pending demand profile.
 
 ---
 
@@ -431,6 +702,8 @@ itself or by the engine fallback (Item 2 / `ThresholdApplied` flag).
 func needsScaleUp(s []NamedAnalyzerResult) bool       // any RC_i > 0
 func needsScaleDown(s []NamedAnalyzerResult) bool     // every analyzer with data has SC_i > 0
 
+// Scale-up sizing & mutation.
+//
 // bottleneckReplicas: replicas of variant v needed to close the worst-stressed
 // analyzer's calibrated gap.   max_i ceil(RC_i / PRC[i][v]).
 // PRC is read from s[i].Result.VariantCapacities[v].PerReplicaCapacity.
@@ -442,6 +715,21 @@ func bottleneckReplicas(s []NamedAnalyzerResult, v string) int
 //   Result.RequiredCapacity   = max(0, RequiredCapacity − n × p)
 //   Result.SpareCapacity     += n × p
 func applyAllocation(s []NamedAnalyzerResult, v string, n int)
+
+// Scale-down sizing & mutation (symmetric companions).
+//
+// safeRemovalReplicas: most replicas of variant v we can remove while
+// keeping every analyzer's SC_i ≥ 0.   min_i floor(SC_i / PRC[i][v]).
+func safeRemovalReplicas(s []NamedAnalyzerResult, v string) int
+
+// applyDeallocation: update s in place for the removal of n replicas of v.
+// For each analyzer i, with p = PerReplicaCapacity for v:
+//   Result.TotalSupply       -= n × p
+//   Result.SpareCapacity     -= n × p
+//   Result.RequiredCapacity   = max(0, recompute via universal formula)
+// (RC stays 0 by construction when n ≤ safeRemovalReplicas; the
+// max(0, ...) is defensive against picker bugs.)
+func applyDeallocation(s []NamedAnalyzerResult, v string, n int)
 ```
 
 **Shared inner allocation loop — picker is the only optimizer-specific bit:**
@@ -603,3 +891,95 @@ Honest API, no code restructuring, but rejected: a config field that
 explicitly lies for some entries (saturation-only behavior on a struct
 shared by all analyzers) is bad API shape when a clean implementation is
 achievable with small interface changes.
+
+---
+
+## Appendix C — Tracking issue draft for the optimizer redesign PR
+
+To be filed before force-pushing the optimizer redesign onto #1113.
+Captures the problem and proposed solution at a level a project maintainer
+or contributor can understand without reading the full design doc. The PR
+description points back at the issue.
+
+**Suggested title:** `engines/saturation: support multi-analyzer signals end-to-end in the optimizer pipeline`
+
+**Suggested labels:** `area/engine`, `area/optimizer`, `kind/design`.
+
+**Body:**
+
+> ## Problem
+>
+> #1113 introduces the multi-analyzer pipeline, letting the engine collect
+> outputs from multiple analyzers (saturation, ThroughputAnalyzer, …) per
+> model. The current engine combines those outputs into a single
+> `AnalyzerResult` (combined `RequiredCapacity`, `SpareCapacity`, `Score`)
+> before handing it to the optimizer. Two problems with that:
+>
+> 1. **The combine is dimensionally broken for multi-analyzer.** Raw RC
+>    values from analyzers with different unit scales (saturation in tokens,
+>    a future throughput analyzer in tok/s, etc.) are summed in a weighted
+>    fashion; the larger-magnitude analyzer dominates regardless of its
+>    score weight.
+> 2. **A single scalar `remaining` cannot model partial allocation under
+>    multi-analyzer.** A given variant might fully close one analyzer's gap
+>    while barely moving another's; the bottleneck shifts. The optimizer's
+>    current `remaining -= n × PerReplicaCapacity` math treats RC as one
+>    scalar in saturation units and has no way to recompute which analyzer
+>    is now the bottleneck after each allocation step.
+>
+> Audit findings sharpen the picture:
+>
+> - The combined result is consumed only by optimizers; the engine itself
+>   never reads combined RC / SC / Score for any of its own decisions.
+> - `CostAwareOptimizer` reads only RC / SC, used as scale-up / scale-down
+>   gates. It does not read `Score`.
+> - `GreedyByScoreOptimizer` is the only `Score` consumer. `Score` is its
+>   private fair-share metric, and must be recomputed against current
+>   per-analyzer state at every allocation step regardless — so a stored
+>   combined value adds no value over computing it on demand.
+> - The v1 saturation path (`engine.go:553`, `optimizeV1`) bypasses combine
+>   entirely; unaffected by this change.
+>
+> ## Proposed solution
+>
+> Delete the engine-side combine. Pass the per-analyzer slice through to
+> the optimizers; let each optimizer apply its own decision logic over a
+> working copy of the slice.
+>
+> - `ModelScalingRequest` carries `[]NamedAnalyzerResult` (one entry per
+>   enabled analyzer) instead of a single combined `Result`.
+> - `pipeline/` gets a small set of shared free functions over the slice:
+>   `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas(s, v)`,
+>   `applyAllocation(s, v, n)`. Plus a shared inner allocation loop
+>   parameterized by a `pickVariant` callback.
+> - `CostAwareOptimizer` and `GreedyByScoreOptimizer` differ only in the
+>   variant-picker (cost-greedy vs fair-share-bounded) and Greedy's outer
+>   inter-model fair-share loop.
+> - Helpers mutate the slice in place during allocation; the engine hands
+>   ownership at `Optimize` and no other reader exists.
+>
+> The engine collapses to "run analyzers, return slice." All allocation-time
+> logic lives in the pipeline package as free functions over the per-analyzer
+> slice — no new public interface, no helper object.
+>
+> Per-analyzer per-variant `PerReplicaCapacity` is already on the existing
+> analyzer API (`AnalyzerResult.VariantCapacities[].PerReplicaCapacity`),
+> so the redesign uses what's already there.
+>
+> ## Out of scope (deferred to follow-up issues / PRs)
+>
+> - Per-analyzer threshold override resolution.
+> - `ThresholdApplied` opt-out flag for analyzers with non-universal
+>   calibration math (ITL-based, queueing-model).
+> - Variant-identity decoupling — `Cost` / `AcceleratorName` / `Role`
+>   currently flow through saturation's analyzer result by convention; ideally
+>   they live in a separate cluster-state source.
+> - Multi-analyzer `RoleCapacities` aggregation strategy for P/D
+>   disaggregation.
+>
+> ## References
+>
+> - PR #1113 — combine pipeline; will be force-pushed with the redesign.
+> - Sibling fixes from the same review: race-safe registration PR
+>   (`RegisterAnalyzer` race) and universal threshold calibration PR (engine universal
+>   threshold post-step) addressing the other two review threads from #1113.
