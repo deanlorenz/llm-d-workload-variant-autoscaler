@@ -297,6 +297,21 @@ Lookup order: `modelID#namespace` → `default` → zero-value with defaults app
 > lookup**. The ConfigMap data key itself determines which model/namespace the override
 > applies to.
 
+## Multi-Analyzer Pipeline
+
+The saturation analyzer is pre-registered in the engine's analyzer registry
+under `interfaces.SaturationAnalyzerName` and runs on every cycle. Other
+analyzers (e.g. throughput, SLO) can be plugged in via
+`engine.RegisterAnalyzer`, but on this branch saturation's signals are the
+only ones the optimizer consumes — non-saturation analyzers are invoked
+each cycle but their results are not yet combined into the scaling
+decision. The saturation analyzer's `VariantCapacities` carry `Cost` and
+`AcceleratorName`, which the optimizer uses for variant selection and GPU
+accounting.
+
+See [saturation-scaling-config.md — Multi-Analyzer Registration](../saturation-scaling-config.md#multi-analyzer-registration)
+for the registration API and the per-analyzer config fields.
+
 ## Architecture
 
 ### Components
