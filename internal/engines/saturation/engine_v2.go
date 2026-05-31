@@ -73,8 +73,15 @@ func (e *Engine) runV2AnalysisOnly(
 	return result, nil
 }
 
-// runAnalyzersAndScore runs the V2 saturation analyzer, then computes the
-// weighted composite score from enabled analyzers and model priority.
+// runAnalyzersAndScore runs the V2 saturation analyzer, invokes every other
+// registered analyzer once per cycle to exercise the multi-analyzer pipeline,
+// and computes the weighted composite score from saturation's signal and the
+// model's priority.
+//
+// On this branch only saturation drives scaling decisions: non-saturation
+// analyzer results are intentionally discarded. Combine and per-analyzer
+// threshold consumption land in follow-up PRs (multi-analyzer-optimizer,
+// multi-analyzer-threshold).
 func (e *Engine) runAnalyzersAndScore(
 	ctx context.Context,
 	modelID, namespace string,
@@ -84,9 +91,13 @@ func (e *Engine) runAnalyzersAndScore(
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 ) (*interfaces.AnalyzerResult, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
 	// Resolve per-analyzer threshold overrides before running the analyzer.
 	// The saturation analyzer reads thresholds from the config, so we apply
-	// per-analyzer overrides to the config's top-level fields.
+	// per-analyzer overrides to the config's top-level fields. Only saturation
+	// overrides are honored today; per-analyzer overrides for other analyzers
+	// are tracked on the multi-analyzer-threshold branch.
 	for _, aw := range config.Analyzers {
 		if aw.Name == interfaces.SaturationAnalyzerName && (aw.Enabled == nil || *aw.Enabled) {
 			if aw.ScaleUpThreshold != nil {
@@ -99,14 +110,40 @@ func (e *Engine) runAnalyzersAndScore(
 		}
 	}
 
-	// Run saturation analyzer (always needed for PerReplicaCapacity)
+	// Run saturation analyzer (always needed for PerReplicaCapacity).
 	baseResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings)
 	if err != nil {
 		return nil, err
 	}
 
-	// Compute weighted score from enabled analyzers
+	// Build AnalyzerInput once; shared by all non-saturation analyzers.
+	input := interfaces.AnalyzerInput{
+		ModelID:        modelID,
+		Namespace:      namespace,
+		ReplicaMetrics: replicaMetrics,
+		VariantStates:  variantStates,
+		Config:         &config,
+		// SchedulerQueue: nil — wired in a later PR
+	}
+
+	// Iterate every registered analyzer in registration order. Saturation has
+	// already run above (with full args); the loop calls Analyze on every
+	// other registered analyzer to exercise the multi-analyzer pipeline.
+	// Their results are intentionally discarded on this branch — combine /
+	// per-analyzer-result consumption lands in follow-up PRs.
+	for _, entry := range e.analyzers {
+		if entry.name == interfaces.SaturationAnalyzerName {
+			continue
+		}
+		if _, err := entry.analyzer.Analyze(ctx, input); err != nil {
+			logger.Error(err, "registered analyzer failed; result discarded on this branch",
+				"name", entry.name, "modelID", modelID)
+		}
+	}
+
+	// Compute weighted score from enabled analyzers (saturation only on this
+	// branch — non-saturation analyzer results are not consumed yet).
 	totalWeighted := 0.0
 	for _, aw := range config.Analyzers {
 		if aw.Enabled != nil && !*aw.Enabled {
