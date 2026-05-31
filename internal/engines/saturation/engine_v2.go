@@ -127,12 +127,13 @@ func (e *Engine) runAnalyzersAndScore(
 		// SchedulerQueue: nil — wired in a later PR
 	}
 
-	// Iterate every registered analyzer in registration order. Saturation has
-	// already run above (with full args); the loop calls Analyze on every
-	// other registered analyzer to exercise the multi-analyzer pipeline.
-	// Their results are intentionally discarded on this branch — combine /
-	// per-analyzer-result consumption lands in follow-up PRs.
-	for _, entry := range e.analyzers {
+	// Iterate every registered analyzer in registration order via the frozen
+	// snapshot built by StartOptimizeLoop. Saturation has already run above
+	// (with full args); the loop calls Analyze on every other registered
+	// analyzer to exercise the multi-analyzer pipeline. Their results are
+	// intentionally discarded on this branch — combine / per-analyzer-result
+	// consumption lands in follow-up PRs.
+	for _, entry := range e.analyzersSnapshot {
 		if entry.name == interfaces.SaturationAnalyzerName {
 			continue
 		}

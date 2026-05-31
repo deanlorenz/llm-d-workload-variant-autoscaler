@@ -75,6 +75,19 @@ var _ = Describe("Engine analyzer registry", func() {
 			// position of subsequent entries is preserved
 			Expect(e.analyzers[2].name).To(Equal("slo"))
 		})
+
+		It("panics when called after StartOptimizeLoop has frozen the registry", func() {
+			e := &Engine{
+				analyzers: []analyzerEntry{
+					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
+				},
+				started: true,
+			}
+
+			Expect(func() {
+				e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			}).To(PanicWith("RegisterAnalyzer called after StartOptimizeLoop"))
+		})
 	})
 
 })
