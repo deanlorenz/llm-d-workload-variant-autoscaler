@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-05-29
+**Last updated:** 2026-06-01
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state.
 
@@ -96,21 +96,26 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
-| engine-multi-analyzer | #1113 | CI ✅ green; CHANGES_REQUESTED by ev-shindin; reframed as **analyzer-registration PR** (race fix added as new commit) | `a93bc5d` |
-| multi-analyzer-threshold | — | Local + origin; empty branch off `main`@`589646d7`; coder session pending (Item 2) | `589646d7` |
-| multi-analyzer-optimizer | — | Local + origin; empty branch off `main`@`589646d7`; coder session pending (Item 1) | `589646d7` |
-| engine-queue-fix      | —     | Local only (worktree); PR deferred until #1113 merges             | `01ed7d8` |
+| engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for run-1 wrap-up. | `fc403f75` |
+| multi-analyzer-registration | — | Local + origin; 3 commits on `main`@`eb327cc2`; **WIP pending Dean review** | `66001d47` |
+| multi-analyzer-threshold | — | Local + origin; 1 commit on top of `main`@`589646d7` (`51d7e7fa` — universal threshold calibration); WIP pending Dean review | `51d7e7fa` |
+| multi-analyzer-optimizer | — | Local + origin; tip `a93bc5dc` (old engine reflog); will retarget rebase onto `multi-analyzer-registration` once that lands; coder session pending (Item 1) | `a93bc5dc` |
+| engine-queue-fix      | —     | Local only (worktree); PR deferred — will rebase onto whichever Item 3 PR merges | `01ed7d8` |
 
 ---
 
 ## Blocked on
 
-- **#1113 (engine-multi-analyzer)** — e2e-smoke pending; awaiting review; engine-queue-fix PR waits on this
+- **multi-analyzer-registration** — runs 1+2 complete; tip `66001d47` (3 commits on `main`@`eb327cc2`); WIP pending Dean review. PR #1113 stays open until Dean closes it post-migration.
+- **engine-queue-fix** — waits for whichever Item 3 PR (was #1113, now multi-analyzer-registration) merges first.
 
 ## Next steps
 
-- **Now:** rebase TA3 onto upstream/main, then discuss TA3 PR-4+PR-5 before submitting
-- After #1113 merges: open engine-queue-fix PR (force-push `01ed7d8` after rebasing onto new main tip)
+- **Now:** Dean reviews `multi-analyzer-registration` tip `66001d47` (3 commits: plumbing + docs + race-fix snapshot). After approval, push to origin and open the new PR; coordinate with ev-shindin to close #1113.
+- After review: kick off the `multi-analyzer-optimizer` coder (Item 1) — its rebase target is now `multi-analyzer-registration`'s tip; resume-sync handoff already written.
+- After Item 3 PR merges: open engine-queue-fix PR (rebase `01ed7d8` onto new main tip).
+- The `engine-multi-analyzer` worktree's run-1 wrap-up is now complete (recovery snapshot consumed by Run-2); worktree can be removed at Dean's discretion.
+- **Other:** rebase TA3 onto upstream/main, then discuss TA3 PR-4+PR-5 before submitting.
 - **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark plan drafted at `planning/benchmark-wva-vs-keda-plan.md`. **Do not start coding.** The plan needs review + explicit go-ahead from Dean before any implementation begins — see the Benchmark section below.
 
 ---
@@ -244,14 +249,21 @@ no pushes, dev-guide updates, handoff files, WIP-until-Dean-reviews).
 
 | Branch | Worktree | Item | Roadmap section in PR1113-review.md |
 |---|---|---|---|
-| `engine-multi-analyzer` | `engine-multi-analyzer/` | Item 3 — analyzer registration; race-fix commit | "Item 3 — `RegisterAnalyzer` race fix" |
+| `multi-analyzer-registration` | `multi-analyzer-registration/` | Item 3 — analyzer registration; race-fix commit (fresh build off current main) | "Item 3 — `RegisterAnalyzer` race fix" |
 | `multi-analyzer-threshold` | `multi-analyzer-threshold/` | Item 2 — engine universal threshold post-step | "Item 2 — engine universal threshold post-step" |
 | `multi-analyzer-optimizer` | `multi-analyzer-optimizer/` | Item 1 — delete combine; per-analyzer slice → optimizers | "Item 1 — delete combine; per-analyzer slice flows to optimizers" |
 
-`multi-analyzer-threshold` and `multi-analyzer-optimizer` are empty branches
-off `main`@`589646d7` (pushed to origin with upstream tracking, no PR
-created). `engine-multi-analyzer` already has #1113's three commits and gets
-the race-fix commit on top.
+All three branches are pushed to origin with upstream tracking.
+`multi-analyzer-registration` has 3 commits on `main`@`eb327cc2` (tip `66001d47`,
+WIP pending Dean review);
+`multi-analyzer-threshold` has 1 commit on `main`@`589646d7`;
+`multi-analyzer-optimizer` is at `a93bc5dc` (will retarget rebase to
+`multi-analyzer-registration`'s tip).
+
+The old `engine-multi-analyzer` branch (PR #1113) is **superseded** by
+`multi-analyzer-registration` and retained only for run-1 wrap-up by the
+coder agent. PR #1113 will be closed by Dean after coordinating with
+ev-shindin.
 
 After each coder session, the agent writes a handoff to
 `session/handoffs/<branch>-<topic>.md`. Dean reviews, then the plan-agent
@@ -261,25 +273,41 @@ runs `/sync-current` to apply.
 
 ## ENGINE PRs
 
-### engine-multi-analyzer (PR #1113)
+### multi-analyzer-registration (Item 3 — fresh build, supersedes PR #1113)
 
-**Branch:** `engine-multi-analyzer` in worktree `engine-multi-analyzer/`  
-**Targets:** `main` — independent of all TA branches, no TA code included.  
-**Tip:** `a93bc5d` (post DCO+gofmt interactive-rebase fix, force-pushed 2026-05-10)
+**Branch:** `multi-analyzer-registration` in worktree `multi-analyzer-registration/`
+**Targets:** `main` — independent of all TA branches and sibling Item 1/2 branches.
+**Tip:** `66001d47` (3 commits on `main`@`eb327cc2`); **WIP pending Dean review**, no push attempted.
 
-**Three commits:**
-- `5bbe8af` — implementation: generic `analyzers` map, `runAnalyzersAndScore()`, `combineAnalyzerResults()` any-up/all-down, `engine_combine_test.go` (31 specs)
-- `db59b53` — docs: Multi-Analyzer Pipeline section in `saturation-scaling-config.md` and `saturation-analyzer.md`
-- `a93bc5d` — `RegisterAnalyzer(name, interfaces.Analyzer)` method on `Engine`
+**Commits landed (2026-06-01):**
+1. `3a0dff86` — `engines/saturation: multi-analyzer registration plumbing`
+   — `analyzerEntry { name, analyzer }` + `analyzers []analyzerEntry`; saturation pre-registered at slot 0; `RegisterAnalyzer` panics on duplicate name; loop iterates `e.analyzers`, skips saturation, calls `Analyze` on others, `defer recover()` per registered analyzer (errors + panics logged), results discarded. Tests T1, T2, T3, T6, T7, T8.
+2. `6b4f2b8f` — `docs: document analyzer registration mechanism`
+   — adds "V2 Analyzer Parameters" + "Multi-Analyzer Registration" sections to `docs/developer-guide/saturation-scaling-config.md`. `docs/user-guide/saturation-analyzer.md` is N/A on current main (entire `user-guide/` directory removed upstream — flagged in commit body).
+3. `66001d47` — `engines/saturation: race-safe analyzer registration via snapshot`
+   — adds `analyzersSnapshot []analyzerEntry` and `started bool`; `RegisterAnalyzer` first-line panics if `started`; `StartOptimizeLoop` snapshots + flips `started` BEFORE `recordActiveOptimizer()` / `SetConfigOptimizationInterval` / `executor.Start(ctx)`. Loop iteration source switches to snapshot. Tests T4, T5, T9.
 
-**Review status (2026-05-29):** CHANGES_REQUESTED by ev-shindin on three items
-(`engine_v2.go:140` RC normalization, `:206` threshold scope, `engine.go:231`
-register-analyzer race). CI green. Fix design at `planning/PR1113-review.md`
-status DRAFT — **design settled, pending Dean's final approval before
-reviewer discussion or implementation**. Re-validated against rebased main
-`589646d7` on 2026-05-29; no item-level redesign needed.
+**Verified:** gofmt clean, vet clean, build clean, full unit-test sweep green, saturation pkg green under `-race` (~7s), DCO sign-off on all 3 commits.
 
-Settled design (per-item):
+**Test deviation:** T10 ("saturation result flows to optimizer regardless") verified by code inspection rather than behavioral test (would need a fully wired saturation pipeline). Easy to add as follow-up if reviewer asks.
+
+### engine-multi-analyzer (PR #1113 — superseded)
+
+**Branch:** `engine-multi-analyzer` in worktree `engine-multi-analyzer/`
+**Tip:** `fc403f75` (3 commits on `main`@`e92684b8`)
+
+Three commits (`f82ed566` plumbing, `a412f676` docs, `fc403f75` race-fix)
+landed on top of `e92684b8` per the original "reframe + race-fix" plan,
+but two corrections from Dean's 2026-06-01 review (panic on duplicate
+name + backfill T1–T10 tests) and the desire for a clean off-current-main
+PR have moved Item 3 to `multi-analyzer-registration`. This branch +
+worktree are retained as **reference material** for run-1 of the migration
+and for sibling-agent code lookups via `git -C ../engine-multi-analyzer show`.
+
+PR #1113 stays open until Dean closes it after coordinating with ev-shindin
+on the new PR.
+
+Settled design (per-item) for the 3-PR split:
 - **Item 1:** delete engine-side combine; pass `[]NamedAnalyzerResult` to
   optimizers via `ModelScalingRequest`. Shared free functions in `pipeline/`
   (`needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`,
@@ -294,24 +322,14 @@ Settled design (per-item):
   Per-analyzer overrides + `ThresholdApplied` flag deferred to follow-up
   PRs (captured in Appendix B).
 - **Item 3:** snapshot `analyzers` on `StartOptimizeLoop`; `started bool`
-  → late `RegisterAnalyzer` panics.
-
-Implementation roadmap: **3 PRs / 7 commits.** Race-safe registration PR
-(1 commit, fresh) + Universal threshold calibration PR (1 commit, fresh) +
-Optimizer redesign PR (5 commits, force-push to #1113 with retitled
-description and tracking issue from Appendix C). First two land independently;
-redesign rebases over whatever has merged.
-
-**Next session:** Dean to give final approval on `planning/PR1113-review.md`,
-then either take it to ev-shindin (preferred — get reviewer alignment on the
-3-PR split before any implementation) or kick off the race-safe registration
-PR (smallest, self-contained, ev-shindin's `engine.go:231` thread).
+  → late `RegisterAnalyzer` panics. **Plus:** duplicate-name panic, T1–T10
+  test backfill (handled on `multi-analyzer-registration`).
 
 ### engine-queue-fix
 
-**Branch:** `engine-queue-fix` (stacked on `engine-multi-analyzer`; worktree `engine-queue-fix/`)  
-**Tip:** `01ed7d8` (1 commit ahead of engine-multi-analyzer)  
-**PR:** not yet opened — waiting for #1113 to merge  
+**Branch:** `engine-queue-fix` (was stacked on `engine-multi-analyzer`; worktree `engine-queue-fix/`)
+**Tip:** `01ed7d8`
+**PR:** not yet opened — waiting for the Item 3 PR (now `multi-analyzer-registration`) to merge; will rebase onto whatever main tip is current at that point.
 **What it adds:** calls `CollectSchedulerQueueMetrics(ctx, modelID)` in `prepareModelData`; threads result through `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
 
 ---
@@ -455,6 +473,8 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable; file as Makefile bug
 - **ndots fix standalone PR** — commit `0614d9d` on TA3 (`test/e2e/fixtures/workload_builder.go`) needs its own PR to `main` before or alongside TA3 merge
 
+- **Per-analyzer observability metrics** — once `multi-analyzer-optimizer` merges and `[]NamedAnalyzerResult` is flowing to the optimizers, expose each analyzer's per-VA demand/capacity as Prometheus gauges labeled by `analyzer_name` (in addition to existing variant/namespace labels). Suggested names: `wva_analyzer_required_capacity{analyzer_name,...}`, `wva_analyzer_spare_capacity{...}`, `wva_analyzer_utilization{...}`, mirroring the saturation-only PR #933 gauges (`wva_saturation_utilization`, `wva_spare_capacity`, `wva_required_capacity`) but generalized across the registered analyzer set. Today's metrics are saturation-only; nothing in open/merged PRs (#933, #1073, #1089, #1070, #1081, #1190) covers the multi-analyzer surface. Coordinate with the freshness-gauge pattern from PR #1190 (`wva_saturation_metrics_up`) — likely add `wva_analyzer_metrics_up{analyzer_name,...}` in the same style.
+
 ---
 
 ## Pending handoffs
@@ -465,3 +485,5 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on delete-combine + per-analyzer slice (Item 1), engine universal threshold post-step (Item 2), snapshot-on-Start (Item 3). 3-PR / 7-commit roadmap. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
+| Dean (self) | `session/handoffs/multi-analyzer-threshold-coder-rules-gap.md` | OPEN | Plan-agent decision pending: whether/how to restate CONVENTIONS' "no `cd`/`-C` to a sibling worktree for git" rule operationally inside `planning/multi-analyzer-coder-rules.md`. 4 options listed in the handoff |
+| multi-analyzer-optimizer agent | `session/handoffs/multi-analyzer-optimizer-resume-sync.md` | READY | Registration tip is now `66001d47` (3 commits on current main); threshold landed at `51d7e7fa` with `TotalAnticipatedSupply` field. Optimizer's rebase target updates to `multi-analyzer-registration`'s tip |
