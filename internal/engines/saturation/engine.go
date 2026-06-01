@@ -52,6 +52,14 @@ import (
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils/scaletarget"
 )
 
+// analyzerEntry binds a registered analyzer to its name. The engine stores
+// these in registration order so runAnalyzersAndScore iterates analyzers
+// deterministically.
+type analyzerEntry struct {
+	name     string
+	analyzer interfaces.Analyzer
+}
+
 // v1Analyzer is the minimal surface of *saturation.Analyzer that optimizeV1
 // depends on. Defined here so tests can substitute a stub via Engine's
 // v1AnalyzerFactory field without exposing a public interface.
@@ -128,6 +136,7 @@ type Engine struct {
 	metricsRegistry *source.SourceRegistry
 
 	// saturationV2Analyzer is the V2 token-based saturation analyzer (initialized once).
+	// Also pre-registered in analyzers under interfaces.SaturationAnalyzerName.
 	saturationV2Analyzer *saturation_v2.SaturationAnalyzer
 
 	// queueingModelAnalyzer is the queueing model-based analyzer (initialized once).
@@ -136,6 +145,14 @@ type Engine struct {
 
 	// capacityStore is shared with the V2 analyzer for caching capacity knowledge.
 	capacityStore *saturation_v2.CapacityKnowledgeStore
+
+	// analyzers is the engine's analyzer registry, iterated in registration
+	// order by runAnalyzersAndScore. NewEngine pre-registers the V2 saturation
+	// analyzer; RegisterAnalyzer appends additional analyzers (e.g. throughput).
+	// Saturation always runs and drives scaling decisions; other registered
+	// analyzers are invoked but their results are not consumed yet — combine
+	// and per-analyzer threshold logic lands in follow-up PRs.
+	analyzers []analyzerEntry
 
 	// optimizer is the V2 scaling optimizer that produces VariantDecisions from
 	// AnalyzerResults. Selected per-cycle based on enableLimiter config:
@@ -170,6 +187,7 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	gpuLimiter := pipeline.NewDefaultLimiter("gpu-limiter", gpuInventory, gpuAlgorithm)
 
 	capacityStore := saturation_v2.NewCapacityKnowledgeStore()
+	satV2 := saturation_v2.NewSaturationAnalyzer(capacityStore)
 
 	// Initialize with default optimizer. The actual optimizer is selected
 	// per-cycle in optimize() based on dynamic config (enableLimiter flag
@@ -185,12 +203,15 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 		ScaleToZeroEnforcer:     pipeline.NewEnforcer(requestCountFunc),
 		GPULimiter:              gpuLimiter,
 		metricsRegistry:         metricsRegistry,
-		saturationV2Analyzer:    saturation_v2.NewSaturationAnalyzer(capacityStore),
+		saturationV2Analyzer:    satV2,
 		queueingModelAnalyzer:   queueingmodel.NewQueueingModelAnalyzer(),
 		capacityStore:           capacityStore,
 		optimizer:               scalingOptimizer,
 		metricsEmitter:          metrics.NewMetricsEmitter(),
 		v1AnalyzerFactory:       defaultV1AnalyzerFactory,
+		analyzers: []analyzerEntry{
+			{name: interfaces.SaturationAnalyzerName, analyzer: satV2},
+		},
 	}
 
 	engine.executor = executor.NewPollingExecutor(executor.PollingConfig{
@@ -218,6 +239,19 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	registration.RegisterQueueingModelQueries(metricsRegistry)
 
 	return &engine
+}
+
+// RegisterAnalyzer adds an external analyzer to the engine's analyzer
+// registry. Must be called before StartOptimizeLoop. Re-registering an
+// existing name is a programmer error and panics — the registry is not
+// a hot-swap mechanism. The analyzer is appended in registration order.
+func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) {
+	for i := range e.analyzers {
+		if e.analyzers[i].name == name {
+			panic(fmt.Sprintf("RegisterAnalyzer: duplicate analyzer name %q", name))
+		}
+	}
+	e.analyzers = append(e.analyzers, analyzerEntry{name: name, analyzer: a})
 }
 
 // StartOptimizeLoop starts the optimization loop for the saturation engine.
