@@ -146,13 +146,25 @@ type Engine struct {
 	// capacityStore is shared with the V2 analyzer for caching capacity knowledge.
 	capacityStore *saturation_v2.CapacityKnowledgeStore
 
-	// analyzers is the engine's analyzer registry, iterated in registration
-	// order by runAnalyzersAndScore. NewEngine pre-registers the V2 saturation
-	// analyzer; RegisterAnalyzer appends additional analyzers (e.g. throughput).
-	// Saturation always runs and drives scaling decisions; other registered
-	// analyzers are invoked but their results are not consumed yet — combine
-	// and per-analyzer threshold logic lands in follow-up PRs.
+	// analyzers is the engine's analyzer registry, mutated only during setup
+	// (NewEngine + RegisterAnalyzer). After StartOptimizeLoop it is frozen —
+	// further RegisterAnalyzer calls panic. The optimize goroutine reads
+	// analyzersSnapshot, never analyzers, so iteration is race-free without
+	// runtime locking.
 	analyzers []analyzerEntry
+
+	// analyzersSnapshot is the frozen, registration-ordered view that
+	// runAnalyzersAndScore iterates. Built from analyzers in StartOptimizeLoop
+	// before the goroutine launches. Saturation always runs and drives scaling
+	// decisions; other registered analyzers are invoked but their results are
+	// not consumed yet — combine and per-analyzer threshold logic lands in
+	// follow-up PRs.
+	analyzersSnapshot []analyzerEntry
+
+	// started transitions to true in StartOptimizeLoop. Late RegisterAnalyzer
+	// calls panic so the contract "register before Start" is enforced rather
+	// than just documented.
+	started bool
 
 	// optimizer is the V2 scaling optimizer that produces VariantDecisions from
 	// AnalyzerResults. Selected per-cycle based on enableLimiter config:
@@ -242,10 +254,15 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 }
 
 // RegisterAnalyzer adds an external analyzer to the engine's analyzer
-// registry. Must be called before StartOptimizeLoop. Re-registering an
-// existing name is a programmer error and panics — the registry is not
-// a hot-swap mechanism. The analyzer is appended in registration order.
+// registry. Must be called before StartOptimizeLoop; calling it after
+// panics with a clear message so the "register before Start" contract is
+// enforced rather than silently corrupting concurrent state.
+// Re-registering an existing name also panics — the registry is not a
+// hot-swap mechanism. The analyzer is appended in registration order.
 func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) {
+	if e.started {
+		panic("RegisterAnalyzer called after StartOptimizeLoop")
+	}
 	for i := range e.analyzers {
 		if e.analyzers[i].name == name {
 			panic(fmt.Sprintf("RegisterAnalyzer: duplicate analyzer name %q", name))
@@ -256,7 +273,16 @@ func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) {
 
 // StartOptimizeLoop starts the optimization loop for the saturation engine.
 // It runs until the context is cancelled.
+//
+// Before launching the goroutine, the registered analyzers are snapshotted
+// to a frozen slice that runAnalyzersAndScore iterates. The started flag is
+// flipped so subsequent RegisterAnalyzer calls panic. The snapshot is the
+// natural place to invoke any future per-analyzer Init(ctx) hook.
 func (e *Engine) StartOptimizeLoop(ctx context.Context) {
+	e.analyzersSnapshot = make([]analyzerEntry, len(e.analyzers))
+	copy(e.analyzersSnapshot, e.analyzers)
+	e.started = true
+
 	e.recordActiveOptimizer() // record active optimizer
 	metrics.SetConfigOptimizationInterval(float64(e.Config.OptimizationInterval().Seconds()))
 	e.executor.Start(ctx)

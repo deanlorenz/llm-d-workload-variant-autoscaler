@@ -19,6 +19,7 @@ package saturation
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -100,6 +101,93 @@ var _ = Describe("Engine analyzer registry", func() {
 				e.RegisterAnalyzer(interfaces.SaturationAnalyzerName, &spyAnalyzer{name: "x"})
 			}).To(PanicWith(ContainSubstring(`duplicate analyzer name`)))
 		})
+
+		It("panics when called after StartOptimizeLoop has frozen the registry", func() {
+			e := &Engine{
+				analyzers: []analyzerEntry{
+					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
+				},
+				started: true,
+			}
+
+			Expect(func() {
+				e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			}).To(PanicWith("RegisterAnalyzer called after StartOptimizeLoop"))
+		})
+	})
+
+	Describe("StartOptimizeLoop", func() {
+		It("snapshots the analyzer registry and flips started before launching the executor", func() {
+			sourceRegistry := source.NewSourceRegistry()
+			Expect(sourceRegistry.Register("prometheus", source.NewNoOpSource())).To(Succeed())
+			testConfig := config.NewTestConfig()
+			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
+
+			engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			engine.RegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
+
+			// Cancel context so the executor's polling loop exits immediately.
+			startCtx, cancelStart := context.WithCancel(context.Background())
+			cancelStart()
+			engine.StartOptimizeLoop(startCtx)
+
+			Expect(engine.started).To(BeTrue())
+			Expect(engine.analyzersSnapshot).To(HaveLen(len(engine.analyzers)))
+			for i := range engine.analyzers {
+				Expect(engine.analyzersSnapshot[i].name).To(Equal(engine.analyzers[i].name))
+				Expect(engine.analyzersSnapshot[i].analyzer).To(BeIdenticalTo(engine.analyzers[i].analyzer))
+			}
+		})
+
+		It("snapshot reader does not race with a post-Start RegisterAnalyzer attempt", func() {
+			// Verifies the race-safety contract under -race: the optimize
+			// goroutine reads analyzersSnapshot (immutable after Start) while
+			// any post-Start RegisterAnalyzer panics before mutating anything.
+			sourceRegistry := source.NewSourceRegistry()
+			Expect(sourceRegistry.Register("prometheus", source.NewNoOpSource())).To(Succeed())
+			testConfig := config.NewTestConfig()
+			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
+			engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+
+			startCtx, cancelStart := context.WithCancel(context.Background())
+			cancelStart()
+			engine.StartOptimizeLoop(startCtx)
+
+			var wg sync.WaitGroup
+			const iterations = 200
+
+			// Reader: iterate the snapshot repeatedly.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < iterations; i++ {
+					for _, entry := range engine.analyzersSnapshot {
+						_ = entry.name
+					}
+				}
+			}()
+
+			// Writers: each call must panic with the late-register message.
+			panicCount := 0
+			var mu sync.Mutex
+			for i := 0; i < 4; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer func() {
+						if r := recover(); r != nil {
+							mu.Lock()
+							panicCount++
+							mu.Unlock()
+						}
+					}()
+					engine.RegisterAnalyzer("late", &spyAnalyzer{name: "late"})
+				}()
+			}
+
+			wg.Wait()
+			Expect(panicCount).To(Equal(4))
+		})
 	})
 
 	Describe("runRegisteredAnalyzers", func() {
@@ -118,13 +206,14 @@ var _ = Describe("Engine analyzer registry", func() {
 			sat := &spyAnalyzer{name: interfaces.SaturationAnalyzerName}
 			ta := &spyAnalyzer{name: "throughput"}
 			slo := &spyAnalyzer{name: "slo"}
-			e := &Engine{
-				analyzers: []analyzerEntry{
-					{name: interfaces.SaturationAnalyzerName, analyzer: sat},
-					{name: "throughput", analyzer: ta},
-					{name: "slo", analyzer: slo},
-				},
+			// runRegisteredAnalyzers iterates analyzersSnapshot (built by
+			// StartOptimizeLoop). Construct it directly to match.
+			snapshot := []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: sat},
+				{name: "throughput", analyzer: ta},
+				{name: "slo", analyzer: slo},
 			}
+			e := &Engine{analyzers: snapshot, analyzersSnapshot: snapshot, started: true}
 
 			e.runRegisteredAnalyzers(testCtx, testLogger, "model-1", interfaces.AnalyzerInput{ModelID: "model-1"})
 
@@ -140,13 +229,12 @@ var _ = Describe("Engine analyzer registry", func() {
 		It("logs and continues when a registered analyzer returns an error", func() {
 			ta := &spyAnalyzer{name: "throughput", err: errors.New("boom")}
 			slo := &spyAnalyzer{name: "slo"}
-			e := &Engine{
-				analyzers: []analyzerEntry{
-					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
-					{name: "throughput", analyzer: ta},
-					{name: "slo", analyzer: slo},
-				},
+			snapshot := []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
+				{name: "throughput", analyzer: ta},
+				{name: "slo", analyzer: slo},
 			}
+			e := &Engine{analyzers: snapshot, analyzersSnapshot: snapshot, started: true}
 
 			Expect(func() {
 				e.runRegisteredAnalyzers(testCtx, testLogger, "model-1", interfaces.AnalyzerInput{ModelID: "model-1"})
@@ -160,13 +248,12 @@ var _ = Describe("Engine analyzer registry", func() {
 		It("recovers from a panicking analyzer and continues with the rest", func() {
 			ta := &spyAnalyzer{name: "throughput", panicMsg: "boom"}
 			slo := &spyAnalyzer{name: "slo"}
-			e := &Engine{
-				analyzers: []analyzerEntry{
-					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
-					{name: "throughput", analyzer: ta},
-					{name: "slo", analyzer: slo},
-				},
+			snapshot := []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
+				{name: "throughput", analyzer: ta},
+				{name: "slo", analyzer: slo},
 			}
+			e := &Engine{analyzers: snapshot, analyzersSnapshot: snapshot, started: true}
 
 			Expect(func() {
 				e.runRegisteredAnalyzers(testCtx, testLogger, "model-1", interfaces.AnalyzerInput{ModelID: "model-1"})

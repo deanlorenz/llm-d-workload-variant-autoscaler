@@ -154,10 +154,11 @@ func (e *Engine) runAnalyzersAndScore(
 }
 
 // runRegisteredAnalyzers invokes Analyze on every registered non-saturation
-// analyzer in registration order. The saturation entry is skipped because
-// the engine runs saturation separately via runV2AnalysisOnly with full
-// args. Each call is isolated: errors are logged and discarded, and panics
-// are recovered so a faulty analyzer cannot take down the optimize goroutine.
+// analyzer in registration order, reading from the frozen analyzersSnapshot
+// built by StartOptimizeLoop. The saturation entry is skipped because the
+// engine runs saturation separately via runV2AnalysisOnly with full args.
+// Each call is isolated: errors are logged and discarded, and panics are
+// recovered so a faulty analyzer cannot take down the optimize goroutine.
 // Results are intentionally discarded on this branch — combine logic lands
 // in follow-up PRs.
 func (e *Engine) runRegisteredAnalyzers(
@@ -166,7 +167,7 @@ func (e *Engine) runRegisteredAnalyzers(
 	modelID string,
 	input interfaces.AnalyzerInput,
 ) {
-	for _, entry := range e.analyzers {
+	for _, entry := range e.analyzersSnapshot {
 		if entry.name == interfaces.SaturationAnalyzerName {
 			continue
 		}
