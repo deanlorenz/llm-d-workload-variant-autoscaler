@@ -303,21 +303,11 @@ runs `/sync-current` to apply.
 2. `06b9d236` — `engines: fix threshold post-step — anticipated supply, per-analyzer application` — anticipated-supply 3-step fallback (TotalAnticipatedSupply → walk VariantCapacities → TotalSupply); per-analyzer override application; sat_v2 cleanup TODO.
 3. `be25890f` — `engines: extend universal threshold post-step to RoleCapacities` — per-role calibration via same formula; closes the P/D disaggregation gap.
 
-**Why rework:** the 3 commits above leave inconsistent fallback paths (model-level 3-step vs per-role 2-step) and a muddled engine/analyzer responsibility split. Dean's review settled the architecture: per-variant data is canonical; analyzers publish per-scope `Total*` (using shared helpers); engine post-step is pure formula with no fallbacks. The 3 commits will be force-pushed away in favor of a new 4-commit structure. See `session/handoffs/multi-analyzer-threshold-rework.md` for the coder plan.
+**Why rework:** the 3 commits above leave inconsistent fallback paths (model-level 3-step vs per-role 2-step) and a muddled engine/analyzer responsibility split. Discussion 2026-06-02 settled the architecture: per-variant data is canonical; analyzers publish per-scope `Total*` (using shared helpers); engine post-step is pure formula with no fallbacks. The 3 commits will be force-pushed away.
 
-**Planned 4-commit structure:**
-1. `engines: universal threshold post-step — pure formula at every scope` — strict no-fallback `applyUniversalThreshold`; `resolveThresholds`; deletes saturation-only override-resolution loop. sat_v2 unchanged (still publishes Totals via existing logic).
-2. `engines/aggregation: shared helpers for analyzer aggregations` — new package `internal/engines/aggregation/` with `SumTotalSupply`, `SumTotalAnticipatedSupply`, `SumTotalDemand`, `AggregateByRole` over `[]VariantCapacity`. Pure functions, unit tests, not yet wired.
-3. `engines/saturation_v2: use shared helpers; drop in-analyzer RC/SC computation` — sat_v2 calls helpers for supply totals; deletes Phase 4 RC/SC; `aggregateByRole` no longer computes RC/SC.
-4. `docs: developer-guide — analyzer responsibilities + universal threshold post-step + helpers` — comprehensive doc rewrite.
+**Plan:** see [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) — Type 3 task plan with architectural decisions, contract spec, 4-commit structure, mechanics, verification gates.
 
-**Architectural principles (locked):**
-- Per-variant `VariantCapacity` (incl. `Role`, already on main) is the canonical primary data.
-- Analyzer publishes per-variant primitives + per-scope `Total*` (model + per role).
-- Engine post-step is **pure formula**: `RC = max(0, TD/scaleUp − Anticipated)`, `SC = max(0, Supply − TD/scaleDown)` at each scope. No `VariantCapacities` walks, no `if anticipated == 0` fallback.
-- `TotalAnticipatedSupply = 0` is a literal value, not a sentinel.
-- Per-analyzer threshold overrides honored at every scope (resolved once per analyzer, applied to model + each role).
-- No per-role threshold overrides.
+**Coder trigger:** [`session/handoffs/multi-analyzer-threshold-rework.md`](handoffs/multi-analyzer-threshold-rework.md) — thin pointer to the plan.
 
 ### multi-analyzer-optimizer (Item 1 — delete combine; per-analyzer slice → optimizers)
 
