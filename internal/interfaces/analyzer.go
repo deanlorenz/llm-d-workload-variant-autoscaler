@@ -38,7 +38,11 @@ type AnalyzerInput struct {
 
 	// SchedulerQueue holds model-level queue metrics from the llm-d inference
 	// scheduler flow control layer. These represent requests queued upstream
-	// before reaching any vLLM pod and contribute to demand estimation.
+	// of any pod and are not yet attributed to a specific variant or role.
+	// Any analyzer with a demand model may convert this into per-analyzer
+	// demand using its own unit (e.g., kv-tokens for saturation_v2,
+	// tokens/sec for a future throughput analyzer). Demand attribution to
+	// roles or variants is each analyzer's choice.
 	// Nil when flow control is disabled or metrics are unavailable.
 	SchedulerQueue *SchedulerQueueMetrics
 }
