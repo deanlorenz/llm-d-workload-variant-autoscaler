@@ -98,7 +98,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for run-1 wrap-up. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 3 commits on `main`@`eb327cc2`; CI in progress | `66001d47` |
-| multi-analyzer-threshold | — | Local only; **3 commits** on `multi-analyzer-registration`@`66001d47`; tip `be25890f` — universal threshold + post-impl fixes + RoleCapacities extension. **Architectural rework in progress: branch will be force-pushed with new 4-commit structure** (per-variant-canonical model, shared `internal/engines/aggregation/` helpers, strict no-fallback engine post-step). See coder handoff. | `be25890f` |
+| multi-analyzer-threshold | — | Local only; **4 commits** on `multi-analyzer-registration`@`66001d47`; tip `b8b823b0` — architectural rework complete (per-variant canonical, `internal/engines/aggregation/` helpers, strict no-fallback engine post-step, sat_v2 simplification, dev-guide rewrite + post-review SchedulerQueue clarifications). WIP pending Dean review + force-push approval | `b8b823b0` |
 | multi-analyzer-optimizer | — | Local + origin; tip `956e60b6` (1.1+1.2 landed on top of pre-rewrite engine `a93bc5dc`); 1.3 (CostAware migration) next; cross-rebase onto `multi-analyzer-threshold` after 1.5 | `956e60b6` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred — will rebase onto whichever Item 3 PR merges | `01ed7d8` |
 
@@ -107,7 +107,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 ## Blocked on
 
 - **PR #1225** — opened 2026-06-01 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. PR #1113 stays open until Dean closes it post-migration.
-- **multi-analyzer-threshold** — 3-commit stack on `multi-analyzer-registration@66001d47`; tip `be25890f` (P/D disaggregation gap closed via `be25890f`). **Architectural rework in progress** — branch to be force-pushed with new 4-commit structure: per-variant-canonical data model, shared `internal/engines/aggregation/` helpers, strict-no-fallback engine post-step, sat_v2 simplification (drop in-analyzer RC/SC). Coder handoff written.
+- **multi-analyzer-threshold** — 4-commit rework complete; tip `b8b823b0` on `multi-analyzer-registration@66001d47`. WIP pending Dean review + explicit force-push confirmation per CONVENTIONS.
 - **multi-analyzer-optimizer** — Items 1.1+1.2 landed (tip `956e60b6`); 1.3–1.5 pending; agent ready to resume.
 - **engine-queue-fix** — waits for whichever Item 3 PR (PR #1225) merges first.
 
@@ -296,18 +296,21 @@ runs `/sync-current` to apply.
 ### multi-analyzer-threshold (Item 2 — universal threshold post-step)
 
 **Branch:** `multi-analyzer-threshold` in worktree `multi-analyzer-threshold/`
-**Current tip:** `be25890f` (3 commits on `multi-analyzer-registration`@`66001d47`); **WIP — architectural rework in progress**.
+**Current tip:** `b8b823b0` (4 commits on `multi-analyzer-registration`@`66001d47`); **WIP pending Dean review + force-push approval**.
 
-**Commits currently landed (will be replaced):**
-1. `c2f57c9f` — `engines: universal threshold calibration for all analyzers` — adds `TotalAnticipatedSupply`, `applyUniversalThreshold`, `resolveThresholds`; deletes saturation-only override-resolution loop.
-2. `06b9d236` — `engines: fix threshold post-step — anticipated supply, per-analyzer application` — anticipated-supply 3-step fallback (TotalAnticipatedSupply → walk VariantCapacities → TotalSupply); per-analyzer override application; sat_v2 cleanup TODO.
-3. `be25890f` — `engines: extend universal threshold post-step to RoleCapacities` — per-role calibration via same formula; closes the P/D disaggregation gap.
+**Commits landed (2026-06-02, post-rework):**
+1. `f59377f6` — `engines: universal threshold post-step — pure formula at every scope`
+2. `4f1ab001` — `engines/aggregation: shared helpers for analyzer aggregations`
+3. `a8147e8c` — `engines/saturation_v2: use aggregation helpers; drop in-analyzer RC/SC`
+4. `b8b823b0` — `docs: developer-guide — analyzer responsibilities + universal threshold post-step + helpers`
 
-**Why rework:** the 3 commits above leave inconsistent fallback paths (model-level 3-step vs per-role 2-step) and a muddled engine/analyzer responsibility split. Discussion 2026-06-02 settled the architecture: per-variant data is canonical; analyzers publish per-scope `Total*` (using shared helpers); engine post-step is pure formula with no fallbacks. The 3 commits will be force-pushed away.
+**Plan:** [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) — Type 3 task plan with architectural decisions, contract spec, 4-commit structure, mechanics, verification gates, and Addendum (post-review SchedulerQueue clarifications amended into commit 4).
 
-**Plan:** see [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) — Type 3 task plan with architectural decisions, contract spec, 4-commit structure, mechanics, verification gates.
+**History note:** rework supersedes pre-rework tip `be25890f` (commits `c2f57c9f`, `06b9d236`, `be25890f`). Old commits reachable via `git reflog` for ~30 days. Commit messages on commits 1 and 4 were amended post-walkthrough at Dean's request to better reflect the actual changes; bodies/SHAs updated accordingly.
 
-**Coder trigger:** [`session/handoffs/multi-analyzer-threshold-rework.md`](handoffs/multi-analyzer-threshold-rework.md) — thin pointer to the plan.
+**Verified:** build clean, `make test` all packages pass, DCO sign-off on all 4 commits.
+
+**Pending action:** Dean reviews `b8b823b0`, then force-push to `origin/multi-analyzer-threshold` with `--force-with-lease` (reason: rebuilding history per architectural rework plan).
 
 ### multi-analyzer-optimizer (Item 1 — delete combine; per-analyzer slice → optimizers)
 
@@ -520,4 +523,3 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on delete-combine + per-analyzer slice (Item 1), engine universal threshold post-step (Item 2), snapshot-on-Start (Item 3). 3-PR / 7-commit roadmap. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
 | Dean (self) | `session/handoffs/multi-analyzer-threshold-coder-rules-gap.md` | OPEN | Plan-agent decision pending: whether/how to restate CONVENTIONS' "no `cd`/`-C` to a sibling worktree for git" rule operationally inside `planning/multi-analyzer-coder-rules.md`. 4 options listed in the handoff |
-| multi-analyzer-threshold agent | `session/handoffs/multi-analyzer-threshold-doc-amend.md` | READY | Post-review doc clarifications: `SchedulerQueue` is shared input, demand-extraction is per-analyzer. Two small text additions amended into commit 4 (`1ba3c978`); see Addendum in plan doc. Rework handoff superseded |
