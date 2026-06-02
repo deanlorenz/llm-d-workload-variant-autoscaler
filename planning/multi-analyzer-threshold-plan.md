@@ -322,3 +322,73 @@ Final pre-push gate: `go test -race ./internal/engines/saturation/...` — clean
 
 - Push of the rebuilt branch waits for explicit Dean confirmation per CONVENTIONS.
 - A new PR for `multi-analyzer-threshold` is opened only after the rebuild is reviewed.
+
+---
+
+## Addendum (2026-06-02): post-review doc clarifications
+
+Review of tip `1ba3c978` flagged that the dev-guide and type-level docs don't make
+explicit that `SchedulerQueue` is shared input across analyzers (not sat_v2-specific),
+that demand-extraction from it IS per-analyzer (uses each analyzer's unit), and that
+queue items aren't yet variant-attributed. Two small text additions, **amended into
+commit 4 (`1ba3c978`)** — branch is unpushed, so amend is safe. No code change.
+
+### Patch 1 — `internal/interfaces/analyzer.go`
+
+Replace the `SchedulerQueue` field doc-comment in `AnalyzerInput` with:
+
+```go
+// SchedulerQueue holds model-level queue metrics from the llm-d inference
+// scheduler flow control layer. These represent requests queued upstream
+// of any pod and are not yet attributed to a specific variant or role.
+// Any analyzer with a demand model may convert this into per-analyzer
+// demand using its own unit (e.g., kv-tokens for saturation_v2,
+// tokens/sec for a future throughput analyzer). Demand attribution to
+// roles or variants is each analyzer's choice.
+// Nil when flow control is disabled or metrics are unavailable.
+SchedulerQueue *SchedulerQueueMetrics
+```
+
+### Patch 2 — `docs/developer-guide/saturation-scaling-config.md`
+
+Insert the following new subsection between `#### Per-variant data is canonical`
+and `#### Linearity invariant`:
+
+```markdown
+#### Analyzer inputs
+
+`interfaces.AnalyzerInput` carries the shared inputs every analyzer reads:
+replica metrics, variant states, the model's resolved config, and
+`SchedulerQueue`. None of these are analyzer-specific.
+
+`SchedulerQueue` represents requests queued upstream of any pod (in the
+llm-d flow control layer). Queue items are model-scoped and **not yet
+attributed to any variant or role**. Any analyzer with a demand model may
+use it — sat_v2 does today; the throughput analyzer will when it lands.
+
+**Demand extraction from the queue is per-analyzer.** Each analyzer
+converts queue depth/bytes into demand in its own unit (sat_v2:
+kv-tokens; throughput: tokens/sec). Each analyzer also decides how to
+attribute that demand across roles or variants — sat_v2 splits it among
+active roles.
+```
+
+### Mechanics
+
+```
+# In multi-analyzer-threshold worktree, branch tip 1ba3c978
+# Apply Patch 1 to internal/interfaces/analyzer.go
+# Apply Patch 2 to docs/developer-guide/saturation-scaling-config.md
+git add internal/interfaces/analyzer.go docs/developer-guide/saturation-scaling-config.md
+git commit --amend --no-edit -s    # preserves DCO sign-off
+# Verify:
+gofmt -l ./internal/... ./pkg/... ./cmd/...
+go vet ./...
+go build ./...
+make test
+git log -1 --format='%h %s%n%b' | grep Signed-off-by    # DCO check
+```
+
+Tip moves from `1ba3c978` to a new SHA (commit 4 amended). Commits 1–3 unchanged.
+
+Branch remains unpushed; force-push policy still applies once Dean approves.
