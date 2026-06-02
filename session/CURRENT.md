@@ -98,7 +98,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for run-1 wrap-up. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 3 commits on `main`@`eb327cc2`; CI in progress | `66001d47` |
-| multi-analyzer-threshold | — | Local only; **4 commits** on `multi-analyzer-registration`@`66001d47`; tip `b8b823b0` — architectural rework complete (per-variant canonical, `internal/engines/aggregation/` helpers, strict no-fallback engine post-step, sat_v2 simplification, dev-guide rewrite + post-review SchedulerQueue clarifications). WIP pending Dean review + force-push approval | `b8b823b0` |
+| multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits on `multi-analyzer-registration`@`66001d47`. Stacked on #1225 — diff includes both PRs' commits until #1225 merges and threshold rebases onto main | `b8b823b0` |
 | multi-analyzer-optimizer | — | Local + origin; tip `956e60b6` (1.1+1.2 landed on top of pre-rewrite engine `a93bc5dc`); 1.3 (CostAware migration) next; cross-rebase onto `multi-analyzer-threshold` after 1.5 | `956e60b6` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred — will rebase onto whichever Item 3 PR merges | `01ed7d8` |
 
@@ -107,7 +107,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 ## Blocked on
 
 - **PR #1225** — opened 2026-06-01 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. PR #1113 stays open until Dean closes it post-migration.
-- **multi-analyzer-threshold** — 4-commit rework complete; tip `b8b823b0` on `multi-analyzer-registration@66001d47`. WIP pending Dean review + explicit force-push confirmation per CONVENTIONS.
+- **PR #1228** — opened 2026-06-02 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. Stacked on #1225 — when #1225 merges, threshold branch rebases onto main and the diff cleans up to 4 commits.
 - **multi-analyzer-optimizer** — Items 1.1+1.2 landed (tip `956e60b6`); 1.3–1.5 pending; agent ready to resume.
 - **engine-queue-fix** — waits for whichever Item 3 PR (PR #1225) merges first.
 
