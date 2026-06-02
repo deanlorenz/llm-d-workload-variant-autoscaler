@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-01
+**Last updated:** 2026-06-02
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state.
 
@@ -97,24 +97,27 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for run-1 wrap-up. | `fc403f75` |
-| multi-analyzer-registration | — | Local + origin; 3 commits on `main`@`eb327cc2`; **WIP pending Dean review** | `66001d47` |
-| multi-analyzer-threshold | — | Local + origin; 1 commit on top of `main`@`589646d7` (`51d7e7fa` — universal threshold calibration); WIP pending Dean review | `51d7e7fa` |
-| multi-analyzer-optimizer | — | Local + origin; tip `a93bc5dc` (old engine reflog); will retarget rebase onto `multi-analyzer-registration` once that lands; coder session pending (Item 1) | `a93bc5dc` |
+| multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 3 commits on `main`@`eb327cc2`; CI in progress | `66001d47` |
+| multi-analyzer-threshold | — | Local only; 2 commits on top of `multi-analyzer-registration`@`66001d47` (rebased); tip `06b9d236` — universal threshold calibration + 3 post-impl fixes; WIP pending Dean review | `06b9d236` |
+| multi-analyzer-optimizer | — | Local + origin; tip `956e60b6` (1.1+1.2 landed on top of pre-rewrite engine `a93bc5dc`); 1.3 (CostAware migration) next; cross-rebase onto `multi-analyzer-threshold` after 1.5 | `956e60b6` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred — will rebase onto whichever Item 3 PR merges | `01ed7d8` |
 
 ---
 
 ## Blocked on
 
-- **multi-analyzer-registration** — runs 1+2 complete; tip `66001d47` (3 commits on `main`@`eb327cc2`); WIP pending Dean review. PR #1113 stays open until Dean closes it post-migration.
-- **engine-queue-fix** — waits for whichever Item 3 PR (was #1113, now multi-analyzer-registration) merges first.
+- **PR #1225** — opened 2026-06-01 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. PR #1113 stays open until Dean closes it post-migration.
+- **multi-analyzer-threshold** — 2-commit stack on top of `multi-analyzer-registration@66001d47`; tip `06b9d236`; WIP pending Dean review. **Open question for Dean:** P/D disaggregation gap in `aggregateByRole` (sat_v2:493-500) — per-analyzer threshold override no longer reaches `RoleCapacities`. Two fix options: thread resolved thresholds into `aggregateByRole`, or extend engine post-step to recompute `RoleCapacities`.
+- **multi-analyzer-optimizer** — Items 1.1+1.2 landed (tip `956e60b6`); 1.3–1.5 pending; agent ready to resume.
+- **engine-queue-fix** — waits for whichever Item 3 PR (PR #1225) merges first.
 
 ## Next steps
 
-- **Now:** Dean reviews `multi-analyzer-registration` tip `66001d47` (3 commits: plumbing + docs + race-fix snapshot). After approval, push to origin and open the new PR; coordinate with ev-shindin to close #1113.
-- After review: kick off the `multi-analyzer-optimizer` coder (Item 1) — its rebase target is now `multi-analyzer-registration`'s tip; resume-sync handoff already written.
+- **Now:** monitor PR #1225 CI; respond to ev-shindin's review when it lands.
+- Decide the disaggregation-gap fix for `multi-analyzer-threshold` (open question above).
+- Optimizer coder resumes Commit 1.3 (CostAware migration) — detailed plan in `slice-redesign` handoff.
 - After Item 3 PR merges: open engine-queue-fix PR (rebase `01ed7d8` onto new main tip).
-- The `engine-multi-analyzer` worktree's run-1 wrap-up is now complete (recovery snapshot consumed by Run-2); worktree can be removed at Dean's discretion.
+- The `engine-multi-analyzer` worktree's run-1 wrap-up is complete (recovery snapshot consumed by Run-2); worktree can be removed at Dean's discretion.
 - **Other:** rebase TA3 onto upstream/main, then discuss TA3 PR-4+PR-5 before submitting.
 - **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark plan drafted at `planning/benchmark-wva-vs-keda-plan.md`. **Do not start coding.** The plan needs review + explicit go-ahead from Dean before any implementation begins — see the Benchmark section below.
 
@@ -253,12 +256,10 @@ no pushes, dev-guide updates, handoff files, WIP-until-Dean-reviews).
 | `multi-analyzer-threshold` | `multi-analyzer-threshold/` | Item 2 — engine universal threshold post-step | "Item 2 — engine universal threshold post-step" |
 | `multi-analyzer-optimizer` | `multi-analyzer-optimizer/` | Item 1 — delete combine; per-analyzer slice → optimizers | "Item 1 — delete combine; per-analyzer slice flows to optimizers" |
 
-All three branches are pushed to origin with upstream tracking.
-`multi-analyzer-registration` has 3 commits on `main`@`eb327cc2` (tip `66001d47`,
-WIP pending Dean review);
-`multi-analyzer-threshold` has 1 commit on `main`@`589646d7`;
-`multi-analyzer-optimizer` is at `a93bc5dc` (will retarget rebase to
-`multi-analyzer-registration`'s tip).
+Branch state (2026-06-02):
+- `multi-analyzer-registration`: 3 commits on `main`@`eb327cc2` (tip `66001d47`); **PR #1225 open** (ready-for-review, ev-shindin assigned).
+- `multi-analyzer-threshold`: 2 commits rebased onto `multi-analyzer-registration`@`66001d47` (tip `06b9d236`); WIP pending Dean review; not pushed.
+- `multi-analyzer-optimizer`: 1.1+1.2 landed on top of `a93bc5dc` (tip `956e60b6`); 1.3–1.5 pending; will cross-rebase onto `multi-analyzer-threshold` after 1.5.
 
 The old `engine-multi-analyzer` branch (PR #1113) is **superseded** by
 `multi-analyzer-registration` and retained only for run-1 wrap-up by the
@@ -273,11 +274,12 @@ runs `/sync-current` to apply.
 
 ## ENGINE PRs
 
-### multi-analyzer-registration (Item 3 — fresh build, supersedes PR #1113)
+### multi-analyzer-registration (Item 3 — PR #1225, supersedes PR #1113)
 
 **Branch:** `multi-analyzer-registration` in worktree `multi-analyzer-registration/`
+**PR:** [#1225](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1225) — opened 2026-06-01, ready-for-review, ev-shindin assigned
 **Targets:** `main` — independent of all TA branches and sibling Item 1/2 branches.
-**Tip:** `66001d47` (3 commits on `main`@`eb327cc2`); **WIP pending Dean review**, no push attempted.
+**Tip:** `66001d47` (3 commits on `main`@`eb327cc2`); **CI in progress, awaiting review**.
 
 **Commits landed (2026-06-01):**
 1. `3a0dff86` — `engines/saturation: multi-analyzer registration plumbing`
@@ -290,6 +292,38 @@ runs `/sync-current` to apply.
 **Verified:** gofmt clean, vet clean, build clean, full unit-test sweep green, saturation pkg green under `-race` (~7s), DCO sign-off on all 3 commits.
 
 **Test deviation:** T10 ("saturation result flows to optimizer regardless") verified by code inspection rather than behavioral test (would need a fully wired saturation pipeline). Easy to add as follow-up if reviewer asks.
+
+### multi-analyzer-threshold (Item 2 — universal threshold post-step)
+
+**Branch:** `multi-analyzer-threshold` in worktree `multi-analyzer-threshold/`
+**Tip:** `06b9d236` (2 commits rebased on top of `multi-analyzer-registration`@`66001d47`); **WIP pending Dean review**, not pushed.
+
+**Commits landed:**
+1. `c2f57c9f` — `engines: universal threshold calibration for all analyzers`
+   — adds `AnalyzerResult.TotalAnticipatedSupply` field; saturation_v2 populates it; engine adds `applyUniversalThreshold` post-step + `resolveThresholds` helpers; deletes saturation-only override-resolution loop; `runRegisteredAnalyzers` takes config and applies threshold per analyzer; new `engine_v2_threshold_test.go` (10 specs).
+2. `06b9d236` — `engines: fix threshold post-step — anticipated supply, per-analyzer application`
+   — three corrections from post-impl review: (a) anticipated-supply resolution order in `applyUniversalThreshold` is `TotalAnticipatedSupply` → walk `Σ(ReplicaCount+PendingReplicas)×PerReplicaCapacity` from `VariantCapacities` → `TotalSupply` last resort; (b) `runRegisteredAnalyzers` honors per-analyzer `AnalyzerScoreConfig` overrides via `resolveThresholds` and applies `applyUniversalThreshold` to each result before discarding; (c) actionable TODO in `saturation_v2/analyzer.go` Phase 4 for follow-up cleanup with disaggregation-gap note.
+
+**Verified:** gofmt clean, vet clean, build clean, `make test` all-pass, DCO sign-off on both commits.
+
+**Open question for Dean — P/D disaggregation gap:**
+`aggregateByRole` in `saturation_v2/analyzer.go` (lines 493-500) computes per-role RC/SC using `config.ScaleUpThreshold`/`ScaleDownBoundary` directly. Old code mutated `config` in-place before calling the analyzer, so per-analyzer overrides reached `aggregateByRole`. New engine post-step only overwrites model-level `RequiredCapacity`/`SpareCapacity` — not `RoleCapacities`. For P/D disaggregated models with a per-analyzer saturation threshold override, per-role RC/SC in `RoleCapacities` will use the global threshold instead of the override. Two fix options: thread resolved thresholds into `aggregateByRole`, or have engine post-step also recompute `RoleCapacities`.
+
+### multi-analyzer-optimizer (Item 1 — delete combine; per-analyzer slice → optimizers)
+
+**Branch:** `multi-analyzer-optimizer` in worktree `multi-analyzer-optimizer/`
+**Tip:** `956e60b6` (2 commits on top of `a93bc5dc`); 1.3–1.5 pending; not pushed.
+
+**Roadmap commits:**
+- **1.1** ✅ `bcfc9a3e` — pipeline: add `NamedAnalyzerResult` + `AnalyzerResults` field on `ModelScalingRequest`; engine populates both (`Result` via combine unchanged; `AnalyzerResults` saturation-first then enabled non-saturation analyzers in config order).
+- **1.2** ✅ `956e60b6` — pipeline: `analyzer_helpers.go` with `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`, `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation`, `saturationEntry`, `PickVariantFn`, `allocateForModel`. 20 Ginkgo specs in `analyzer_helpers_test.go` (includes 11 combine specs adapted to replica-count space; 2 combine-specific specs will die with combine in 1.5). Helpers intentionally unused by optimizers at this commit.
+- **1.3** ⏳ — migrate `CostAwareOptimizer` to read `req.AnalyzerResults` via the new helpers; gate via `needsScaleUp`/`needsScaleDown`; cost-greedy `PickVariantFn`; safe-removal loop for scale-down. Detailed plan in handoff.
+- **1.4** — migrate `GreedyByScoreOptimizer`; fair-share-bounded picker.
+- **1.5** — delete `combineAnalyzerResults` + tests; rename `runAnalyzersAndScore` → `runAnalyzers`; drop `ModelScalingRequest.Result` and `AnalyzerResult.Score`; final dev-guide commit.
+
+**Cross-rebase plan (after 1.5 lands):** rebase the full stack onto `multi-analyzer-threshold` to pick up `TotalAnticipatedSupply` field + registration plumbing in one hop.
+
+**Verified (after 1.2):** gofmt clean, build clean, `make test` all-pass (pipeline package: 90.8% coverage), DCO sign-off on both commits.
 
 ### engine-multi-analyzer (PR #1113 — superseded)
 
@@ -486,4 +520,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on delete-combine + per-analyzer slice (Item 1), engine universal threshold post-step (Item 2), snapshot-on-Start (Item 3). 3-PR / 7-commit roadmap. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
 | Dean (self) | `session/handoffs/multi-analyzer-threshold-coder-rules-gap.md` | OPEN | Plan-agent decision pending: whether/how to restate CONVENTIONS' "no `cd`/`-C` to a sibling worktree for git" rule operationally inside `planning/multi-analyzer-coder-rules.md`. 4 options listed in the handoff |
-| multi-analyzer-optimizer agent | `session/handoffs/multi-analyzer-optimizer-resume-sync.md` | READY | Registration tip is now `66001d47` (3 commits on current main); threshold landed at `51d7e7fa` with `TotalAnticipatedSupply` field. Optimizer's rebase target updates to `multi-analyzer-registration`'s tip |
+| Dean (self) | (inline in `multi-analyzer-threshold` ENGINE PRs subsection) | OPEN | P/D disaggregation gap: `aggregateByRole` (sat_v2:493-500) uses raw `config.ScaleUpThreshold`/`ScaleDownBoundary`. After Item 2's engine post-step, per-analyzer override no longer reaches `RoleCapacities`. Fix options: thread resolved thresholds into `aggregateByRole`, OR extend engine post-step to recompute `RoleCapacities` |
