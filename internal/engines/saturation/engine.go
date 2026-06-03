@@ -717,7 +717,7 @@ func (e *Engine) optimizeV2(
 
 		req, err := e.collectV2ModelRequest(ctx, modelID, namespace,
 			data.replicaMetrics, saturationConfig, data.variantStates,
-			data.scaleTargets, data.variantAutoscalings)
+			data.scaleTargets, data.variantAutoscalings, data.schedulerQueue)
 		if err != nil {
 			logger.Error(err, "V2 analysis failed", "modelID", modelID)
 			e.emitSafetyNetMetrics(ctx, modelVAs, currentAllocations, data.scaleTargets)
@@ -1119,6 +1119,7 @@ type modelData struct {
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling
 	variantCosts        map[string]float64
 	variantStates       []interfaces.VariantReplicaState
+	schedulerQueue      *interfaces.SchedulerQueueMetrics
 }
 
 // prepareModelData collects metrics and builds lookup maps for a model's VAs.
@@ -1192,6 +1193,7 @@ func (e *Engine) prepareModelData(
 	}
 
 	variantStates := e.BuildVariantStates(ctx, modelVAs, scaleTargets, k8sClient)
+	schedulerQueue := e.ReplicaMetricsCollector.CollectSchedulerQueueMetrics(ctx, modelID)
 
 	return &modelData{
 		modelID:             modelID,
@@ -1201,6 +1203,7 @@ func (e *Engine) prepareModelData(
 		variantAutoscalings: variantAutoscalings,
 		variantCosts:        variantCosts,
 		variantStates:       variantStates,
+		schedulerQueue:      schedulerQueue,
 	}, nil
 }
 
