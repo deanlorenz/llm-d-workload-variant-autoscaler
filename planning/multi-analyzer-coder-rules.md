@@ -1,345 +1,57 @@
-# Multi-Analyzer Split — Coder Rules
+# Multi-Analyzer Split — Coder Mission
 
-Hard rules for the three coding agents working in parallel on the multi-analyzer
-PR split. Read these before any edit. They are agent-invariant: same rules
-apply to all three branches.
+Mission-specific addendum for the three coder agents working on the
+multi-analyzer PR split. Universal coder rules live in
+`plans/session/CODER-CONVENTIONS.md` (loaded automatically); this doc
+only carries what is specific to this mission.
 
 ## Required reading (in order, before any edit)
 
-1. **`plans/session/CONVENTIONS.md`** — project conventions: worktree layout,
-   document taxonomy (Type 1-6), agent roles and doc ownership, key working
-   rules (worktree scope, no-push-without-confirmation, etc.). Authoritative
-   source for everything below; if anything in this file conflicts with
+1. **`plans/session/CONVENTIONS.md`** — project conventions: worktree
+   layout, document taxonomy (Type 1-6), agent roles and doc ownership,
+   universal working rules. Authoritative source for everything; if
+   anything in CODER-CONVENTIONS or this file conflicts with
    CONVENTIONS, CONVENTIONS wins.
-2. **`plans/session/CURRENT.md`** — session state, PR status, and the
+2. **`plans/session/CODER-CONVENTIONS.md`** — coder-role rules: worktree
+   scope, no-push, tests, dev-guide, status / handoff / trigger flow,
+   WIP discipline, may / may-not lists, templates. Loaded automatically
+   via CLAUDE.md.
+3. **`plans/session/CURRENT.md`** — session state, PR status, and the
    "Multi-Analyzer Split — coder sessions" section that lists the three
    branches and their roadmap mapping.
-3. **`plans/planning/PR1113-review.md`** — the fix design. The Implementation
-   roadmap section is your per-branch scope source.
-4. This document — *how* you work (the rules below).
+4. **`plans/planning/PR1113-review.md`** — the fix design. The
+   Implementation roadmap section is your per-branch scope source. The
+   Migration audit lists tests that move with their analyzers.
+5. **Your per-branch plan doc** — `plans/planning/multi-analyzer-<role>-plan.md`
+   when present (see table below). The plan doc is your only source of
+   scope; CODER-CONVENTIONS describes *how* you work, the plan describes
+   *what* you do.
+6. This document — mission-specific gotchas (below).
 
----
+## Mission scope by branch
 
-## 1. Worktree scope — only edit inside your branch
+| Branch | Worktree | Item | Plan doc |
+|---|---|---|---|
+| `multi-analyzer-registration` | `multi-analyzer-registration/` | Item 3 — analyzer registration; race-fix | (PR-only; review doc is `PR1113-review.md`) |
+| `multi-analyzer-threshold` | `multi-analyzer-threshold/` | Item 2 — engine universal threshold post-step | `multi-analyzer-threshold-plan.md` |
+| `multi-analyzer-optimizer` | `multi-analyzer-optimizer/` | Item 1 — delete combine; per-analyzer slice | `multi-analyzer-optimizer-plan.md` |
 
-You operate exclusively within one worktree (your assigned branch).
-**Edit operations** — `Write`, `Edit`, file creation/deletion, `git
-commit`, `git rebase`, `git checkout` to switch branch, `git branch -D`,
-and any other state-changing command — are limited to files inside your
-worktree directory. Never edit, write to, or change the state of a
-sibling worktree (`engine-multi-analyzer/`, `multi-analyzer-threshold/`,
-`multi-analyzer-optimizer/`, `Main/`, `TA*/`, etc.) from your session.
+## Developer-guide files for this mission
 
-**Reads are unrestricted.** You may read any file in the workspace root
-or the `plans/` tree (CURRENT.md, CONVENTIONS.md, PR1113-review.md,
-design docs, sibling status files, sibling-branch source code) for
-context. Read-only `git` commands targeting a sibling — `git -C
-<sibling> log`, `git -C <sibling> diff`, `git -C <sibling> show`, `git
--C <sibling> status`, `git -C <sibling> branch` listing — are fine; use
-them when you need committed code or history from another branch. The
-hard rule is no `git -C <sibling>` for edit operations (commit, rebase,
-checkout-with-side-effects, branch -D, etc.).
+Per CODER-CONVENTIONS §4, every code change reflecting user-visible or
+architecturally-visible behavior gets reflected in
+`docs/developer-guide/`. For this mission the relevant files are:
 
-**Single sanctioned write exception outside your worktree:** you may
-write and `mv` files under `plans/session/handoffs/` (your handoffs to
-the planner, triggers to siblings) and write your own status file at
-`plans/session/status/<your-branch>.md`. These are the only paths
-outside your worktree where edits are allowed. See §5.
-
-If a task seems to require touching anything else outside your worktree,
-stop and write a handoff describing why — do not edit.
-
-**To work on another branch**, use `EnterWorktree` per CONVENTIONS — not
-`cd`, not `git checkout` from your current worktree.
-
----
-
-## 2. Local changes only — no pushes, no PRs, no GitHub actions
-
-- Never run `git push` (with or without flags).
-- Never run `gh pr create`, `gh pr edit`, `gh pr comment`, `gh issue create`,
-  or any other `gh` command that writes to GitHub.
-- Never use `git push --force-with-lease` or `git push --force`.
-- Commits stay local on your branch. Dean reviews and pushes manually after
-  approval.
-
-You may run all read-only `gh` commands (`gh pr view`, `gh pr checks`,
-`gh api ...` for reads) and all local `git` operations (commit, rebase, log,
-diff, status, branch listing).
-
----
-
-## 3. Tests — write and run
-
-- Add unit tests for every new behavior. Migrate or move existing tests when
-  the design doc says to (see Migration audit in PR1113-review.md).
-- Run `go test ./internal/... ./pkg/... ./cmd/...` after each substantial
-  change. All tests must pass before you call work done.
-- Run `gofmt -l ./internal/... ./pkg/... ./cmd/...` — must be empty.
-- Run `go build ./...` — must be clean.
-- Use `-race` when relevant (especially for the registration race fix).
-
-If a test fails for reasons outside your scope (pre-existing breakage on main),
-note it in the handoff and continue — do not fix unrelated tests.
-
----
-
-## 4. Developer-guide updates on your branch
-
-Every code change that affects user-visible or architecturally-visible
-behavior gets reflected in `docs/developer-guide/` on your branch. This is a
-Type 4 doc per `plans/session/CONVENTIONS.md`: must reflect the actual code
-state of your branch, no forward-looking content, no "pending PR-X" references.
-
-Existing developer-guide files relevant to the multi-analyzer split:
-- `docs/developer-guide/saturation-scaling-config.md` (Multi-Analyzer Pipeline section)
+- `docs/developer-guide/saturation-scaling-config.md` (Multi-Analyzer
+  Pipeline section)
 - `docs/developer-guide/saturation-analyzer.md`
 - `docs/developer-guide/throughput-analyzer.md`
 
-Either update an existing file or add a new one if the topic has no home.
-Self-sufficient for code review: a reviewer reading only your PR diff should
-understand the design from the developer-guide doc alone.
+Either update an existing file or add a new one if your change has no
+home.
 
----
+## Mission-specific gotchas
 
-## 5. Status file (living) and handoffs (one-shot)
-
-Two separate artifacts under `plans/session/`. Don't conflate them.
-
-### 5.1 Status file — living progress log
-
-Your status file is your continuous heartbeat. One file per branch, fixed
-path, overwritten in place at every meaningful checkpoint:
-
-```
-plans/session/status/<branch>.md
-```
-
-(e.g. `plans/session/status/multi-analyzer-optimizer.md`.)
-
-A monitoring agent or Dean reads it to see where you are without
-interrupting your session. Stale status looks like a crashed session.
-
-**Format** — see §9 template. Suggested fields per CONVENTIONS:
-
-```
-last_update: <ISO timestamp>
-state: in-progress | blocked | idle | done
-current_step: <one line>
-blocked_on: <one line, only if state=blocked>
-recent_commits:
-  - <sha> <subject>
-notes: <freeform, optional>
-```
-
-Status starts as `in-progress` and stays that way until Dean reviews.
-Never write `state: done` yourself.
-
-**When to rewrite** (full snapshot each time; not append-only):
-
-- Session start: initial entry with your understanding of scope and
-  what you plan to land.
-- After each commit: update `recent_commits` and `current_step`.
-- After each test run / build / verification: reflect in `notes` if
-  something noteworthy.
-- When you hit a question, blocker, or judgment call: flip `state: blocked`
-  and fill `blocked_on`; keep working if you can on a different track,
-  or stop and wait if it gates everything.
-- Before pausing for any reason (end of session, waiting on review): one
-  final write reflecting current state.
-
-The status file is **broadcast, not directive.** Other agents may read it
-to inform their own actions, but they never absorb it into CURRENT.md or
-take instructions from it. If a sibling needs your output, the sibling's
-own plan tells them what to do — your status is just a hint that something
-moved.
-
-### 5.2 Handoff to planner — when shared state should change
-
-When work reaches a point where CURRENT.md / the PR Status table / pending
-handoffs / blockers / next steps need to change, write a handoff at:
-
-```
-plans/session/handoffs/plan__<topic>.md
-```
-
-(e.g. `plans/session/handoffs/plan__optimizer-1.3-landed.md`.)
-
-Format — two header lines plus freeform prose:
-
-```
-from: <your branch name>
-session: <short topic name>
-
-<freeform: what was completed, what CURRENT should say, new/updated work
-items, blockers to clear, next steps. Be complete; the sync agent applies
-exactly what the handoff describes.>
-```
-
-Write a handoff at meaningful gates: when you finish a commit you want
-reflected in CURRENT, when you pause and want the project state captured,
-when you raise a question that should be visible across sessions. Do not
-write a handoff per checkpoint — that's what the status file is for.
-
-The plan-agent processes pending handoffs via `/sync-current` when Dean
-asks. Your handoff is then renamed to `<file>.md.DONE` and `git rm`-ed in
-the sync commit.
-
-### 5.3 Triggers to siblings — only when needed
-
-If your work changes something a sibling coder needs to react to (your tip
-moved, an interface you both touched changed shape, etc.), write a trigger
-at:
-
-```
-plans/session/handoffs/<sibling>__<topic>.md
-```
-
-Triggers carry **no instructions**. The body has only `reason`, `refs`
-(docs the sibling should re-read), and an optional one-line `note`. See
-CONVENTIONS for the exact format. The sibling re-reads the referenced docs
-and lets their own plan decide how to react.
-
-**Do not edit CURRENT.md directly.** Coder writes are limited to your
-worktree, `plans/session/handoffs/`, and `plans/session/status/<your-branch>.md`
-(per §1). The planner is the only writer of CURRENT.md.
-
----
-
-## 6. WIP until Dean reviews — don't mark work "complete"
-
-Until Dean reviews and approves the code, the work is WIP. Convey this
-explicitly:
-
-- In your status file: `state: in-progress` until Dean reviews. Never
-  `state: done` yourself.
-- In any plan-handoff: list every reviewable artifact (commit hashes,
-  files touched, dev-guide sections added/changed, test specs added) and
-  describe the section update for CURRENT.md as "in review", not
-  "complete" or "ready to merge".
-- The session-state update in CURRENT.md (applied by the plan-agent later)
-  reflects "in review", not "complete".
-
----
-
-## 7. Things you may do without asking
-
-- Read any file in the workspace, including sibling worktrees.
-- Run read-only `git` commands from your own worktree (`status`, `diff`,
-  `log`, `branch` listing, `show`).
-- Run read-only `git -C <sibling>` commands (`log`, `diff`, `show`,
-  `status`, `branch` listing) when you need committed code or history
-  from another branch.
-- Run write `git` commands from your own worktree only: `commit`,
-  `rebase` (within your branch), `add`, `mv`, etc.
-- Run `go test`, `go build`, `gofmt`, `go vet`, `golangci-lint` (if
-  configured).
-- Run read-only `gh` commands.
-- Edit / write / delete files inside your worktree.
-- Move tests within your branch.
-- Add new files in your worktree (source, tests, dev-guide).
-- Write your own status file at `plans/session/status/<your-branch>.md`.
-- Write your own `plan__*.md` handoffs and `<sibling>__*.md` triggers
-  under `plans/session/handoffs/`.
-- `mv <file>.md <file>.md.DONE` for any handoff or trigger addressed to
-  you (in `plans/session/handoffs/`).
-
-## 8. Things you may NOT do without asking
-
-- Edit, write, or delete files in a sibling worktree.
-- Run any state-changing `git -C <sibling>` command (`commit`, `rebase`,
-  `checkout` with side effects, `branch -D`, etc.). Read-only `-C` is
-  fine; writes are not.
-- Edit any other agent's status file.
-- Edit, `mv`, or `rm` someone else's pending handoff or trigger (anything
-  not addressed to you).
-- Edit CURRENT.md directly (the planner is the only writer).
-- `rm` consumed handoffs or triggers — use `mv <file>.md <file>.md.DONE`.
-- Run `git push` of any kind.
-- Run any GitHub-mutating `gh` command.
-- Skip pre-commit hooks (`--no-verify`).
-- Force-push (even within your branch).
-- Run destructive operations (`git reset --hard`, `rm -rf` outside scratch
-  paths, `git branch -D`).
-- Create commits without DCO sign-off (each commit must carry
-  `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>` per
-  `plans/session/CONVENTIONS.md` Pre-push checklist).
-
----
-
-## 9. Templates
-
-### 9.1 Status file (`plans/session/status/<branch>.md`)
-
-Rewrite this file in place at every checkpoint (see §5.1). `state` stays
-`in-progress` until Dean reviews; never write `state: done` yourself.
-
-```
-last_update: <ISO timestamp>
-state: in-progress | blocked
-current_step: <one line — what you are doing right now>
-blocked_on: <one line, only if state=blocked>
-
-## Branch
-<branch> at <worktree path> ; tip <commit-sha-short>
-
-## Recent commits
-- <sha> — <message>
-- ...
-
-## Tests added / moved
-- <test file>:<spec> — <one-line description>
-- ...
-
-## Verified
-- go test ./internal/... ./pkg/... ./cmd/... — PASS
-- gofmt -l ... — clean
-- go build ./... — clean
-- (any -race or scenario-specific runs)
-
-## Developer guide
-- <path> — <what was added/changed>
-
-## Open questions for Dean
-- <question 1>
-- ...
-
-## Not done / known limitations
-- <item>
-- ...
-
-## Notes
-<freeform>
-```
-
-### 9.2 Handoff to planner (`plans/session/handoffs/plan__<topic>.md`)
-
-Written when shared state (CURRENT.md, PR Status table, blockers, next
-steps) needs to change (see §5.2). One-shot — not a living file.
-
-```
-from: <your branch>
-session: <short topic name>
-
-## What changed
-<commit shas, files touched, gates passed>
-
-## Update CURRENT.md
-<what the per-task section / PR Status row / blockers / next steps
-should say>
-
-## Open questions / follow-ups
-<things to surface across sessions>
-```
-
-### 9.3 Trigger to a sibling (`plans/session/handoffs/<sibling>__<topic>.md`)
-
-Zero instructions in the body — only refs (see §5.3 and CONVENTIONS).
-
-```
-reason: <re-read plan | sibling-status-update | upstream-rebase | other>
-refs:
-  - <doc path 1>
-  - <doc path 2>
-note: <optional one line>
-```
+(Empty for now. Add here if a mission-level constraint emerges that
+isn't in CONVENTIONS, CODER-CONVENTIONS, the review doc, or your plan
+doc.)
