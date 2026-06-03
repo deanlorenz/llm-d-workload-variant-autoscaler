@@ -40,10 +40,20 @@ enabled analyzers follow in registration order.
 
 ```go
 type NamedAnalyzerResult struct {
-    Name   string
-    Result *interfaces.AnalyzerResult
+    Name      string
+    Result    *interfaces.AnalyzerResult  // engine-calibrated; never mutated by helpers
+    Remaining float64                     // working RC counter for the optimizer
+    Spare     float64                     // working SC counter for the optimizer
 }
 ```
+
+**Working counters (refinement during 1.1 implementation):** the helpers
+mutate `Remaining` and `Spare` as allocation progresses; `Result.RequiredCapacity`
+and `Result.SpareCapacity` stay pristine. This preserves the "engine post-step
+is the sole writer of RC/SC" invariant from PR #1228 — the working state of the
+optimizer's iterative allocation is decoupled from the analyzer's calibrated
+output. The engine initializes `Remaining`/`Spare` from `Result.RequiredCapacity`/
+`Result.SpareCapacity` when populating `AnalyzerResults`.
 
 ### Linearity invariant (the contract the helpers depend on)
 
@@ -63,12 +73,12 @@ threshold overrides are honored upstream, so the optimizer doesn't re-resolve th
 
 ### Pipeline helpers (`internal/engines/pipeline/analyzer_helpers.go`)
 
-- `needsScaleUp(s)` — any-up gate: `RC_i > 0` for at least one analyzer.
-- `needsScaleDown(s)` — all-down gate: `SC_i > 0` for every analyzer.
-- `bottleneckReplicas(s, v)` — `max_i ceil(RC_i / PRC_i[v])`; cold-start guard for `PRC=0`.
-- `safeRemovalReplicas(s, v)` — `min_i floor(SC_i / PRC_i[v])`.
-- `applyAllocation(s, v, n)` — subtracts `n × PRC_i[v]` from each analyzer's `RC`; clamps to 0.
-- `applyDeallocation(s, v, n)` — symmetric for `SC`.
+- `needsScaleUp(s)` — any-up gate: `Remaining_i > 0` for at least one analyzer.
+- `needsScaleDown(s)` — all-down gate: `Spare_i > 0` for every analyzer.
+- `bottleneckReplicas(s, v)` — `max_i ceil(Remaining_i / PRC_i[v])`; cold-start guard for `PRC=0`.
+- `safeRemovalReplicas(s, v)` — `min_i floor(Spare_i / PRC_i[v])`.
+- `applyAllocation(s, v, n)` — subtracts `n × PRC_i[v]` from each analyzer's `Remaining`; clamps to 0. Does NOT touch `Result.RequiredCapacity`.
+- `applyDeallocation(s, v, n)` — symmetric for `Spare`. Does NOT touch `Result.SpareCapacity`.
 - `saturationEntry(s)` — looks up saturation by name (variant-metadata keeper).
 - `PickVariantFn` — optimizer-specific variant selector; returns `(variant, capN)`.
 - `allocateForModel(...)` — generic scale-up inner loop using `pick`.
@@ -88,48 +98,56 @@ These operate on `[]NamedAnalyzerResult`. Distinct concern from `internal/engine
 
 Each commit compiles, passes `make test`, is DCO-signed.
 
-### 1.1 ✅ `bcfc9a3e` — pipeline: NamedAnalyzerResult + AnalyzerResults field
+### 1.1 ✅ `27a15e2e` — pipeline: NamedAnalyzerResult + AnalyzerResults field
 
 Landed against `a93bc5dc` (pre-rewrite engine). Adds:
-- `pipeline.NamedAnalyzerResult{Name, Result}`.
+- `pipeline.NamedAnalyzerResult{Name, Result, Remaining, Spare}` — `Result` is the
+  engine-calibrated `*AnalyzerResult` (never mutated); `Remaining`/`Spare` are the
+  optimizer's working RC/SC counters that helpers mutate during allocation.
 - `pipeline.ModelScalingRequest.AnalyzerResults []NamedAnalyzerResult` alongside legacy
   `Result`.
 - Engine populates both (`Result` via combine; `AnalyzerResults` saturation-first then
-  enabled non-saturation analyzers in config order).
+  enabled non-saturation analyzers in config order, with `Remaining` initialized from
+  `Result.RequiredCapacity` and `Spare` from `Result.SpareCapacity`).
+
+**Design refinement — Remaining/Spare counters.** The original plan had helpers
+mutate `Result.RequiredCapacity`/`Result.SpareCapacity` directly. During implementation
+we noticed this conflicts with PR #1228's "engine post-step is the sole writer of
+RC/SC" invariant: once the optimizer mutates `Result.RC`, the analyzer's calibrated
+output is lost. The fix is to add separate working counters on `NamedAnalyzerResult`
+and have helpers operate on those. The helper API stays the same shape (same names,
+same signatures); only the field they touch changes.
 
 **Cross-rebase reshape needed** — see § Cross-rebase mechanics below.
 
-### 1.2 ✅ `956e60b6` — pipeline: helpers in `analyzer_helpers.go`
+### 1.2 ✅ `3b21c347` — pipeline: helpers in `analyzer_helpers.go`
 
-Landed against `a93bc5dc`. Adds the 8 helpers listed above + 20 specs.
-Helpers intentionally unused by optimizers at this commit; wired in 1.3/1.4.
+Landed against `a93bc5dc`. Adds the 8 helpers listed above + 21 specs.
+Helpers operate on `Remaining`/`Spare` and never mutate `Result`. Helpers
+intentionally unused by optimizers at this commit; wired in 1.3/1.4.
 
 **Cross-rebase impact:** clean (pure addition to `pipeline/`; no engine changes).
 
-### 1.3 ⏳ — CostAware migration (next step)
+### 1.3 ✅ `d35aa532` — CostAware migration
 
-Migrate `CostAwareOptimizer` to read `req.AnalyzerResults` via the new helpers.
+`CostAwareOptimizer` migrated to per-analyzer slice via the new helpers.
 
-**Mechanics:**
+**Landed:**
 
-1. **Gate:** replace `req.Result.RequiredCapacity > 0` / `SpareCapacity > 0` with
-   `needsScaleUp(req.AnalyzerResults)` / `needsScaleDown(req.AnalyzerResults)`.
-2. **Scale-up:** replace `costAwareScaleUp` body with `allocateForModel(...)` + a
-   cost-greedy `PickVariantFn`.
-   - Picker: cheapest by `cost / PRC[v]` (cost-efficiency ascending);
-     `capN = math.MaxInt`;
-     respects `maxReplicas` headroom and GPU budget via `stateMap` / `available`.
-3. **Scale-down:** replace `costAwareScaleDown` body with safe-removal loop using
-   `safeRemovalReplicas(req.AnalyzerResults, v)` + `applyDeallocation`.
-   - Cheapest-variant protection (keep ≥1 when last survivor) stays.
-   - `minReplicas` from stateMap respected.
-4. **Variant metadata source:** `saturationEntry(req.AnalyzerResults).VariantCapacities`
-   instead of `req.Result.VariantCapacities` for `Cost`, `AcceleratorName`, `Role`.
-5. **`buildDecisionsWithOptimizer`:** still reads `req.Result` for reason-string formatting
-   and `Utilization` per variant. Leave as-is for 1.5 to clean up when `Result` is dropped.
-6. **Greedy unchanged in this commit** — still reads `req.Result`.
-7. **Tests:** update `cost_aware_optimizer_test.go` to populate `AnalyzerResults` in
-   fixtures.
+1. **Gate:** `needsScaleUp(req.AnalyzerResults)` / `needsScaleDown(req.AnalyzerResults)`
+   replace `req.Result.RequiredCapacity > 0` / `SpareCapacity > 0`.
+2. **Scale-up:** `allocateForModel(...)` + `costGreedyPick` (cheapest by `cost / PRC[v]`,
+   `capN = math.MaxInt`, respects `maxReplicas` headroom + GPU budget via
+   `stateMap`/`available`).
+3. **Scale-down:** safe-removal loop using `safeRemovalReplicas(req.AnalyzerResults, v)`
+   + `applyDeallocation`. Cheapest-variant protection retained; `minReplicas` honored.
+4. **Variant metadata:** `saturationEntry(req.AnalyzerResults).VariantCapacities` for
+   `Cost`/`AcceleratorName`/`Role`.
+5. **`buildDecisionsWithOptimizer`:** still reads `req.Result` for reason strings + per-variant
+   `Utilization`. Cleaned in 1.5.
+6. **Greedy unchanged** — still reads `req.Result`. Greedy scale-down call site updated to
+   the new function signature.
+7. **Tests:** `cost_aware_optimizer_test.go` fixtures updated to populate `AnalyzerResults`.
 
 ### 1.4 ⏳ — Greedy migration
 
