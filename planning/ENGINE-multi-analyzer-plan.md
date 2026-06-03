@@ -1,7 +1,24 @@
 # ENGINE: Generic Multi-Analyzer Pipeline
 
-> **Status: PLANNED** — Independent of TA branches. No dependency on TA1/TA2/TA3.
-> Part of #1005 (infrastructure enabler). Unblocks the TA wiring PR.
+> **Status: SUPERSEDED** (2026-06-02) — This single-PR plan was replaced by the
+> 3-PR split decided in [`PR1113-review.md`](PR1113-review.md) Implementation roadmap.
+> The original `engine-multi-analyzer` branch / PR #1113 will be closed by Dean after
+> coordinating with ev-shindin. Successor Type 3 plans:
+>
+> - **Item 3 — race-safe registration** → branch `multi-analyzer-registration`,
+>   PR #1225. (Spec lived in handoffs during execution; no surviving Type 3 plan.)
+> - **Item 2 — universal threshold post-step** → branch `multi-analyzer-threshold`,
+>   PR #1228, plan at [`multi-analyzer-threshold-plan.md`](multi-analyzer-threshold-plan.md).
+> - **Item 1 — delete combine, per-analyzer slice → optimizers** → branch
+>   `multi-analyzer-optimizer`, plan at [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md).
+>
+> The content below reflects the original single-PR design (map-based runner,
+> any-up/all-down combine, score weighting). Some pieces landed; many were
+> redesigned. **Do not act on this plan.** Use the successor plans + `PR1113-review.md`
+> for current direction.
+
+> **Original status header:** PLANNED. Independent of TA branches. No dependency on
+> TA1/TA2/TA3. Part of #1005 (infrastructure enabler). Unblocks the TA wiring PR.
 
 ---
 
