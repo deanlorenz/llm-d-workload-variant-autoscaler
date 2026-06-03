@@ -324,7 +324,9 @@ runs `/sync-current` to apply.
 - **1.4** — migrate `GreedyByScoreOptimizer`; fair-share-bounded picker.
 - **1.5** — delete `combineAnalyzerResults` + tests; rename `runAnalyzersAndScore` → `runAnalyzers`; drop `ModelScalingRequest.Result` and `AnalyzerResult.Score`; final dev-guide commit.
 
-**Cross-rebase plan (after 1.5 lands):** rebase the full stack onto `multi-analyzer-threshold` to pick up `TotalAnticipatedSupply` field + registration plumbing in one hop.
+**Plan:** [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) — Type 3 task plan with per-analyzer slice contract, linearity invariant, helper API, picker design, 1.3 / 1.4 / 1.5 commit plan, cross-rebase mechanics onto `multi-analyzer-threshold@b8b823b0`, `runAnalyzersAndScore` signature reshape, verification gates.
+
+**Cross-rebase plan (after 1.5 lands):** rebase the full stack onto `multi-analyzer-threshold@b8b823b0` (PR #1228 head) to pick up registration plumbing + threshold post-step + aggregation helpers in one hop.
 
 **Verified (after 1.2):** gofmt clean, build clean, `make test` all-pass (pipeline package: 90.8% coverage), DCO sign-off on both commits.
 
