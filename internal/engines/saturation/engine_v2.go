@@ -191,6 +191,8 @@ func combineAnalyzerResults(
 // runAnalyzersAndScore runs all enabled analyzers and combines their results into a
 // single AnalyzerResult for the optimizer. Saturation always runs first to populate
 // VariantCapacities (Cost, AcceleratorName, Role) that the optimizer requires.
+// It also returns a per-analyzer slice (saturation first) for use by the optimizer
+// helpers introduced in the per-analyzer slice redesign.
 func (e *Engine) runAnalyzersAndScore(
 	ctx context.Context,
 	modelID, namespace string,
@@ -199,7 +201,7 @@ func (e *Engine) runAnalyzersAndScore(
 	variantStates []interfaces.VariantReplicaState,
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
-) (*interfaces.AnalyzerResult, error) {
+) ([]pipeline.NamedAnalyzerResult, *interfaces.AnalyzerResult, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	// Apply per-analyzer saturation threshold overrides before running the analyzer.
@@ -220,7 +222,7 @@ func (e *Engine) runAnalyzersAndScore(
 	satResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Build AnalyzerInput once; shared by all non-saturation analyzers.
@@ -234,7 +236,14 @@ func (e *Engine) runAnalyzersAndScore(
 	}
 
 	// Collect results from all enabled analyzers.
+	// namedResults is saturation-first; used by optimizer helpers in the per-analyzer slice path.
 	var results []enabledAnalyzerResult
+	namedResults := []pipeline.NamedAnalyzerResult{{
+		Name:      interfaces.SaturationAnalyzerName,
+		Result:    satResult,
+		Remaining: satResult.RequiredCapacity,
+		Spare:     satResult.SpareCapacity,
+	}}
 	for _, aw := range config.Analyzers {
 		if aw.Enabled != nil && !*aw.Enabled {
 			continue
@@ -255,9 +264,15 @@ func (e *Engine) runAnalyzersAndScore(
 			continue
 		}
 		results = append(results, enabledAnalyzerResult{result: r, score: aw.Score})
+		namedResults = append(namedResults, pipeline.NamedAnalyzerResult{
+			Name:      aw.Name,
+			Result:    r,
+			Remaining: r.RequiredCapacity,
+			Spare:     r.SpareCapacity,
+		})
 	}
 
-	return combineAnalyzerResults(satResult, results, config.Priority), nil
+	return namedResults, combineAnalyzerResults(satResult, results, config.Priority), nil
 }
 
 // computeCurrentGPUUsage iterates over model scaling requests to compute the
@@ -296,7 +311,7 @@ func (e *Engine) collectV2ModelRequest(
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 ) (*pipeline.ModelScalingRequest, error) {
-	result, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
+	namedResults, result, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings)
 	if err != nil {
 		return nil, fmt.Errorf("collecting V2 model request for %s/%s: %w", namespace, modelID, err)
@@ -312,11 +327,12 @@ func (e *Engine) collectV2ModelRequest(
 	}
 
 	return &pipeline.ModelScalingRequest{
-		ModelID:       modelID,
-		Namespace:     namespace,
-		Result:        result,
-		VariantStates: variantStates,
-		Priority:      config.Priority,
-		Disaggregated: disaggregated,
+		ModelID:         modelID,
+		Namespace:       namespace,
+		Result:          result,
+		AnalyzerResults: namedResults,
+		VariantStates:   variantStates,
+		Priority:        config.Priority,
+		Disaggregated:   disaggregated,
 	}, nil
 }
