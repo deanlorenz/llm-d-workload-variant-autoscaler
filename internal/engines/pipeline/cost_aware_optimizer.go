@@ -45,18 +45,19 @@ func (o *CostAwareOptimizer) Optimize(
 	var allDecisions []interfaces.VariantDecision
 
 	for _, req := range requests {
-		if req.Result == nil {
+		satEntry := saturationEntry(req.AnalyzerResults)
+		if satEntry == nil {
 			continue
 		}
 
 		stateMap := buildStateMap(req.VariantStates)
-		vcMap := buildCapacityMap(req.Result.VariantCapacities)
+		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if req.Result.RequiredCapacity > 0 {
-			costAwareScaleUp(ctx, req.Result, targets, stateMap)
-		} else if req.Result.SpareCapacity > 0 {
-			costAwareScaleDown(ctx, req.Result, targets, stateMap)
+		if needsScaleUp(req.AnalyzerResults) {
+			costAwareScaleUp(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
+		} else if needsScaleDown(req.AnalyzerResults) {
+			costAwareScaleDown(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
 		}
 
 		decisions := buildDecisionsWithOptimizer(req, stateMap, vcMap, targets, "cost-aware")
@@ -69,129 +70,121 @@ func (o *CostAwareOptimizer) Optimize(
 	return allDecisions
 }
 
-// costAwareScaleUp adds replicas to the most cost-efficient variant.
-// Sorts by cost-efficiency (cost/perReplicaCapacity) ascending, picks first eligible.
-// Respects maxReplicas per variant — if a variant hits its cap, remaining capacity
-// spills over to the next variant.
+// costAwareScaleUp adds replicas to the most cost-efficient variant using the
+// per-analyzer slice helpers. Delegates to allocateForModel with costGreedyPick.
 func costAwareScaleUp(
 	ctx context.Context,
-	result *interfaces.AnalyzerResult,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
 	targets map[string]int,
 	stateMap map[string]interfaces.VariantReplicaState,
 ) {
-	logger := ctrl.LoggerFrom(ctx)
+	allocateForModel(ctx, s, variants, stateMap, nil, targets, costGreedyPick)
+}
 
-	sorted := sortByCostEfficiencyAsc(result.VariantCapacities)
-	remaining := result.RequiredCapacity
-
+// costGreedyPick returns the cheapest-by-cost-efficiency variant that still has
+// replica headroom. capN is the maxReplicas headroom (math.MaxInt when unlimited).
+// Returns ("", 0) when all variants are at their cap or have no capacity.
+func costGreedyPick(
+	_ []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	_ map[string]int,
+	targets map[string]int,
+) (string, int) {
+	sorted := sortByCostEfficiencyAsc(variants)
 	for _, vc := range sorted {
-		if remaining <= 0 {
-			break
-		}
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}
-
-		replicasNeeded := int(math.Ceil(remaining / vc.PerReplicaCapacity))
-
-		// Cap by maxReplicas if set
 		state := stateMap[vc.VariantName]
 		if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
-			maxAdd := *state.MaxReplicas - targets[vc.VariantName]
-			if maxAdd <= 0 {
-				continue // already at max
+			headroom := *state.MaxReplicas - targets[vc.VariantName]
+			if headroom <= 0 {
+				continue
 			}
-			if replicasNeeded > maxAdd {
-				replicasNeeded = maxAdd
-			}
+			return vc.VariantName, headroom
 		}
-
-		targets[vc.VariantName] += replicasNeeded
-		remaining -= float64(replicasNeeded) * vc.PerReplicaCapacity
-
-		logger.V(logging.DEBUG).Info("Scale-up allocation",
-			"variant", vc.VariantName,
-			"added", replicasNeeded,
-			"costEfficiency", costEfficiency(vc))
+		return vc.VariantName, math.MaxInt
 	}
+	return "", 0
 }
 
-// costAwareScaleDown removes replicas from the most expensive variant.
-// Sorts by absolute cost descending, removes from most expensive first.
-// Respects minReplicas per variant — will not scale below the annotation floor.
-// The cheapest variant is protected at min 1 replica only when no other variant
-// has replicas — this prevents scale-down deadlocks where the expensive variant's
-// per-replica capacity exceeds spare but cheaper replicas could be removed.
+// costAwareScaleDown removes replicas from the most expensive variant using the
+// per-analyzer slice helpers. Iterates most-expensive-first while needsScaleDown
+// holds. Cheapest-variant protection and minReplicas floor are preserved.
 func costAwareScaleDown(
 	ctx context.Context,
-	result *interfaces.AnalyzerResult,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
 	targets map[string]int,
 	stateMap ...map[string]interfaces.VariantReplicaState,
 ) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	sorted := sortByCostDesc(result.VariantCapacities)
-	cheapest := findCheapestVariant(result.VariantCapacities)
-	remaining := result.SpareCapacity
+	sorted := sortByCostDesc(variants)
+	cheapest := findCheapestVariant(variants)
 
-	// Build state lookup if provided
 	var states map[string]interfaces.VariantReplicaState
 	if len(stateMap) > 0 {
 		states = stateMap[0]
 	}
 
-	for _, vc := range sorted {
-		if remaining <= 0 {
-			break
-		}
-		if vc.PerReplicaCapacity <= 0 {
-			continue
-		}
-
-		current := targets[vc.VariantName]
-
-		// Determine minReplicas: annotation floor takes priority, then cheapest-variant logic
-		minReplicas := 0
-		if states != nil {
-			if state, ok := states[vc.VariantName]; ok && state.MinReplicas != nil {
-				minReplicas = *state.MinReplicas
+	for needsScaleDown(s) {
+		removed := false
+		for _, vc := range sorted {
+			if !needsScaleDown(s) {
+				break
 			}
-		}
-		if vc.VariantName == cheapest {
-			// Protect cheapest at 1 only if it's the last variant with replicas
-			// and no higher annotation min is set
-			otherHasReplicas := false
-			for name, t := range targets {
-				if name != cheapest && t > 0 {
-					otherHasReplicas = true
-					break
+			if vc.PerReplicaCapacity <= 0 {
+				continue
+			}
+
+			current := targets[vc.VariantName]
+
+			// Determine minReplicas: annotation floor takes priority, then cheapest-variant logic.
+			minReplicas := 0
+			if states != nil {
+				if state, ok := states[vc.VariantName]; ok && state.MinReplicas != nil {
+					minReplicas = *state.MinReplicas
 				}
 			}
-			if !otherHasReplicas && minReplicas < 1 {
-				minReplicas = 1
+			if vc.VariantName == cheapest {
+				// Protect cheapest at 1 when it's the last variant with replicas.
+				otherHasReplicas := false
+				for name, t := range targets {
+					if name != cheapest && t > 0 {
+						otherHasReplicas = true
+						break
+					}
+				}
+				if !otherHasReplicas && minReplicas < 1 {
+					minReplicas = 1
+				}
 			}
-		}
 
-		removable := current - minReplicas
-		if removable <= 0 {
-			continue
-		}
+			removable := current - minReplicas
+			if removable <= 0 {
+				continue
+			}
 
-		replicasToRemove := int(math.Floor(remaining / vc.PerReplicaCapacity))
-		if replicasToRemove > removable {
-			replicasToRemove = removable
-		}
-		if replicasToRemove <= 0 {
-			continue
-		}
+			n := min(safeRemovalReplicas(s, vc.VariantName), removable)
+			if n <= 0 {
+				continue
+			}
 
-		targets[vc.VariantName] = current - replicasToRemove
-		remaining -= float64(replicasToRemove) * vc.PerReplicaCapacity
+			applyDeallocation(s, vc.VariantName, n)
+			targets[vc.VariantName] = current - n
+			removed = true
 
-		logger.V(logging.DEBUG).Info("Scale-down allocation",
-			"variant", vc.VariantName,
-			"removed", replicasToRemove,
-			"cost", vc.Cost)
+			logger.V(logging.DEBUG).Info("scale-down: removed replicas",
+				"variant", vc.VariantName,
+				"removed", n,
+				"cost", vc.Cost)
+		}
+		if !removed {
+			break
+		}
 	}
 }
 

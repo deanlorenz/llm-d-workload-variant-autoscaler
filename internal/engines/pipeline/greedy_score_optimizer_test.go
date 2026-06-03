@@ -374,7 +374,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 
 		It("should reuse costAwareScaleDown for scale-down models", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -388,7 +388,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 3},
 						{VariantName: "expensive", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -413,7 +413,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 						{VariantName: "up-v1", CurrentReplicas: 1, GPUsPerReplica: 2},
 					},
 				},
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-down",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -425,7 +425,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "down-v1", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 			constraints := []*ResourceConstraints{
 				{Pools: map[string]ResourcePool{
@@ -522,7 +522,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 
 		It("should handle steady state (no scaling needed)", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -535,7 +535,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -963,7 +963,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			intPtr := func(n int) *int { return &n }
 
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -980,7 +980,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 						{VariantName: "expensive", CurrentReplicas: 3, GPUsPerReplica: 1, MinReplicas: intPtr(2)},
 						{VariantName: "cheap", CurrentReplicas: 3, GPUsPerReplica: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -994,7 +994,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			intPtr := func(n int) *int { return &n }
 
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -1011,7 +1011,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 						{VariantName: "keep-alive", CurrentReplicas: 2, GPUsPerReplica: 1, MinReplicas: intPtr(1)},
 						{VariantName: "expendable", CurrentReplicas: 3, GPUsPerReplica: 1, MinReplicas: intPtr(0)},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
