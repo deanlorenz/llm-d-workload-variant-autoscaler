@@ -92,12 +92,17 @@ func (o *GreedyByScoreOptimizer) Optimize(
 	}
 
 	for _, req := range otherRequests {
+		satEntry := saturationEntry(req.AnalyzerResults)
+		if satEntry == nil {
+			continue
+		}
+
 		stateMap := buildStateMap(req.VariantStates)
-		vcMap := buildCapacityMap(req.Result.VariantCapacities)
+		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if req.Result.SpareCapacity > 0 {
-			costAwareScaleDown(ctx, req.Result, targets, stateMap)
+		if needsScaleDown(req.AnalyzerResults) {
+			costAwareScaleDown(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
 		}
 
 		decisions := buildDecisionsWithOptimizer(req, stateMap, vcMap, targets, GreedyByScoreOptimizerName)

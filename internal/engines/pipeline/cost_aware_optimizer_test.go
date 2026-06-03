@@ -10,6 +10,20 @@ import (
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/interfaces"
 )
 
+// withSatEntry adds a single-saturation AnalyzerResults to req, initialised from
+// req.Result. Used by test fixtures so CostAwareOptimizer can find the saturation entry.
+func withSatEntry(req ModelScalingRequest) ModelScalingRequest {
+	if req.Result != nil {
+		req.AnalyzerResults = []NamedAnalyzerResult{{
+			Name:      interfaces.SaturationAnalyzerName,
+			Result:    req.Result,
+			Remaining: req.Result.RequiredCapacity,
+			Spare:     req.Result.SpareCapacity,
+		}}
+	}
+	return req
+}
+
 var _ = Describe("CostAwareOptimizer", func() {
 
 	var (
@@ -30,7 +44,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should add replicas to most cost-efficient variant", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -47,7 +61,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 2},
 						{VariantName: "expensive", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -61,7 +75,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should not skip variants with pending replicas", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -75,7 +89,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 2, PendingReplicas: 1},
 						{VariantName: "mid", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -89,7 +103,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should skip variants with zero capacity", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -103,7 +117,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "zero-cap", CurrentReplicas: 0},
 						{VariantName: "normal", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -115,7 +129,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should spread across multiple variants when needed", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -129,7 +143,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 1},
 						{VariantName: "mid", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -145,7 +159,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should remove from most expensive variant first", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -159,25 +173,21 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 3},
 						{VariantName: "expensive", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
 			dm := decisionMap(decisions)
 
-			// expensive is removed first: floor(15000/20000)=0 → can't remove full replica?
-			// Actually floor(15000/20000) = 0. Hmm. Let me reconsider.
-			// No wait: spare=15000, expensive.perReplica=20000 → floor(15000/20000)=0
-			// But expensive has minReplicas=0 (not cheapest), removable=2
-			// 0 replicas removed from expensive → try cheap: floor(15000/10000)=1, removable=3-0=3
-			// cheap goes from 3 to 2
+			// expensive: floor(15000/20000)=0 → can't remove full replica
+			// cheap: expensive still has replicas → not protected, floor(15000/10000)=1 → remove 1
 			Expect(dm["expensive"].TargetReplicas).To(Equal(2))
 			Expect(dm["cheap"].TargetReplicas).To(Equal(2))
 		})
 
 		It("should protect cheapest variant at 1 replica", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -191,7 +201,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "expensive", CurrentReplicas: 1},
 						{VariantName: "cheap", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -205,7 +215,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should remove cheap variant when expensive replica capacity exceeds spare", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -219,7 +229,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "expensive", CurrentReplicas: 1},
 						{VariantName: "cheap", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -233,7 +243,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should cascade scale-down across variants", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -249,16 +259,16 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "mid", CurrentReplicas: 2},
 						{VariantName: "cheap", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
 			dm := decisionMap(decisions)
 
 			// sorted by cost DESC: expensive(15), mid(10), cheap(5)
-			// expensive: floor(50000/20000)=2, removable=2 → remove 2. remaining=50000-40000=10000
+			// expensive: floor(50000/20000)=2, removable=2 → remove 2. spare=10000
 			// mid: floor(10000/15000)=0 → skip
-			// cheap: mid still has replicas → not protected, removable=2, floor(10000/10000)=1 → remove 1. remaining=0
+			// cheap: mid still has replicas → not protected, floor(10000/10000)=1 → remove 1. spare=0
 			Expect(dm["expensive"].TargetReplicas).To(Equal(0))
 			Expect(dm["mid"].TargetReplicas).To(Equal(2))
 			Expect(dm["cheap"].TargetReplicas).To(Equal(1))
@@ -416,7 +426,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should return no-change when no scaling signal", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -429,7 +439,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -439,9 +449,9 @@ var _ = Describe("CostAwareOptimizer", func() {
 			Expect(decisions[0].TargetReplicas).To(Equal(2))
 		})
 
-		It("should skip requests with nil result", func() {
+		It("should skip requests with no saturation entry", func() {
 			requests := []ModelScalingRequest{
-				{ModelID: "model-1", Namespace: "default", Result: nil},
+				{ModelID: "model-1", Namespace: "default"},
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -453,7 +463,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should process models independently", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -465,8 +475,8 @@ var _ = Describe("CostAwareOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "m1-v1", CurrentReplicas: 1},
 					},
-				},
-				{
+				}),
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-2",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -478,7 +488,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "m2-v1", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -495,7 +505,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should set model ID, namespace, and cost on decisions", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "ns-1",
 					Result: &interfaces.AnalyzerResult{
@@ -507,7 +517,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -525,7 +535,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should respect maxReplicas during scale-up (spillover to next variant)", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -539,22 +549,21 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "cheap", CurrentReplicas: 1, MaxReplicas: intPtr(3)},
 						{VariantName: "expensive", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
 			dm := decisionMap(decisions)
 
-			// cheap: ceil(30000/10000)=3, but current=1 so target=1+3=4, capped by max=3 → add 2
-			// remaining = 30000 - 2*10000 = 10000
-			// expensive: ceil(10000/20000)=1 → target=1+1=2
+			// cheap: ceil(30000/10000)=3, headroom=3-1=2 → add 2; remaining=10000
+			// expensive: ceil(10000/20000)=1 → add 1
 			Expect(dm["cheap"].TargetReplicas).To(Equal(3))
 			Expect(dm["expensive"].TargetReplicas).To(Equal(2))
 		})
 
 		It("should respect minReplicas during scale-down", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -568,14 +577,13 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "expensive", CurrentReplicas: 3, MinReplicas: intPtr(2)},
 						{VariantName: "cheap", CurrentReplicas: 3},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
 			dm := decisionMap(decisions)
 
-			// expensive: cost DESC → tried first. min=2, removable=3-2=1. floor(50000/20000)=2 → capped to 1
-			// remaining = 50000-20000=30000
+			// expensive: min=2, removable=1. floor(50000/20000)=2 → capped to 1. spare=30000
 			// cheap: not last variant → min=0. removable=3. floor(30000/10000)=3 → remove 3
 			Expect(dm["expensive"].TargetReplicas).To(Equal(2))
 			Expect(dm["cheap"].TargetReplicas).To(Equal(0))
@@ -583,11 +591,11 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("should scale minReplicas=0 variant to zero while keeping minReplicas>0 sibling", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 80000, // enough to remove all
+						SpareCapacity: 80000,
 						VariantCapacities: []interfaces.VariantCapacity{
 							{VariantName: "keep-alive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
 							{VariantName: "expendable", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
@@ -597,21 +605,19 @@ var _ = Describe("CostAwareOptimizer", func() {
 						{VariantName: "keep-alive", CurrentReplicas: 2, MinReplicas: intPtr(1)},
 						{VariantName: "expendable", CurrentReplicas: 3, MinReplicas: intPtr(0)},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
 			dm := decisionMap(decisions)
 
-			// keep-alive: minReplicas=1, so floor at 1
 			Expect(dm["keep-alive"].TargetReplicas).To(Equal(1))
-			// expendable: minReplicas=0 and other variant has replicas, so can go to 0
 			Expect(dm["expendable"].TargetReplicas).To(Equal(0))
 		})
 
 		It("should propagate MinReplicas/MaxReplicas to VariantDecision", func() {
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -624,7 +630,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 2, MinReplicas: intPtr(1), MaxReplicas: intPtr(10)},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -639,9 +645,9 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		It("sortByCostEfficiencyAsc should order by cost/capacity", func() {
 			capacities := []interfaces.VariantCapacity{
-				{VariantName: "expensive", Cost: 15.0, PerReplicaCapacity: 10000}, // 0.0015
-				{VariantName: "cheap", Cost: 5.0, PerReplicaCapacity: 10000},      // 0.0005
-				{VariantName: "mid", Cost: 10.0, PerReplicaCapacity: 10000},       // 0.001
+				{VariantName: "expensive", Cost: 15.0, PerReplicaCapacity: 10000},
+				{VariantName: "cheap", Cost: 5.0, PerReplicaCapacity: 10000},
+				{VariantName: "mid", Cost: 10.0, PerReplicaCapacity: 10000},
 			}
 
 			sorted := sortByCostEfficiencyAsc(capacities)

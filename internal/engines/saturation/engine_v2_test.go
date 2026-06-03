@@ -14,6 +14,20 @@ import (
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils/scaletarget"
 )
 
+// withSatEntryV2 adds a single-saturation AnalyzerResults to req from req.Result.
+// Mirrors the helper in cost_aware_optimizer_test.go for use in the saturation package.
+func withSatEntryV2(req pipeline.ModelScalingRequest) pipeline.ModelScalingRequest {
+	if req.Result != nil {
+		req.AnalyzerResults = []pipeline.NamedAnalyzerResult{{
+			Name:      interfaces.SaturationAnalyzerName,
+			Result:    req.Result,
+			Remaining: req.Result.RequiredCapacity,
+			Spare:     req.Result.SpareCapacity,
+		}}
+	}
+	return req
+}
+
 var _ = Describe("V2 Engine Integration", func() {
 
 	Context("CostAwareOptimizer via engine path", func() {
@@ -21,7 +35,7 @@ var _ = Describe("V2 Engine Integration", func() {
 		It("should scale up cheapest variant by cost-efficiency", func() {
 			optimizer := pipeline.NewCostAwareOptimizer()
 			requests := []pipeline.ModelScalingRequest{
-				{
+				withSatEntryV2(pipeline.ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -37,7 +51,7 @@ var _ = Describe("V2 Engine Integration", func() {
 						{VariantName: "variant-cheap", CurrentReplicas: 2},
 						{VariantName: "variant-expensive", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(context.Background(), requests, nil)
@@ -52,7 +66,7 @@ var _ = Describe("V2 Engine Integration", func() {
 		It("should scale down most expensive variant", func() {
 			optimizer := pipeline.NewCostAwareOptimizer()
 			requests := []pipeline.ModelScalingRequest{
-				{
+				withSatEntryV2(pipeline.ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -68,7 +82,7 @@ var _ = Describe("V2 Engine Integration", func() {
 						{VariantName: "variant-cheap", CurrentReplicas: 3},
 						{VariantName: "variant-expensive", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(context.Background(), requests, nil)
@@ -81,7 +95,7 @@ var _ = Describe("V2 Engine Integration", func() {
 		It("should protect cheapest variant at 1 during scale-down", func() {
 			optimizer := pipeline.NewCostAwareOptimizer()
 			requests := []pipeline.ModelScalingRequest{
-				{
+				withSatEntryV2(pipeline.ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -97,7 +111,7 @@ var _ = Describe("V2 Engine Integration", func() {
 						{VariantName: "variant-expensive", CurrentReplicas: 1},
 						{VariantName: "variant-cheap", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(context.Background(), requests, nil)
@@ -110,7 +124,7 @@ var _ = Describe("V2 Engine Integration", func() {
 		It("should not skip variants with pending replicas", func() {
 			optimizer := pipeline.NewCostAwareOptimizer()
 			requests := []pipeline.ModelScalingRequest{
-				{
+				withSatEntryV2(pipeline.ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
 					Result: &interfaces.AnalyzerResult{
@@ -126,7 +140,7 @@ var _ = Describe("V2 Engine Integration", func() {
 						{VariantName: "variant-cheap", CurrentReplicas: 2, PendingReplicas: 1},
 						{VariantName: "variant-mid", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(context.Background(), requests, nil)
