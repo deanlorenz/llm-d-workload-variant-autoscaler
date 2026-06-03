@@ -293,6 +293,8 @@ runs `/sync-current` to apply.
 
 **Test deviation:** T10 ("saturation result flows to optimizer regardless") verified by code inspection rather than behavioral test (would need a fully wired saturation pipeline). Easy to add as follow-up if reviewer asks.
 
+**Deferred doc nit (fold in with next CI-triggering edit):** dev-guide "Registering Analyzers" subsection documents must-call-before-`StartOptimizeLoop` but doesn't surface the exact panic message (`RegisterAnalyzer called after StartOptimizeLoop`) or the `analyzersSnapshot` mechanism that enforces it. Skipped to avoid burning CI on a doc-only change while the PR is in review; land it alongside whatever reviewer-feedback edit lands first.
+
 ### multi-analyzer-threshold (Item 2 — universal threshold post-step)
 
 **Branch:** `multi-analyzer-threshold` in worktree `multi-analyzer-threshold/`
