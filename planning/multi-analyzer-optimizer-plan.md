@@ -181,6 +181,21 @@ state of 1.5:
 `SpareCapacity` cleaned up here. `Utilization` plumbing for `VariantDecision` stays
 (reads `vc.Utilization` per variant — unchanged).
 
+**Code cleanup carried from 1.3 review:** add a comment on the `removed` flag in
+`costAwareScaleDown`'s outer `for needsScaleDown(s)` loop. The flag breaks the
+outer loop when a full inner sweep makes no progress, guarding against an infinite
+loop where some analyzer's `Spare > 0` but no variant can give up more replicas
+(all at `minReplicas` floor, or PRC mismatch makes `safeRemovalReplicas` return 0
+for every variant). The behavior is correct; the comment makes the invariant
+explicit. Suggested wording:
+
+```go
+// removed flag prevents an infinite loop: needsScaleDown can hold
+// (some Spare_i > 0) while no variant has remaining capacity to
+// give up (all at minReplicas, or PRC mismatched). Break when a full
+// sweep makes no progress.
+```
+
 ---
 
 ## Cross-rebase mechanics (after 1.5 lands locally; before push)
