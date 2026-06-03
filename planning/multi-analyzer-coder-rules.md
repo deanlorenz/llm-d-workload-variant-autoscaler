@@ -22,18 +22,35 @@ apply to all three branches.
 
 ## 1. Worktree scope — only edit inside your branch
 
-You operate exclusively within one worktree (your assigned branch). Edits,
-writes, file creations, and file deletions are limited to files inside your
-worktree directory. Never touch a sibling worktree (`engine-multi-analyzer/`,
-`multi-analyzer-threshold/`, `multi-analyzer-optimizer/`, `main/`, `TA*/`,
-`plans/`, etc.) from your session, even if their files are visible.
+You operate exclusively within one worktree (your assigned branch).
+**Edit operations** — `Write`, `Edit`, file creation/deletion, `git
+commit`, `git rebase`, `git checkout` to switch branch, `git branch -D`,
+and any other state-changing command — are limited to files inside your
+worktree directory. Never edit, write to, or change the state of a
+sibling worktree (`engine-multi-analyzer/`, `multi-analyzer-threshold/`,
+`multi-analyzer-optimizer/`, `Main/`, `TA*/`, etc.) from your session.
 
-Reads are unrestricted: you may read any file in the workspace root or the
-`plans/` tree (CURRENT.md, CONVENTIONS.md, PR1113-review.md, design docs,
-sibling-branch source code) for context. Reading is not editing.
+**Reads are unrestricted.** You may read any file in the workspace root
+or the `plans/` tree (CURRENT.md, CONVENTIONS.md, PR1113-review.md,
+design docs, sibling status files, sibling-branch source code) for
+context. Read-only `git` commands targeting a sibling — `git -C
+<sibling> log`, `git -C <sibling> diff`, `git -C <sibling> show`, `git
+-C <sibling> status`, `git -C <sibling> branch` listing — are fine; use
+them when you need committed code or history from another branch. The
+hard rule is no `git -C <sibling>` for edit operations (commit, rebase,
+checkout-with-side-effects, branch -D, etc.).
 
-If a task seems to require touching a sibling worktree's files, stop and write
-a handoff describing why — do not edit.
+**Single sanctioned write exception outside your worktree:** you may
+write and `mv` files under `plans/session/handoffs/` (your handoffs to
+the planner, triggers to siblings) and write your own status file at
+`plans/session/status/<your-branch>.md`. These are the only paths
+outside your worktree where edits are allowed. See §5.
+
+If a task seems to require touching anything else outside your worktree,
+stop and write a handoff describing why — do not edit.
+
+**To work on another branch**, use `EnterWorktree` per CONVENTIONS — not
+`cd`, not `git checkout` from your current worktree.
 
 ---
 
@@ -85,54 +102,107 @@ understand the design from the developer-guide doc alone.
 
 ---
 
-## 5. Handoff files — living progress log, updated as you work
+## 5. Status file (living) and handoffs (one-shot)
 
-Your handoff file is a **living progress log**, not an end-of-session
-artifact. Update it at every meaningful checkpoint so a monitoring agent
-(or Dean) can tail it and know where you are without interrupting the
-session.
+Two separate artifacts under `plans/session/`. Don't conflate them.
 
-**File path** — one file per session, fixed for the whole session:
-`plans/session/handoffs/<branch>-<topic>.md` (e.g.
-`multi-analyzer-threshold-commit-2-1.md`,
-`multi-analyzer-optimizer-slice-redesign.md`).
+### 5.1 Status file — living progress log
 
-**Format** — open with the two header lines required by
-`plans/session/CONVENTIONS.md` "Shared-state updates go through handoff
-files":
+Your status file is your continuous heartbeat. One file per branch, fixed
+path, overwritten in place at every meaningful checkpoint:
 
 ```
-to: sync-current
-session: <short session name>
+plans/session/status/<branch>.md
 ```
 
-The body uses the section template in §9 below. Status starts as `WIP —
-in progress` and stays that way until Dean reviews. Never write a final
-"done" status yourself.
+(e.g. `plans/session/status/multi-analyzer-optimizer.md`.)
 
-**When to update** (rewrite the file in place each time, full snapshot;
-this is not append-only — the latest write is the current state):
+A monitoring agent or Dean reads it to see where you are without
+interrupting your session. Stale status looks like a crashed session.
 
-- After reading the design and before any edit: write the initial handoff
-  with your understanding of scope, the commits you plan to land, and any
-  questions you'd flag *before* coding.
-- After each commit: update "Implemented" with the new commit, update
-  "Verified" with the latest test/build output.
-- After each test run, build, or other verification: update "Verified".
-- When you hit a question, blocker, or judgment call: add it to "Open
-  questions for Dean" or "Not done / known limitations" and keep working
-  if you can, or stop and wait if it gates further work.
-- Before pausing for any reason (end of session, blocker, waiting on
-  review): one final update reflecting current state.
+**Format** — see §9 template. Suggested fields per CONVENTIONS:
 
-**A monitoring agent may read your handoff at any time.** It will not
-write to it. Keep the format stable and the latest snapshot accurate —
-the monitor's only signal that you are alive and on track is the file's
-mtime + content. Stale handoffs look like crashed sessions.
+```
+last_update: <ISO timestamp>
+state: in-progress | blocked | idle | done
+current_step: <one line>
+blocked_on: <one line, only if state=blocked>
+recent_commits:
+  - <sha> <subject>
+notes: <freeform, optional>
+```
 
-**Do not edit CURRENT.md directly.** The plan-agent applies your handoff
-via `/sync-current` after Dean reviews. Coder agents writing to
-`plans/session/handoffs/` is explicitly allowed by CONVENTIONS.
+Status starts as `in-progress` and stays that way until Dean reviews.
+Never write `state: done` yourself.
+
+**When to rewrite** (full snapshot each time; not append-only):
+
+- Session start: initial entry with your understanding of scope and
+  what you plan to land.
+- After each commit: update `recent_commits` and `current_step`.
+- After each test run / build / verification: reflect in `notes` if
+  something noteworthy.
+- When you hit a question, blocker, or judgment call: flip `state: blocked`
+  and fill `blocked_on`; keep working if you can on a different track,
+  or stop and wait if it gates everything.
+- Before pausing for any reason (end of session, waiting on review): one
+  final write reflecting current state.
+
+The status file is **broadcast, not directive.** Other agents may read it
+to inform their own actions, but they never absorb it into CURRENT.md or
+take instructions from it. If a sibling needs your output, the sibling's
+own plan tells them what to do — your status is just a hint that something
+moved.
+
+### 5.2 Handoff to planner — when shared state should change
+
+When work reaches a point where CURRENT.md / the PR Status table / pending
+handoffs / blockers / next steps need to change, write a handoff at:
+
+```
+plans/session/handoffs/plan__<topic>.md
+```
+
+(e.g. `plans/session/handoffs/plan__optimizer-1.3-landed.md`.)
+
+Format — two header lines plus freeform prose:
+
+```
+from: <your branch name>
+session: <short topic name>
+
+<freeform: what was completed, what CURRENT should say, new/updated work
+items, blockers to clear, next steps. Be complete; the sync agent applies
+exactly what the handoff describes.>
+```
+
+Write a handoff at meaningful gates: when you finish a commit you want
+reflected in CURRENT, when you pause and want the project state captured,
+when you raise a question that should be visible across sessions. Do not
+write a handoff per checkpoint — that's what the status file is for.
+
+The plan-agent processes pending handoffs via `/sync-current` when Dean
+asks. Your handoff is then renamed to `<file>.md.DONE` and `git rm`-ed in
+the sync commit.
+
+### 5.3 Triggers to siblings — only when needed
+
+If your work changes something a sibling coder needs to react to (your tip
+moved, an interface you both touched changed shape, etc.), write a trigger
+at:
+
+```
+plans/session/handoffs/<sibling>__<topic>.md
+```
+
+Triggers carry **no instructions**. The body has only `reason`, `refs`
+(docs the sibling should re-read), and an optional one-line `note`. See
+CONVENTIONS for the exact format. The sibling re-reads the referenced docs
+and lets their own plan decide how to react.
+
+**Do not edit CURRENT.md directly.** Coder writes are limited to your
+worktree, `plans/session/handoffs/`, and `plans/session/status/<your-branch>.md`
+(per §1). The planner is the only writer of CURRENT.md.
 
 ---
 
@@ -141,31 +211,50 @@ via `/sync-current` after Dean reviews. Coder agents writing to
 Until Dean reviews and approves the code, the work is WIP. Convey this
 explicitly:
 
-- In your handoff: status reads "WIP — pending Dean review"; list every
-  reviewable artifact (commit hashes, files touched, dev-guide sections
-  added/changed, test specs added).
+- In your status file: `state: in-progress` until Dean reviews. Never
+  `state: done` yourself.
+- In any plan-handoff: list every reviewable artifact (commit hashes,
+  files touched, dev-guide sections added/changed, test specs added) and
+  describe the section update for CURRENT.md as "in review", not
+  "complete" or "ready to merge".
 - The session-state update in CURRENT.md (applied by the plan-agent later)
   reflects "in review", not "complete".
-- Don't write a handoff that says "done" or "ready to merge". Even if all
-  tests pass, your work is not done until Dean confirms it.
 
 ---
 
 ## 7. Things you may do without asking
 
-- Read any file in the workspace.
-- Run `git status`, `git diff`, `git log`, `git branch`, `git show`,
-  `git rebase` (within your branch), `git commit`.
+- Read any file in the workspace, including sibling worktrees.
+- Run read-only `git` commands from your own worktree (`status`, `diff`,
+  `log`, `branch` listing, `show`).
+- Run read-only `git -C <sibling>` commands (`log`, `diff`, `show`,
+  `status`, `branch` listing) when you need committed code or history
+  from another branch.
+- Run write `git` commands from your own worktree only: `commit`,
+  `rebase` (within your branch), `add`, `mv`, etc.
 - Run `go test`, `go build`, `gofmt`, `go vet`, `golangci-lint` (if
   configured).
 - Run read-only `gh` commands.
 - Edit / write / delete files inside your worktree.
 - Move tests within your branch.
 - Add new files in your worktree (source, tests, dev-guide).
+- Write your own status file at `plans/session/status/<your-branch>.md`.
+- Write your own `plan__*.md` handoffs and `<sibling>__*.md` triggers
+  under `plans/session/handoffs/`.
+- `mv <file>.md <file>.md.DONE` for any handoff or trigger addressed to
+  you (in `plans/session/handoffs/`).
 
 ## 8. Things you may NOT do without asking
 
-- Edit anything outside your worktree.
+- Edit, write, or delete files in a sibling worktree.
+- Run any state-changing `git -C <sibling>` command (`commit`, `rebase`,
+  `checkout` with side effects, `branch -D`, etc.). Read-only `-C` is
+  fine; writes are not.
+- Edit any other agent's status file.
+- Edit, `mv`, or `rm` someone else's pending handoff or trigger (anything
+  not addressed to you).
+- Edit CURRENT.md directly (the planner is the only writer).
+- `rm` consumed handoffs or triggers — use `mv <file>.md <file>.md.DONE`.
 - Run `git push` of any kind.
 - Run any GitHub-mutating `gh` command.
 - Skip pre-commit hooks (`--no-verify`).
@@ -178,23 +267,24 @@ explicitly:
 
 ---
 
-## 9. Handoff template — living progress log
+## 9. Templates
 
-Rewrite this file in place at every checkpoint (see §5). Status stays WIP
-until Dean reviews; never mark complete yourself.
+### 9.1 Status file (`plans/session/status/<branch>.md`)
+
+Rewrite this file in place at every checkpoint (see §5.1). `state` stays
+`in-progress` until Dean reviews; never write `state: done` yourself.
 
 ```
-to: sync-current
-session: <branch>-<short-session-id>
+last_update: <ISO timestamp>
+state: in-progress | blocked
+current_step: <one line — what you are doing right now>
+blocked_on: <one line, only if state=blocked>
 
-## Status
-WIP — <current phase>. Last updated: <ISO timestamp>.
-
-## Branch / worktree
+## Branch
 <branch> at <worktree path> ; tip <commit-sha-short>
 
-## Implemented
-- <commit sha> — <message>
+## Recent commits
+- <sha> — <message>
 - ...
 
 ## Tests added / moved
@@ -217,4 +307,39 @@ WIP — <current phase>. Last updated: <ISO timestamp>.
 ## Not done / known limitations
 - <item>
 - ...
+
+## Notes
+<freeform>
+```
+
+### 9.2 Handoff to planner (`plans/session/handoffs/plan__<topic>.md`)
+
+Written when shared state (CURRENT.md, PR Status table, blockers, next
+steps) needs to change (see §5.2). One-shot — not a living file.
+
+```
+from: <your branch>
+session: <short topic name>
+
+## What changed
+<commit shas, files touched, gates passed>
+
+## Update CURRENT.md
+<what the per-task section / PR Status row / blockers / next steps
+should say>
+
+## Open questions / follow-ups
+<things to surface across sessions>
+```
+
+### 9.3 Trigger to a sibling (`plans/session/handoffs/<sibling>__<topic>.md`)
+
+Zero instructions in the body — only refs (see §5.3 and CONVENTIONS).
+
+```
+reason: <re-read plan | sibling-status-update | upstream-rebase | other>
+refs:
+  - <doc path 1>
+  - <doc path 2>
+note: <optional one line>
 ```
