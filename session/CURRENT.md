@@ -108,7 +108,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 
 - **PR #1225** — opened 2026-06-01 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. PR #1113 stays open until Dean closes it post-migration.
 - **PR #1228** — opened 2026-06-02 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. Stacked on #1225 — when #1225 merges, threshold branch rebases onto main and the diff cleans up to 4 commits.
-- **multi-analyzer-optimizer** — Items 1.1+1.2+1.3 landed (tip `d35aa532`); 1.4 paused awaiting planner decision on P/D disaggregated design (see handoff `plan__optimizer-pd-design.md`); 1.5 not yet started. 1.4 partial work in `git stash`.
+- **multi-analyzer-optimizer** — Items 1.1+1.2+1.3 landed (tip `d35aa532`). P/D disaggregated design discussion settled 2026-06-03: paired (n_P, n_D) allocation, single `Remaining` per analyzer in P-units, dual helper API (single-variant + paired). Plan rewritten at `planning/multi-analyzer-optimizer-plan.md`; agent triggered to re-read via `optimizer__plan-rewrite.md`. Stashed 1.4 work to be discarded; new 1.4 is paired helpers + CostAware disaggregated path; 1.5 is fresh Greedy migration; 1.6 is cleanup.
 - **engine-queue-fix** — waits for whichever Item 3 PR (PR #1225) merges first.
 
 ## Next steps
