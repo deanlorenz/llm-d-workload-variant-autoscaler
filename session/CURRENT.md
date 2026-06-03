@@ -99,7 +99,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for run-1 wrap-up. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 3 commits on `main`@`eb327cc2`; CI in progress | `66001d47` |
 | multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits on `multi-analyzer-registration`@`66001d47`. Stacked on #1225 — diff includes both PRs' commits until #1225 merges and threshold rebases onto main | `b8b823b0` |
-| multi-analyzer-optimizer | — | Local + origin; tip `956e60b6` (1.1+1.2 landed on top of pre-rewrite engine `a93bc5dc`); 1.3 (CostAware migration) next; cross-rebase onto `multi-analyzer-threshold` after 1.5 | `956e60b6` |
+| multi-analyzer-optimizer | — | Local + origin; tip `d35aa532` (1.1+1.2+1.3 landed on top of `a93bc5dc`); 1.4 (Greedy migration) next; cross-rebase onto `multi-analyzer-threshold@b8b823b0` after 1.5 | `d35aa532` |
 | engine-queue-fix      | —     | Local only (worktree); PR deferred — will rebase onto whichever Item 3 PR merges | `01ed7d8` |
 
 ---
@@ -108,7 +108,7 @@ counter-proposal integration. See memory `project_pr1092_analysis.md` for full r
 
 - **PR #1225** — opened 2026-06-01 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. PR #1113 stays open until Dean closes it post-migration.
 - **PR #1228** — opened 2026-06-02 (ready-for-review, ev-shindin assigned); awaiting CI signal + reviewer feedback. Stacked on #1225 — when #1225 merges, threshold branch rebases onto main and the diff cleans up to 4 commits.
-- **multi-analyzer-optimizer** — Items 1.1+1.2 landed (tip `956e60b6`); 1.3–1.5 pending; agent ready to resume.
+- **multi-analyzer-optimizer** — Items 1.1+1.2+1.3 landed (tip `d35aa532`); 1.4–1.5 pending; agent actively working.
 - **engine-queue-fix** — waits for whichever Item 3 PR (PR #1225) merges first.
 
 ## Next steps
@@ -259,7 +259,7 @@ no pushes, dev-guide updates, handoff files, WIP-until-Dean-reviews).
 Branch state (2026-06-02):
 - `multi-analyzer-registration`: 3 commits on `main`@`eb327cc2` (tip `66001d47`); **PR #1225 open** (ready-for-review, ev-shindin assigned).
 - `multi-analyzer-threshold`: 2 commits rebased onto `multi-analyzer-registration`@`66001d47` (tip `06b9d236`); WIP pending Dean review; not pushed.
-- `multi-analyzer-optimizer`: 1.1+1.2 landed on top of `a93bc5dc` (tip `956e60b6`); 1.3–1.5 pending; will cross-rebase onto `multi-analyzer-threshold` after 1.5.
+- `multi-analyzer-optimizer`: 1.1+1.2+1.3 landed on top of `a93bc5dc` (tip `d35aa532`); 1.4 next, then 1.5; cross-rebase onto `multi-analyzer-threshold@b8b823b0` after 1.5.
 
 The old `engine-multi-analyzer` branch (PR #1113) is **superseded** by
 `multi-analyzer-registration` and retained only for run-1 wrap-up by the
@@ -317,20 +317,20 @@ runs `/sync-current` to apply.
 ### multi-analyzer-optimizer (Item 1 — delete combine; per-analyzer slice → optimizers)
 
 **Branch:** `multi-analyzer-optimizer` in worktree `multi-analyzer-optimizer/`
-**Tip:** `956e60b6` (2 commits on top of `a93bc5dc`); 1.3–1.5 pending; not pushed.
+**Tip:** `d35aa532` (4 commits on top of `a93bc5dc`); 1.4–1.5 pending; not pushed.
 
 **Roadmap commits:**
-- **1.1** ✅ `bcfc9a3e` — pipeline: add `NamedAnalyzerResult` + `AnalyzerResults` field on `ModelScalingRequest`; engine populates both (`Result` via combine unchanged; `AnalyzerResults` saturation-first then enabled non-saturation analyzers in config order).
-- **1.2** ✅ `956e60b6` — pipeline: `analyzer_helpers.go` with `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`, `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation`, `saturationEntry`, `PickVariantFn`, `allocateForModel`. 20 Ginkgo specs in `analyzer_helpers_test.go` (includes 11 combine specs adapted to replica-count space; 2 combine-specific specs will die with combine in 1.5). Helpers intentionally unused by optimizers at this commit.
-- **1.3** ⏳ — migrate `CostAwareOptimizer` to read `req.AnalyzerResults` via the new helpers; gate via `needsScaleUp`/`needsScaleDown`; cost-greedy `PickVariantFn`; safe-removal loop for scale-down. Detailed plan in handoff.
-- **1.4** — migrate `GreedyByScoreOptimizer`; fair-share-bounded picker.
-- **1.5** — delete `combineAnalyzerResults` + tests; rename `runAnalyzersAndScore` → `runAnalyzers`; drop `ModelScalingRequest.Result` and `AnalyzerResult.Score`; final dev-guide commit.
+- **1.1** ✅ `27a15e2e` — pipeline: `NamedAnalyzerResult{Name, Result, Remaining, Spare}` + `AnalyzerResults` field on `ModelScalingRequest`; engine initialises `Remaining`/`Spare` from `Result` values. **Design refinement during impl:** added separate `Remaining`/`Spare` working counters so helpers don't mutate the engine-calibrated `Result.RC/SC` (preserves the "engine post-step is sole writer" invariant from PR #1228).
+- **1.2** ✅ `3b21c347` — pipeline: `analyzer_helpers.go` with `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`, `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation` (operate on `Remaining`/`Spare`, never mutate `Result`), `saturationEntry`, `PickVariantFn`, `allocateForModel`. 21 Ginkgo specs in `analyzer_helpers_test.go`. Helpers intentionally unused by optimizers at this commit.
+- **1.3** ✅ `d35aa532` — `CostAwareOptimizer` migrated: `saturationEntry()` for guard + variant metadata; `needsScaleUp`/`needsScaleDown` gates; `allocateForModel` + `costGreedyPick` for scale-up; `safeRemovalReplicas` + `applyDeallocation` loop for scale-down. Greedy scale-down call site updated to new signature. `req.Result` kept for `buildDecisionsWithOptimizer` reason strings (cleaned in 1.5).
+- **1.4** ⏳ — migrate `GreedyByScoreOptimizer`; fair-share-bounded picker (cap = `ceil(fairShareTarget / PRC[v])`); `fairShareValue(priority, s)` computed on demand from the slice.
+- **1.5** — drop `ModelScalingRequest.Result` and `AnalyzerResult.Score`; rename `runAnalyzersAndScore` → `runAnalyzers`; final dev-guide commit. (Combine deletion already done upstream by registration PR.)
 
 **Plan:** [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) — Type 3 task plan with per-analyzer slice contract, linearity invariant, helper API, picker design, 1.3 / 1.4 / 1.5 commit plan, cross-rebase mechanics onto `multi-analyzer-threshold@b8b823b0`, `runAnalyzersAndScore` signature reshape, verification gates.
 
 **Cross-rebase plan (after 1.5 lands):** rebase the full stack onto `multi-analyzer-threshold@b8b823b0` (PR #1228 head) to pick up registration plumbing + threshold post-step + aggregation helpers in one hop.
 
-**Verified (after 1.2):** gofmt clean, build clean, `make test` all-pass (pipeline package: 90.8% coverage), DCO sign-off on both commits.
+**Verified (after 1.3):** gofmt clean, build clean, `make test` all-pass, DCO sign-off on all 4 commits.
 
 ### engine-multi-analyzer (PR #1113 — superseded)
 
