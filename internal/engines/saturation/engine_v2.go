@@ -119,6 +119,12 @@ func (e *Engine) runAnalyzersAndScore(
 	}
 
 	// Build AnalyzerInput once; shared by all non-saturation analyzers.
+	// Note: &config has had saturation's per-entry threshold overrides applied
+	// (the loop above). Non-saturation analyzers therefore receive the
+	// saturation-adjusted config rather than the original. This is harmless
+	// on this branch (their results are discarded), and the clean fix —
+	// engine applies thresholds universally after each analyzer runs —
+	// is tracked on multi-analyzer-threshold (PR #1228).
 	input := interfaces.AnalyzerInput{
 		ModelID:        modelID,
 		Namespace:      namespace,
@@ -188,14 +194,17 @@ func runRegisteredAnalyzer(
 ) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error(fmt.Errorf("panic: %v", r),
-				"registered analyzer panicked; result discarded on this branch",
-				"name", entry.name, "modelID", modelID)
+			// Plugin failure is non-fatal; log at debug to avoid spamming
+			// operator logs every optimize cycle.
+			logger.V(logging.DEBUG).Info("registered analyzer panicked; result discarded",
+				"name", entry.name, "modelID", modelID, "panic", fmt.Sprintf("%v", r))
 		}
 	}()
 	if _, err := entry.analyzer.Analyze(ctx, input); err != nil {
-		logger.Error(err, "registered analyzer failed; result discarded on this branch",
-			"name", entry.name, "modelID", modelID)
+		// Plugin failure is non-fatal; log at debug to avoid spamming
+		// operator logs every optimize cycle.
+		logger.V(logging.DEBUG).Info("registered analyzer failed; result discarded",
+			"name", entry.name, "modelID", modelID, "error", err)
 	}
 }
 

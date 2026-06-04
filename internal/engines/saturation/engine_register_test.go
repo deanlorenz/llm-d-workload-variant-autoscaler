@@ -76,8 +76,8 @@ var _ = Describe("Engine analyzer registry", func() {
 				},
 			}
 
-			e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			e.RegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
+			e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			e.MustRegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
 
 			Expect(e.analyzers).To(HaveLen(3))
 			Expect(e.analyzers[0].name).To(Equal(interfaces.SaturationAnalyzerName))
@@ -94,11 +94,11 @@ var _ = Describe("Engine analyzer registry", func() {
 			}
 
 			Expect(func() {
-				e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+				e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
 			}).To(PanicWith(`RegisterAnalyzer: duplicate analyzer name "throughput"`))
 
 			Expect(func() {
-				e.RegisterAnalyzer(interfaces.SaturationAnalyzerName, &spyAnalyzer{name: "x"})
+				e.MustRegisterAnalyzer(interfaces.SaturationAnalyzerName, &spyAnalyzer{name: "x"})
 			}).To(PanicWith(ContainSubstring(`duplicate analyzer name`)))
 		})
 
@@ -111,7 +111,7 @@ var _ = Describe("Engine analyzer registry", func() {
 			}
 
 			Expect(func() {
-				e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+				e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
 			}).To(PanicWith("RegisterAnalyzer called after StartOptimizeLoop"))
 		})
 	})
@@ -123,8 +123,8 @@ var _ = Describe("Engine analyzer registry", func() {
 			testConfig := config.NewTestConfig()
 			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
 
-			engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			engine.RegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
+			engine.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			engine.MustRegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
 
 			// Cancel context so the executor's polling loop exits immediately.
 			startCtx, cancelStart := context.WithCancel(context.Background())
@@ -147,7 +147,7 @@ var _ = Describe("Engine analyzer registry", func() {
 			Expect(sourceRegistry.Register("prometheus", source.NewNoOpSource())).To(Succeed())
 			testConfig := config.NewTestConfig()
 			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
-			engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			engine.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
 
 			startCtx, cancelStart := context.WithCancel(context.Background())
 			cancelStart()
@@ -181,7 +181,7 @@ var _ = Describe("Engine analyzer registry", func() {
 							mu.Unlock()
 						}
 					}()
-					engine.RegisterAnalyzer("late", &spyAnalyzer{name: "late"})
+					engine.MustRegisterAnalyzer("late", &spyAnalyzer{name: "late"})
 				}()
 			}
 

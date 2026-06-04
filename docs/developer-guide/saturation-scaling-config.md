@@ -117,19 +117,19 @@ Pre-registered:
 External analyzers are registered from `cmd/main.go` via:
 
 ```go
-engine.RegisterAnalyzer(name string, a interfaces.Analyzer)
+engine.MustRegisterAnalyzer(name string, a interfaces.Analyzer)
 ```
 
-`RegisterAnalyzer` appends to the registry. Registration order defines
+`MustRegisterAnalyzer` appends to the registry. Registration order defines
 processing order in the engine loop and should match the operator's
 `analyzers:` config order.
 
 Re-registering an existing name **panics** — the registry is not a
 hot-swap mechanism, and a duplicate registration is a programmer error
 (typically a wiring mistake in `cmd/main.go`). The panic message is
-`RegisterAnalyzer: duplicate analyzer name "<name>"`.
+`MustRegisterAnalyzer: duplicate analyzer name "<name>"`.
 
-`RegisterAnalyzer` must be called before `StartOptimizeLoop`.
+`MustRegisterAnalyzer` must be called before `StartOptimizeLoop`.
 
 ### Configuring Analyzers
 
@@ -154,7 +154,7 @@ When `analyzers:` is omitted, it defaults to `[{name: "saturation", score: 1.0}]
 
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
-| `name` | string | Analyzer name (must match a `RegisterAnalyzer` call) | required |
+| `name` | string | Analyzer name (must match a `MustRegisterAnalyzer` call) | required |
 | `enabled` | bool | Reserved — placeholder for future combine logic | `true` |
 | `score` | float64 | Reserved — placeholder for future combine logic | `1.0` |
 | `scaleUpThreshold` | float64 | Per-analyzer override; honored only for saturation today (other analyzers tracked on the multi-analyzer-threshold PR) | global `scaleUpThreshold` |
@@ -702,7 +702,7 @@ type SaturationScalingConfig struct {
 }
 
 // AnalyzerScoreConfig configures one analyzer in the multi-analyzer pipeline.
-// On this branch, only `Name` is consumed (it must match a RegisterAnalyzer
+// On this branch, only `Name` is consumed (it must match a MustRegisterAnalyzer
 // call); `Enabled`, `Score`, and the per-analyzer threshold overrides are
 // reserved for follow-up PRs.
 type AnalyzerScoreConfig struct {
