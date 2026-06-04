@@ -92,6 +92,18 @@ extensible without engine package changes.
 
 ## Architecture
 
+### Responsibility split — who writes / who reads each field
+
+| Field | Written by | Read by |
+|---|---|---|
+| Per-variant `ReplicaCount`, `PendingReplicas`, `PerReplicaCapacity`, `Cost`, `Role`, `AcceleratorName` | Analyzer | Optimizer (per-variant scaling math + picker) |
+| Per-variant `TotalCapacity`, `TotalDemand`, `Utilization` | Analyzer | sat_v2 internal aggregation; `Utilization` also passed through to `VariantDecision.Utilization` for metric emission |
+| Model-level `r.TotalSupply`, `r.TotalAnticipatedSupply`, `r.TotalDemand` | Analyzer (via shared aggregation helpers) | Engine post-step |
+| Per-role `r.RoleCapacities[role].TotalSupply` / `TotalAnticipatedSupply` / `TotalDemand` | Analyzer (via shared aggregation helpers) | Engine post-step |
+| Model-level `r.RequiredCapacity`, `r.SpareCapacity` | **Engine post-step only** (overwrites anything analyzer wrote) | Optimizer |
+| Per-role `RoleCapacity.RequiredCapacity`, `SpareCapacity` | **Engine post-step only** (overwrites anything analyzer wrote) | Optimizer |
+| `NamedAnalyzerResult.Remaining`, `Spare`, `RoleSpare` | Optimizer's working state during allocation; initialized from engine-calibrated values | Optimizer's helpers |
+
 ### A. Per-variant data is canonical
 
 `interfaces.VariantCapacity` is the single source of truth for per-variant primitives.

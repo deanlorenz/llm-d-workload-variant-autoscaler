@@ -1,394 +1,200 @@
-# Multi-Analyzer Threshold — Architectural Rework Plan
+# Multi-Analyzer Threshold — Plan
 
-> **Status: PLANNED** — Architectural rework of the `multi-analyzer-threshold` branch.
-> Force-push replaces the current 3 commits (`c2f57c9f`, `06b9d236`, `be25890f`) with
-> 4 fresh commits implementing the per-variant-canonical model.
-> Branch base: `multi-analyzer-registration@66001d47` (PR #1225 head).
-
----
-
-## Context
-
-The current threshold branch (`be25890f`) implements Item 2 of `PR1113-review.md` correctly
-in math but with architectural muddle:
-
-- Engine post-step has a fallback walk over `VariantCapacities` to derive
-  `TotalAnticipatedSupply` when the analyzer leaves it zero — creating a second source of
-  truth for an analyzer-published value.
-- Model-level fallback is 3-step (`TotalAnticipatedSupply → walk variants → TotalSupply`);
-  per-role fallback is 2-step (`TotalAnticipatedSupply → TotalSupply`). Asymmetric paths
-  invite future bugs.
-- Sat_v2's Phase 4 still has the in-analyzer RC/SC formula even though the engine
-  post-step overwrites it. Two implementations of the same math, deferred cleanup,
-  documented but not fixed.
-
-Discussion 2026-06-02 settled the architecture. This plan implements it.
+> **Status: ACTIVE** — PR [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228)
+> open, ev-shindin assigned. 4 commits on `multi-analyzer-registration`@`66001d47`;
+> tip `b8b823b0`. Awaiting CI + reviewer feedback.
+>
+> **Cross-cutting design context:** see [`multi-analyzer-design.md`](multi-analyzer-design.md)
+> (mission, architecture, alternatives considered including the rejected combine
+> algorithm, future direction). This plan is per-PR implementation only.
 
 ---
 
-## Architectural decisions (locked 2026-06-02)
+## Scope
 
-### Per-variant data is canonical
+Item 2 of the design split (see `multi-analyzer-design.md` § Tasks): **engine
+post-step universally calibrates RC/SC for every analyzer's result, plus shared
+aggregation helpers for analyzer authors**. Concretely:
 
-`interfaces.VariantCapacity` (already on main, no struct change needed) is the single
-source of truth for per-variant primitives:
+- New engine post-step `applyUniversalThreshold` applies the pure formula
+  `RC = max(0, TD/scaleUp − Anticipated)` / `SC = max(0, TS − TD/scaleDown)` at
+  model scope and every `RoleCapacity` entry. Strict no-fallback —
+  `TotalAnticipatedSupply == 0` is a literal value, not a sentinel.
+- Per-analyzer threshold overrides (`AnalyzerScoreConfig.ScaleUpThreshold` /
+  `ScaleDownBoundary`) resolved per analyzer via `resolveThresholds`; the
+  resolved pair applies uniformly at every scope for that analyzer. No per-role
+  overrides.
+- New `internal/engines/aggregation/` package with pure helpers
+  (`SumTotalSupply`, `SumTotalAnticipatedSupply`, `SumTotalDemand`,
+  `AggregateByRole`) for analyzer authors. Enforces the linearity invariant
+  the optimizer's per-variant scaling math depends on.
+- Sat_v2 simplification: drops in-analyzer RC/SC (engine post-step is sole
+  writer); calls helpers for per-scope `Total*`; populates per-role
+  `TotalAnticipatedSupply`.
+- Saturation-only override-resolution loop (precursor on main, predates #1113)
+  deleted — the universal post-step subsumes it.
 
-```go
-type VariantCapacity struct {
-    VariantName        string
-    AcceleratorName    string
-    Cost               float64
-    Role               string  // "prefill" | "decode" | "both" | ""
-    ReplicaCount       int
-    PendingReplicas    int
-    PerReplicaCapacity float64  // analyzer-specific
-    TotalCapacity      float64  // analyzer-published, == ReplicaCount × PRC
-    TotalDemand        float64  // analyzer-published, per-variant aggregate demand
-    Utilization        float64  // analyzer-published, == TotalDemand / TotalCapacity
-}
-```
-
-### Responsibility split
-
-| Field | Written by | Read by |
-|---|---|---|
-| Per-variant `ReplicaCount`, `PendingReplicas`, `PerReplicaCapacity`, `Cost`, `Role`, `AcceleratorName` | Analyzer | Optimizer (per-variant scaling math + picker) |
-| Per-variant `TotalCapacity`, `TotalDemand`, `Utilization` | Analyzer | sat_v2 internal aggregation; `Utilization` also passed through to `VariantDecision.Utilization` for metric emission |
-| Model-level `r.TotalSupply`, `r.TotalAnticipatedSupply`, `r.TotalDemand` | Analyzer (via shared helpers) | Engine post-step |
-| Per-role `r.RoleCapacities[role].TotalSupply`/`TotalAnticipatedSupply`/`TotalDemand` | Analyzer (via shared helpers) | Engine post-step |
-| Model-level `r.RequiredCapacity`, `r.SpareCapacity` | **Engine post-step only** (overwrites anything analyzer wrote) | Optimizer |
-| Per-role `RoleCapacity.RequiredCapacity`, `RoleCapacity.SpareCapacity` | **Engine post-step only** (overwrites anything analyzer wrote) | Optimizer |
-
-### Linearity invariant (the contract)
-
-The optimizer's per-variant scaling math (`bottleneckReplicas`, `safeRemovalReplicas`,
-`applyAllocation` on the `multi-analyzer-optimizer` branch) assumes that `n` replicas of
-variant `v` reduce model-level RC by exactly `n × PRC[v]`. That is, `Total*` must equal the
-canonical sum over variants:
-
-```
-r.TotalSupply              == Σ_v vc.ReplicaCount × vc.PerReplicaCapacity
-r.TotalAnticipatedSupply   == Σ_v (vc.ReplicaCount + vc.PendingReplicas) × vc.PerReplicaCapacity
-r.TotalDemand              == Σ_v vc.TotalDemand
-r.RoleCapacities[role].*   == same sums filtered by vc.Role == role
-```
-
-Shared helpers compute these. An analyzer that doesn't use them takes responsibility for
-producing identical math — otherwise the optimizer's per-variant allocation silently breaks.
-
-### Engine post-step is pure formula
-
-```go
-func applyUniversalThreshold(r *interfaces.AnalyzerResult, scaleUp, scaleDown float64) {
-    if r == nil { return }
-    if scaleUp > 0 {
-        r.RequiredCapacity = max(0, r.TotalDemand/scaleUp - r.TotalAnticipatedSupply)
-    }
-    if scaleDown > 0 {
-        r.SpareCapacity = max(0, r.TotalSupply - r.TotalDemand/scaleDown)
-    }
-    for role, rc := range r.RoleCapacities {
-        if scaleUp > 0 {
-            rc.RequiredCapacity = max(0, rc.TotalDemand/scaleUp - rc.TotalAnticipatedSupply)
-        }
-        if scaleDown > 0 {
-            rc.SpareCapacity = max(0, rc.TotalSupply - rc.TotalDemand/scaleDown)
-        }
-        r.RoleCapacities[role] = rc
-    }
-}
-```
-
-- **Strict no-fallback.** No `if anticipated == 0` branch. No `VariantCapacities` walk.
-- `TotalAnticipatedSupply == 0` is a **literal value**, not a sentinel. For a scaled-to-zero
-  variant with positive demand, RC = TotalDemand/scaleUp — the correct "this much capacity
-  needed" answer.
-- Model-level and per-role apply the same formula with the same `(scaleUp, scaleDown)`.
-  No per-role threshold overrides.
-
-### Per-analyzer threshold overrides
-
-`resolveThresholds(name, cfg)` resolves `AnalyzerScoreConfig.ScaleUpThreshold` /
-`ScaleDownBoundary` over the model-level `SaturationScalingConfig.ScaleUpThreshold` /
-`ScaleDownBoundary`. The same resolved `(scaleUp, scaleDown)` pair is applied to model
-and every role for that analyzer. No per-role overrides.
-
-The saturation-only override-resolution loop ([engine_v2.go old:87-100](internal/engines/saturation/engine_v2.go))
-that existed before #1113 stays deleted.
-
-### Shared helpers — `internal/engines/aggregation/`
-
-New package, sibling of `internal/engines/{analyzers,pipeline,saturation,common,executor}/`.
-Pure functions over `interfaces.VariantCapacity`:
-
-```go
-package aggregation
-
-import "github.com/llm-d/llm-d-workload-variant-autoscaler/internal/interfaces"
-
-type ScopeTotals struct {
-    TotalSupply            float64
-    TotalAnticipatedSupply float64
-    TotalDemand            float64
-}
-
-func SumTotalSupply(vcs []interfaces.VariantCapacity) float64
-func SumTotalAnticipatedSupply(vcs []interfaces.VariantCapacity) float64
-func SumTotalDemand(vcs []interfaces.VariantCapacity) float64
-func AggregateByRole(vcs []interfaces.VariantCapacity) map[string]ScopeTotals
-```
-
-Imports: only `internal/interfaces`. No engine, no analyzer dependencies — analyzers can
-import without cycles.
-
-`AggregateByRole` canonicalizes empty role to `interfaces.RoleBoth` consistent with sat_v2's
-existing normalization. Helpers do NOT compute per-variant `Utilization` (analyzer's
-existing job).
+For the **architectural decisions** (per-variant canonical model, linearity
+invariant, engine writes RC/SC, strict no-fallback, alternatives considered),
+see [`multi-analyzer-design.md`](multi-analyzer-design.md) §§ Architecture +
+Alternatives considered.
 
 ---
 
-## Commit plan (4 commits, fresh history)
+## Branch state
 
-Force-push the threshold branch. Drop `c2f57c9f`/`06b9d236`/`be25890f` and replace with
-4 commits, each compiling + tests passing + DCO-signed.
-
-### Commit 1 — `engines: universal threshold post-step — pure formula at every scope`
-
-Files:
-- `internal/engines/saturation/engine_v2.go`:
-  - Add `applyUniversalThreshold(*AnalyzerResult, scaleUp, scaleDown float64)` — strict
-    no-fallback, applies pure formula at model + each `RoleCapacities` entry.
-  - Add `resolveThresholds(name string, cfg config.SaturationScalingConfig) (scaleUp, scaleDown float64)`.
-  - In `runAnalyzersAndScore`: after `runV2AnalysisOnly`, call
-    `applyUniversalThreshold(baseResult, satUp, satDown)` with
-    `satUp, satDown := resolveThresholds(SaturationAnalyzerName, config)`.
-  - Confirm the saturation-only override-resolution loop is gone (was at old `:87-100`).
-  - `runRegisteredAnalyzers` takes config and calls `applyUniversalThreshold` per
-    non-saturation analyzer with per-analyzer-resolved thresholds.
-  - `runRegisteredAnalyzer` returns `*AnalyzerResult` so caller can apply post-step.
-- `internal/engines/saturation/engine_register_test.go`: update the 3 `runRegisteredAnalyzers`
-  call sites to pass `config.SaturationScalingConfig{}`.
-- `internal/engines/saturation/engine_v2_threshold_test.go` (new):
-  - Pure-formula specs at model level: scale-up, scale-down, hysteresis band, exact-boundary
-    clamps, anticipated-vs-steady asymmetry, non-positive thresholds no-op, idempotency,
-    nil-result safety.
-  - Pure-formula specs at per-role: per-role calibration with anticipated supply, per-role
-    with `TotalAnticipatedSupply == 0` (yields RC = TD/scaleUp; no fallback).
-  - **Drop** any spec for the `VariantCapacities` walk — that fallback no longer exists.
-- `internal/config/saturation_scaling.go`: doc-comment on `ScaleUpThreshold` /
-  `ScaleDownBoundary` — universal post-step phrasing.
-- `internal/interfaces/analyzer.go`: keep `AnalyzerResult.TotalAnticipatedSupply` and
-  `RoleCapacity.TotalAnticipatedSupply` (already added by `c2f57c9f` / `be25890f`).
-  Doc-comments: "analyzer-supplied; engine reads as-is for the threshold formula".
-- Sat_v2 unchanged in this commit — still publishes `Total*` via its existing logic.
-  The engine post-step is idempotent on sat_v2's pre-clamped output.
-
-Verify after commit 1: `gofmt -l`, `go vet`, `go build`, `make test`,
-`go test -race ./internal/engines/saturation/...`. All pass.
-
-### Commit 2 — `engines/aggregation: shared helpers for analyzer aggregations`
-
-Files:
-- `internal/engines/aggregation/aggregation.go` (new): `ScopeTotals`, `SumTotalSupply`,
-  `SumTotalAnticipatedSupply`, `SumTotalDemand`, `AggregateByRole` — see § Shared helpers
-  above.
-- `internal/engines/aggregation/aggregation_test.go` (new): empty input, single variant,
-  multiple variants, mixed roles, empty role canonicalized to `RoleBoth`, zero replicas,
-  zero PRC.
-
-Helpers not yet wired to any analyzer — pure addition, no behavior change.
-
-Verify: `gofmt`, `go vet`, `go build`, `make test`. All pass.
-
-### Commit 3 — `engines/saturation_v2: use shared helpers; drop in-analyzer RC/SC computation`
-
-Files:
-- `internal/engines/analyzers/saturation_v2/analyzer.go`:
-  - **Phase 3** (model-level supply/demand/anticipated, ~lines 91-100): replace manual loop
-    with helper calls:
-    ```go
-    r.TotalSupply = aggregation.SumTotalSupply(variantCapacities)
-    r.TotalAnticipatedSupply = aggregation.SumTotalAnticipatedSupply(variantCapacities)
-    r.TotalDemand = aggregation.SumTotalDemand(variantCapacities)
-    ```
-  - **Phase 4** (model-level RC/SC computation, ~lines 117-140): delete the entire block.
-    Engine post-step recomputes from analyzer-published `Total*`. Delete the Phase 4 TODO
-    comment that was added in `06b9d236`/`be25890f`.
-  - **`aggregateByRole`** (per-role RC/SC, ~lines 493-500): delete the per-role threshold
-    formula (`required = ra.demand/threshold − ra.anticipated`, etc.). Keep the per-role
-    aggregation of supply/demand/anticipated (engine post-step needs `RoleCapacity.Total*`
-    populated). Two implementation choices, equivalent behavior:
-    - (a) Keep the existing inline aggregation; just remove the RC/SC lines.
-    - (b) Replace the inline aggregation with `aggregation.AggregateByRole(variantCapacities)`.
-    Pick whichever yields cleaner code.
-- `internal/engines/analyzers/saturation_v2/analyzer_test.go`: adapt tests. Model-level +
-  per-role RC/SC tests in sat_v2 likely become engine-level tests (covered in
-  `engine_v2_threshold_test.go` from commit 1). Sat_v2 tests now assert: `VariantCapacity`
-  populated correctly; `r.Total*` populated via helpers; `r.RoleCapacities[role].Total*`
-  populated; sat_v2 does NOT write `r.RequiredCapacity` / `r.SpareCapacity` (engine
-  overwrites; either don't write, or write 0 — pick one).
-
-After commit 3: sat_v2's responsibility is "publish per-variant primitives + per-scope
-`Total*`"; engine is the sole computer of RC/SC.
-
-Verify: `gofmt`, `go vet`, `go build`, `make test`, `-race` for saturation pkg. All pass.
-
-### Commit 4 — `docs: developer-guide — analyzer responsibilities + universal threshold post-step + helpers`
-
-Files:
-- `docs/developer-guide/saturation-scaling-config.md`: rewrite "Universal Threshold Post-Step"
-  section. Cover:
-  - Architecture: per-variant `VariantCapacity` is canonical; analyzer publishes per-variant
-    primitives + per-scope `Total*`; engine post-step computes RC/SC at each scope from
-    `Total*`.
-  - Engine post-step formula (model + per-role; same threshold values; per-analyzer override
-    resolved once per analyzer, applied at every scope for that analyzer).
-  - Strict no-fallback: `TotalAnticipatedSupply == 0` is a literal value, not a sentinel.
-  - Default helpers: pointer to `internal/engines/aggregation/` with examples of
-    `SumTotalSupply`, `SumTotalAnticipatedSupply`, `SumTotalDemand`, `AggregateByRole`.
-  - Linearity invariant: `r.TotalSupply == Σ_v rc × PRC`, etc. Required for the
-    optimizer's per-variant scaling math; helpers enforce it.
-  - Per-analyzer threshold overrides honored at every scope; no per-role overrides.
-- Drop any prose that suggests engine has fallback walks or per-role fallback differs from
-  model-level.
-- (Optional) refactor sections that are now stale.
-
-Verify: docs render OK; no broken links.
+- **Branch:** `multi-analyzer-threshold` in worktree `multi-analyzer-threshold/`.
+- **Base:** `multi-analyzer-registration`@`66001d47` (PR #1225 head).
+- **Tip:** `b8b823b0` (4 commits).
+- **Origin:** pushed; PR #1228 OPEN against `llm-d/llm-d-workload-variant-autoscaler:main`.
+- **Stacked PR diff** until #1225 merges and threshold rebases onto main.
 
 ---
 
-## Mechanics
+## Commits landed
 
-Force-push policy per CONVENTIONS:
+1. **`f59377f6`** — `engines: universal threshold post-step — pure formula at every scope`
+   - Adds `applyUniversalThreshold(*AnalyzerResult, scaleUp, scaleDown)` —
+     strict no-fallback at model + each `RoleCapacity` entry.
+   - Adds `resolveThresholds(name, cfg) → (scaleUp, scaleDown)` for per-analyzer
+     overrides.
+   - In `runAnalyzersAndScore`: calls `applyUniversalThreshold(baseResult, ...)`
+     after `runV2AnalysisOnly` for saturation; deletes the precursor
+     saturation-only override-resolution loop.
+   - `runRegisteredAnalyzers` takes `cfg` and calls `applyUniversalThreshold`
+     per non-saturation analyzer.
+   - `runRegisteredAnalyzer` returns `*AnalyzerResult` so the caller can apply
+     post-step.
+   - `interfaces/analyzer.go`: `AnalyzerResult.TotalAnticipatedSupply` and
+     `RoleCapacity.TotalAnticipatedSupply` field doc-comments updated to
+     "analyzer-supplied; engine reads as-is".
+   - `engine_register_test.go`: 3 `runRegisteredAnalyzers` call sites updated
+     to pass `config.SaturationScalingConfig{}`.
+   - `engine_v2_threshold_test.go` (new): pure-formula specs at model + per-role.
 
-- Use `--force-with-lease`, not `--force`.
-- State the reason explicitly to Dean before pushing
-  ("rebuilding history per architectural rework plan").
-- Don't push until all 4 commits land locally and are verified.
+2. **`4f1ab001`** — `engines/aggregation: shared helpers for analyzer aggregations`
+   - New package `internal/engines/aggregation/`.
+   - `ScopeTotals{TotalSupply, TotalAnticipatedSupply, TotalDemand}`.
+   - Pure functions: `SumTotalSupply`, `SumTotalAnticipatedSupply`,
+     `SumTotalDemand`, `AggregateByRole`.
+   - `aggregation_test.go`: empty/single/multi-variant, mixed roles, empty role
+     canonicalized to `RoleBoth`, zero PRC, zero replicas.
+   - Imports only `internal/interfaces` — no engine/analyzer deps.
+   - Not yet wired to any analyzer.
 
-Rewrite approach:
+3. **`a8147e8c`** — `engines/saturation_v2: use aggregation helpers; drop in-analyzer RC/SC`
+   - Phase 3: replace manual loop with `aggregation.Sum*` helper calls.
+   - Phase 4: delete the in-analyzer RC/SC computation block.
+   - `aggregateByRole`: replace inline aggregation with
+     `aggregation.AggregateByRole`; drop per-role threshold formula; populate
+     per-role `TotalAnticipatedSupply`.
+   - `analyzer_test.go`: assertions migrated — sat_v2 tests verify `Total*`
+     fields are populated correctly; per-scope RC/SC tests moved to
+     `engine_v2_threshold_test.go` from commit 1.
 
-```
-git checkout multi-analyzer-threshold
-git reset --soft 66001d47        # collapse 3 commits into the index; tree unchanged
-git reset                         # mixed: unstage so commit boundaries are clean
-# apply commit 1 edits → stage → commit
-# apply commit 2 edits → stage → commit
-# apply commit 3 edits → stage → commit
-# apply commit 4 edits → stage → commit
-```
-
-After all 4 commits land:
-
-```
-gofmt -l ./internal/... ./pkg/... ./cmd/...
-go vet ./internal/... ./pkg/... ./cmd/...
-go build ./...
-make test
-go test -race ./internal/engines/...
-git log 66001d47..HEAD --format='%h %s%n%b' | grep -E '^[0-9a-f]+|Signed-off-by'  # DCO check
-```
-
-The pre-rewrite tip `be25890f` and predecessors stay reachable via `git reflog` (~30 days)
-for comparison during rebase.
+4. **`b8b823b0`** — `docs: developer-guide — analyzer responsibilities + universal threshold post-step + helpers`
+   - `docs/developer-guide/saturation-scaling-config.md`: rewrite "Universal
+     Threshold Post-Step" section. Cover: per-variant canonical model;
+     responsibility split (who writes / who reads each field); linearity
+     invariant with formula; shared helpers (import path + usage examples);
+     engine post-step formula at every scope; per-analyzer overrides; P/D
+     disaggregation (same formula, no per-role overrides).
+   - `docs/developer-guide/saturation-scaling-config.md`: post-review addendum
+     applied as part of this commit (see § Addendum below) — new "Analyzer
+     inputs" subsection covering `SchedulerQueue` semantics.
+   - `internal/interfaces/analyzer.go`: extended `SchedulerQueue` field
+     doc-comment.
 
 ---
 
-## Verification gates
+## Verified
 
-Each commit must satisfy:
 - `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty output.
 - `go vet ./...` — clean.
 - `go build ./...` — clean.
 - `make test` — all packages pass.
-- DCO sign-off (`Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`).
-
-Final pre-push gate: `go test -race ./internal/engines/saturation/...` — clean.
+- `go test -race ./internal/engines/saturation/...` — clean.
+- DCO sign-off on all 4 commits.
 
 ---
 
 ## Coordination
 
-- **PR #1225 (`multi-analyzer-registration`)** — base for this branch. Stable. CI in progress
-  on review. Independent of this branch's rework.
-- **`multi-analyzer-optimizer`** — depends on the linearity invariant this plan documents.
-  Out of scope for this PR. The optimizer branch is mid-flight (commits 1.1 + 1.2 landed);
-  no handoff between this branch and the optimizer branch is needed for this rework.
-- **PR #1113** — stays open until Dean closes it post-discussion with ev-shindin.
+- **Stacked on PR #1225 (`multi-analyzer-registration`).** Until #1225 merges
+  and #1228 rebases onto main, the diff includes #1225's 3 commits plus our 4.
+- **Provides `internal/engines/aggregation/`** for any analyzer to use; today
+  consumed only by sat_v2.
+- **Sat_v2 simplification** (commit 3) lands here. Was originally deferred to a
+  follow-up PR; folded into the threshold rework after design discussion.
+- **Cross-rebase target for `multi-analyzer-optimizer`.** When the optimizer
+  PR's last commit lands locally, it cross-rebases onto this branch's tip
+  (`b8b823b0`) to pick up registration plumbing + threshold post-step + sat_v2
+  simplification + aggregation helpers in one hop. The optimizer plan
+  ([`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md))
+  documents the rebase mechanics.
 
 ---
 
 ## Open items
 
-- Push of the rebuilt branch waits for explicit Dean confirmation per CONVENTIONS.
-- A new PR for `multi-analyzer-threshold` is opened only after the rebuild is reviewed.
+- **`enabled: false` veto on scale-down (cross-cutting bug).** The slice
+  predicate `needsScaleDown(s) = ∀ e ∈ s : e.Spare > 0` (in
+  `pipeline/analyzer_helpers.go` from the optimizer branch) treats a disabled
+  analyzer (`Spare=0`) as a veto. Surfaces when sat_v2 is `enabled:false` and
+  TA wants to scale down: saturation's `Spare=0` blocks all-down. Tracked in
+  the optimizer plan for fix; flagged here because the threshold post-step is
+  what populates the `Spare` value the predicate reads.
+- **Engine model-level RC/SC for disaggregated models is buggy.** Today's
+  post-step sums roles additively for model-level `Total*`, then calibrates.
+  For disaggregated, the additive value is meaningless (roles aren't fungible).
+  Harmless once the optimizer no longer reads it for disaggregated models.
+  Follow-up: remove or redefine in the engine post-step. See
+  [`multi-analyzer-design.md`](multi-analyzer-design.md) § Future direction → F5.
 
 ---
 
-## Addendum (2026-06-02): post-review doc clarifications
+## Addendum (2026-06-02): post-review doc clarifications — applied in commit 4
 
-Review of tip `1ba3c978` flagged that the dev-guide and type-level docs don't make
-explicit that `SchedulerQueue` is shared input across analyzers (not sat_v2-specific),
-that demand-extraction from it IS per-analyzer (uses each analyzer's unit), and that
-queue items aren't yet variant-attributed. Two small text additions, **amended into
-commit 4 (`1ba3c978`)** — branch is unpushed, so amend is safe. No code change.
+Review of an earlier tip (`1ba3c978`) flagged that docs didn't make explicit
+that `SchedulerQueue` is shared input across analyzers (not sat_v2-specific),
+that demand-extraction from it IS per-analyzer (uses each analyzer's unit),
+and that queue items aren't yet variant-attributed.
 
-### Patch 1 — `internal/interfaces/analyzer.go`
+Applied changes:
 
-Replace the `SchedulerQueue` field doc-comment in `AnalyzerInput` with:
+- **`internal/interfaces/analyzer.go`** — extended `SchedulerQueue` field
+  doc-comment to clarify it's shared input across analyzers; per-analyzer
+  demand extraction; queue items are model-scoped, not variant/role-attributed.
+- **`docs/developer-guide/saturation-scaling-config.md`** — new
+  "Analyzer inputs" subsection between "Per-variant data is canonical" and
+  "Linearity invariant".
 
-```go
-// SchedulerQueue holds model-level queue metrics from the llm-d inference
-// scheduler flow control layer. These represent requests queued upstream
-// of any pod and are not yet attributed to a specific variant or role.
-// Any analyzer with a demand model may convert this into per-analyzer
-// demand using its own unit (e.g., kv-tokens for saturation_v2,
-// tokens/sec for a future throughput analyzer). Demand attribution to
-// roles or variants is each analyzer's choice.
-// Nil when flow control is disabled or metrics are unavailable.
-SchedulerQueue *SchedulerQueueMetrics
-```
+Changes are in commit 4 of this branch (`b8b823b0`). The original verbatim
+patch text is preserved in the plans-branch git history (commit `79a7647f`).
 
-### Patch 2 — `docs/developer-guide/saturation-scaling-config.md`
+---
 
-Insert the following new subsection between `#### Per-variant data is canonical`
-and `#### Linearity invariant`:
+## History note (force-push rework)
 
-```markdown
-#### Analyzer inputs
+This branch was force-pushed once during development. The pre-rework tip
+`be25890f` (3 commits: `c2f57c9f`, `06b9d236`, `be25890f`) was replaced with
+the current 4-commit structure after the architecture discussion that
+locked the per-variant canonical model + strict no-fallback engine post-step
+(see [`multi-analyzer-design.md`](multi-analyzer-design.md) § Alternatives →
+A5). Pre-rework commits are reachable via `git reflog` until ~30 days of
+inactivity for diff comparison if needed.
 
-`interfaces.AnalyzerInput` carries the shared inputs every analyzer reads:
-replica metrics, variant states, the model's resolved config, and
-`SchedulerQueue`. None of these are analyzer-specific.
+---
 
-`SchedulerQueue` represents requests queued upstream of any pod (in the
-llm-d flow control layer). Queue items are model-scoped and **not yet
-attributed to any variant or role**. Any analyzer with a demand model may
-use it — sat_v2 does today; the throughput analyzer will when it lands.
+## References
 
-**Demand extraction from the queue is per-analyzer.** Each analyzer
-converts queue depth/bytes into demand in its own unit (sat_v2:
-kv-tokens; throughput: tokens/sec). Each analyzer also decides how to
-attribute that demand across roles or variants — sat_v2 splits it among
-active roles.
-```
-
-### Mechanics
-
-```
-# In multi-analyzer-threshold worktree, branch tip 1ba3c978
-# Apply Patch 1 to internal/interfaces/analyzer.go
-# Apply Patch 2 to docs/developer-guide/saturation-scaling-config.md
-git add internal/interfaces/analyzer.go docs/developer-guide/saturation-scaling-config.md
-git commit --amend --no-edit -s    # preserves DCO sign-off
-# Verify:
-gofmt -l ./internal/... ./pkg/... ./cmd/...
-go vet ./...
-go build ./...
-make test
-git log -1 --format='%h %s%n%b' | grep Signed-off-by    # DCO check
-```
-
-Tip moves from `1ba3c978` to a new SHA (commit 4 amended). Commits 1–3 unchanged.
-
-Branch remains unpushed; force-push policy still applies once Dean approves.
+- [`multi-analyzer-design.md`](multi-analyzer-design.md) — cross-cutting design
+  doc: mission, architecture, alternatives considered, future direction.
+- [`multi-analyzer-registration-plan.md`](multi-analyzer-registration-plan.md)
+  — sibling Type 3 plan for PR #1225 (Item 3, this branch's base).
+- [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md) —
+  sibling Type 3 plan for the optimizer branch (Item 1).
+- [`multi-analyzer-coder-rules.md`](multi-analyzer-coder-rules.md) — coder agent
+  rules.
+- [`PR1113-review.md`](PR1113-review.md) — historical review of original
+  PR #1113 that decided the 3-PR split.
