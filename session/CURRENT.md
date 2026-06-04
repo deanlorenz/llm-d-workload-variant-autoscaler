@@ -1,8 +1,33 @@
 # Current Work
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-06-04
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state.
+
+---
+
+## Last session (TA-PR5): plan rewritten for 3-PR multi-analyzer split
+
+TA3's PR-5 plan (`planning/TA-PR5-plan.md`) was written against the original combine-based engine-multi-analyzer PR #1113. Today's session rewrote it end-to-end against the settled 3-PR split (#1225 registration + #1228 universal threshold + multi-analyzer-optimizer slice). Key outcomes:
+
+- **Plan doc fully replaced** at `planning/TA-PR5-plan.md`. New structure: §0 summary, §1 dependencies + rebase order, §2 contract (per-variant / model / per-role + linearity invariants + saturation-always-runs + per-analyzer thresholds + queue handling + TA-only/TA+sat dual mode), §3 concrete code changes with file/line refs, §4 e2e (specs already on TA3, contract change does not invalidate desired-allocation assertions), §5 verification gates, §6 commit shape, §7 follow-ups, §8 out-of-scope, §9 references.
+- **Contract nailed down** by reading `internal/interfaces/analyzer.go`, `internal/engines/aggregation/`, and `internal/engines/saturation/engine_v2.go` on `multi-analyzer-threshold@b8b823b0`. Linearity invariant for supply: `TotalSupply == aggregation.SumTotalSupply(VariantCapacities)`; `TotalAnticipatedSupply == aggregation.SumTotalAnticipatedSupply(...)`. Demand exemption: queue contribution may exceed `Σ vc.TotalDemand` (sat_v2 precedent). Engine post-step formula `RC = max(0, TotalDemand/scaleUp − TotalAnticipatedSupply)` / `SC = max(0, TotalSupply − TotalDemand/scaleDown)` applied uniformly model + per-role.
+- **Verified-and-preserved invariants:**
+  - "Saturation always runs" — verified on optimizer branch: `cost_aware_optimizer.go:48-49` and `greedy_score_optimizer.go:83-84` skip the entire model when `saturationEntry()` returns nil.
+  - Per-analyzer threshold overrides — already implemented in `resolveThresholds` (`engine_v2.go:154-163`) reading `AnalyzerScoreConfig.ScaleUpThreshold/ScaleDownBoundary`. TA inherits for free.
+  - SchedulerQueue — TA tolerates nil; engine wiring is `engine-queue-fix`'s concern (separate PR; trigger sent to optimizer coder).
+  - TA-only and TA+sat_v2 dual mode — both work; any-up/all-down combine semantics survive as slice predicates (`needsScaleUp` = OR over `Remaining`; `needsScaleDown` = AND over `Spare`).
+- **Behavior changes documented in the plan:**
+  - TA's RC formula picks up the model's `scaleUpThreshold` (e.g. 0.85) instead of hardcoded 1.0. Intended.
+  - EPP/GPS-mismatch SC gate is dropped in PR-5; restored in a follow-up via `SuppressSpareCapacity` opt-out or the deferred `ThresholdApplied` flag.
+  - Prefill-role RC suppression is dropped — already redundant after PR-4's OL guard (`cb0f7df8` + `7506634b`).
+- **Wiring shrinks:** the `engine.go` portions of `b6e897c8` (analyzers map, RegisterAnalyzer method) become obsolete during rebase — equivalent plumbing landed via #1225 with a different shape (slice + snapshot, error-returning). PR-5 wiring shrinks to a 2-line change in `cmd/main.go` plus error handling.
+- **Trigger sent:** `session/handoffs/optimizer__ta-queue-wiring.md` — asks the optimizer coder to consider whether `engine-queue-fix` (1 commit, generic over the analyzer slice) should absorb into the optimizer PR or land as a standalone follow-up.
+- **Three new follow-up issues** captured in §7 of the plan and added to `## Issues to Open` below.
+
+Doc structure: `TA-PR5-plan.md` is now the single doc the coder needs to land PR-5. Broader `TA-Plan.md` / `TA-overview.md` rewrite deferred — wait for the multi-analyzer stack to land so we have a stable surface to rewrite against.
+
+Naming convention going forward (Dean's call this session): keep PR-level names as TA1/TA2/TA3/TA4 (no change to existing). For multi-PR features split as TA3-1, TA3-2, etc. New plan docs drop the `TA-PR*` stem; existing `TA-PR5-plan.md` stays as-is until the broader roadmap rewrite renames sub-plans.
 
 ---
 
@@ -219,9 +244,9 @@ Phase:
   - [x] PR-3: state management — ShapeTracker, ObservationWindow, SanityReport (TA2, #1052 — awaiting review)
   - [x] PR-4: ITL model + scaling signal (TA3 commit `52553dc`, not yet submitted)
   - [x] PR-4 addendum: GPS verification — `checkVariantGPSMismatch`, SC suppression on > 15% error, near-k_sat diagnostics (TA3, 2026-05-10)
-  - [x] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `8c67138`, not yet submitted)
-  - [x] ENGINE: multi-analyzer pipeline — `analyzers` map, `RegisterAnalyzer`, combine logic (`engine-multi-analyzer`, PR #1113 submitted)
-  - [x] ENGINE: SchedulerQueue wiring — `CollectSchedulerQueueMetrics` → `AnalyzerInput.SchedulerQueue` (`engine-queue-fix`, PR deferred)
+  - [~] PR-5: wiring ThroughputAnalyzer into WVA engine (TA3 commit `b6e897c8`) — **needs rebase + contract redesign**: original plan targeted superseded PR #1113; new plan at `planning/TA-PR5-plan.md` (rewritten 2026-06-04) targets the 3-PR split (#1225 + #1228 + multi-analyzer-optimizer). `engine.go` portions of `b6e897c8` become obsolete during rebase; `analyzer.go` adapts to the new contract (publish raw `Total*`, engine writes RC/SC).
+  - [~] ENGINE: multi-analyzer pipeline — superseded by 3-PR split: #1225 (registration), #1228 (universal threshold), `multi-analyzer-optimizer` (slice). PR #1113 retained until Dean closes it post-discussion with ev-shindin.
+  - [x] ENGINE: SchedulerQueue wiring — `CollectSchedulerQueueMetrics` → `AnalyzerInput.SchedulerQueue` (`engine-queue-fix` `01ed7d8d`, PR deferred). Trigger sent to optimizer coder asking whether to absorb into multi-analyzer-optimizer or land standalone.
 - [x] E2E infrastructure — kind cluster up, Step 1a + 1b passed (31/31 smoke tests each)
 - [x] E2E test scenarios — Steps 2a–2e complete; Scenario 1 PASSED (TA wiring health check); 3 pre-existing smoke failures; Step 2f (Scenarios 2+3) pending discussion
 - [ ] PR review
@@ -238,6 +263,7 @@ Plan doc:
 - `plans/planning/TA-e2e-plan.md` — e2e execution steps, scenario specs, variable reference, infra issues
 
 Next step:
+- [ ] Coder: rebase TA3 onto upstream/main, then onto whichever multi-analyzer PR lands first (#1225 → #1228 → optimizer); apply the contract redesign per `planning/TA-PR5-plan.md` §3.
 - [ ] Triage 3 pre-existing smoke failures (smoke_test.go:339, :542, :1724) — are these regressions in main, or require TA3 action?
 - [ ] Discuss Step 2f (Scenarios 2 and 3) before running
 
@@ -518,6 +544,12 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 
 - **Engine model-level `RC`/`SC` for disaggregated models** — the engine post-step (PR #1228 `applyUniversalThreshold`) computes additive model-level `RequiredCapacity`/`SpareCapacity` over all roles. For disaggregated models the additive value conflates roles that aren't fungible (the bug Evgeny's PR #1237 works around in the optimizer). Once `multi-analyzer-optimizer` merges, no consumer reads model-level RC/SC for disaggregated models; the buggy computation becomes latent. **Follow-up: remove or redefine** (e.g., zero out, or `min(role)` semantics, or drop model-level meaning when `RoleCapacities` is non-empty). Amends `applyUniversalThreshold` from #1228. Tracked in `planning/multi-analyzer-optimizer-plan.md` § "Upstream interactions".
 
+- **Restore TA's EPP/GPS-mismatch SC gate** — TA-PR5 drops the EPP-presence and GPS-mismatch gates that previously suppressed `SpareCapacity` in TA's `Analyze()` (the new contract has no SC opt-out). Engine post-step always computes SC, so EPP-absent or active-GPS-mismatch states will emit SC where today they don't. Two restoration paths: (a) add `AnalyzerResult.SuppressSpareCapacity` opt-out on the analyzer→engine contract and re-enable TA's gate, or (b) implement the deferred `ThresholdApplied` flag from `PR1113-review.md` Appendix B (analyzer owns thresholding internally, engine post-step skipped). Tracked in `planning/TA-PR5-plan.md` §7.
+
+- **Replica-count accounting consistency across analyzers** — TA uses `len(variantMetrics)` for `VariantCapacity.ReplicaCount`; sat_v2 uses `readyCount` from `VariantStates`. Both intentionally exclude pending replicas, but the sources differ (one is metrics-reporting, the other is engine-canonical). Reconcile to a single source — likely `VariantStates`-derived, owned by the engine and passed through. Broader than TA; engine-side fix. Tracked in `planning/TA-PR5-plan.md` §7.
+
+- **`enabled:false` analyzer should be exempt from `needsScaleDown`** — slice-predicate `needsScaleDown(s) = ∀ e ∈ s : e.Spare > 0` (`internal/engines/pipeline/analyzer_helpers.go`) treats a disabled analyzer (Spare=0) as a veto. This breaks TA-only scale-down: with saturation `enabled:false`, saturation's `Spare = 0` blocks all-down even when TA wants to scale down. Predicate should treat disabled analyzers as "no opinion" rather than "vetoes". Fix on the optimizer branch. Tracked in `planning/TA-PR5-plan.md` §7.
+
 ---
 
 ## Pending handoffs
@@ -529,3 +561,4 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 | plan-agent | `planning/PR1052-review.md` | FINAL | PR #1052 MERGED 2026-05-19; TA2 worktree clean, safe to remove ~2026-06-02; TA3 rebase now unblocked |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on delete-combine + per-analyzer slice (Item 1), engine universal threshold post-step (Item 2), snapshot-on-Start (Item 3). 3-PR / 7-commit roadmap. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
 | Dean (self) | `session/handoffs/multi-analyzer-threshold-coder-rules-gap.md` | OPEN | Plan-agent decision pending: whether/how to restate CONVENTIONS' "no `cd`/`-C` to a sibling worktree for git" rule operationally inside `planning/multi-analyzer-coder-rules.md`. 4 options listed in the handoff |
+| optimizer-coder | `session/handoffs/optimizer__ta-queue-wiring.md` | TRIGGER | Asks the optimizer coder to consider whether `engine-queue-fix` (1 commit, generic over the analyzer slice) absorbs into the optimizer PR or lands as standalone follow-up. Refs: `planning/TA-PR5-plan.md`, `planning/multi-analyzer-optimizer-plan.md`, `engine-queue-fix@01ed7d8d` |
