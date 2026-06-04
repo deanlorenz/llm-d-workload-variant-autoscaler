@@ -190,3 +190,262 @@ func prcForVariant(r *interfaces.AnalyzerResult, v string) float64 {
 	}
 	return 0
 }
+
+// =============================================================================
+// Paired helpers — disaggregated (P/D) models
+// =============================================================================
+
+// isDisaggregated reports whether the variant set contains any role-tagged variant
+// (role other than "" or "both"). Used to dispatch to the paired allocation path.
+func isDisaggregated(vcs []interfaces.VariantCapacity) bool {
+	for _, vc := range vcs {
+		if vc.Role != "" && vc.Role != "both" {
+			return true
+		}
+	}
+	return false
+}
+
+// initDisaggregatedRemaining re-initializes the working counters in s for
+// disaggregated (P/D) models before the paired allocation path:
+//   - Remaining ← prefill RC (P-scope)
+//   - RoleSpare[role] ← SpareCapacity for each role in RoleCapacities
+//   - Model-level Spare is left unchanged (unused for disaggregated)
+//
+// Analyzers without RoleCapacities are left unchanged.
+func initDisaggregatedRemaining(s []NamedAnalyzerResult) {
+	for i := range s {
+		if s[i].Result == nil || s[i].Result.RoleCapacities == nil {
+			continue
+		}
+		s[i].Remaining = s[i].Result.RoleCapacities["prefill"].RequiredCapacity
+		s[i].RoleSpare = make(map[string]float64, len(s[i].Result.RoleCapacities))
+		for role, rc := range s[i].Result.RoleCapacities {
+			s[i].RoleSpare[role] = rc.SpareCapacity
+		}
+	}
+}
+
+// analyzerAlpha computes the D:P demand coupling ratio α for one analyzer result.
+// α is derived from TotalDemand — a workload invariant, not from RequiredCapacity
+// (which tracks the gap relative to current supply and would tie α to allocation state).
+// Returns (α, tracksP, tracksD).
+//
+//   - Both sides: P>0, D>0 → α = D/P; tracksP, tracksD = true
+//   - P only:     P>0, D=0 → α = 0;   tracksP = true,  tracksD = false
+//   - D only:     P=0, D>0 → α = 1 (Dean's default); tracksP = false, tracksD = true
+//   - Neither:    P=0, D=0 → tracksP, tracksD = false
+func analyzerAlpha(r *interfaces.AnalyzerResult) (alpha float64, tracksP, tracksD bool) {
+	if r == nil || r.RoleCapacities == nil {
+		return 0, false, false
+	}
+	p := r.RoleCapacities["prefill"].TotalDemand
+	d := r.RoleCapacities["decode"].TotalDemand
+	switch {
+	case p > 0 && d > 0:
+		return d / p, true, true
+	case p > 0:
+		return 0, true, false
+	case d > 0:
+		return 1, false, true
+	default:
+		return 0, false, false
+	}
+}
+
+// bottleneckReplicasPaired computes the (n_P, n_D) replica pair needed to serve
+// the current P-side remaining demand across all analyzers.
+//
+//	n_P = max_i (tracksP) of ceil(Remaining_i / PRC_i[vP])
+//	n_D = max_i (tracksD) of ceil(α_i × Remaining_i / PRC_i[vD])
+//
+// Returns (0, 0) if no analyzer covers the requested sides or all PRCs are zero.
+func bottleneckReplicasPaired(s []NamedAnalyzerResult, vP, vD string) (n_P, n_D int) {
+	for _, e := range s {
+		if e.Result == nil {
+			continue
+		}
+		alpha, tracksP, tracksD := analyzerAlpha(e.Result)
+		if tracksP {
+			prc := prcForVariant(e.Result, vP)
+			if prc > 0 {
+				n := int(math.Ceil(e.Remaining / prc))
+				if n > n_P {
+					n_P = n
+				}
+			}
+		}
+		if tracksD {
+			prc := prcForVariant(e.Result, vD)
+			if prc > 0 {
+				dRemaining := alpha * e.Remaining
+				n := int(math.Ceil(dRemaining / prc))
+				if n > n_D {
+					n_D = n
+				}
+			}
+		}
+	}
+	return
+}
+
+// variantsForRole returns variant capacities whose Role exactly matches role.
+// An empty variant Role is canonicalized to interfaces.RoleBoth.
+func variantsForRole(vcs []interfaces.VariantCapacity, role string) []interfaces.VariantCapacity {
+	if role == "" || role == interfaces.RoleBoth {
+		return vcs
+	}
+	var out []interfaces.VariantCapacity
+	for _, vc := range vcs {
+		vcRole := vc.Role
+		if vcRole == "" {
+			vcRole = interfaces.RoleBoth
+		}
+		if vcRole == role {
+			out = append(out, vc)
+		}
+	}
+	return out
+}
+
+// safeRemovalReplicasForRole returns the number of replicas of variant v that
+// can safely be removed — the minimum of floor(RoleSpare[role]_i / PRC_i[v])
+// across analyzers that have variant v and a non-zero PRC. Returns 0 if any
+// contributing analyzer has RoleSpare[role] ≤ 0 or RoleSpare is nil.
+func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
+	smallest := math.MaxInt
+	found := false
+	for _, e := range s {
+		if e.Result == nil || e.RoleSpare == nil {
+			continue
+		}
+		prc := prcForVariant(e.Result, v)
+		if prc <= 0 {
+			continue
+		}
+		n := int(math.Floor(e.RoleSpare[role] / prc))
+		if n < smallest {
+			smallest = n
+		}
+		found = true
+	}
+	if !found || smallest < 0 {
+		return 0
+	}
+	return smallest
+}
+
+// applyDeallocationForRole decrements each analyzer's RoleSpare[role] by
+// n × PRC_i[v]. Clamps to 0. Never mutates Result.
+func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
+	for i := range s {
+		if s[i].Result == nil || s[i].RoleSpare == nil {
+			continue
+		}
+		prc := prcForVariant(s[i].Result, v)
+		if prc <= 0 {
+			continue
+		}
+		s[i].RoleSpare[role] -= float64(n) * prc
+		if s[i].RoleSpare[role] < 0 {
+			s[i].RoleSpare[role] = 0
+		}
+	}
+}
+
+// needsScaleDownForRole reports whether every analyzer agrees this role has
+// spare capacity (all-down gate, scoped to one role). Returns false if any
+// analyzer's RoleSpare[role] ≤ 0 or RoleSpare is nil.
+func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, e := range s {
+		if e.Result == nil || e.RoleSpare == nil {
+			return false
+		}
+		if e.RoleSpare[role] <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// applyAllocationPaired updates each analyzer's Remaining after committing a
+// paired (n_P, n_D) allocation. The capacity served in P-units is the minimum
+// of what the P-side and D-side contribute (bottleneck of the pair).
+// Clamps Remaining to 0. Never mutates Result.
+func applyAllocationPaired(s []NamedAnalyzerResult, vP string, nP int, vD string, nD int) {
+	for i := range s {
+		e := &s[i]
+		if e.Result == nil {
+			continue
+		}
+		alpha, tracksP, tracksD := analyzerAlpha(e.Result)
+		prcP := prcForVariant(e.Result, vP)
+		prcD := prcForVariant(e.Result, vD)
+
+		var served float64
+		switch {
+		case tracksP && tracksD && prcP > 0 && prcD > 0 && alpha > 0:
+			// Both sides: served = min(P-capacity, D-capacity-in-P-units)
+			servedP := float64(nP) * prcP
+			servedD := float64(nD) * prcD / alpha
+			served = math.Min(servedP, servedD)
+		case tracksP && prcP > 0:
+			served = float64(nP) * prcP
+		case tracksD && prcD > 0 && alpha > 0:
+			served = float64(nD) * prcD / alpha
+		default:
+			continue
+		}
+		e.Remaining -= served
+		if e.Remaining < 0 {
+			e.Remaining = 0
+		}
+	}
+}
+
+// PickPairFn is the optimizer-specific paired variant selector for disaggregated models.
+// It returns the chosen (vP, vD) variants and per-side replica caps.
+// Returning ("", "", 0, 0) signals no allocatable pair exists.
+type PickPairFn func(
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	available map[string]int,
+	targets map[string]int,
+) (vP, vD string, capN_P, capN_D int)
+
+// allocateForModelPaired runs the generic paired scale-up loop for one
+// disaggregated model. Loops while needsScaleUp(s) is true and the picker
+// returns a valid (vP, vD) pair. Each iteration commits one (n_P, n_D) step.
+func allocateForModelPaired(
+	ctx context.Context,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	available map[string]int,
+	targets map[string]int,
+	pick PickPairFn,
+) {
+	logger := ctrl.LoggerFrom(ctx)
+	for needsScaleUp(s) {
+		vP, vD, capNP, capND := pick(s, variants, stateMap, available, targets)
+		if vP == "" || vD == "" {
+			break
+		}
+		nP, nD := bottleneckReplicasPaired(s, vP, vD)
+		nP = min(nP, capNP)
+		nD = min(nD, capND)
+		if nP <= 0 && nD <= 0 {
+			break
+		}
+		applyAllocationPaired(s, vP, nP, vD, nD)
+		targets[vP] += nP
+		targets[vD] += nD
+		logger.V(logging.DEBUG).Info("scale-up paired: allocated replicas",
+			"prefill-variant", vP, "prefill-replicas", nP,
+			"decode-variant", vD, "decode-replicas", nD)
+	}
+}

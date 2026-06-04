@@ -101,7 +101,7 @@ func (e *Engine) runAnalyzersAndScore(
 	baseResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Universal threshold post-step for saturation: recalibrate RC/SC using the
@@ -284,14 +284,21 @@ func applyUniversalThreshold(r *interfaces.AnalyzerResult, scaleUp, scaleDown fl
 func computeCurrentGPUUsage(requests []pipeline.ModelScalingRequest) map[string]int {
 	usage := make(map[string]int)
 	for _, req := range requests {
-		if req.Result == nil {
+		var satEntry *interfaces.AnalyzerResult
+		for _, e := range req.AnalyzerResults {
+			if e.Name == interfaces.SaturationAnalyzerName {
+				satEntry = e.Result
+				break
+			}
+		}
+		if satEntry == nil {
 			continue
 		}
 		stateMap := make(map[string]interfaces.VariantReplicaState, len(req.VariantStates))
 		for _, s := range req.VariantStates {
 			stateMap[s.VariantName] = s
 		}
-		for _, vc := range req.Result.VariantCapacities {
+		for _, vc := range satEntry.VariantCapacities {
 			state := stateMap[vc.VariantName]
 			gpusPerReplica := state.GPUsPerReplica
 			if gpusPerReplica <= 0 {
@@ -333,7 +340,6 @@ func (e *Engine) collectV2ModelRequest(
 	return &pipeline.ModelScalingRequest{
 		ModelID:         modelID,
 		Namespace:       namespace,
-		Result:          result,
 		AnalyzerResults: namedResults,
 		VariantStates:   variantStates,
 		Priority:        config.Priority,

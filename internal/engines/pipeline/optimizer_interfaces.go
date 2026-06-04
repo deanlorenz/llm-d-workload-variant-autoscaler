@@ -13,14 +13,18 @@ import (
 // interfaces type.
 //
 // Remaining and Spare are initialised from Result.RequiredCapacity and
-// Result.SpareCapacity by the engine and decremented in place by applyAllocation /
-// applyDeallocation as the optimizer allocates replicas. The original Result
-// values are never mutated and remain available for reason strings and metrics.
+// Result.SpareCapacity by the engine (model scope) and decremented in place by
+// applyAllocation / applyDeallocation as the optimizer allocates replicas.
+// For disaggregated (P/D) models, the optimizer calls initDisaggregatedRemaining
+// to re-initialize Remaining to P-scope and populate RoleSpare per role.
+// The original Result values are never mutated.
 type NamedAnalyzerResult struct {
 	Name      string
 	Result    *interfaces.AnalyzerResult
-	Remaining float64 // mutable remaining required capacity; decremented during scale-up
-	Spare     float64 // mutable remaining spare capacity; decremented during scale-down
+	Score     float64            // per-analyzer weight from AnalyzerScoreConfig; used for fair-share priority
+	Remaining float64            // mutable remaining required capacity; P-scope for disaggregated, model-scope otherwise
+	Spare     float64            // mutable remaining spare capacity; model-scope (non-disaggregated only)
+	RoleSpare map[string]float64 // per-role mutable spare; set by initDisaggregatedRemaining; nil for non-disaggregated
 }
 
 // ModelScalingRequest bundles the analyzer result with variant state for one model.
@@ -28,8 +32,7 @@ type NamedAnalyzerResult struct {
 type ModelScalingRequest struct {
 	ModelID         string
 	Namespace       string
-	Result          *interfaces.AnalyzerResult // combined result (legacy; will be removed when combine is deleted)
-	AnalyzerResults []NamedAnalyzerResult      // per-analyzer slice; saturation entry is always first
+	AnalyzerResults []NamedAnalyzerResult // per-analyzer slice; saturation entry is always first
 	VariantStates   []interfaces.VariantReplicaState
 	Priority        float64 // Model priority (default 1.0)
 	Disaggregated   bool    // true when model has prefill+decode variants

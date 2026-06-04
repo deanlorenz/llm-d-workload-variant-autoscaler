@@ -10,15 +10,16 @@ import (
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/interfaces"
 )
 
-// withSatEntry adds a single-saturation AnalyzerResults to req, initialised from
-// req.Result. Used by test fixtures so CostAwareOptimizer can find the saturation entry.
-func withSatEntry(req ModelScalingRequest) ModelScalingRequest {
-	if req.Result != nil {
+// withSatEntry adds a single-saturation AnalyzerResults to req, initialised from r.
+// Used by test fixtures so CostAwareOptimizer can find the saturation entry.
+func withSatEntry(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
+	if r != nil {
 		req.AnalyzerResults = []NamedAnalyzerResult{{
 			Name:      interfaces.SaturationAnalyzerName,
-			Result:    req.Result,
-			Remaining: req.Result.RequiredCapacity,
-			Spare:     req.Result.SpareCapacity,
+			Result:    r,
+			Score:     1.0,
+			Remaining: r.RequiredCapacity,
+			Spare:     r.SpareCapacity,
 		}}
 	}
 	return req
@@ -43,20 +44,20 @@ var _ = Describe("CostAwareOptimizer", func() {
 	Context("Scale-Up", func() {
 
 		It("should add replicas to most cost-efficient variant", func() {
+			r := &interfaces.AnalyzerResult{
+				ModelID:          "model-1",
+				Namespace:        "default",
+				AnalyzedAt:       time.Now(),
+				RequiredCapacity: 5000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+					{VariantName: "expensive", AcceleratorName: "H100", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						ModelID:          "model-1",
-						Namespace:        "default",
-						AnalyzedAt:       time.Now(),
-						RequiredCapacity: 5000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "cheap", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-							{VariantName: "expensive", AcceleratorName: "H100", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "cheap", CurrentReplicas: 2},
 						{VariantName: "expensive", CurrentReplicas: 1},
@@ -74,17 +75,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should not skip variants with pending replicas", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 5000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+					{VariantName: "mid", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 15000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 5000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-							{VariantName: "mid", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 15000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "cheap", CurrentReplicas: 2, PendingReplicas: 1},
 						{VariantName: "mid", CurrentReplicas: 1},
@@ -102,17 +103,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should skip variants with zero capacity", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 5000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "zero-cap", Cost: 1.0, ReplicaCount: 0, PerReplicaCapacity: 0},
+					{VariantName: "normal", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 5000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "zero-cap", Cost: 1.0, ReplicaCount: 0, PerReplicaCapacity: 0},
-							{VariantName: "normal", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "zero-cap", CurrentReplicas: 0},
 						{VariantName: "normal", CurrentReplicas: 1},
@@ -128,17 +129,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should spread across multiple variants when needed", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 25000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+					{VariantName: "mid", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 15000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 25000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-							{VariantName: "mid", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 15000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "cheap", CurrentReplicas: 1},
 						{VariantName: "mid", CurrentReplicas: 1},
@@ -158,17 +159,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 	Context("Scale-Down", func() {
 
 		It("should remove from most expensive variant first", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 15000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+					{VariantName: "expensive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 15000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-							{VariantName: "expensive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "cheap", CurrentReplicas: 3},
 						{VariantName: "expensive", CurrentReplicas: 2},
@@ -186,17 +187,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should protect cheapest variant at 1 replica", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 30000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "expensive", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 30000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "expensive", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "expensive", CurrentReplicas: 1},
 						{VariantName: "cheap", CurrentReplicas: 1},
@@ -214,17 +215,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should remove cheap variant when expensive replica capacity exceeds spare", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 15000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "expensive", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 15000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "expensive", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "expensive", CurrentReplicas: 1},
 						{VariantName: "cheap", CurrentReplicas: 1},
@@ -242,18 +243,18 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should cascade scale-down across variants", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 50000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "expensive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
+					{VariantName: "mid", Cost: 10.0, ReplicaCount: 2, PerReplicaCapacity: 15000},
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 50000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "expensive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
-							{VariantName: "mid", Cost: 10.0, ReplicaCount: 2, PerReplicaCapacity: 15000},
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "expensive", CurrentReplicas: 2},
 						{VariantName: "mid", CurrentReplicas: 2},
@@ -425,17 +426,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 	Context("Steady State", func() {
 
 		It("should return no-change when no scaling signal", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 0,
+				SpareCapacity:    0,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "v1", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 0,
-						SpareCapacity:    0,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "v1", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 2},
 					},
@@ -462,29 +463,29 @@ var _ = Describe("CostAwareOptimizer", func() {
 	Context("Multi-Model", func() {
 
 		It("should process models independently", func() {
+			r1 := &interfaces.AnalyzerResult{
+				RequiredCapacity: 5000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "m1-v1", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+			r2 := &interfaces.AnalyzerResult{
+				SpareCapacity: 10000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "m2-v1", Cost: 10.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r1, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 5000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "m1-v1", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "m1-v1", CurrentReplicas: 1},
 					},
 				}),
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r2, ModelScalingRequest{
 					ModelID:   "model-2",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 10000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "m2-v1", Cost: 10.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "m2-v1", CurrentReplicas: 2},
 					},
@@ -504,16 +505,16 @@ var _ = Describe("CostAwareOptimizer", func() {
 	Context("Decision Metadata", func() {
 
 		It("should set model ID, namespace, and cost on decisions", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 5000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "ns-1",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 5000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 1},
 					},
@@ -534,17 +535,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		intPtr := func(n int) *int { return &n }
 
 		It("should respect maxReplicas during scale-up (spillover to next variant)", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 30000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+					{VariantName: "expensive", AcceleratorName: "H100", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 30000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "cheap", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-							{VariantName: "expensive", AcceleratorName: "H100", Cost: 15.0, ReplicaCount: 1, PerReplicaCapacity: 20000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "cheap", CurrentReplicas: 1, MaxReplicas: intPtr(3)},
 						{VariantName: "expensive", CurrentReplicas: 1},
@@ -562,17 +563,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should respect minReplicas during scale-down", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 50000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "expensive", Cost: 15.0, ReplicaCount: 3, PerReplicaCapacity: 20000},
+					{VariantName: "cheap", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 50000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "expensive", Cost: 15.0, ReplicaCount: 3, PerReplicaCapacity: 20000},
-							{VariantName: "cheap", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "expensive", CurrentReplicas: 3, MinReplicas: intPtr(2)},
 						{VariantName: "cheap", CurrentReplicas: 3},
@@ -590,17 +591,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should scale minReplicas=0 variant to zero while keeping minReplicas>0 sibling", func() {
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 80000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "keep-alive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
+					{VariantName: "expendable", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 80000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "keep-alive", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 20000},
-							{VariantName: "expendable", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "keep-alive", CurrentReplicas: 2, MinReplicas: intPtr(1)},
 						{VariantName: "expendable", CurrentReplicas: 3, MinReplicas: intPtr(0)},
@@ -616,17 +617,17 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("should propagate MinReplicas/MaxReplicas to VariantDecision", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 0,
+				SpareCapacity:    0,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "v1", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				withSatEntry(ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						RequiredCapacity: 0,
-						SpareCapacity:    0,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "v1", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "v1", CurrentReplicas: 2, MinReplicas: intPtr(1), MaxReplicas: intPtr(10)},
 					},
@@ -638,6 +639,147 @@ var _ = Describe("CostAwareOptimizer", func() {
 			Expect(decisions).To(HaveLen(1))
 			Expect(decisions[0].MinReplicas).To(Equal(intPtr(1)))
 			Expect(decisions[0].MaxReplicas).To(Equal(intPtr(10)))
+		})
+	})
+
+	Context("Disaggregated (P/D) Scale-Up", func() {
+
+		// withSatEntryPD builds a request with a disaggregated saturation result.
+		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
+			if r != nil {
+				req.AnalyzerResults = []NamedAnalyzerResult{{
+					Name:      interfaces.SaturationAnalyzerName,
+					Result:    r,
+					Score:     1.0,
+					Remaining: r.RequiredCapacity,
+					Spare:     r.SpareCapacity,
+				}}
+			}
+			return req
+		}
+
+		It("should allocate paired (n_P, n_D) replicas for cheapest prefill + decode pair", func() {
+			// P-Remaining=20000, PRC_P=10000 → n_P=2
+			// D=α×P=20000 (α=1), PRC_D=10000 → n_D=2
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "prefill-v", Cost: 5.0, Role: "prefill", ReplicaCount: 1, PerReplicaCapacity: 10000},
+					{VariantName: "decode-v", Cost: 5.0, Role: "decode", ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {RequiredCapacity: 20000, TotalDemand: 20000},
+					"decode":  {RequiredCapacity: 20000, TotalDemand: 20000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntryPD(r, ModelScalingRequest{
+					ModelID:   "model-pd",
+					Namespace: "default",
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "prefill-v", CurrentReplicas: 1},
+						{VariantName: "decode-v", CurrentReplicas: 1},
+					},
+				}),
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, nil)
+			dm := decisionMap(decisions)
+
+			// α=20000/20000=1; n_P=ceil(20000/10000)=2; n_D=ceil(1×20000/10000)=2
+			Expect(dm["prefill-v"].TargetReplicas).To(Equal(3)) // 1 + 2
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(3))  // 1 + 2
+		})
+
+		It("should pick cheapest prefill and decode variants independently", func() {
+			// Two prefill variants: cheap-p (cost 5) and expensive-p (cost 15)
+			// Two decode variants: cheap-d (cost 5) and expensive-d (cost 15)
+			// α=1; P-RC=10000, PRC=10000 → n_P=1 on cheap-p; n_D=1 on cheap-d
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 10000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap-p", Cost: 5.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "expensive-p", Cost: 15.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "cheap-d", Cost: 5.0, Role: "decode", PerReplicaCapacity: 10000},
+					{VariantName: "expensive-d", Cost: 15.0, Role: "decode", PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {RequiredCapacity: 10000, TotalDemand: 10000},
+					"decode":  {RequiredCapacity: 10000, TotalDemand: 10000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntryPD(r, ModelScalingRequest{
+					ModelID:   "model-pd",
+					Namespace: "default",
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "cheap-p", CurrentReplicas: 1},
+						{VariantName: "expensive-p", CurrentReplicas: 1},
+						{VariantName: "cheap-d", CurrentReplicas: 1},
+						{VariantName: "expensive-d", CurrentReplicas: 1},
+					},
+				}),
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, nil)
+			dm := decisionMap(decisions)
+
+			Expect(dm["cheap-p"].TargetReplicas).To(Equal(2))     // cheapest P gets +1
+			Expect(dm["expensive-p"].TargetReplicas).To(Equal(1)) // unchanged
+			Expect(dm["cheap-d"].TargetReplicas).To(Equal(2))     // cheapest D gets +1
+			Expect(dm["expensive-d"].TargetReplicas).To(Equal(1)) // unchanged
+		})
+	})
+
+	Context("Disaggregated (P/D) Scale-Down", func() {
+
+		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
+			if r != nil {
+				req.AnalyzerResults = []NamedAnalyzerResult{{
+					Name:      interfaces.SaturationAnalyzerName,
+					Result:    r,
+					Score:     1.0,
+					Remaining: r.RequiredCapacity,
+					Spare:     r.SpareCapacity,
+				}}
+			}
+			return req
+		}
+
+		It("should remove from most expensive prefill and decode variants", func() {
+			// P-Spare=20000, PRC_P=10000 → n_P=2; D-Spare=10000, PRC_D=10000 → n_D=1
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 20000, // model-level (unused in disaggregated path)
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "cheap-p", Cost: 5.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "expensive-p", Cost: 15.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "decode-v", Cost: 5.0, Role: "decode", PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {SpareCapacity: 20000, TotalDemand: 10000},
+					"decode":  {SpareCapacity: 10000, TotalDemand: 10000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntryPD(r, ModelScalingRequest{
+					ModelID:   "model-pd",
+					Namespace: "default",
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "cheap-p", CurrentReplicas: 2},
+						{VariantName: "expensive-p", CurrentReplicas: 2},
+						{VariantName: "decode-v", CurrentReplicas: 3},
+					},
+				}),
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, nil)
+			dm := decisionMap(decisions)
+
+			// expensive-p removed first (cost 15 > 5); n_P=floor(20000/10000)=2 but capped by removable
+			Expect(dm["expensive-p"].TargetReplicas).To(Equal(0)) // -2
+			Expect(dm["cheap-p"].TargetReplicas).To(Equal(2))     // unchanged (protected as last P)
+			// decode-v: n_D=floor(10000/10000)=1
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(2)) // -1
 		})
 	})
 
