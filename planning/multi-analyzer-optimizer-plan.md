@@ -84,8 +84,9 @@ that responsibility). Other enabled analyzers follow in registration order.
 type NamedAnalyzerResult struct {
     Name      string
     Result    *interfaces.AnalyzerResult  // engine-calibrated; never mutated
-    Remaining float64                     // working RC counter (scope depends on disaggregation)
-    Spare     float64                     // working SC counter (scope depends on disaggregation)
+    Remaining float64                     // working RC counter (model-scope, or P-side for disaggregated)
+    Spare     float64                     // working SC counter (model-scope; non-disaggregated only)
+    RoleSpare map[string]float64          // working SC counter per role (disaggregated only)
     Score     float64                     // analyzer score weight (from AnalyzerScoreConfig)
 }
 ```
@@ -94,12 +95,17 @@ type NamedAnalyzerResult struct {
 
 - **Non-disaggregated models** (no roles, all variants are `""` or `"both"`):
   `Remaining`/`Spare` are at **model scope** in model-level units. Initialized
-  from `Result.RequiredCapacity`/`Result.SpareCapacity`.
+  from `Result.RequiredCapacity`/`Result.SpareCapacity`. `RoleSpare` is nil.
 - **Disaggregated models** (variants partition into `prefill` / `decode`):
-  `Remaining`/`Spare` are at **P-side scope** in P-units. Initialized from
-  `Result.RoleCapacities[prefill].RequiredCapacity` / `SpareCapacity`. D-side
-  is implicit via α (see below). The paired allocation steps decrement
-  `Remaining` by `p_step` per commit.
+  - `Remaining` is at **P-side scope** in P-units. Initialized from
+    `Result.RoleCapacities[prefill].RequiredCapacity`. D-side is implicit via
+    α (see below). Paired scale-up steps decrement `Remaining` by `p_step`
+    per commit.
+  - `RoleSpare[role]` is per-role spare in role units. Initialized from
+    `Result.RoleCapacities[role].SpareCapacity` for each role present.
+    Role-iterated scale-down decrements `RoleSpare[role]` per role-scoped
+    deallocation.
+  - Model-level `Spare` is unused for disaggregated models.
 
 The optimizer detects disaggregation by checking whether any variant in
 `saturationEntry().VariantCapacities` has a role other than `""`/`"both"`.
@@ -175,7 +181,7 @@ re-resolve them.
 - `PickVariantFn` — returns `(variant, capN)`.
 - `allocateForModel(...)` — generic scale-up inner loop using `pick`.
 
-**Paired helpers (disaggregated):**
+**Paired scale-up helpers (disaggregated):**
 
 - `analyzerAlpha(r)` — computes α per the rules above, returns `(α, tracksP, tracksD)`.
 - `bottleneckReplicasPaired(s, vP, vD, p_step)` — given a candidate p_step,
@@ -185,9 +191,6 @@ re-resolve them.
   n_D = max_i over (i with tracks_D) of ceil(α_i × p_step / PRC_i[vD])
   ```
   Cold-start guards on `PRC=0`. Returns `(0, 0)` if no analyzer tracks either side.
-- `safeRemovalReplicasPaired(s, vP, vD)` — symmetric for scale-down. Computes the
-  largest p_step such that removing `(n_P, n_D)` replicas still leaves all
-  analyzers' Spare ≥ 0 on both sides.
 - `applyAllocationPaired(s, vP, n_P, vD, n_D)` — for each analyzer i:
   ```
   served_i = min(n_P × PRC_i[vP], n_D × PRC_i[vD] / α_i)   # in P-units
@@ -195,12 +198,52 @@ re-resolve them.
   ```
   (Skip analyzers that don't track both sides; their `Remaining` stays in role
   scope they do track.)
-- `applyDeallocationPaired(s, vP, n_P, vD, n_D)` — symmetric for `Spare`.
 - `PickPairFn` — returns `(vP, vD, capN_P, capN_D)`. The `capN_*` are headroom
   caps (max-replicas, GPU budget, etc.); `bottleneckReplicasPaired` provides the
   per-analyzer demand-driven cap.
 - `allocateForModelPaired(...)` — generic scale-up inner loop driving paired
   commits via `pick`.
+
+**Role-iterated scale-down helpers (disaggregated):**
+
+Scale-down does NOT pair. **P and D are independent at scale-down — analogous to
+how separate models are independent at scale-down.** Under the assumption that a
+disaggregated model has no role-independent variants alongside its P/D variants,
+removing prefill replicas only affects P-side supply (D unchanged) and vice
+versa. The underlying model demand `d` is set by the workload, not by replica
+count, so trimming one role's slack doesn't reduce `d`. Each role's
+`SpareCapacity > 0` invariant is the only constraint, enforced per role.
+
+This matches PR #1237's upstream fix to `costAwareScaleDown` (see § "Upstream
+interactions" below).
+
+- `safeRemovalReplicasForRole(s, v, role)` — `min_i floor(s[i].RoleSpare[role] / PRC_i[v])`.
+  Reads per-role working spare from the slice. Cold-start guards on `PRC=0`.
+- `applyDeallocationForRole(s, v, role, n)` — for each analyzer i:
+  `s[i].RoleSpare[role] -= n × PRC_i[v]`; clamp to 0.
+- `variantsForRole([]VariantCapacity, role) []VariantCapacity` — exact-match
+  filter (empty role canonicalized to `RoleBoth`).
+
+Disaggregated scale-down loop (per optimizer):
+```
+for each role with any-analyzer RoleSpare[role] > 0 (gate per role):
+    variants_role = variantsForRole(satEntry.VariantCapacities, role)
+    sorted = sortByCostDesc(variants_role)
+    cheapest = findCheapestVariant(variants_role)
+    for vc in sorted:
+        if no analyzer has RoleSpare[role] > 0: break
+        # cheapest-variant protection scoped to this role
+        # minReplicas floor enforced
+        n = min(safeRemovalReplicasForRole(s, vc.VariantName, role), removable_in_role)
+        if n <= 0: continue
+        applyDeallocationForRole(s, vc.VariantName, role, n)
+        targets[vc.VariantName] -= n
+```
+
+The all-down gate per role is "every analyzer's `RoleSpare[role]` > 0" (consistent
+with `needsScaleDown` semantics for non-disaggregated). For the single-analyzer
+case (current production: only sat_v2), this reduces to "this role's spare > 0",
+exactly matching PR #1237's gate.
 
 These operate on `[]NamedAnalyzerResult`. Distinct concern from
 `internal/engines/aggregation/` (introduced by PR #1228) which operates on
@@ -288,33 +331,45 @@ for scale-down. Greedy scale-down call site updated to new signature.
 disaggregated CostAware, allocations would interleave P and D randomly without
 pairing. Tests don't exercise this case. Fixed in 1.4.
 
-### 1.4 ⏳ — Paired helpers + CostAware disaggregated path
+### 1.4 ⏳ — Disaggregation support: paired scale-up + role-iterated scale-down
 
 Files:
 
-- `internal/engines/pipeline/analyzer_helpers.go`: add `analyzerAlpha`,
-  `bottleneckReplicasPaired`, `safeRemovalReplicasPaired`,
-  `applyAllocationPaired`, `applyDeallocationPaired`, `PickPairFn`,
-  `allocateForModelPaired`. Plus `isDisaggregated([]VariantCapacity) bool`
-  utility.
+- `internal/engines/pipeline/optimizer_interfaces.go`: add
+  `RoleSpare map[string]float64` field to `NamedAnalyzerResult`.
+- `internal/engines/pipeline/analyzer_helpers.go`: add
+  - `isDisaggregated([]VariantCapacity) bool` utility.
+  - `analyzerAlpha(r) → (α, tracksP, tracksD)`. **α is computed from
+    `r.RoleCapacities[D].TotalDemand / r.RoleCapacities[P].TotalDemand`** — workload
+    invariant, not derived from RC. RC is the gap relative to current supply;
+    using it for α would tie α to allocation state.
+  - Paired scale-up helpers: `bottleneckReplicasPaired`, `applyAllocationPaired`,
+    `PickPairFn`, `allocateForModelPaired`.
+  - Role-iterated scale-down helpers: `safeRemovalReplicasForRole`,
+    `applyDeallocationForRole`, `variantsForRole`.
 - `internal/engines/pipeline/analyzer_helpers_test.go`: ~25 specs covering
-  α edge cases, paired bottleneck across multiple analyzers with different α,
-  paired allocation served-per-analyzer accounting, paired deallocation,
-  loop completion.
+  α edge cases (P=0, D=0, both=0), paired bottleneck across multiple analyzers
+  with different α, per-analyzer served accounting on paired allocation,
+  role-iterated scale-down with all-down gate per role, equivalence with
+  PR #1237's per-role end result for the single-analyzer case.
 - `internal/engines/pipeline/cost_aware_optimizer.go`: dispatch on
-  `isDisaggregated(satEntry.VariantCapacities)`. Disaggregated path uses
-  `costGreedyPickPaired` + `allocateForModelPaired` + paired scale-down loop.
-  Non-disaggregated path unchanged.
+  `isDisaggregated(satEntry.VariantCapacities)`.
+  - Disaggregated scale-up: `costGreedyPickPaired` + `allocateForModelPaired`.
+  - Disaggregated scale-down: per-role loop using `safeRemovalReplicasForRole`
+    + `applyDeallocationForRole` (matches PR #1237's role-iteration pattern).
+  - Non-disaggregated path unchanged.
 - `internal/engines/pipeline/cost_aware_optimizer_test.go`: add disaggregated
   scale-up and scale-down specs.
-- Engine `runAnalyzersAndScore` (or wherever `Remaining`/`Spare` are
-  initialized): when `RoleCapacities` non-empty, initialize from
-  `RoleCapacities[prefill].RequiredCapacity` / `SpareCapacity` instead of
-  model-level. (Or do it in the optimizer at dispatch time — pick whichever is
-  cleaner.)
+- Engine `runAnalyzersAndScore` (or wherever the slice is initialized): when
+  `RoleCapacities` is non-empty, initialize `Remaining` from
+  `RoleCapacities[prefill].RequiredCapacity` and `RoleSpare[role]` from
+  `RoleCapacities[role].SpareCapacity` for each role. Non-disaggregated init is
+  unchanged. The optimizer can also do this at dispatch time — pick whichever
+  is cleaner.
 
-**Stashed 1.4 (Greedy) work is dropped.** The role-budget approach is wrong;
-restart Greedy from scratch in 1.5.
+**Stashed 1.4 (Greedy) work is dropped.** The role-budget-split approach was
+wrong; restart Greedy from scratch in 1.5 using paired scale-up + role-iterated
+scale-down.
 
 ### 1.5 ⏳ — Greedy migration (both paths)
 
@@ -486,16 +541,86 @@ clean.
 
 ---
 
+## Upstream interactions
+
+### PR #1237 — `fix(optimizer): role-aware scale-down for disaggregated models`
+
+Open PR by ev-shindin (2026-06-04). Targets current main; addresses the same
+P/D scale-down problem we're solving but on the **legacy single-analyzer path**
+(`req.Result`-based, before our slice migration).
+
+Evgeny's approach for `costAwareScaleDown`:
+- When `RoleCapacities` is non-empty, iterate roles independently. Per role:
+  shed against `RoleCapacities[role].SpareCapacity`, using only variants whose
+  `Role` matches exactly (`variantsForRole`). Skip saturated roles.
+  Cheapest-variant protection scoped per role.
+- When `RoleCapacities` is empty, model-level shed unchanged.
+
+**End-result equivalence with our role-iterated scale-down (single-analyzer
+case):** in current production only sat_v2 produces RC/SC, so the per-analyzer
+slice has one entry. Both walks: per role, sort by cost desc, gate on positive
+role spare, skip saturated, cheapest-variant-at-1 protection scoped per role,
+`floor(spare / PRC)` removal cap, `minReplicas` floor. On Evgeny's canonical
+example (prefill saturated, decode has 20000 spare, 1 GPU/replica, decode
+PRC=10000): prefill stays at 2; decode sheds floor(20000/10000)=2 → decode
+3→1. Same outcome.
+
+**Multi-analyzer extension (future).** Our slice version extends the per-role
+gate to "every analyzer agrees this role has spare" (all-down). The
+single-analyzer case reduces to "this role has spare," matching his fix
+exactly.
+
+**No need to depend on his code.** We re-implement the concept on the
+per-analyzer slice path. The `variantsForRole` utility (5 lines) is
+straightforward to reproduce.
+
+**Cross-rebase impact when PR #1237 lands on main:**
+- Registration (PR #1225) rebases onto new main, picking up Evgeny's fix.
+- Threshold (PR #1228) rebases onto new registration tip, transitively.
+- Our cross-rebase target shifts; the `costAwareScaleDown` Evgeny modified
+  was already migrated by our 1.3 to the slice path. Resolution: keep our
+  slice migration, adopt the role-iteration pattern (1.4 adds it anyway).
+- Net effect: 1.4's role-iteration work is the same regardless of merge order;
+  only rebase mechanics differ.
+
+### Engine model-level `SpareCapacity` for disaggregated models — known bug
+
+Today's engine post-step ([`applyUniversalThreshold`](internal/engines/saturation/engine_v2.go))
+computes `r.SpareCapacity = max(0, r.TotalSupply - r.TotalDemand/scaleDown)`
+where `r.TotalSupply` and `r.TotalDemand` are model-level additive sums across
+all roles (sat_v2's Phase 3 totals). **For disaggregated models this is wrong**
+— prefill and decode tokens aren't fungible, so additive Spare conflates roles
+that should be treated independently. The bug surfaces when any consumer reads
+`r.SpareCapacity` for a disaggregated model: it looks like there's room to
+shed when only one role has slack.
+
+PR #1237 works around this by ignoring `r.SpareCapacity` for disaggregated
+models and reading per-role spare from `r.RoleCapacities[role]` instead. Our
+optimizer does the same.
+
+**Once this PR (multi-analyzer-optimizer) ships**, no consumer reads
+`r.SpareCapacity` for disaggregated models. The buggy additive computation
+becomes latent. **It should be removed or replaced** at that point — either
+zero it out for disaggregated, drop it entirely, or redefine to something
+correct (e.g., `min(role spare)`). Tracked as a post-merge follow-up
+(see § "Open items"). Same applies to model-level `r.RequiredCapacity` for
+disaggregated; engine post-step `RC` is also additive and would be unread by
+our optimizer.
+
+---
+
 ## Coordination
 
 - **PR #1225 (`multi-analyzer-registration`)** — base for cross-rebase.
   Stable. Awaiting reviewer.
 - **PR #1228 (`multi-analyzer-threshold`)** — cross-rebase target. Awaiting
   reviewer.
+- **PR #1237 (`fix/role-aware-scaledown`)** — see § "Upstream interactions"
+  above. Cross-rebase will fold it in.
 - **`engine-queue-fix`** — blocked on PR #1225 merging.
 - **PR #1113** — superseded; will be closed.
 
-This branch does **not** depend on either PR merging before continuing 1.4–1.6
+This branch does **not** depend on any PR merging before continuing 1.4–1.6
 locally.
 
 ---
@@ -518,3 +643,13 @@ locally.
   roles or none do. Mixed cases (some variants role-tagged, others "both") are
   not supported and `isDisaggregated` would treat them as disaggregated, which
   may yield wrong results. If mixed cases arise in practice, revisit.
+- **Engine model-level RC/SC for disaggregated models — post-merge follow-up.**
+  Today's engine post-step computes additive model-level `RequiredCapacity` /
+  `SpareCapacity` over all roles (sat_v2 Phase 3 sums). For disaggregated
+  models the additive value is meaningless: roles aren't fungible. Once this
+  PR ships, no consumer reads model-level RC/SC for disaggregated models. The
+  buggy additive computation becomes latent and should be removed or redefined
+  (e.g., zero-out, or `min` over roles, or simply drop the model-level fields'
+  meaning when `RoleCapacities` is non-empty). Open as a follow-up issue
+  amending PR #1228's `applyUniversalThreshold` after multi-analyzer-optimizer
+  merges. See § "Upstream interactions" → "Engine model-level …" for detail.

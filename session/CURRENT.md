@@ -516,6 +516,8 @@ Found during Claude code review; deferred to a follow-up PR after TA2 merges.
 
 - **Per-analyzer observability metrics** — once `multi-analyzer-optimizer` merges and `[]NamedAnalyzerResult` is flowing to the optimizers, expose each analyzer's per-VA demand/capacity as Prometheus gauges labeled by `analyzer_name` (in addition to existing variant/namespace labels). Suggested names: `wva_analyzer_required_capacity{analyzer_name,...}`, `wva_analyzer_spare_capacity{...}`, `wva_analyzer_utilization{...}`, mirroring the saturation-only PR #933 gauges (`wva_saturation_utilization`, `wva_spare_capacity`, `wva_required_capacity`) but generalized across the registered analyzer set. Today's metrics are saturation-only; nothing in open/merged PRs (#933, #1073, #1089, #1070, #1081, #1190) covers the multi-analyzer surface. Coordinate with the freshness-gauge pattern from PR #1190 (`wva_saturation_metrics_up`) — likely add `wva_analyzer_metrics_up{analyzer_name,...}` in the same style.
 
+- **Engine model-level `RC`/`SC` for disaggregated models** — the engine post-step (PR #1228 `applyUniversalThreshold`) computes additive model-level `RequiredCapacity`/`SpareCapacity` over all roles. For disaggregated models the additive value conflates roles that aren't fungible (the bug Evgeny's PR #1237 works around in the optimizer). Once `multi-analyzer-optimizer` merges, no consumer reads model-level RC/SC for disaggregated models; the buggy computation becomes latent. **Follow-up: remove or redefine** (e.g., zero out, or `min(role)` semantics, or drop model-level meaning when `RoleCapacities` is non-empty). Amends `applyUniversalThreshold` from #1228. Tracked in `planning/multi-analyzer-optimizer-plan.md` § "Upstream interactions".
+
 ---
 
 ## Pending handoffs
