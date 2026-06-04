@@ -54,10 +54,21 @@ func (o *CostAwareOptimizer) Optimize(
 		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if needsScaleUp(req.AnalyzerResults) {
-			costAwareScaleUp(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
-		} else if needsScaleDown(req.AnalyzerResults) {
-			costAwareScaleDown(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
+		if isDisaggregated(satEntry.VariantCapacities) {
+			s := make([]NamedAnalyzerResult, len(req.AnalyzerResults))
+			copy(s, req.AnalyzerResults)
+			initDisaggregatedRemaining(s)
+			if needsScaleUp(s) {
+				allocateForModelPaired(ctx, s, satEntry.VariantCapacities, stateMap, nil, targets, costGreedyPickPaired)
+			} else {
+				costAwareScaleDownRoleIterated(ctx, s, satEntry.VariantCapacities, targets, stateMap)
+			}
+		} else {
+			if needsScaleUp(req.AnalyzerResults) {
+				costAwareScaleUp(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
+			} else if needsScaleDown(req.AnalyzerResults) {
+				costAwareScaleDown(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
+			}
 		}
 
 		decisions := buildDecisionsWithOptimizer(req, stateMap, vcMap, targets, "cost-aware")
@@ -131,6 +142,9 @@ func costAwareScaleDown(
 	}
 
 	for needsScaleDown(s) {
+		// removed prevents an infinite loop: needsScaleDown can hold (some Spare_i > 0)
+		// while no variant has remaining capacity to give up (all at minReplicas, or
+		// PRC mismatched). Break when a full sweep makes no progress.
 		removed := false
 		for _, vc := range sorted {
 			if !needsScaleDown(s) {
@@ -275,10 +289,10 @@ func buildDecisionsWithOptimizer(
 		switch {
 		case target > state.CurrentReplicas:
 			action = interfaces.ActionScaleUp
-			reason = fmt.Sprintf("V2 scale-up (optimizer: %s, required: %.0f)", optimizerName, req.Result.RequiredCapacity)
+			reason = fmt.Sprintf("V2 scale-up (optimizer: %s)", optimizerName)
 		case target < state.CurrentReplicas:
 			action = interfaces.ActionScaleDown
-			reason = fmt.Sprintf("V2 scale-down (optimizer: %s, spare: %.0f)", optimizerName, req.Result.SpareCapacity)
+			reason = fmt.Sprintf("V2 scale-down (optimizer: %s)", optimizerName)
 		default:
 			action = interfaces.ActionNoChange
 			reason = "V2 steady state"
@@ -317,6 +331,135 @@ func mergeConstraints(constraints []*ResourceConstraints) map[string]int {
 		}
 	}
 	return merged
+}
+
+// costGreedyPickPaired selects the cheapest-by-cost-efficiency (vP, vD) pair for
+// disaggregated models. Returns the cheapest eligible prefill variant and cheapest
+// eligible decode variant independently, with their maxReplicas headroom as caps.
+func costGreedyPickPaired(
+	_ []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	_ map[string]int,
+	targets map[string]int,
+) (vP, vD string, capNP, capND int) {
+	var pVCs, dVCs []interfaces.VariantCapacity
+	for _, vc := range variants {
+		switch vc.Role {
+		case "prefill":
+			pVCs = append(pVCs, vc)
+		case "decode":
+			dVCs = append(dVCs, vc)
+		}
+	}
+	pick := func(vcs []interfaces.VariantCapacity) (string, int) {
+		for _, vc := range sortByCostEfficiencyAsc(vcs) {
+			if vc.PerReplicaCapacity <= 0 {
+				continue
+			}
+			state := stateMap[vc.VariantName]
+			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
+				headroom := *state.MaxReplicas - targets[vc.VariantName]
+				if headroom <= 0 {
+					continue
+				}
+				return vc.VariantName, headroom
+			}
+			return vc.VariantName, math.MaxInt
+		}
+		return "", 0
+	}
+	vP, capNP = pick(pVCs)
+	vD, capND = pick(dVCs)
+	return
+}
+
+// costAwareScaleDownRoleIterated removes replicas from disaggregated models by
+// iterating each role independently. P and D scale-down are independent — trimming
+// one role's slack does not affect the other (each role's supply and demand are
+// distinct). Per role: remove from most expensive variant first; cheapest-variant
+// protection scoped to the role; minReplicas floor respected.
+func costAwareScaleDownRoleIterated(
+	ctx context.Context,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	targets map[string]int,
+	stateMap ...map[string]interfaces.VariantReplicaState,
+) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	var states map[string]interfaces.VariantReplicaState
+	if len(stateMap) > 0 {
+		states = stateMap[0]
+	}
+
+	// Collect distinct roles from the variant set.
+	roles := make(map[string]struct{})
+	for _, vc := range variants {
+		role := vc.Role
+		if role == "" {
+			role = interfaces.RoleBoth
+		}
+		if role != interfaces.RoleBoth {
+			roles[role] = struct{}{}
+		}
+	}
+
+	for role := range roles {
+		roleVCs := variantsForRole(variants, role)
+		if len(roleVCs) == 0 {
+			continue
+		}
+		cheapest := findCheapestVariant(roleVCs)
+		sorted := sortByCostDesc(roleVCs)
+
+		for needsScaleDownForRole(s, role) {
+			removed := false
+			for _, vc := range sorted {
+				if !needsScaleDownForRole(s, role) {
+					break
+				}
+				if vc.PerReplicaCapacity <= 0 {
+					continue
+				}
+				current := targets[vc.VariantName]
+				minReplicas := 0
+				if states != nil {
+					if st, ok := states[vc.VariantName]; ok && st.MinReplicas != nil {
+						minReplicas = *st.MinReplicas
+					}
+				}
+				if vc.VariantName == cheapest {
+					otherHasReplicas := false
+					for _, ovc := range roleVCs {
+						if ovc.VariantName != cheapest && targets[ovc.VariantName] > 0 {
+							otherHasReplicas = true
+							break
+						}
+					}
+					if !otherHasReplicas && minReplicas < 1 {
+						minReplicas = 1
+					}
+				}
+				removable := current - minReplicas
+				if removable <= 0 {
+					continue
+				}
+				n := min(safeRemovalReplicasForRole(s, vc.VariantName, role), removable)
+				if n <= 0 {
+					continue
+				}
+				applyDeallocationForRole(s, vc.VariantName, role, n)
+				targets[vc.VariantName] -= n
+				removed = true
+				logger.V(logging.DEBUG).Info("scale-down role-iterated: removed replicas",
+					"role", role, "variant", vc.VariantName, "removed", n, "cost", vc.Cost)
+			}
+			if !removed {
+				break
+			}
+		}
+	}
 }
 
 // Ensure CostAwareOptimizer implements ScalingOptimizer
