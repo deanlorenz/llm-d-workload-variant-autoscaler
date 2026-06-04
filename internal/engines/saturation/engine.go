@@ -290,10 +290,7 @@ func (e *Engine) StartOptimizeLoop(ctx context.Context) {
 
 func (e *Engine) recordActiveOptimizer() {
 	// Record metrics for which optimizer is active
-	optimizerNames := []string{
-		pipeline.GreedyByScoreOptimizerName,
-		pipeline.CostAwareOptimizerName,
-	}
+	optimizerNames := []string{"greedy-by-score", "cost-aware"}
 	for _, name := range optimizerNames {
 		isActive := false // default is false
 		if name == e.optimizer.Name() {

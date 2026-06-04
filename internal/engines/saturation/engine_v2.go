@@ -101,7 +101,7 @@ func (e *Engine) runAnalyzersAndScore(
 	baseResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Universal threshold post-step for saturation: recalibrate RC/SC using the
@@ -322,7 +322,7 @@ func (e *Engine) collectV2ModelRequest(
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 	schedulerQueue *interfaces.SchedulerQueueMetrics,
 ) (*pipeline.ModelScalingRequest, error) {
-	namedResults, result, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
+	namedResults, _, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
 		return nil, fmt.Errorf("collecting V2 model request for %s/%s: %w", namespace, modelID, err)
