@@ -76,8 +76,8 @@ var _ = Describe("Engine analyzer registry", func() {
 				},
 			}
 
-			e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			e.MustRegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
+			Expect(e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})).To(Succeed())
+			Expect(e.RegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})).To(Succeed())
 
 			Expect(e.analyzers).To(HaveLen(3))
 			Expect(e.analyzers[0].name).To(Equal(interfaces.SaturationAnalyzerName))
@@ -85,7 +85,7 @@ var _ = Describe("Engine analyzer registry", func() {
 			Expect(e.analyzers[2].name).To(Equal("slo"))
 		})
 
-		It("panics with a clear message when re-registering an existing name", func() {
+		It("returns an error when re-registering an existing name", func() {
 			e := &Engine{
 				analyzers: []analyzerEntry{
 					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
@@ -93,16 +93,14 @@ var _ = Describe("Engine analyzer registry", func() {
 				},
 			}
 
-			Expect(func() {
-				e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			}).To(PanicWith(`RegisterAnalyzer: duplicate analyzer name "throughput"`))
+			Expect(e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})).
+				To(MatchError(ContainSubstring(`duplicate analyzer name "throughput"`)))
 
-			Expect(func() {
-				e.MustRegisterAnalyzer(interfaces.SaturationAnalyzerName, &spyAnalyzer{name: "x"})
-			}).To(PanicWith(ContainSubstring(`duplicate analyzer name`)))
+			Expect(e.RegisterAnalyzer(interfaces.SaturationAnalyzerName, &spyAnalyzer{name: "x"})).
+				To(MatchError(ContainSubstring(`duplicate analyzer name`)))
 		})
 
-		It("panics when called after StartOptimizeLoop has frozen the registry", func() {
+		It("returns an error when called after StartOptimizeLoop has frozen the registry", func() {
 			e := &Engine{
 				analyzers: []analyzerEntry{
 					{name: interfaces.SaturationAnalyzerName, analyzer: &spyAnalyzer{name: interfaces.SaturationAnalyzerName}},
@@ -110,9 +108,8 @@ var _ = Describe("Engine analyzer registry", func() {
 				started: true,
 			}
 
-			Expect(func() {
-				e.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			}).To(PanicWith("RegisterAnalyzer called after StartOptimizeLoop"))
+			Expect(e.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})).
+				To(MatchError(ContainSubstring("called after StartOptimizeLoop")))
 		})
 	})
 
@@ -123,8 +120,8 @@ var _ = Describe("Engine analyzer registry", func() {
 			testConfig := config.NewTestConfig()
 			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
 
-			engine.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
-			engine.MustRegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})
+			Expect(engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})).To(Succeed())
+			Expect(engine.RegisterAnalyzer("slo", &spyAnalyzer{name: "slo"})).To(Succeed())
 
 			// Cancel context so the executor's polling loop exits immediately.
 			startCtx, cancelStart := context.WithCancel(context.Background())
@@ -147,7 +144,7 @@ var _ = Describe("Engine analyzer registry", func() {
 			Expect(sourceRegistry.Register("prometheus", source.NewNoOpSource())).To(Succeed())
 			testConfig := config.NewTestConfig()
 			engine := NewEngine(k8sClient, k8sClient.Scheme(), nil, sourceRegistry, testConfig)
-			engine.MustRegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})
+			Expect(engine.RegisterAnalyzer("throughput", &spyAnalyzer{name: "throughput"})).To(Succeed())
 
 			startCtx, cancelStart := context.WithCancel(context.Background())
 			cancelStart()
@@ -167,26 +164,23 @@ var _ = Describe("Engine analyzer registry", func() {
 				}
 			}()
 
-			// Writers: each call must panic with the late-register message.
-			panicCount := 0
+			// Writers: each call must return an error (called after Start).
+			errCount := 0
 			var mu sync.Mutex
 			for i := 0; i < 4; i++ {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					defer func() {
-						if r := recover(); r != nil {
-							mu.Lock()
-							panicCount++
-							mu.Unlock()
-						}
-					}()
-					engine.MustRegisterAnalyzer("late", &spyAnalyzer{name: "late"})
+					if err := engine.RegisterAnalyzer("late", &spyAnalyzer{name: "late"}); err != nil {
+						mu.Lock()
+						errCount++
+						mu.Unlock()
+					}
 				}()
 			}
 
 			wg.Wait()
-			Expect(panicCount).To(Equal(4))
+			Expect(errCount).To(Equal(4))
 		})
 	})
 

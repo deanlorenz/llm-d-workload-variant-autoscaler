@@ -117,19 +117,18 @@ Pre-registered:
 External analyzers are registered from `cmd/main.go` via:
 
 ```go
-engine.MustRegisterAnalyzer(name string, a interfaces.Analyzer)
+if err := engine.RegisterAnalyzer(name, analyzer); err != nil {
+    // handle: duplicate name or called after StartOptimizeLoop
+}
 ```
 
-`MustRegisterAnalyzer` appends to the registry. Registration order defines
-processing order in the engine loop and should match the operator's
-`analyzers:` config order.
+`RegisterAnalyzer` appends to the registry and returns an `error` for
+two misuse conditions: calling it after `StartOptimizeLoop` or
+re-registering an existing name. Callers must check the error. Registration
+order defines processing order in the engine loop and should match the
+operator's `analyzers:` config order.
 
-Re-registering an existing name **panics** — the registry is not a
-hot-swap mechanism, and a duplicate registration is a programmer error
-(typically a wiring mistake in `cmd/main.go`). The panic message is
-`MustRegisterAnalyzer: duplicate analyzer name "<name>"`.
-
-`MustRegisterAnalyzer` must be called before `StartOptimizeLoop`.
+`RegisterAnalyzer` must be called before `StartOptimizeLoop`.
 
 ### Configuring Analyzers
 
@@ -154,7 +153,7 @@ When `analyzers:` is omitted, it defaults to `[{name: "saturation", score: 1.0}]
 
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
-| `name` | string | Analyzer name (must match a `MustRegisterAnalyzer` call) | required |
+| `name` | string | Analyzer name (must match a `RegisterAnalyzer` call) | required |
 | `enabled` | bool | Reserved — placeholder for future combine logic | `true` |
 | `score` | float64 | Reserved — placeholder for future combine logic | `1.0` |
 | `scaleUpThreshold` | float64 | Per-analyzer override; honored only for saturation today (other analyzers tracked on the multi-analyzer-threshold PR) | global `scaleUpThreshold` |
@@ -702,7 +701,7 @@ type SaturationScalingConfig struct {
 }
 
 // AnalyzerScoreConfig configures one analyzer in the multi-analyzer pipeline.
-// On this branch, only `Name` is consumed (it must match a MustRegisterAnalyzer
+// On this branch, only `Name` is consumed (it must match a RegisterAnalyzer
 // call); `Enabled`, `Score`, and the per-analyzer threshold overrides are
 // reserved for follow-up PRs.
 type AnalyzerScoreConfig struct {

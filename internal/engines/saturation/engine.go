@@ -18,6 +18,7 @@ package saturation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -253,22 +254,21 @@ func NewEngine(client client.Client, scheme *runtime.Scheme, recorder record.Eve
 	return &engine
 }
 
-// MustRegisterAnalyzer adds an external analyzer to the engine's analyzer
-// registry. Must be called before StartOptimizeLoop; calling it after
-// panics with a clear message so the "register before Start" contract is
-// enforced rather than silently corrupting concurrent state.
-// Re-registering an existing name also panics — the registry is not a
-// hot-swap mechanism. The analyzer is appended in registration order.
-func (e *Engine) MustRegisterAnalyzer(name string, a interfaces.Analyzer) {
+// RegisterAnalyzer adds an external analyzer to the engine's analyzer
+// registry. Returns an error if called after StartOptimizeLoop or if name
+// is already registered — callers must check the error. The analyzer is
+// appended in registration order.
+func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) error {
 	if e.started {
-		panic("RegisterAnalyzer called after StartOptimizeLoop")
+		return errors.New("RegisterAnalyzer: called after StartOptimizeLoop")
 	}
 	for i := range e.analyzers {
 		if e.analyzers[i].name == name {
-			panic(fmt.Sprintf("RegisterAnalyzer: duplicate analyzer name %q", name))
+			return fmt.Errorf("RegisterAnalyzer: duplicate analyzer name %q", name)
 		}
 	}
 	e.analyzers = append(e.analyzers, analyzerEntry{name: name, analyzer: a})
+	return nil
 }
 
 // StartOptimizeLoop starts the optimization loop for the saturation engine.
