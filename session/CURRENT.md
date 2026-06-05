@@ -116,6 +116,8 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 - **`enabled:false` analyzer should be exempt from `needsScaleDown`** — slice-predicate treats disabled analyzer (Spare=0) as a veto, breaking TA-only scale-down. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Alternatives → A8 and `planning/TA-PR5-plan.md` §7.
 
+- **Multi-analyzer dev-guide polish** — currently `docs/developer-guide/multi-analyzer-pipeline.md` is a stub on the optimizer branch with a link to the design doc on the plans-branch fork. After reviewer comments on #1225 + #1228 + optimizer PR are addressed and the PRs reach final shape, fold the design content (architecture, alternatives, future direction from [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md)) plus per-PR implementation detail into the dev-guide, replacing the stub. Cover all three PRs (registration / threshold / optimizer). Doc-only commit on each branch (or a single dev-guide commit landing after the merges).
+
 ---
 
 ## Pending handoffs
