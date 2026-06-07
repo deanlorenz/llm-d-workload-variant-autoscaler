@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/engines/aggregation"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/interfaces"
 )
 
@@ -950,6 +951,155 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
+	Describe("Analyze — aggregation-helper linearity invariants", func() {
+		// Specs 1–5 from plan §3.4: verify that TA's published Total* fields satisfy
+		// the aggregation-helper formulas the engine post-step depends on.
+		// Fixture: two variants, OLS-ready windows, one with queue demand; one P/D case.
+		const (
+			ilA     = 5000.0
+			olA     = 200.0
+			prefixA = 0.1
+			kvMaxA  = int64(1024000)
+			aA      = 0.073
+			bA      = 0.006
+		)
+		kValuesA := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
+
+		It("TotalSupply equals aggregation.SumTotalSupply(VariantCapacities)", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			replicas := []interfaces.ReplicaMetrics{
+				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 5},
+				{VariantName: "v2", KvCacheUsage: 0.40, KvUsageInstant: 0.40,
+					AvgITL: aA*0.40 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 3},
+			}
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: replicas,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.TotalSupply).To(BeNumerically("~",
+				aggregation.SumTotalSupply(result.VariantCapacities), 1e-9))
+		})
+
+		It("TotalAnticipatedSupply equals aggregation.SumTotalAnticipatedSupply(VariantCapacities)", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			replicas := []interfaces.ReplicaMetrics{
+				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 5},
+			}
+			// 1 pending replica — TotalAnticipatedSupply should count it.
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: replicas,
+				VariantStates: []interfaces.VariantReplicaState{
+					{VariantName: "v1", PendingReplicas: 1},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.TotalAnticipatedSupply).To(BeNumerically("~",
+				aggregation.SumTotalAnticipatedSupply(result.VariantCapacities), 1e-9))
+		})
+
+		It("TotalDemand equals aggregation.SumTotalDemand(VariantCapacities) plus queue demand", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			replicas := []interfaces.ReplicaMetrics{
+				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 5},
+			}
+			const queueSize = int64(10)
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: replicas,
+				SchedulerQueue: &interfaces.SchedulerQueueMetrics{QueueSize: queueSize},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			variantDemand := aggregation.SumTotalDemand(result.VariantCapacities)
+			// TotalDemand = variant demand + queue demand; queue demand > 0 when queue is non-empty.
+			Expect(result.TotalDemand).To(BeNumerically(">=", variantDemand))
+			// Verify queue demand was added: TotalDemand - variantDemand should be positive.
+			Expect(result.TotalDemand - variantDemand).To(BeNumerically(">", 0))
+		})
+
+		It("RoleCapacities[role].TotalAnticipatedSupply matches per-role aggregation", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			replicas := []interfaces.ReplicaMetrics{
+				{VariantName: "v-decode", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 5},
+				{VariantName: "v-prefill", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 1},
+			}
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: replicas,
+				VariantStates: []interfaces.VariantReplicaState{
+					{VariantName: "v-decode", Role: "decode"},
+					{VariantName: "v-prefill", Role: "prefill"},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RoleCapacities).NotTo(BeNil())
+			byRole := aggregation.AggregateByRole(result.VariantCapacities)
+			for role, rc := range result.RoleCapacities {
+				Expect(rc.TotalAnticipatedSupply).To(BeNumerically("~",
+					byRole[role].TotalAnticipatedSupply, 1e-9),
+					"role %s TotalAnticipatedSupply mismatch", role)
+			}
+		})
+
+		It("RoleCapacities[decode].TotalDemand includes the queue-demand share", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			replicas := []interfaces.ReplicaMetrics{
+				{VariantName: "v-decode", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 5},
+				{VariantName: "v-prefill", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
+					PrefixCacheHitRate: prefixA, TotalKvCapacityTokens: kvMaxA, ArrivalRate: 1},
+			}
+			// With queue: decode role should receive the queue-demand share.
+			// Without queue: decode TotalDemand == variant-level demand only.
+			inputNoQ := interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: replicas,
+				VariantStates: []interfaces.VariantReplicaState{
+					{VariantName: "v-decode", Role: "decode"},
+					{VariantName: "v-prefill", Role: "prefill"},
+				},
+			}
+			inputWithQ := inputNoQ
+			inputWithQ.SchedulerQueue = &interfaces.SchedulerQueueMetrics{QueueSize: 20}
+
+			resultNoQ, errNoQ := analyzer.Analyze(ctx, inputNoQ)
+			Expect(errNoQ).NotTo(HaveOccurred())
+
+			analyzer2 := NewThroughputAnalyzer()
+			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			resultWithQ, errWithQ := analyzer2.Analyze(ctx, inputWithQ)
+			Expect(errWithQ).NotTo(HaveOccurred())
+
+			// decode TotalDemand with queue > without queue (queue share was added).
+			Expect(resultWithQ.RoleCapacities["decode"].TotalDemand).To(
+				BeNumerically(">", resultNoQ.RoleCapacities["decode"].TotalDemand))
+			// prefill TotalDemand unchanged (queue demand skips prefill role).
+			Expect(resultWithQ.RoleCapacities["prefill"].TotalDemand).To(
+				BeNumerically("~", resultNoQ.RoleCapacities["prefill"].TotalDemand, 1e-9))
+		})
+	})
+
 	Describe("averageShapeMetrics — VLLMRequestRate-weighted averaging", func() {
 		It("returns rate-weighted mean when replicas have different VLLMRequestRates", func() {
 			// r1: rate=1, IL=1000, OL=200, hr=0.1
@@ -1150,7 +1300,13 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
-	Describe("Analyze — GPS verification suppresses SpareCapacity", func() {
+	Describe("Analyze — GPS-mismatch scenarios (preserved fixtures for future SC gate)", func() {
+		// PR-5 dropped the EPP/GPS-mismatch SpareCapacity gate; TA now always leaves
+		// SpareCapacity=0. These test scenarios and their input data are intentionally
+		// preserved as fixtures for the future per-analyzer status-return PR (F3) that
+		// will restore the SC-suppression gate. Current assertions are pass-through:
+		// SpareCapacity==0 regardless of GPS state. Re-arm SC assertions when F3 lands.
+		//
 		// Scenario: same ITL coefficients as the tier-1 scaling signal tests.
 		//   IL=5000, OL=200, prefix=0.1, KV_max=1024000, A=0.073, B=0.006
 		//   KVreq = IL×(1−prefix) + OL/2 = 4500 + 100 = 4600
@@ -1197,7 +1353,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			return nDec / (aG*k + bG)
 		}
 
-		It("emits SpareCapacity when GPS is within 15% of model prediction", func() {
+		It("GPS within 15% of model prediction — fixture for future SC pass-through", func() {
 			buildWindowG()
 			// GPS equals model value → 0% error, well within threshold.
 			gps := muDecG(kStar)
@@ -1213,7 +1369,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
-		It("suppresses SpareCapacity when GPS deviates > 15% at k* ≥ DefaultGPSMinKForVerification", func() {
+		It("GPS deviates > 15% at k* ≥ DefaultGPSMinKForVerification — fixture for future SC suppression", func() {
 			buildWindowG()
 			// GPS is 50% of model → gpsErrPct = |1 - 0.5| / 0.5 × 100 = 100% >> 15%.
 			gps := muDecG(kStar) * 0.5
@@ -1226,7 +1382,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
-		It("does not suppress SpareCapacity when GPS deviates but k* < DefaultGPSMinKForVerification", func() {
+		It("GPS deviates but k* < DefaultGPSMinKForVerification — fixture for future SC pass-through", func() {
 			buildWindowG()
 			// k*=0.20 < DefaultGPSMinKForVerification(0.30); GPS check is skipped.
 			gps := muDecG(kStar) * 0.1 // enormous mismatch, but k* too low to trust
@@ -1242,7 +1398,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
-		It("does not suppress SpareCapacity when GenerationTokenRate is zero (metric absent)", func() {
+		It("GenerationTokenRate is zero (metric absent) — fixture for future SC pass-through", func() {
 			buildWindowG()
 			// GPS=0 → check is skipped entirely.
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
@@ -1257,7 +1413,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
-		It("preserves RequiredCapacity when GPS mismatch suppresses SpareCapacity", func() {
+		It("RC remains nonzero under GPS mismatch — fixture for future SC suppression", func() {
 			buildWindowG()
 			// High ArrivalRate drives demand > supply (RC > 0).
 			// GPS gate is dropped — TA always leaves SC=0; SC=0 is now unconditional.
