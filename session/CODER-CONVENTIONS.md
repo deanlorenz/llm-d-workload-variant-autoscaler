@@ -205,6 +205,34 @@ worktree, `plans/session/handoffs/`, and
 `plans/session/status/<your-branch>.md` (per §1). The planner is the
 only writer of CURRENT.md.
 
+### 5.4 Internal review request — before signalling push-ready
+
+When your commits are complete and all gates are green, write a review
+trigger **before** sending the push-ready plan-handoff:
+
+```
+plans/session/handoffs/review__<branch>-ready.md
+```
+
+Format — same trigger shape as §5.3 (reason / refs / note):
+
+```
+reason: code-review-before-push
+refs:
+  - <branch>/ (worktree)
+  - planning/<branch>-plan.md
+note: <N> commits on <base>@<sha>; all gates green
+```
+
+The plan-agent sees the trigger and invokes `/code-review` on your
+branch before authorising the push to origin. Do **not** write the
+push-ready `plan__*.md` handoff until the review is complete and any
+blocking findings are addressed (or explicitly accepted by Dean).
+
+This applies to all PRs, including rebases that produce a materially
+different diff. Routine rebase-only pushes (no logic change, no new
+commits) are exempt.
+
 ---
 
 ## 6. WIP until Dean reviews — don't mark work "complete"
@@ -244,6 +272,8 @@ explicitly:
   `plans/session/status/<your-branch>.md`.
 - Write your own `plan__*.md` handoffs and `<sibling>__*.md` triggers
   under `plans/session/handoffs/`.
+- Write a `review__<branch>-ready.md` trigger when your work is
+  push-ready (see §5.4).
 - `mv <file>.md <file>.md.DONE` for any handoff or trigger addressed to
   you (in `plans/session/handoffs/`).
 
