@@ -8,6 +8,7 @@
 
 ## Recent activity
 
+- **2026-06-08 — Optimizer Phase 3 complete (unify P/D + non-P/D paths).** 4 commits on top of Phase 2; branch now 15 commits on `multi-analyzer-threshold@b8b823b0`, tip `680b1fb8`. `initRoleState` unifies role-state init (non-disag = synthetic `"both"` role); one role-generic `allocateForModelPaired` + `scaleDownRoleIterated`; `fairShareValue` reads picker-local role-sum; α removed from Greedy picker (joint Δ_util commit is the coupling); D-only scale-up (RC_P=0, RC_D>0) routes correctly via `anyRoleNeedsScaleUp`. New specs: D-only scale-up (CostAware+Greedy), min-util coupling. Coder reports all gates green, DCO on all 15. **Pending planner Phase 3 review before push** (per §5.4 / standing discipline — Phase 2 review caught a blocker). See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 3.
 - **2026-06-08 — TA3 PR-5 code complete; reviewed.** Rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip (`3b1c5ad2`). Coder reports all gates green. Review captured at [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md) (DRAFT) — implementation matches plan §3.3 precisely; 4 small follow-ups (D1+D2 doc fixes, T1 test renames, T2 aggregation-helper specs, H1 rebase-tracker note); SC-gate restoration deferred to unified F3.
 - **2026-06-07 — Optimizer Phase 2 complete.** All review findings (B1, B2, T1, N2, N3, N4) addressed in 3 commits on `multi-analyzer-optimizer` (tip `4bfac2fa`, 11 commits total on `multi-analyzer-threshold@b8b823b0`). All gates green, DCO-signed. **Awaiting Dean force-with-lease push and PR creation.** N4 (sort role keys in `costAwareScaleDownRoleIterated`) was committed in `4bfac2fa` before plan was updated to defer per PR #1237 alignment — sort is harmless; planner suggestion is leave as-is, revert if alignment preferred. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 2.
 - **2026-06-07 — PR #1237 reviewed.** 6 comments posted on ev-shindin's `fix/role-aware-scaledown` PR (5 top-level + 1 inline on `cheapest := findCheapestVariant(variants)` covering redundancy, implicit-sort-order assumption, lazy walk, and equal-cost tiebreak). Awaiting author response. Post-#1237 rebase plan captured in optimizer plan § Phase 2.
@@ -31,7 +32,7 @@
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits directly on `main@f664a470`; force-pushed post-rebase; CI re-running | `b0a50fd3` |
-| multi-analyzer-optimizer | — | Local only; 11 commits on `multi-analyzer-threshold@b8b823b0` (Phase 1 + Phase 2 complete; B1/B2/T1/N2/N3/N4 addressed). **Ready for push + PR creation** — awaiting Dean force-with-lease confirmation. | `4bfac2fa` |
+| multi-analyzer-optimizer | — | Local only; 15 commits on `multi-analyzer-threshold@b8b823b0` (Phase 1 + Phase 2 + Phase 3 complete; B1/B2/T1/N2/N3/N4 addressed; P/D and non-P/D paths unified). **Pending planner Phase 3 review, then push + PR.** | `680b1fb8` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
 ---
@@ -39,15 +40,16 @@
 ## Blocked on
 
 - **PR #1228** — rebased onto `main@f664a470`; force-pushed to `origin/multi-analyzer-threshold` (tip `b0a50fd3`, 4 commits, clean diff). CI re-running post-rebase. Awaiting CI signal + ev-shindin review. PR #1113 stays open until Dean closes it post-coordination with ev-shindin. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md).
-- **multi-analyzer-optimizer** — Phase 1 + Phase 2 complete; 11 commits on `multi-analyzer-threshold@b8b823b0` (tip `4bfac2fa`). All review findings (B1, B2, T1, N2, N3, N4) addressed; all gates green. **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer` and PR creation.** Backup branch `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0` available; can be dropped after PR opens. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 2.
+- **multi-analyzer-optimizer** — Phase 1 + 2 + 3 complete; 15 commits on `multi-analyzer-threshold@b8b823b0` (tip `680b1fb8`). All review findings addressed; P/D and non-P/D paths unified; coder reports all gates green. **Pending planner Phase 3 review, then Dean force-with-lease push + PR creation.** Backup branch `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0` available; drop after PR opens. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) §§ Phase 2/Phase 3.
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
 
 ## Next steps
 
 - **Now:** threshold coder — rebase `multi-analyzer-threshold` onto `main`@`f664a470`; push; CI re-runs; await ev-shindin review on the clean diff.
-- **Optimizer push + PR.** Force-with-lease push `multi-analyzer-optimizer` to origin (Phase 1 + Phase 2; tip `4bfac2fa`), then open PR (target `multi-analyzer-threshold` while #1228 is open, or `main` if landing standalone — see optimizer plan § Next steps). After push, close `engine-queue-fix` branch + remove its worktree (its commit was absorbed into the optimizer stack).
-- **N4 decision.** Sort in `costAwareScaleDownRoleIterated` was committed in `4bfac2fa` before plan was updated to defer N4 per #1237 alignment. Sort is harmless. Suggested: leave as-is. Revert (12th commit) if alignment with #1237's stance is preferred.
-- **TA3 coder** — rebase TA3 onto `main`@`f664a470`, then apply contract redesign per `TA-PR5-plan.md` §3 once #1228 + optimizer land. Plan is ready.
+- **Optimizer Phase 3 review.** Planner reviews the 4 Phase 3 commits (`5c18f4c5`, `2d0ce096`, `0c06dcee`, `680b1fb8`) before declaring push-ready — confirm the D-only gate, role-generic allocator, and α removal are correct. Phase 2 review caught a blocker, so don't skip.
+- **Optimizer push + PR** (after Phase 3 review). Force-with-lease push `multi-analyzer-optimizer` to origin (tip `680b1fb8`), then open PR (target `multi-analyzer-threshold` while #1228 is open, or `main` if landing standalone). After push, close `engine-queue-fix` branch + remove its worktree.
+- **N4 decision.** Sort now lives in `scaleDownRoleIterated` (renamed from `costAwareScaleDownRoleIterated` in Phase 3). Committed before the plan deferred N4 per #1237 alignment. Sort is harmless. Suggested: leave as-is; revert only if #1237-alignment is preferred.
+- **TA3 re-rebase.** TA3 PR-5 (`3b1c5ad2`) was rebased onto the old optimizer tip `4bfac2fa`; Phase 3 moved optimizer to `680b1fb8` (+4 commits). TA3 needs re-rebase onto `680b1fb8` (or onto `main`/`multi-analyzer-optimizer` once it lands). TA3 coder's plan (`TA-PR5-plan.md` §3) governs; trigger if needed.
 - The `engine-multi-analyzer` worktree's run-1 wrap-up is complete; worktree can be removed at Dean's discretion.
 - **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark — see § Benchmark below.
 
