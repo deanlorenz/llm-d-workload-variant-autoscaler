@@ -8,6 +8,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/engines/aggregation"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/interfaces"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/logging"
 )
@@ -219,13 +220,11 @@ func (a *ThroughputAnalyzer) Analyze(
 	defer a.mu.Unlock()
 
 	var (
-		totalSupply, totalDemand, totalAnticipated float64
-		anyEPP, anyGPSMismatch                     bool
-		totalDecodeITLSat                          float64
-		nDecodeVariants                            int
+		anyEPP, anyGPSMismatch bool
+		totalDecodeITLSat      float64
+		nDecodeVariants        int
 	)
 	variantCapacities := make([]interfaces.VariantCapacity, 0, len(byVariant))
-	isEPPByVariant := make(map[string]bool, len(byVariant))
 
 	for variantName, variantMetrics := range byVariant {
 		key := variantKey(input.Namespace, input.ModelID, variantName)
@@ -275,13 +274,6 @@ func (a *ThroughputAnalyzer) Analyze(
 		state.lastDemand = demand
 
 		pending := pendingByVariant[variantName]
-		totalSupply += supply
-		totalDemand += demand
-		// len(variantMetrics) intentionally includes replicas with KV=0 (still booting).
-		// Counting them in anticipated supply suppresses RC while a scale-out is in progress,
-		// consistent with saturation_v2. perReplicaSupply is the mean over replicas that
-		// already reported capacity; new replicas are assumed to reach the same level.
-		totalAnticipated += float64(len(variantMetrics)+pending) * perReplicaSupply
 		if isEPP {
 			anyEPP = true
 		}
@@ -308,7 +300,10 @@ func (a *ThroughputAnalyzer) Analyze(
 			state.consecutiveGPSMismatches = 0
 		}
 
-		isEPPByVariant[variantName] = isEPP
+		// len(variantMetrics) intentionally includes replicas with KV=0 (still booting).
+		// Counting them in anticipated supply suppresses RC while a scale-out is in progress,
+		// consistent with saturation_v2. perReplicaSupply is the mean over replicas that
+		// already reported capacity; new replicas are assumed to reach the same level.
 		variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
 			VariantName:        variantName,
 			Role:               state.role,
@@ -321,45 +316,42 @@ func (a *ThroughputAnalyzer) Analyze(
 		})
 	}
 
-	// Add scheduler queue demand to model-level total (non-prefill roles only).
-	// Queue demand is not attributed to a specific variant — it appears in TotalDemand
-	// and the model-level RC/SC signals but not in individual VariantCapacity entries.
+	// Model-level totals computed from the per-variant slice.
+	// TotalAnticipatedSupply is published so the engine's post-step can compute RC/SC.
+	totalSupply := aggregation.SumTotalSupply(variantCapacities)
+	totalAnticipatedSupply := aggregation.SumTotalAnticipatedSupply(variantCapacities)
+	totalDemand := aggregation.SumTotalDemand(variantCapacities)
+
+	// Scheduler queue demand is decode-rate-denominated and not variant-attributed.
+	// Add to model-level demand and distribute across active non-prefill roles so
+	// per-role TotalDemand satisfies the linearity invariant.
+	var queueDemandByRole map[string]float64
 	if nDecodeVariants > 0 {
 		avgDecodeITLSat := totalDecodeITLSat / float64(nDecodeVariants)
-		totalDemand += estimateQueueDemand(input.SchedulerQueue, avgDecodeITLSat, DefaultQueueDrainFactor)
+		queueDemand := estimateQueueDemand(input.SchedulerQueue, avgDecodeITLSat, DefaultQueueDrainFactor)
+		totalDemand += queueDemand
+		queueDemandByRole = distributeQueueDemandByRole(queueDemand, variantCapacities)
 	}
 
-	// Model-level RequiredCapacity and SpareCapacity from totals. Computing from
-	// totals prevents simultaneous RC and SC signals when variants are imbalanced.
-	//
-	// RequiredCapacity includes all roles. Prefill-role demand contribution is
-	// effectively zero after the OL guard in computeLocalDemand: the EPP and vLLM
-	// demand paths multiply by AvgOutputTokens (≈ 0 for prefill pods), and
-	// computeLocalDemand is gated on AvgOutputTokens > DefaultMinDecodeOLForLocalDemand.
-	// Per-role RC suppression is applied in RoleCapacities via aggregateRoleCapacities.
-	var requiredCapacity, spareCapacity float64
-	if totalDemand > totalAnticipated {
-		requiredCapacity = totalDemand - totalAnticipated
-	}
-	// Scale-down only when EPP is deployed and no GPS mismatch is active.
-	// A GPS mismatch means the ITL model may be wrong, making the supply estimate
-	// unreliable; failing toward keeping capacity is safer than scaling down.
-	if anyEPP && !anyGPSMismatch && totalSupply > totalDemand {
-		spareCapacity = totalSupply - totalDemand
-	}
+	// TA publishes raw Total* fields; RequiredCapacity and SpareCapacity are left
+	// zero — the engine's universal threshold post-step writes them after Analyze returns.
+	// The GPS/EPP gate that previously suppressed SpareCapacity is dropped here
+	// (see docs/developer-guide/throughput-analyzer.md Known Regression).
+	// anyEPP and anyGPSMismatch are retained for potential future use.
+	_ = anyEPP
+	_ = anyGPSMismatch
 
 	return &interfaces.AnalyzerResult{
-		AnalyzerName:      AnalyzerName,
-		ModelID:           input.ModelID,
-		Namespace:         input.Namespace,
-		AnalyzedAt:        now,
-		VariantCapacities: variantCapacities,
-		TotalSupply:       totalSupply,
-		TotalDemand:       totalDemand,
-		Utilization:       safeDivide(totalDemand, totalSupply),
-		RequiredCapacity:  requiredCapacity,
-		SpareCapacity:     spareCapacity,
-		RoleCapacities:    aggregateRoleCapacities(variantCapacities, isEPPByVariant),
+		AnalyzerName:           AnalyzerName,
+		ModelID:                input.ModelID,
+		Namespace:              input.Namespace,
+		AnalyzedAt:             now,
+		VariantCapacities:      variantCapacities,
+		TotalSupply:            totalSupply,
+		TotalAnticipatedSupply: totalAnticipatedSupply,
+		TotalDemand:            totalDemand,
+		Utilization:            safeDivide(totalDemand, totalSupply),
+		RoleCapacities:         aggregateRoleCapacities(variantCapacities, queueDemandByRole),
 	}, nil
 }
 
@@ -743,74 +735,53 @@ func checkVariantGPSMismatch(
 	return mismatch
 }
 
-// aggregateRoleCapacities groups variant capacities by P/D role and computes
-// per-role supply and demand signals. Returns nil when all variants have role ""
-// or "both" (non-disaggregated model).
-//
-// The TA currently uses the decode-rate framework (ITL(k) = A·k + B, supply = μ_sat,
-// demand = λ_dec) for all roles. A prefill-role variant fits its ITL model against its
-// own observed (k*, ITL) data — which represents TTFT on the prefill pod, not decode
-// ITL — and its supply measures decode-equivalent throughput. Because prefill pods are
-// never the decode-rate bottleneck, RequiredCapacity is suppressed for the prefill
-// role even if demand exceeds anticipated supply. SpareCapacity is still emitted when
-// EPP confirms excess capacity.
-//
-// Role-specific rate models (e.g. prefill-rate supply and prefill-rate demand based on
-// input token throughput) will be added in a later PR.
-func aggregateRoleCapacities(vcs []interfaces.VariantCapacity, isEPPByVariant map[string]bool) map[string]interfaces.RoleCapacity {
-	hasDisaggregation := false
-	for _, vc := range vcs {
-		if vc.Role != "" && vc.Role != interfaces.RoleBoth {
-			hasDisaggregation = true
-			break
-		}
-	}
-	if !hasDisaggregation {
+// distributeQueueDemandByRole splits queueDemand evenly across active non-prefill
+// roles derived from vcs. Queue demand is decode-rate-denominated so prefill roles
+// are excluded. Returns nil when queueDemand is zero or no non-prefill roles exist.
+func distributeQueueDemandByRole(queueDemand float64, vcs []interfaces.VariantCapacity) map[string]float64 {
+	if queueDemand == 0 {
 		return nil
 	}
-
-	type roleAccum struct {
-		supply      float64
-		anticipated float64
-		demand      float64
-		hasEPP      bool
-	}
-	accums := make(map[string]*roleAccum)
+	roles := make(map[string]struct{})
 	for _, vc := range vcs {
 		role := vc.Role
 		if role == "" {
 			role = interfaces.RoleBoth
 		}
-		ra, ok := accums[role]
-		if !ok {
-			ra = &roleAccum{}
-			accums[role] = ra
-		}
-		ra.supply += vc.TotalCapacity
-		ra.anticipated += float64(vc.ReplicaCount+vc.PendingReplicas) * vc.PerReplicaCapacity
-		ra.demand += vc.TotalDemand
-		if isEPPByVariant[vc.VariantName] {
-			ra.hasEPP = true
+		if role != "prefill" {
+			roles[role] = struct{}{}
 		}
 	}
+	if len(roles) == 0 {
+		return nil
+	}
+	share := queueDemand / float64(len(roles))
+	result := make(map[string]float64, len(roles))
+	for role := range roles {
+		result[role] = share
+	}
+	return result
+}
 
-	result := make(map[string]interfaces.RoleCapacity, len(accums))
-	for role, ra := range accums {
-		var required, spare float64
-		// RequiredCapacity is only meaningful for decode/both roles: prefill pods are
-		// never the decode-rate bottleneck so a scale-up signal would be incorrect.
-		if role != "prefill" && ra.demand > ra.anticipated {
-			required = ra.demand - ra.anticipated
-		}
-		if ra.hasEPP && ra.supply > ra.demand {
-			spare = ra.supply - ra.demand
-		}
+// aggregateRoleCapacities groups variant capacities by P/D role and computes
+// per-role raw Total* fields. queueDemandByRole adds queue demand to each role's
+// TotalDemand (nil is safe — treated as zero). Returns nil for non-disaggregated
+// models (all variants role "" or "both"). RequiredCapacity and SpareCapacity are
+// left zero — the engine's universal threshold post-step writes them.
+func aggregateRoleCapacities(vcs []interfaces.VariantCapacity, queueDemandByRole map[string]float64) map[string]interfaces.RoleCapacity {
+	byRole := aggregation.AggregateByRole(vcs)
+	// Non-disaggregated: only a "both" bucket (or nothing) — no per-role breakdown.
+	if _, hasBoth := byRole[interfaces.RoleBoth]; len(byRole) == 0 || (len(byRole) == 1 && hasBoth) {
+		return nil
+	}
+
+	result := make(map[string]interfaces.RoleCapacity, len(byRole))
+	for role, t := range byRole {
 		result[role] = interfaces.RoleCapacity{
-			Role:             role,
-			TotalSupply:      ra.supply,
-			TotalDemand:      ra.demand,
-			RequiredCapacity: required,
-			SpareCapacity:    spare,
+			Role:                   role,
+			TotalSupply:            t.TotalSupply,
+			TotalAnticipatedSupply: t.TotalAnticipatedSupply,
+			TotalDemand:            t.TotalDemand + queueDemandByRole[role],
 		}
 	}
 	return result
