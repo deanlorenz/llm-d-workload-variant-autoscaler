@@ -402,7 +402,6 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 	return result
 }
 
-// aggregateByRole groups variant capacities by P/D role and computes per-role
 // aggregateByRole groups variant capacities by role and returns per-role
 // Total* aggregates for the engine post-step to compute RC/SC from.
 // Returns nil when no disaggregation is active (all variants are role "both"
