@@ -2,7 +2,6 @@ package throughput
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sync"
 	"time"

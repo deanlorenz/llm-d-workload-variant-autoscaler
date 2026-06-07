@@ -1060,7 +1060,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536,
 				},
 			}
-			analyzer.Observe(ctx, modelID, namespace, shapeShiftMetrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, shapeShiftMetrics)
 
 			state, ok := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(ok).To(BeTrue())
@@ -1083,7 +1083,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
 				},
 			}
-			analyzer.Observe(ctx, modelID, namespace, shapeShiftMetrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, shapeShiftMetrics)
 
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID: modelID, Namespace: namespace, ReplicaMetrics: shapeShiftMetrics,
@@ -1107,7 +1107,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 					PrefixCacheHitRate: 0.0, TotalKvCapacityTokens: 65536, ArrivalRate: 5,
 				},
 			}
-			analyzer.Observe(ctx, modelID, namespace, metrics)
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, metrics)
 
 			_, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID: modelID, Namespace: namespace, ReplicaMetrics: metrics,
@@ -1429,7 +1429,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				AvgOutputTokens:       olS,
 				TotalKvCapacityTokens: kvMaxS,
 			}
-			analyzer.Observe(ctx, modelID, namespace, []interfaces.ReplicaMetrics{healthy, cold})
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, []interfaces.ReplicaMetrics{healthy, cold})
 
 			state, ok := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(ok).To(BeTrue())
