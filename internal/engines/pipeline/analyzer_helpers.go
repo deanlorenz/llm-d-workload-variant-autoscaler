@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"math"
+	"sort"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -206,23 +207,68 @@ func isDisaggregated(vcs []interfaces.VariantCapacity) bool {
 	return false
 }
 
-// initDisaggregatedRemaining re-initializes the working counters in s for
-// disaggregated (P/D) models before the paired allocation path:
-//   - Remaining ← prefill RC (P-scope)
-//   - RoleSpare[role] ← SpareCapacity for each role in RoleCapacities
-//   - Model-level Spare is left unchanged (unused for disaggregated)
+// initRoleState initialises picker-local role state for one model's allocation pass.
+// It unifies disaggregated and non-disaggregated models into one (model, role) view:
 //
-// Analyzers without RoleCapacities are left unchanged.
+//   - Disaggregated (RoleCapacities != nil): roles = sorted keys of RoleCapacities;
+//     per-role RC → pickerState[i][role]; per-role SC → s[i].RoleSpare[role].
+//   - Non-disaggregated (RoleCapacities == nil): one synthetic role "both" using
+//     the engine-calibrated model-level RC/SC (Result.RequiredCapacity / SpareCapacity).
+//     No re-aggregation — the engine already summed all variants into those scalars.
+//
+// Returns the list of active roles and the picker-local RolePairedState.
+// Remaining/Spare scalars on NamedAnalyzerResult are read-only after this call;
+// all dynamic bookkeeping moves to pickerState (scale-up) and RoleSpare (scale-down).
+func initRoleState(s []NamedAnalyzerResult) (roles []string, pickerState RolePairedState) {
+	pickerState = make(RolePairedState, len(s))
+	roleSet := make(map[string]struct{})
+
+	for i, e := range s {
+		pickerState[i] = make(map[string]float64)
+		if e.Result == nil {
+			continue
+		}
+		if e.Result.RoleCapacities != nil {
+			// Disaggregated: per-role RC/SC from engine-calibrated RoleCapacities.
+			if s[i].RoleSpare == nil {
+				s[i].RoleSpare = make(map[string]float64, len(e.Result.RoleCapacities))
+			}
+			for role, rc := range e.Result.RoleCapacities {
+				pickerState[i][role] = rc.RequiredCapacity
+				s[i].RoleSpare[role] = rc.SpareCapacity
+				roleSet[role] = struct{}{}
+			}
+		} else {
+			// Non-disaggregated: synthesize a single "both" role from model-level scalars.
+			pickerState[i][interfaces.RoleBoth] = e.Remaining
+			if s[i].RoleSpare == nil {
+				s[i].RoleSpare = make(map[string]float64, 1)
+			}
+			s[i].RoleSpare[interfaces.RoleBoth] = e.Spare
+			roleSet[interfaces.RoleBoth] = struct{}{}
+		}
+	}
+
+	roles = make([]string, 0, len(roleSet))
+	for role := range roleSet {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+	return
+}
+
+// initDisaggregatedRemaining is kept as a wrapper for call sites not yet
+// migrated to initRoleState. Preserves the pre-Phase-3 behaviour of setting
+// Remaining to the prefill RC (P-anchor). New code should call initRoleState.
 func initDisaggregatedRemaining(s []NamedAnalyzerResult) {
+	_, _ = initRoleState(s) // side-effect: populates RoleSpare
+	// Preserve P-anchor: set Remaining from prefill RC so needsScaleUp(s) works
+	// for callers that haven't moved to anyRoleNeedsScaleUp yet.
 	for i := range s {
 		if s[i].Result == nil || s[i].Result.RoleCapacities == nil {
 			continue
 		}
 		s[i].Remaining = s[i].Result.RoleCapacities["prefill"].RequiredCapacity
-		s[i].RoleSpare = make(map[string]float64, len(s[i].Result.RoleCapacities))
-		for role, rc := range s[i].Result.RoleCapacities {
-			s[i].RoleSpare[role] = rc.SpareCapacity
-		}
 	}
 }
 
@@ -243,19 +289,11 @@ func initDisaggregatedRemaining(s []NamedAnalyzerResult) {
 // stored on NamedAnalyzerResult (per design A10).
 type RolePairedState []map[string]float64
 
-// InitRolePairedState initializes picker-local per-role demand from the
-// engine-calibrated RoleCapacities[role].RequiredCapacity in each analyzer result.
+// InitRolePairedState is kept as a wrapper for call sites not yet migrated to
+// initRoleState. New code should call initRoleState directly.
 func InitRolePairedState(s []NamedAnalyzerResult) RolePairedState {
-	state := make(RolePairedState, len(s))
-	for i, e := range s {
-		state[i] = make(map[string]float64)
-		if e.Result != nil && e.Result.RoleCapacities != nil {
-			for role, rc := range e.Result.RoleCapacities {
-				state[i][role] = rc.RequiredCapacity
-			}
-		}
-	}
-	return state
+	_, ps := initRoleState(s)
+	return ps
 }
 
 // roleBottleneckReplicas computes the cross-analyzer bottleneck replica count
@@ -287,6 +325,20 @@ func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role strin
 		}
 	}
 	return max
+}
+
+// anyRoleNeedsScaleUp is the Phase-3 per-role scale-up gate used by the unified
+// dispatcher. It replaces both needsScaleUp (model-level) and needsScaleUpPaired.
+// Returns true when any role has aggregate remaining demand > 0.
+func anyRoleNeedsScaleUp(state RolePairedState, roles []string) bool {
+	for _, role := range roles {
+		for _, m := range state {
+			if m[role] > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // needsScaleUpPaired reports whether any role still has aggregate remaining demand > 0.

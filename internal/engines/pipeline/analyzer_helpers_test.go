@@ -339,6 +339,26 @@ var _ = Describe("paired helpers", func() {
 		})
 	})
 
+	Describe("initRoleState", func() {
+		It("disaggregated: roles from RoleCapacities; picker-state from RC; RoleSpare from SC", func() {
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 15000, 5000, 20000, 10000, 15000, 5000, "pf", 10000, "dc", 10000)}
+			roles, ps := initRoleState(s)
+			Expect(roles).To(ConsistOf("prefill", "decode"))
+			Expect(ps[0]["prefill"]).To(BeNumerically("~", 15000.0, 1e-9))
+			Expect(ps[0]["decode"]).To(BeNumerically("~", 5000.0, 1e-9))
+			Expect(s[0].RoleSpare["prefill"]).To(BeNumerically("~", 20000.0, 1e-9))
+			Expect(s[0].RoleSpare["decode"]).To(BeNumerically("~", 10000.0, 1e-9))
+		})
+
+		It("non-disaggregated: synthetic 'both' role using model-level Remaining/Spare", func() {
+			s := []NamedAnalyzerResult{makeNamed("sat", 20000, 5000, "v", 10.0)}
+			roles, ps := initRoleState(s)
+			Expect(roles).To(ConsistOf(interfaces.RoleBoth))
+			Expect(ps[0][interfaces.RoleBoth]).To(BeNumerically("~", 20000.0, 1e-9))
+			Expect(s[0].RoleSpare[interfaces.RoleBoth]).To(BeNumerically("~", 5000.0, 1e-9))
+		})
+	})
+
 	Describe("roleBottleneckReplicas", func() {
 		It("computes max cross-analyzer ceil(roleRemaining/PRC)", func() {
 			// analyzer0: prefill remaining=10000, PRC=5000 → ceil(10000/5000)=2
