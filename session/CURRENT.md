@@ -24,7 +24,7 @@
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
-| multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 6 commits on `main`@`eb327cc2`; docstring fixup committed locally — awaiting Dean's force-with-lease push, then ev-shindin re-review | `5c73ea5f` |
+| multi-analyzer-registration | #1225 | **PR #1225 OPEN**; 6 commits on `main`@`eb327cc2`; pushed (HEAD == origin); CI green (DCO/lint/build/smoke pass; e2e-full triggered, in progress); awaiting ev-shindin re-review | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits on `multi-analyzer-registration`@`66001d47`. Stacked on #1225 — diff includes both PRs' commits until #1225 merges and threshold rebases onto main | `b8b823b0` |
 | multi-analyzer-optimizer | — | Local only (post-rebase); 7 commits on `multi-analyzer-threshold@b8b823b0`. **Ready for push + PR creation** — awaiting Dean force-with-lease confirmation. SchedulerQueue wiring from engine-queue-fix absorbed. | `3fe287fe` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
@@ -33,7 +33,7 @@
 
 ## Blocked on
 
-- **PR #1225** — opened 2026-06-01. Stale-panic-docstring fixup committed locally as `5c73ea5f` (4 comment-only fixes after the panic→error-return change). **Awaiting Dean's `git push --force-with-lease origin multi-analyzer-registration` confirmation**, then CI re-runs and ev-shindin's final re-review. PR #1113 stays open until Dean closes it post-migration. See [`planning/multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md).
+- **PR #1225** — opened 2026-06-01. Stale-panic-docstring fixup committed and pushed as `5c73ea5f` (4 comment-only fixes after the panic→error-return change); HEAD == `origin/multi-analyzer-registration`. CI green (DCO/lint/build/smoke pass; e2e-full comment-triggered, in progress). Awaiting ev-shindin's re-review. PR #1113 stays open until Dean closes it post-migration. See [`planning/multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md).
 - **PR #1228** — opened 2026-06-02; awaiting CI + reviewer feedback. Stacked on #1225. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md).
 - **multi-analyzer-optimizer** — all 7 commits landed locally on `multi-analyzer-threshold@b8b823b0`. Cross-rebase complete; gates green; SchedulerQueue wiring absorbed from engine-queue-fix. **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer` and PR creation.** See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
