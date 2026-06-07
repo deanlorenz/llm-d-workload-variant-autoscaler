@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-07
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state. **Per the doc taxonomy, CURRENT.md holds operational state and short abstracts only — design and per-PR detail live in `planning/`.**
 
@@ -8,6 +8,8 @@
 
 ## Recent activity
 
+- **2026-06-07 — PR #1225 merged.** `multi-analyzer-registration` landed as `f664a470` on upstream/main. `origin/main` fast-forwarded to match. `multi-analyzer-threshold` (#1228) can now rebase onto main directly and get a clean diff. `multi-analyzer-optimizer` can target main once #1228 merges (or main directly if landing standalone).
+- **2026-06-07 — TA-PR5 plan verified** against current multi-analyzer docs. Two stale items fixed: `engine-queue-fix` absorbed into optimizer branch (`3fe287fe`); `NamedAnalyzerResult.SpareD` → `RoleSpare map[string]float64`. Plan ready for the TA3 coder once the multi-analyzer stack lands.
 - **2026-06-05 — Optimizer (Item 1) implementation complete.** 7 commits on `multi-analyzer-threshold@b8b823b0`; tip `3fe287fe`. Cross-rebase done. SchedulerQueue wiring absorbed from `engine-queue-fix` (single commit `01ed7d8d` folded into commit 7). All gates green. Ready for force-with-lease push and PR creation. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
 - **2026-06-04 — TA-PR5 plan rewritten** for the 3-PR multi-analyzer split. Contract reframed; PR-5 wiring shrinks to a 2-line `cmd/main.go` change + error handling for the new `RegisterAnalyzer(...) error` API. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
 - **2026-06-04 — Multi-analyzer doc taxonomy reorg.** Three per-PR plan docs (`multi-analyzer-{registration,threshold,optimizer}-plan.md`) + one cross-cutting design doc ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md)). The design doc holds mission, architecture, alternatives considered (incl. rejected combine-in-engine algorithm), and future direction. Per-PR plans are concrete implementation only.
@@ -24,8 +26,8 @@
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
-| multi-analyzer-registration | #1225 | **PR #1225 OPEN**; 6 commits on `main`@`eb327cc2`; pushed (HEAD == origin); CI green (DCO/lint/build/smoke pass; e2e-full triggered, in progress); awaiting ev-shindin re-review | `5c73ea5f` |
-| multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits on `multi-analyzer-registration`@`66001d47`. Stacked on #1225 — diff includes both PRs' commits until #1225 merges and threshold rebases onto main | `b8b823b0` |
+| multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
+| multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits; stacked on #1225 — **now rebases onto main directly**; diff will clean up to threshold-only changes after rebase | `b8b823b0` |
 | multi-analyzer-optimizer | — | Local only (post-rebase); 7 commits on `multi-analyzer-threshold@b8b823b0`. **Ready for push + PR creation** — awaiting Dean force-with-lease confirmation. SchedulerQueue wiring from engine-queue-fix absorbed. | `3fe287fe` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
@@ -33,17 +35,16 @@
 
 ## Blocked on
 
-- **PR #1225** — opened 2026-06-01. Stale-panic-docstring fixup committed and pushed as `5c73ea5f` (4 comment-only fixes after the panic→error-return change); HEAD == `origin/multi-analyzer-registration`. CI green (DCO/lint/build/smoke pass; e2e-full comment-triggered, in progress). Awaiting ev-shindin's re-review. PR #1113 stays open until Dean closes it post-migration. See [`planning/multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md).
-- **PR #1228** — opened 2026-06-02; awaiting CI + reviewer feedback. Stacked on #1225. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md).
+- **PR #1228** — opened 2026-06-02. #1225 merged; threshold branch can now rebase onto main to get a clean diff. Awaiting: (1) threshold coder rebases `multi-analyzer-threshold` onto `main`@`f664a470`, (2) CI re-runs on the rebased branch, (3) ev-shindin review. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md). PR #1113 stays open until Dean closes it post-coordination with ev-shindin.
 - **multi-analyzer-optimizer** — all 7 commits landed locally on `multi-analyzer-threshold@b8b823b0`. Cross-rebase complete; gates green; SchedulerQueue wiring absorbed from engine-queue-fix. **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer` and PR creation.** See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
 
 ## Next steps
 
-- **Now:** monitor PR #1225 / #1228 CI; respond to ev-shindin reviews when they land.
+- **Now:** threshold coder — rebase `multi-analyzer-threshold` onto `main`@`f664a470`; push; CI re-runs; await ev-shindin review on the clean diff.
 - **Optimizer push + PR.** Force-with-lease push `multi-analyzer-optimizer` to origin, then open PR (target `multi-analyzer-threshold` while #1228 is open, or `main` if landing standalone — see optimizer plan § Next steps). After push, close `engine-queue-fix` branch + remove its worktree (its commit was absorbed into the optimizer stack).
+- **TA3 coder** — rebase TA3 onto `main`@`f664a470`, then apply contract redesign per `TA-PR5-plan.md` §3 once #1228 + optimizer land. Plan is ready.
 - The `engine-multi-analyzer` worktree's run-1 wrap-up is complete; worktree can be removed at Dean's discretion.
-- **Other:** rebase TA3 onto upstream/main, then discuss TA3 PR-4+PR-5 before submitting.
 - **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark — see § Benchmark below.
 
 ---
@@ -76,7 +77,7 @@ Three branches, one mission. See [`planning/multi-analyzer-design.md`](../planni
 
 | Item | Branch / PR | Plan |
 |---|---|---|
-| Item 3 — Race-safe analyzer registry | `multi-analyzer-registration` / [#1225](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1225) | [`multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md) |
+| Item 3 — Race-safe analyzer registry | `multi-analyzer-registration` / [#1225](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1225) **MERGED** 2026-06-07 | [`multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md) |
 | Item 2 — Universal threshold post-step + aggregation helpers | `multi-analyzer-threshold` / [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228) | [`multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) |
 | Item 1 — Per-analyzer slice → optimizers (delete combine) | `multi-analyzer-optimizer` / not yet open | [`multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) (slim candidate at [`-draft`](../planning/multi-analyzer-optimizer-plan-draft.md)) |
 
@@ -92,7 +93,7 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 ## Issues to Open (post-merge)
 
-- **Engine SchedulerQueue wiring** — ✅ implemented on `engine-queue-fix` (`01ed7d8`); PR deferred until #1113/#1225 merges. Fix threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `collectV2ModelRequest` → `runAnalyzersAndScore` → `runV2AnalysisOnly` → `AnalyzerInput.SchedulerQueue`.
+- **Engine SchedulerQueue wiring** — ✅ absorbed into `multi-analyzer-optimizer` commit `3fe287fe`. Threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `modelData.schedulerQueue` → `runV2AnalysisOnly` / `runAnalyzers` → `AnalyzerInput.SchedulerQueue` for all registered analyzers. Lands when the optimizer PR merges.
 
 - **Bob review 1.3 — ArrivalRate staleness check in `computeDemand`** — defer ArrivalRate staleness detection (warn when `ArrivalRate` metric is stale/zero while queue is non-empty) to a later observability PR. Related to the Prometheus gauge work below.
 
