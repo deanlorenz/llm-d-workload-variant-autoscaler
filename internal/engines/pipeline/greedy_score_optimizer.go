@@ -20,7 +20,7 @@ import (
 //   - Respects ResourceConstraints (GPU budgets per accelerator type)
 //   - Fair-shares GPUs across models (highest-priority model gets GPUs first)
 //   - Disaggregated models use paired (n_P, n_D) allocation via the paired helpers
-//   - Scale-down reuses costAwareScaleDown / costAwareScaleDownPaired
+//   - Scale-down uses scaleDownRoleIterated (role-iterated unified path)
 type GreedyByScoreOptimizer struct{}
 
 // NewGreedyByScoreOptimizer creates a new GreedyByScoreOptimizer.
@@ -38,6 +38,8 @@ type modelWork struct {
 	req       ModelScalingRequest
 	s         []NamedAnalyzerResult      // working slice; Remaining/Spare decremented in place
 	satEntry  *interfaces.AnalyzerResult // variant metadata keeper (Cost, AcceleratorName, Role)
+	ps        RolePairedState            // picker-local per-role demand (from initRoleState)
+	roles     []string                   // active roles for this model
 	remaining float64                    // fair-share priority metric (negative = fully satisfied)
 	targets   map[string]int             // variant name → target replicas (ALL variants)
 }
@@ -85,14 +87,11 @@ func (o *GreedyByScoreOptimizer) Optimize(
 			continue
 		}
 
-		s := req.AnalyzerResults // engine guarantees a fresh slice per cycle
-		if req.Disaggregated {
-			initDisaggregatedRemaining(s)
-		}
-
-		fsv := fairShareValue(req.Priority, s)
-		if needsScaleUp(s) || fsv > 0 {
-			w := o.buildScaleUpWork(req, satEntry, s, fsv)
+		s := req.AnalyzerResults
+		roles, ps := initRoleState(s)
+		fsv := fairShareValue(req.Priority, s) // updated to role-sum in commit 3
+		if anyRoleNeedsScaleUp(ps, roles) || fsv > 0 {
+			w := o.buildScaleUpWork(req, satEntry, s, ps, roles, fsv)
 			if w != nil {
 				scaleUpWork = append(scaleUpWork, w)
 			}
@@ -125,15 +124,10 @@ func (o *GreedyByScoreOptimizer) Optimize(
 		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if req.Disaggregated {
-			s := req.AnalyzerResults
-			initDisaggregatedRemaining(s)
-			costAwareScaleDownRoleIterated(ctx, s, satEntry.VariantCapacities, targets, stateMap)
-		} else {
-			if needsScaleDown(req.AnalyzerResults) {
-				costAwareScaleDown(ctx, req.AnalyzerResults, satEntry.VariantCapacities, targets, stateMap)
-			}
-		}
+		// Unified scale-down path via scaleDownRoleIterated.
+		s := req.AnalyzerResults
+		_, _ = initRoleState(s) // populates RoleSpare for all roles
+		scaleDownRoleIterated(ctx, s, satEntry.VariantCapacities, targets, stateMap)
 
 		decisions := buildDecisionsWithOptimizer(req, stateMap, vcMap, targets, "greedy-by-score")
 		logger.V(logging.DEBUG).Info("Greedy-by-score optimizer decisions (other)",
@@ -146,7 +140,7 @@ func (o *GreedyByScoreOptimizer) Optimize(
 }
 
 // buildScaleUpWork creates a single work unit for a scale-up request.
-func (o *GreedyByScoreOptimizer) buildScaleUpWork(req ModelScalingRequest, satEntry *interfaces.AnalyzerResult, s []NamedAnalyzerResult, fsv float64) *modelWork {
+func (o *GreedyByScoreOptimizer) buildScaleUpWork(req ModelScalingRequest, satEntry *interfaces.AnalyzerResult, s []NamedAnalyzerResult, ps RolePairedState, roles []string, fsv float64) *modelWork {
 	if fsv <= 0 {
 		return nil
 	}
@@ -154,6 +148,8 @@ func (o *GreedyByScoreOptimizer) buildScaleUpWork(req ModelScalingRequest, satEn
 		req:       req,
 		s:         s,
 		satEntry:  satEntry,
+		ps:        ps,
+		roles:     roles,
 		remaining: fsv,
 		targets:   initTargets(req.VariantStates),
 	}
@@ -230,111 +226,62 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	stateMap := buildStateMap(w.req.VariantStates)
 	oldRemaining := w.remaining
 
-	if w.req.Disaggregated {
-		ps := InitRolePairedState(w.s)
-		pick := fairSharePickPaired(target, w.s)
-		allocateForModelPairedB2(ctx, w.s, w.satEntry.VariantCapacities, stateMap, available,
-			w.targets, pick, ps, []string{"prefill", "decode"})
-		// GPU budget already decremented inside allocateForModelPairedB2.
+	// Re-initialize picker-state from current s[i].Remaining each call so
+	// multi-iteration fair-sharing sees the correct post-allocation demand.
+	// Cap at target so the loop exits when the fair-share budget is exhausted.
+	_, ps := initRoleState(w.s)
+	for i := range ps {
+		for _, role := range w.roles {
+			if ps[i][role] > target {
+				ps[i][role] = target
+			}
+		}
+	}
+
+	// Unified path: fairShareRolePick behind the RolePickFn interface.
+	// α logic removed in commit 3.
+	pick := fairShareRolePick(target, w.s, w.roles)
+	allocateForModelPaired(ctx, w.s, w.satEntry.VariantCapacities, stateMap, available,
+		w.targets, pick, ps, w.roles)
+
+	// Recompute w.remaining after allocation.
+	// - "both" single-role (non-disag): s[i].Remaining (P-anchor) is reliable
+	//   since applyAllocation tracks it; fairShareValue reads it correctly.
+	// - P/D multi-role: use role-sum from ps (capped→decremented), which correctly
+	//   reaches 0 when both roles are satisfied in one step.
+	// Commit 3 unifies both cases via fairShareValue reading ps.
+	if len(w.roles) == 1 && w.roles[0] == interfaces.RoleBoth {
+		w.remaining = fairShareValue(w.req.Priority, w.s)
 	} else {
-		pick := fairSharePick(target)
-		o.allocateToVariants(ctx, w, target, w.satEntry.VariantCapacities, stateMap, available, pick)
+		sum := 0.0
+		for i, m := range ps {
+			if w.s[i].Result != nil {
+				for _, demand := range m {
+					sum += demand * w.s[i].Score
+				}
+			}
+		}
+		if sum > 0 {
+			w.remaining = w.req.Priority * sum
+			if w.remaining <= 0 {
+				w.remaining = sum
+			}
+		} else {
+			w.remaining = 0
+		}
 	}
-
-	// Recompute w.remaining from the slice state after allocation.
-	w.remaining = fairShareValue(w.req.Priority, w.s)
 	return w.remaining < oldRemaining
-}
-
-// allocateToVariants allocates replicas from the cheapest available variants,
-// capped by the fair-share pick function, GPU budget, and maxReplicas.
-// Stops when the per-iteration target budget is consumed or no more replicas
-// can be allocated. Updates the working slice via applyAllocation.
-func (o *GreedyByScoreOptimizer) allocateToVariants(
-	ctx context.Context,
-	w *modelWork,
-	target float64,
-	capacities []interfaces.VariantCapacity,
-	stateMap map[string]interfaces.VariantReplicaState,
-	available map[string]int,
-	pick PickVariantFn,
-) {
-	logger := ctrl.LoggerFrom(ctx)
-	consumed := 0.0
-	for needsScaleUp(w.s) && consumed < target {
-		v, capN := pick(w.s, capacities, stateMap, available, w.targets)
-		if v == "" {
-			break
-		}
-		// Also cap by remaining budget for this iteration.
-		prc := prcFromVCs(capacities, v)
-		if prc > 0 {
-			budgetCap := int(math.Ceil((target - consumed) / prc))
-			capN = min(capN, budgetCap)
-		}
-		n := min(bottleneckReplicas(w.s, v), capN)
-		if n <= 0 {
-			break
-		}
-		capacityAdded := float64(n) * prc
-		applyAllocation(w.s, v, n)
-		w.targets[v] += n
-		consumed += capacityAdded
-		available[accFromVCs(capacities, v)] -= n * gpusPerReplicaFromState(stateMap, v)
-		logger.V(logging.DEBUG).Info("scale-up: allocated replicas",
-			"model", w.req.ModelID, "variant", v, "replicas", n,
-			"budgetConsumed", consumed, "budgetTarget", target)
-	}
 }
 
 // allocateToVariantsPaired was the old α-based paired loop; retired in B2.
 // Greedy's disaggregated scale-up now delegates to allocateForModelPairedB2.
 
-// fairSharePick returns a PickVariantFn that caps allocation by the fair-share
-// target and GPU budget. Cheapest-first within eligible variants.
-func fairSharePick(target float64) PickVariantFn {
-	return func(
-		_ []NamedAnalyzerResult,
-		variants []interfaces.VariantCapacity,
-		stateMap map[string]interfaces.VariantReplicaState,
-		available map[string]int,
-		targets map[string]int,
-	) (string, int) {
-		for _, vc := range sortByCostEfficiencyAsc(variants) {
-			if vc.PerReplicaCapacity <= 0 {
-				continue
-			}
-			state := stateMap[vc.VariantName]
-			gpusPerReplica := state.GPUsPerReplica
-			if gpusPerReplica <= 0 {
-				gpusPerReplica = 1
-			}
-			gpusAvail := available[vc.AcceleratorName]
-			if gpusAvail < gpusPerReplica {
-				continue
-			}
-			fairShareCap := int(math.Ceil(target / vc.PerReplicaCapacity))
-			capN := min(fairShareCap, gpusAvail/gpusPerReplica)
-			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
-				headroom := *state.MaxReplicas - targets[vc.VariantName]
-				if headroom <= 0 {
-					continue
-				}
-				capN = min(capN, headroom)
-			}
-			if capN > 0 {
-				return vc.VariantName, capN
-			}
-		}
-		return "", 0
-	}
-}
-
-// fairSharePickPaired returns a PickPairFn for disaggregated models.
-// Caps each side by the fair-share target scaled by α (D:P demand ratio).
-// α is derived inline from RoleCapacities[*].TotalDemand (workload invariant).
-func fairSharePickPaired(target float64, s []NamedAnalyzerResult) PickPairFn {
-	// Derive α = D/P from the first analyzer that has both sides > 0.
+// fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired loop.
+// Routes the fair-share budget per role: "both" → full target; "prefill" → full
+// target; "decode" → α-scaled target. α derivation is removed in commit 3.
+func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) RolePickFn {
+	// Derive α for D-side cap (commit 3 will drop this and use the joint min-util
+	// commit to enforce the P/D coupling instead).
 	alpha := 1.0
 	for _, e := range s {
 		if e.Result == nil || e.Result.RoleCapacities == nil {
@@ -347,54 +294,47 @@ func fairSharePickPaired(target float64, s []NamedAnalyzerResult) PickPairFn {
 			break
 		}
 	}
+	_ = roles // roles available for future per-role scaling; currently uniform
 	return func(
+		role string,
 		_ []NamedAnalyzerResult,
 		variants []interfaces.VariantCapacity,
 		stateMap map[string]interfaces.VariantReplicaState,
 		available map[string]int,
 		targets map[string]int,
-	) (vP, vD string, capNP, capND int) {
-		var pVCs, dVCs []interfaces.VariantCapacity
-		for _, vc := range variants {
-			switch vc.Role {
-			case "prefill":
-				pVCs = append(pVCs, vc)
-			case "decode":
-				dVCs = append(dVCs, vc)
-			}
+	) (string, int) {
+		roleVCs := variantsForRole(variants, role)
+		scale := 1.0
+		if role == "decode" {
+			scale = alpha
 		}
-		pickSide := func(vcs []interfaces.VariantCapacity, scale float64) (string, int) {
-			for _, vc := range sortByCostEfficiencyAsc(vcs) {
-				if vc.PerReplicaCapacity <= 0 {
+		for _, vc := range sortByCostEfficiencyAsc(roleVCs) {
+			if vc.PerReplicaCapacity <= 0 {
+				continue
+			}
+			state := stateMap[vc.VariantName]
+			gpusPR := state.GPUsPerReplica
+			if gpusPR <= 0 {
+				gpusPR = 1
+			}
+			gpusAvail := available[vc.AcceleratorName]
+			if gpusAvail < gpusPR {
+				continue
+			}
+			fairShareCap := int(math.Ceil(target * scale / vc.PerReplicaCapacity))
+			capN := min(fairShareCap, gpusAvail/gpusPR)
+			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
+				headroom := *state.MaxReplicas - targets[vc.VariantName]
+				if headroom <= 0 {
 					continue
 				}
-				state := stateMap[vc.VariantName]
-				gpusPerReplica := state.GPUsPerReplica
-				if gpusPerReplica <= 0 {
-					gpusPerReplica = 1
-				}
-				gpusAvail := available[vc.AcceleratorName]
-				if gpusAvail < gpusPerReplica {
-					continue
-				}
-				fairShareCap := int(math.Ceil(target * scale / vc.PerReplicaCapacity))
-				capN := min(fairShareCap, gpusAvail/gpusPerReplica)
-				if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
-					headroom := *state.MaxReplicas - targets[vc.VariantName]
-					if headroom <= 0 {
-						continue
-					}
-					capN = min(capN, headroom)
-				}
-				if capN > 0 {
-					return vc.VariantName, capN
-				}
+				capN = min(capN, headroom)
 			}
-			return "", 0
+			if capN > 0 {
+				return vc.VariantName, capN
+			}
 		}
-		vP, capNP = pickSide(pVCs, 1.0)
-		vD, capND = pickSide(dVCs, alpha)
-		return
+		return "", 0
 	}
 }
 

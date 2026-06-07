@@ -257,21 +257,6 @@ func initRoleState(s []NamedAnalyzerResult) (roles []string, pickerState RolePai
 	return
 }
 
-// initDisaggregatedRemaining is kept as a wrapper for call sites not yet
-// migrated to initRoleState. Preserves the pre-Phase-3 behaviour of setting
-// Remaining to the prefill RC (P-anchor). New code should call initRoleState.
-func initDisaggregatedRemaining(s []NamedAnalyzerResult) {
-	_, _ = initRoleState(s) // side-effect: populates RoleSpare
-	// Preserve P-anchor: set Remaining from prefill RC so needsScaleUp(s) works
-	// for callers that haven't moved to anyRoleNeedsScaleUp yet.
-	for i := range s {
-		if s[i].Result == nil || s[i].Result.RoleCapacities == nil {
-			continue
-		}
-		s[i].Remaining = s[i].Result.RoleCapacities["prefill"].RequiredCapacity
-	}
-}
-
 // =============================================================================
 // B2 paired scale-up helpers (per-role independent sizing + joint-commit trim)
 // =============================================================================
@@ -433,9 +418,21 @@ func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 	return true
 }
 
-// PickPairFn is the optimizer-specific paired variant selector for disaggregated models.
-// It returns the chosen (vP, vD) variants and per-side replica caps (GPU budget +
-// maxReplicas headroom). Returning ("", "", 0, 0) signals no allocatable pair exists.
+// RolePickFn is the role-generic optimizer variant selector for the unified
+// allocateForModelPaired loop. Called once per role per iteration; returns the
+// chosen variant and its resource cap. Returning ("", 0) signals no variant
+// is available for this role.
+type RolePickFn func(
+	role string,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	available map[string]int,
+	targets map[string]int,
+) (variant string, capN int)
+
+// PickPairFn is kept for call sites not yet migrated to RolePickFn + allocateForModelPaired.
+// New code should use RolePickFn.
 type PickPairFn func(
 	s []NamedAnalyzerResult,
 	variants []interfaces.VariantCapacity,
@@ -443,6 +440,110 @@ type PickPairFn func(
 	available map[string]int,
 	targets map[string]int,
 ) (vP, vD string, capN_P, capN_D int)
+
+// allocateForModelPaired is the Phase-3 role-generic scale-up loop.
+// Handles any set of roles (including the arity-1 "both" single-role case).
+// Per iteration: pick one variant per role, size independently, compute
+// Δ_util = min_role util_role, trim to matched joint commit.
+// Arity-1 (roles = ["both"]) reduces to plain per-variant allocation.
+func allocateForModelPaired(
+	ctx context.Context,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	stateMap map[string]interfaces.VariantReplicaState,
+	available map[string]int,
+	targets map[string]int,
+	pick RolePickFn,
+	pickerState RolePairedState,
+	roles []string,
+) {
+	logger := ctrl.LoggerFrom(ctx)
+	for anyRoleNeedsScaleUp(pickerState, roles) {
+		variantByRole := make(map[string]string, len(roles))
+		capByRole := make(map[string]int, len(roles))
+		prcByRole := make(map[string]float64, len(roles))
+		allPicked := true
+		for _, role := range roles {
+			v, capN := pick(role, s, variants, stateMap, available, targets)
+			if v == "" {
+				allPicked = false
+				break
+			}
+			variantByRole[role] = v
+			capByRole[role] = capN
+			prcByRole[role] = prcFromVCs(variants, v)
+		}
+		if !allPicked {
+			break
+		}
+
+		nByRole := make(map[string]int, len(roles))
+		utilByRole := make(map[string]float64, len(roles))
+		for _, role := range roles {
+			prc := prcByRole[role]
+			n := min(roleBottleneckReplicas(s, pickerState, role, variantByRole[role]), capByRole[role])
+			nByRole[role] = n
+			demand := roleAggRemaining(s, pickerState, role)
+			if demand <= 0 {
+				utilByRole[role] = 1.0
+			} else {
+				utilByRole[role] = float64(n) * prc / demand
+			}
+		}
+
+		deltaUtil := math.MaxFloat64
+		for _, role := range roles {
+			if utilByRole[role] < deltaUtil {
+				deltaUtil = utilByRole[role]
+			}
+		}
+		if deltaUtil <= 0 {
+			break
+		}
+
+		kByRole := make(map[string]int, len(roles))
+		anyPositive := false
+		for _, role := range roles {
+			demand := roleAggRemaining(s, pickerState, role)
+			prc := prcByRole[role]
+			n := nByRole[role]
+			k := 0
+			if prc > 0 && demand > 0 {
+				k = max(int(math.Floor(deltaUtil*demand/prc)), min(1, n))
+			}
+			kByRole[role] = k
+			if k > 0 {
+				anyPositive = true
+			}
+		}
+		if !anyPositive {
+			break
+		}
+
+		for _, role := range roles {
+			v := variantByRole[role]
+			k := kByRole[role]
+			prc := prcByRole[role]
+			targets[v] += k
+			for i := range pickerState {
+				pickerState[i][role] = math.Max(0, pickerState[i][role]-float64(k)*prc)
+			}
+			if available != nil {
+				available[accFromVCs(variants, v)] -= k * gpusPerReplicaFromState(stateMap, v)
+			}
+		}
+		// Update model-level Remaining via the P-anchor role so fairShareValue
+		// reflects committed capacity. For "both" (non-disaggregated) use the
+		// single role; for P/D prefer "prefill".
+		for _, anchor := range []string{"prefill", interfaces.RoleBoth} {
+			if v, ok := variantByRole[anchor]; ok {
+				applyAllocation(s, v, kByRole[anchor])
+				break
+			}
+		}
+		logger.V(logging.DEBUG).Info("scale-up: joint role commit", "deltaUtil", deltaUtil)
+	}
+}
 
 // allocateForModelPairedB2 runs the B2 paired scale-up loop for one disaggregated
 // model. Per-role sizing is independent (same bottleneck primitive as non-disag,
