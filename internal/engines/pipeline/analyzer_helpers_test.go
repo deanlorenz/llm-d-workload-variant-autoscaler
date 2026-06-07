@@ -29,7 +29,6 @@ func makeNamed(name string, RC, SC float64, vcs ...any) NamedAnalyzerResult {
 			SpareCapacity:     SC,
 			VariantCapacities: caps,
 		},
-		Score:     1.0,
 		Remaining: RC,
 		Spare:     SC,
 	}
@@ -295,7 +294,6 @@ func makeNamedPD(name string, pRC, dRC, pSC, dSC float64, pDemand, dDemand float
 				"decode":  {Role: "decode", RequiredCapacity: dRC, SpareCapacity: dSC, TotalDemand: dDemand},
 			},
 		},
-		Score:     1.0,
 		Remaining: pRC, // P-scope after initDisaggregatedRemaining
 		RoleSpare: map[string]float64{"prefill": pSC, "decode": dSC},
 	}

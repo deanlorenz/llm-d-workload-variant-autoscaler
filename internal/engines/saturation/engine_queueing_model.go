@@ -74,6 +74,7 @@ func (e *Engine) optimizeQueueingModel(
 			AnalyzerResults: []pipeline.NamedAnalyzerResult{{
 				Name:      interfaces.SaturationAnalyzerName,
 				Result:    result,
+				Score:     1.0, // QM path: single analyzer, no per-entry score config
 				Remaining: result.RequiredCapacity,
 				Spare:     result.SpareCapacity,
 			}},

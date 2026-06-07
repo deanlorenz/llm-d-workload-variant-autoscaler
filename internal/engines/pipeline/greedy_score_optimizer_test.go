@@ -686,6 +686,80 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			// High-score model (100000) should get GPU preference over low-score (20000)
 			Expect(dm["high-v"].TargetReplicas).To(BeNumerically(">=", 2))
 		})
+
+		// T1.3: multi-model fair-share priority integration test.
+		// Verifies that fairShareValue = priority × Σ(Remaining × Score) correctly
+		// orders models. This test explicitly sets Score on AnalyzerResults, mirroring
+		// what the engine populates from config.Analyzers[].Score after the B1 fix.
+		// Without B1 (Score=0), fairShareValue falls back to max_i(Remaining) = RC,
+		// making both models equal — this test would then produce non-deterministic
+		// results and the strict equality assertions would fail intermittently.
+		It("T1.3: priority × Score weighting drives fair-share ordering", func() {
+			// Model A: RC=20000, Score=1.0, Priority=1.0 → fsv=20000
+			// Model B: RC=20000, Score=1.0, Priority=5.0 → fsv=100000
+			// With 4 A100 GPUs (2 replicas each, 2 GPUs/replica):
+			// B (fsv=100000) should always get served first.
+			// Strict assertions require Score to be populated; Score=0 fallback
+			// produces equal fsv and non-deterministic ordering.
+			rA := &interfaces.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "a-v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+			rB := &interfaces.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "b-v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				{
+					ModelID:   "model-A",
+					Namespace: "default",
+					Priority:  1.0,
+					AnalyzerResults: []NamedAnalyzerResult{{
+						Name:      interfaces.SaturationAnalyzerName,
+						Result:    rA,
+						Score:     1.0, // explicit: mirrors engine-populated value
+						Remaining: rA.RequiredCapacity,
+						Spare:     rA.SpareCapacity,
+					}},
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "a-v1", CurrentReplicas: 1, GPUsPerReplica: 2},
+					},
+				},
+				{
+					ModelID:   "model-B",
+					Namespace: "default",
+					Priority:  5.0,
+					AnalyzerResults: []NamedAnalyzerResult{{
+						Name:      interfaces.SaturationAnalyzerName,
+						Result:    rB,
+						Score:     1.0, // explicit: mirrors engine-populated value
+						Remaining: rB.RequiredCapacity,
+						Spare:     rB.SpareCapacity,
+					}},
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "b-v1", CurrentReplicas: 1, GPUsPerReplica: 2},
+					},
+				},
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{
+					"A100": {Limit: 4}, // 2 replicas worth
+				}},
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			// fsv(A) = 1.0 * 20000 * 1.0 = 20000; fsv(B) = 5.0 * 20000 * 1.0 = 100000
+			// B is most starved (highest fsv), gets both available replicas.
+			// A gets nothing (GPU budget exhausted by B).
+			Expect(dm["b-v1"].TargetReplicas).To(Equal(3)) // 1 + 2 (all GPUs)
+			Expect(dm["a-v1"].TargetReplicas).To(Equal(1)) // unchanged
+		})
 	})
 
 	Context("Demand-Proportional P/D Distribution", func() {

@@ -130,6 +130,7 @@ func (e *Engine) runAnalyzersAndScore(
 	namedResults := []pipeline.NamedAnalyzerResult{{
 		Name:      interfaces.SaturationAnalyzerName,
 		Result:    baseResult,
+		Score:     scoreForAnalyzer(interfaces.SaturationAnalyzerName, config),
 		Remaining: baseResult.RequiredCapacity,
 		Spare:     baseResult.SpareCapacity,
 	}}
@@ -146,12 +147,29 @@ func (e *Engine) runAnalyzersAndScore(
 		namedResults = append(namedResults, pipeline.NamedAnalyzerResult{
 			Name:      entry.name,
 			Result:    result,
+			Score:     scoreForAnalyzer(entry.name, config),
 			Remaining: result.RequiredCapacity,
 			Spare:     result.SpareCapacity,
 		})
 	}
 	// satResult used as the transitional model-level Result pointer until 1.6.
 	return namedResults, baseResult, nil
+}
+
+// scoreForAnalyzer returns the AnalyzerScoreConfig.Score for the named analyzer,
+// defaulting to 1.0 when the analyzer has no explicit entry in cfg.Analyzers.
+// This value is the per-analyzer weight used by GreedyByScoreOptimizer for
+// fair-share priority ordering across models.
+func scoreForAnalyzer(analyzerName string, cfg config.SaturationScalingConfig) float64 {
+	for _, aw := range cfg.Analyzers {
+		if aw.Name == analyzerName {
+			if aw.Score > 0 {
+				return aw.Score
+			}
+			return 1.0
+		}
+	}
+	return 1.0
 }
 
 func resolveThresholds(analyzerName string, cfg config.SaturationScalingConfig) (scaleUp, scaleDown float64) {

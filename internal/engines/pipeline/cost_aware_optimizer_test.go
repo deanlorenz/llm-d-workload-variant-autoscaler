@@ -17,7 +17,6 @@ func withSatEntry(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelSc
 		req.AnalyzerResults = []NamedAnalyzerResult{{
 			Name:      interfaces.SaturationAnalyzerName,
 			Result:    r,
-			Score:     1.0,
 			Remaining: r.RequiredCapacity,
 			Spare:     r.SpareCapacity,
 		}}
