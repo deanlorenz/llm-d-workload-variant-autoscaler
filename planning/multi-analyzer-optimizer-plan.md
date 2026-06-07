@@ -485,6 +485,218 @@ CONVENTIONS.
 
 ---
 
+## Phase 3: Unify disaggregated / non-disaggregated paths
+
+> **Status: PLANNED.** Collapses the two parallel optimizer code paths —
+> disaggregated and non-disaggregated — into one `(model, role)` path. This
+> also fixes a correctness bug in the current split: when only decode needs
+> scale-up (prefill RC = 0, decode RC > 0), the model-level scale-up gate reads
+> the prefill-anchored `Remaining = 0` and routes the model to scale-down
+> instead of allocating decode capacity. The unification removes the
+> P-anchored scalar entirely, so the gate is per-role and the bug cannot occur.
+> Lands as additional commits on `multi-analyzer-optimizer` before the PR opens.
+
+### Principle
+
+Every model decomposes into `(model, role)` units. Non-disaggregated = a
+single role `"both"`. Disaggregated = `{prefill, decode}`. One scale-up path,
+one scale-down path, no `if req.Disaggregated` at dispatch. Arity-1 (`{both}`)
+is the degenerate case of the general role-keyed logic:
+
+- joint scale-up with one role → `min` over one role = identity → plain allocation;
+- role-iterated scale-down with one role → plain scale-down.
+
+This is design [`multi-analyzer-design.md`](multi-analyzer-design.md)
+§ Architecture/D realised in code, and the arity-1 reduction of § F11.
+
+### Ownership — do NOT move summation
+
+- **Analyzer owns aggregation.** `saturation_v2/analyzer.go` sums per-variant
+  `Total*` into model-level (`aggregation.SumTotal*`) and per-role
+  (`aggregation.AggregateByRole`) totals. RC/SC left zero.
+- **Engine owns threshold.** `applyUniversalThreshold` reads the analyzer's
+  `Total*` at model scope and each `RoleCapacities[role]` scope and writes
+  RC/SC. Nothing else aggregates.
+- The optimizer **consumes** analyzer sums + engine thresholds. It must **not**
+  re-sum. The non-disaggregated single-role view (below) is an alias of the
+  model-level value, not a re-aggregation.
+
+### RC/SC scope
+
+RC/SC are per-scope, not per-variant. `VariantCapacity` carries
+`PerReplicaCapacity`, `TotalCapacity`, `TotalDemand`, `Utilization` (+ identity).
+RC/SC live on `RoleCapacities[role]` (disaggregated) and model-level
+`AnalyzerResult` (non-disaggregated). The model-level RC/SC for a **disaggregated**
+model is the legacy/meaningless additive-over-non-fungible-roles value (design
+F5) — not read by the unified optimizer.
+
+### `initRoleState` — unified role-state init
+
+One function replacing `initDisaggregatedRemaining` + `InitRolePairedState`. For
+each model's analyzer slice:
+
+- **Disaggregated** (`RoleCapacities != nil`): roles = keys of `RoleCapacities`;
+  per-role RC → picker-local role-remaining; per-role SC → `s[i].RoleSpare[role]`.
+- **Non-disaggregated** (`RoleCapacities == nil`): synthesize a single `"both"`
+  role from the model-level scalars — RC from `Result.RequiredCapacity`, SC from
+  `Result.SpareCapacity`. The engine's model-level value *is* the single-role
+  aggregate here (the analyzer summed all variants; `RoleCapacities` is nil
+  precisely because there's one role). No re-summation.
+
+Returns `roles []string` + the picker-local `RolePairedState` (per-(analyzer,
+role) remaining RC). Per-role SC populated on the existing `RoleSpare` field.
+
+### `Remaining` / `Spare` scalars — kept, read-only
+
+The model-level `Remaining`/`Spare` fields on `NamedAnalyzerResult` stay as the
+engine's read-only output. `initRoleState` reads them once to synthesize the
+`"both"` role for non-disaggregated models. The optimizer no longer mutates
+them for dynamic bookkeeping — all mutation moves to `RoleSpare` (scale-down)
+and picker-local `RolePairedState` (scale-up). **No engine change, no struct
+change** — the work is contained in the optimizer. (Making per-role canonical
+end-to-end and dropping these scalars is a future change — see
+[`multi-analyzer-design.md`](multi-analyzer-design.md) § Future direction F12.)
+
+### Dispatch (both optimizers, identical)
+
+```
+roles, pickerState := initRoleState(s)
+if anyRoleNeedsScaleUp(pickerState, roles):
+    allocateForModelPaired(...)        // joint over roles; arity-1 = plain
+else:
+    scaleDownRoleIterated(..., roles)  // per-role independent; arity-1 = plain
+```
+
+No `if req.Disaggregated`. `req.Disaggregated` (wired in N2) becomes
+informational — kept on the request for logging/metrics; the optimizer derives
+roles from `RoleCapacities`/synthesis, not the flag.
+
+### Scale-up — one role-generic joint allocator
+
+- `allocateForModelPairedB2` → renamed `allocateForModelPaired` (drop the
+  ticket-label suffix).
+- Inner loop generalised from hardcoded `"prefill"`/`"decode"` to a loop over
+  `roles`: per-role independent sizing (`roleBottleneckReplicas`), `util_role`
+  per role, `Δ_util = min_role util_role`, trim each role to the joint bound,
+  commit `(k_role)` per role. Arity-1: `min` over one role = identity → plain
+  per-role allocation.
+- 0-cases unchanged: `demand_role = 0 → util_role = 1` (drops from min);
+  `demand_role > 0, capacity = 0 → util_role = 0` (joint bound 0 until allocated).
+
+### Scale-down — one role-iterated path
+
+- `costAwareScaleDownRoleIterated` → `scaleDownRoleIterated`, the single
+  scale-down path. Its arity-1 (`roles = ["both"]`) case **is** the old
+  non-disaggregated `costAwareScaleDown`. Delete `costAwareScaleDown`.
+- Per-role: cheapest-cost-desc shed, per-role cheapest-at-1 protection,
+  `minReplicas` floor, `safeRemovalReplicasForRole` (cross-analyzer `min_i`),
+  `applyDeallocationForRole`. Unchanged from Phase 2 except it now also serves
+  the `"both"` single-role case.
+
+### Pickers — role-generic, optimizer-specific
+
+Picker becomes `pick(role) → (variant, capN)`:
+
+- **CostAware**: cheapest-cost-efficiency variant *in that role*, with
+  maxReplicas headroom as cap. Variant **choice** per role is independent
+  (role costs are additive — no cross term); the joint min-util commit bounds
+  the **count**. Replaces `costGreedyPickPaired` (which hardcoded P/D) and the
+  single-variant `costGreedyPick`.
+  - **Note — cost-optimality under integer rounding is OUT of scope:** the
+    cheapest-`cost/PRC` ranking is not always the cheapest *actual* allocation
+    when RC is small relative to PRC (a high-PRC variant overshoots and costs
+    more than a cheaper low-PRC one). This is **pre-existing** behaviour of the
+    cost optimizer, unchanged by Phase 3. Keep the existing cheapest-efficiency
+    picker exactly as-is — do not "improve" it here. (Tracked as a follow-up;
+    see § "Cost picker: integer-rounding suboptimality" below.)
+- **Greedy**: cheapest with GPU budget + per-role fair-share cap. **α is
+  removed** — today's `fairSharePickPaired` scales the decode side by
+  `α = D/P` (a pre-B2 workaround); the joint min-util commit is now the
+  coupling, so per-role fair-share caps + the min-util trim replace α entirely
+  (matches design "α stops appearing in serve-math"). Per-(model, role) fair
+  share, bounded by `min(util_role)`.
+
+### `fairShareValue` — sum role-remaining
+
+`fairShareValue(priority, s)` currently reads the model `Remaining` scalar.
+Change to sum picker-local role-remaining over roles:
+`priority × Σ_i Score_i × Σ_role roleRemaining[i][role]`. Arity-1 (`{both}`) is
+identical to today. Computed after `initRoleState` so the role-state is
+available.
+
+### Deletions — wrap → verify → inline → delete (do NOT bulk-delete)
+
+Each function being replaced is removed in four steps, with `make test` green
+at every step. Do **not** delete a function and rewrite its callers in one
+move — that is where behaviour gets silently dropped.
+
+1. **Wrap.** Write the new role-keyed function. Make the old function a thin
+   wrapper that calls the new one (for the arity-1 / `"both"` case, the new
+   function must reproduce the old behaviour exactly). Old call sites are
+   untouched.
+2. **Verify.** Run `make test`. All existing specs pass through the wrapper —
+   this proves the new function is behaviour-preserving before any caller moves.
+3. **Inline.** Update call sites one at a time to call the new function
+   directly instead of the wrapper. Run `make test` after each.
+4. **Delete.** Once a function has no remaining callers, delete it. Run
+   `make test` again to confirm nothing referenced it.
+
+Functions to retire this way:
+- `costAwareScaleUp` → folds into the role-generic joint scale-up (arity-1).
+- `costAwareScaleDown` → folds into `scaleDownRoleIterated` (arity-1).
+- Greedy `allocateToVariants` → folds into the role-generic joint scale-up.
+- `costGreedyPickPaired`, `fairSharePickPaired` α logic → role-generic pickers.
+- `initDisaggregatedRemaining`, `InitRolePairedState` → merged into `initRoleState`.
+- Single-variant helpers (`needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`,
+  `safeRemovalReplicas`, `applyAllocation`, `applyDeallocation`): keep as arity-1
+  wrappers if still convenient, or delete once unreferenced. Coder's call on the
+  cleanest shape — but follow the same four steps for each.
+
+### Tests
+
+- Collapse the parallel non-disaggregated specs onto the arity-1 role path
+  (they should pass unchanged through `roles = ["both"]`).
+- **Add the missing spec:** `RC_P = 0, RC_D > 0` → decode scales up, prefill
+  unchanged. This is the D-only case the old model-level gate silently routed
+  to scale-down; the test proves the per-role gate handles it.
+- Greedy: a disaggregated fair-share spec that asserts the min-util coupling
+  with α removed (P and D advance by matched util, not by a fixed α ratio).
+
+### Commit shape (Phase 3)
+
+Coder may reorganise; the review-ready history should land roughly as:
+
+1. `pipeline: initRoleState — unify role-state init`.
+2. `pipeline: role-generic joint scale-up + role-iterated scale-down; delete parallel non-disag paths`.
+3. `pipeline: greedy fair-share per-role + min-util coupling; drop α`.
+4. `pipeline: tests — D-only scale-up, arity-1 collapse, greedy min-util coupling`.
+
+### Cost picker: integer-rounding suboptimality (pre-existing — follow-up, NOT Phase 3)
+
+The cost picker sorts by `cost/PerReplicaCapacity` ascending and allocates
+`ceil(RC/PRC)` of the most-efficient variant. Under integer rounding this is
+not always the cheapest *actual* allocation. Worked example:
+
+- A: cost 10, PRC 10 → efficiency 1.0
+- B: cost 4, PRC 3 → efficiency 1.33
+- RC = 3
+
+Efficiency-greedy picks A (lower `cost/PRC`), allocates `ceil(3/10) = 1` → cost
+**10**. But B alone: `ceil(3/3) = 1` → capacity 3 ≥ RC, cost **4**. B is cheaper
+and sufficient; the picker mis-picks because `cost/PRC` measures cost-per-unit
+assuming the capacity is fully used, ignoring the overshoot when `RC < PRC`. The
+cheapest actual allocation ranks by `ceil(RC/PRC) × cost`, not `cost/PRC`.
+
+This is **pre-existing** (inherited from the legacy cost optimizer; the slice
+migration did not change the picker) and **orthogonal** to the unification. In
+production PRC is in tokens (large) and RC is large, so the marginal overshoot
+is usually small — but at the tail (small residual RC, last replica) it
+mis-picks. **Out of scope for Phase 3**; tracked as a follow-up issue (see
+CURRENT § Issues to Open). Phase 3 must not silently "improve" the picker —
+keep cheapest-efficiency, change only the role-generic plumbing.
+
+---
+
 ## References
 
 - [`multi-analyzer-design.md`](multi-analyzer-design.md) — cross-cutting design

@@ -691,6 +691,56 @@ Implementation-side: `RoleSpare map[string]float64` (and a future
 `RoleRemaining`, see A10) extend to arbitrary leg keys; the joint commit
 math generalizes by replacing `min(util_P, util_D)` with `min over legs`.
 
+### F12. Per-role RC/SC canonical end-to-end (drop the optimizer synthesis)
+
+The optimizer-PR Phase 3 unification (see
+[`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md)
+§ Phase 3) treats `(model, role)` as the single allocation unit, with
+non-disaggregated models flowing through a synthetic `"both"` role. Today
+that synthesis is **option (b)** — the optimizer aliases the analyzer's
+model-level RC/SC as the `"both"` role when `RoleCapacities == nil`,
+because the engine only populates `RoleCapacities` for disaggregated
+models.
+
+**Option (a), the canonical future form:** the engine (or analyzer) always
+populates `RoleCapacities`, including a `"both"` entry for non-disaggregated
+models. Then:
+
+- Per-role RC/SC is the single source of truth at every scope; the
+  optimizer reads `RoleCapacities` uniformly and the synthesis branch
+  disappears.
+- The model-level `AnalyzerResult.RequiredCapacity` / `SpareCapacity`
+  scalars can be **dropped** (or redefined) — they are currently the
+  real value for non-disaggregated models and the meaningless
+  additive-over-non-fungible-roles value for disaggregated models (F5).
+  Making per-role canonical resolves F5 and the scalar's dual meaning in
+  one move.
+- `NamedAnalyzerResult.Remaining` / `Spare` scalars (kept read-only in
+  Phase 3) also drop, since all working state is role-keyed.
+
+Deferred because it ripples into #1228's analyzer→engine contract and the
+TA analyzer (TA would need to emit a `"both"` `RoleCapacity`). Option (b)
+keeps the change contained to the optimizer while the upstream PRs are
+open. Open this after the optimizer PR merges, coordinated with the F5
+cleanup.
+
+### F13. Cost picker — integer-rounding suboptimality
+
+`CostAwareOptimizer` ranks variants by `cost / PerReplicaCapacity` and
+allocates `ceil(RC / PRC)` of the most-efficient variant. Under integer
+rounding this is not always the cheapest *actual* allocation: when
+`RC < PRC`, a high-PRC variant overshoots and can cost more than a cheaper
+low-PRC variant that still covers RC. Example: A(cost 10, PRC 10,
+efficiency 1.0), B(cost 4, PRC 3, efficiency 1.33), RC=3 → efficiency-greedy
+picks A (cost 10) but B alone covers RC at cost 4. The cheapest actual
+allocation ranks by `ceil(RC/PRC) × cost`, not `cost/PRC`.
+
+Pre-existing behaviour inherited from the legacy cost optimizer; unchanged
+by the multi-analyzer slice migration or the Phase 3 unification. Low
+practical impact (production PRC ≫ RC residuals), surfaces at the tail.
+Follow-up: rank by actual rounded allocation cost, or add a final-replica
+swap pass. Tracked in CURRENT § Issues to Open.
+
 ---
 
 ## References
