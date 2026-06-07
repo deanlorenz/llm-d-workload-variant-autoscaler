@@ -306,7 +306,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
@@ -321,7 +324,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as SC>0.
+			Expect(result.TotalSupply).To(BeNumerically(">", result.TotalDemand))
+			Expect(result.SpareCapacity).To(Equal(0.0))
 			Expect(result.RequiredCapacity).To(Equal(0.0))
 		})
 
@@ -410,7 +416,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 		})
 	})
 
@@ -599,7 +608,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 		})
 	})
 
@@ -684,7 +696,12 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			decodeRC := result.RoleCapacities["decode"]
 			prefillRC := result.RoleCapacities["prefill"]
 
-			Expect(decodeRC.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as decode RC>0.
+			Expect(decodeRC.TotalDemand).To(BeNumerically(">", decodeRC.TotalAnticipatedSupply))
+			Expect(decodeRC.RequiredCapacity).To(Equal(0.0))
+			// Prefill role: TA no longer suppresses RC in role capacities — it leaves
+			// RequiredCapacity zero for all roles. Engine post-step handles per-role RC.
 			Expect(prefillRC.RequiredCapacity).To(Equal(0.0))
 		})
 
@@ -757,7 +774,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ModelID: modelID, Namespace: namespace, ReplicaMetrics: replicas,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 			// No EPP → SpareCapacity must be zero regardless.
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
@@ -840,7 +860,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			}
 			result, err := analyzer.Analyze(ctx, withQueue)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 		})
 
 		It("emits no RequiredCapacity when SchedulerQueue is nil", func() {
@@ -892,9 +915,13 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			// Model-level: totalDemand=3200 < totalAnticipated≈5564 → no scale-up needed.
+			// TA leaves RC/SC zero. Assert the raw inequality: TotalDemand ≤ TotalAnticipatedSupply.
+			Expect(result.TotalDemand).To(BeNumerically("<=", result.TotalAnticipatedSupply))
 			Expect(result.RequiredCapacity).To(Equal(0.0))
-			// EPP deployed (ArrivalRate>0) and totalSupply >> totalDemand → scale-down.
-			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+			// EPP deployed (ArrivalRate>0) and totalSupply >> totalDemand → engine posts SC>0.
+			// TA leaves SC zero; assert the raw inequality the engine interprets as SC>0.
+			Expect(result.TotalSupply).To(BeNumerically(">", result.TotalDemand))
+			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
 		It("emits only RequiredCapacity (not SpareCapacity) when both variants are overloaded", func() {
@@ -915,7 +942,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ModelID: modelID, Namespace: namespace, ReplicaMetrics: replicas,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC/SC zero; engine post-step computes them. Assert the raw
+			// supply/demand inequality that the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 	})
@@ -1177,7 +1207,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 2, gps)},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+			// GPS gate is dropped — TA always leaves SC=0; engine post-step computes it.
+			// Assert the raw inequality the engine interprets as SC>0.
+			Expect(result.TotalSupply).To(BeNumerically(">", result.TotalDemand))
+			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
 		It("suppresses SpareCapacity when GPS deviates > 15% at k* ≥ DefaultGPSMinKForVerification", func() {
@@ -1203,7 +1236,10 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(0.20, 2, gps)},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+			// GPS gate is dropped — TA always leaves SC=0; engine post-step computes it.
+			// Assert the raw inequality the engine interprets as SC>0.
+			Expect(result.TotalSupply).To(BeNumerically(">", result.TotalDemand))
+			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
 		It("does not suppress SpareCapacity when GenerationTokenRate is zero (metric absent)", func() {
@@ -1215,13 +1251,16 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ReplicaMetrics: []interfaces.ReplicaMetrics{replicaG(kStar, 2, 0)},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.SpareCapacity).To(BeNumerically(">", 0))
+			// GPS gate is dropped — TA always leaves SC=0; engine post-step computes it.
+			// Assert the raw inequality the engine interprets as SC>0.
+			Expect(result.TotalSupply).To(BeNumerically(">", result.TotalDemand))
+			Expect(result.SpareCapacity).To(Equal(0.0))
 		})
 
 		It("preserves RequiredCapacity when GPS mismatch suppresses SpareCapacity", func() {
 			buildWindowG()
 			// High ArrivalRate drives demand > supply (RC > 0).
-			// GPS mismatch suppresses SC but must not zero out RC.
+			// GPS gate is dropped — TA always leaves SC=0; SC=0 is now unconditional.
 			gps := muDecG(kStar) * 0.1
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID:        modelID,
@@ -1230,7 +1269,9 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.SpareCapacity).To(Equal(0.0))
-			Expect(result.RequiredCapacity).To(BeNumerically(">", 0))
+			// TA leaves RC zero; assert the raw inequality the engine interprets as RC>0.
+			Expect(result.TotalDemand).To(BeNumerically(">", result.TotalAnticipatedSupply))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
 		})
 	})
 
