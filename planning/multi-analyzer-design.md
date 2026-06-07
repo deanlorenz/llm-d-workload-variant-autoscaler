@@ -35,45 +35,60 @@ extensible without engine package changes.
 ### Data flow per optimize cycle
 
 ```
-                                     ┌─────────────────────────────────────────┐
-                                     │ Engine runs saturation V2 (always)      │
-                                     │   → AnalyzerResult: VariantCapacities,  │
-                                     │     RoleCapacities, Total*              │
-                                     └────────────────┬────────────────────────┘
-                                                      │
-                                                      ▼
-                                     ┌─────────────────────────────────────────┐
-                                     │ For each registered non-saturation      │
-                                     │ analyzer (registration order):          │
-                                     │   • Build AnalyzerInput from common     │
-                                     │     fields (replica metrics, variant    │
-                                     │     states, scheduler queue, …)         │
-                                     │   • Call Analyze(ctx, input)            │
-                                     │   • Recover errors / panics per call    │
-                                     └────────────────┬────────────────────────┘
-                                                      │
-                                                      ▼
-                                     ┌─────────────────────────────────────────┐
-                                     │ Engine post-step (universal threshold)  │
-                                     │ For each analyzer, at every scope       │
-                                     │ (model + each role):                    │
-                                     │   RC = max(0, TD/scaleUp − Anticipated) │
-                                     │   SC = max(0, TS  − TD/scaleDown)       │
-                                     └────────────────┬────────────────────────┘
-                                                      │
-                                                      ▼
-                                     ┌─────────────────────────────────────────┐
-                                     │ Optimizer reads []NamedAnalyzerResult   │
-                                     │   • Per-analyzer slice w/ working state │
-                                     │   • Helpers: needsScaleUp, bottleneck-  │
-                                     │     Replicas, applyAllocation, …        │
-                                     │   • Picker: cost-greedy or fair-share   │
-                                     │   • Disaggregated: paired scale-up +    │
-                                     │     role-iterated scale-down            │
-                                     └────────────────┬────────────────────────┘
-                                                      │
-                                                      ▼
-                                                 VariantDecisions
+┌──────────────────────────────────────────────────────────┐
+│ Config (SaturationScalingConfig per model/namespace)     │
+│   Priority, Analyzers[]:                                 │
+│     name, Score, ScaleUpThreshold, ScaleDownBoundary, …  │
+└──────────────────────────┬───────────────────────────────┘
+                           │ engine reads per cycle
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ Engine: per-model preparation                            │
+│   • BuildVariantStates (incl. GPUsPerReplica per         │
+│     variant; from ScaleTarget / VA labels)               │
+│   • CollectSchedulerQueueMetrics (shared across          │
+│     analyzers)                                           │
+│   • resolveThresholds(name, cfg) per analyzer            │
+│     (per-analyzer override over model-level globals)     │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ Engine: run analyzers and build per-analyzer slice       │
+│ For saturation V2 (always), then each registered         │
+│ non-saturation analyzer in registration order:           │
+│   • Analyze(ctx, input)                                  │
+│   • applyUniversalThreshold(result, scaleUp, scaleDown)  │
+│     → RC/SC at model + each role scope                   │
+│   • Append NamedAnalyzerResult{                          │
+│       Name, Result,                                      │
+│       Score     ← config.Analyzers[name].Score,          │
+│       Remaining ← RC,  Spare ← SC,                       │
+│     } to []NamedAnalyzerResult                           │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ Engine: build ModelScalingRequest                        │
+│   AnalyzerResults  ← per-analyzer slice                  │
+│   VariantStates    ← prepared above                      │
+│   Priority         ← config.Priority                     │
+│   Disaggregated    ← any variant has a non-"both" Role   │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ Optimizer reads ModelScalingRequest                      │
+│   • Per-analyzer slice w/ working state                  │
+│   • Helpers: needsScaleUp, bottleneckReplicas,           │
+│     applyAllocation, …                                   │
+│   • Picker: cost-greedy or fair-share                    │
+│   • Disaggregated: paired scale-up +                     │
+│     role-iterated scale-down                             │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+                           ▼
+                       VariantDecisions
 ```
 
 ### Key concepts
@@ -146,30 +161,92 @@ applies to model-level RC/SC and every `RoleCapacity` entry for that analyzer.
 
 ### D. Roles and disaggregation
 
-A variant carries at most one role; the variant's underlying `scaleObject`
-(deployment, etc.) is "painted" with that role. Roles partition variants cleanly.
-Per current design assumption: **a model is either fully disaggregated (P+D both
-present, no other variants) or non-disaggregated (no role-tagged variants)** —
-not mixed.
+A variant carries at most one role; the variant's underlying `scaleObject` is
+"painted" with that role. Roles partition variants cleanly. Per current design
+assumption: a model is either fully disaggregated (P+D both present, no other
+variants) or non-disaggregated (no role-tagged variants) — not mixed.
 
-**Demand coupling for P/D.** The same model demand `d` mapped to multiple roles
-is *not* like the same demand mapped to multiple non-role variants. Roles are
-linked: P(d) and D(d) both derive from the same underlying traffic; satisfying
-one is partial progress on `d`, but `d` is fully served only when both are.
-Each analyzer has its own α: sat_v2 (kv-tokens) typically has α ≪ 1; TA (RPS,
-1:1 per request) has α = 1.
+**(model, role) is the unit of allocation math.** Each (model, role) carries
+its own per-analyzer Demand (`r.RoleCapacities[role].TotalDemand`) and
+Capacity (`r.RoleCapacities[role].TotalSupply`). Adding `n` replicas of a
+variant `v` (where `v.Role = role`) reduces analyzer-i's (model, role) demand
+by exactly `n × PRC_i[v]` — the same primitive as non-disaggregated
+allocation, scoped to one role. The set of (model, role) pairs across all
+models behaves like a set of independent "mini-models" for purposes of
+per-role allocation math.
 
-**Scale-up: paired allocation.** Allocate `(n_P, n_D)` together, sized so that
-both sides serve the same `p_step` worth of demand: `n_P = ceil(p_step / PRC_P[vP])`,
-`n_D = ceil(α × p_step / PRC_D[vD])`. Per-analyzer Remaining (in P-units)
-decreases by `served_i = min(n_P × PRC_i[vP], n_D × PRC_i[vD] / α_i)`.
+**Coupling lives only at request-level satisfaction.** The same user request
+drives demand on every role of the model, so the model's served portion is
+bounded by the role with the lowest util:
 
-**Scale-down: role-iterated.** Scale-down does NOT pair. P and D are independent
-at scale-down — analogous to how separate models are independent at scale-down.
-Removing prefill replicas only affects P-side supply (D unchanged) and vice versa;
-the underlying model demand `d` is unaffected. The optimizer iterates roles
-independently, sheds within each role respecting that role's `SpareCapacity` and
-`minReplicas` floor.
+    util(model, role) = served^role / Demand^role
+    util(model)       = min_role util(model, role)
+
+The model is fully served when `util(model) = 1`. Allocation is committed
+jointly: a candidate (n_P, n_D) is sized per-role independently, then the
+larger-util role is trimmed so both roles advance by the same util delta —
+the matched-pair commitment respects the bottleneck. Excess on the
+over-allocated role is not committed; its capacity remains available for the
+picker's next iteration, including for other models with demand on that role.
+
+**Same calculus as cross-analyzer aggregation.** The optimizer already
+aggregates along the analyzer axis using bottleneck operations:
+`bottleneckReplicas(s, v) = max_i ceil(Remaining_i / PRC_i[v])` for scale-up
+sizing, `safeRemovalReplicas(s, v) = min_i floor(Spare_i / PRC_i[v])` for
+scale-down, plus slice predicates `any-up` (∃ analyzer needing scale-up) and
+`all-down` (∀ analyzers have spare). The role axis is the same shape:
+`min_role util(model, role)` is to roles what `min_i ... (across analyzers)`
+is to analyzers. Working state can be viewed as an (analyzer × role) grid;
+allocation math aggregates along each axis with the same bottleneck-style
+operations — `max` along the analyzer axis at sizing time (need to satisfy
+the most-demanding analyzer), `min` along the role axis at commit time
+(joint-pair constraint). Both generalize to higher arities — more analyzers,
+more roles, future joint-allocation legs — without introducing new operators.
+
+**0-cases.** If `Demand_role = 0`, that role drops from the min (no
+constraint, util = 1 by convention). If `Capacity_role = 0` and
+`Demand_role > 0`, then `util_role = 0` and the joint bound is 0 until some
+allocation lands in that role. Cold-start (both capacities zero, both demands
+positive) reduces to the same continuous case — the min pulls allocation
+toward whichever role is currently lagging.
+
+**Picker layering.** The picker is two-level. (1) Per variant, compute the
+fair-share / cost-greedy allocation against that variant's (model, role)
+bucket — same competition rules as non-disaggregated. (model, P) variants
+compete with other (?, P) variants on the P demand axis; (model, D) variants
+compete on the D axis. Within a model, (model, P) and (model, D) never
+compete — they're complementary, not substitutes. (2) For models with role
+tuples, take the matched-pair min across the per-role allocations and trim
+the over-allocated role to match — joint commit, atomic.
+
+**α relocates from serve-math to picker-sizing.** α (per-analyzer P:D demand
+ratio from `RoleCapacities`) is used by the picker to *size* a candidate
+joint allocation when demand on one role is known. α does not appear in the
+served-amount math — that math is per-(model, role) in each role's own
+units, and the joint min folds the cross-role coupling at commit time
+without appealing to α.
+
+**Scale-down: role-iterated, unchanged.** Scale-down does NOT pair. P and D
+are independent at scale-down — removing prefill replicas only affects
+P-side supply (D unchanged) and vice versa. The optimizer iterates roles
+independently, sheds within each role respecting that role's `SpareCapacity`
+and `minReplicas` floor.
+
+**Generalization.** Joint allocation across a role tuple is one instance of
+"cross-variant dependency required to satisfy demand." See Future direction
+F11 for the roadmap (>2 roles, mixed role/non-role within a model,
+multi-model joint demand, multi-location replication). Today's
+implementation handles 2-role P/D only; the architecture treats this as the
+simplest case of a more general primitive.
+
+**Implementation note: keeping signatures stable.** `NamedAnalyzerResult`
+carries scalar `Remaining` (P-anchored in disag mode today) plus
+`RoleSpare map[string]float64`. The (model, role) per-role demand
+bookkeeping the math above requires can be tracked locally inside the
+picker for the duration of one model's allocation pass — no new field on
+`NamedAnalyzerResult`. The model-level `Remaining` continues to track joint
+progress in P-units; per-role local tracking exists only inside the picker.
+Promoting to a `RoleRemaining` field is a future option (see A10).
 
 ### E. SchedulerQueue handling
 
@@ -207,6 +284,45 @@ gates (`needsScaleUp` / `needsScaleDown`), sizing (`bottleneckReplicas` /
 `safeRemovalReplicas`), and mutation (`applyAllocation` / `applyDeallocation`).
 Pickers are optimizer-specific (`costGreedyPick` for CostAware,
 `fairSharePick` for Greedy).
+
+### H. Engine as configuration and parameter broker
+
+The engine is responsible for populating all configuration and general
+parameters that analyzers and optimizers consume. This includes:
+
+- **Scores** — per-analyzer fair-share weights from
+  `AnalyzerScoreConfig.Score`, written into `NamedAnalyzerResult.Score`
+  for the optimizer's fair-share ordering.
+- **Thresholds** — `ScaleUpThreshold` / `ScaleDownBoundary`, resolved
+  per analyzer and applied via `applyUniversalThreshold` (engine
+  post-step).
+- **Disaggregation flag** — set on `ModelScalingRequest.Disaggregated`;
+  today optimizers re-derive from `VariantCapacity.Role` (duplication,
+  not yet rationalized).
+- **GPU capacities** — `BuildVariantStates` populates `GPUsPerReplica`
+  per variant; `computeCurrentGPUUsage` aggregates for the limiter.
+- **Per-model priority** — `ModelScalingRequest.Priority` from
+  `SaturationScalingConfig.Priority`.
+
+**The engine bridges producer (config loader) and consumer (analyzer /
+optimizer).** A regression where the producer publishes the value and
+the consumer reads the field but the engine fails to plumb is silent —
+config defaults stay correct, analyzer/optimizer code runs without
+error, only behavior degrades. Tests that exercise producer + consumer
+in isolation do not catch the engine-level gap; end-to-end assertions
+that "what the engine populates matches what the config says" are the
+only reliable backstop. The "Score field silently dropped during
+cross-rebase" incident on `multi-analyzer-optimizer` is the load-bearing
+example — see the optimizer review (B1).
+
+**Sat_v2 collects some of this metadata today (legacy).** Per-variant
+`Cost`, `AcceleratorName`, and `Role` flow through the saturation
+analyzer's output as a transitional arrangement — this is why
+saturation is always the first entry in the slice and is always run,
+even when `enabled: false` for optimization purposes. Future direction
+F1 (pre-analysis extraction) moves this metadata collection out of the
+analyzer and into the engine proper, eliminating the saturation-first
+ordering requirement.
 
 ---
 
@@ -368,6 +484,21 @@ even though the engine handles all analyzers. Rename for clarity.
 **Why deferred:** mechanical-but-disruptive (every import changes). Not in scope
 for any of the three multi-analyzer PRs. Tracked as a future cleanup.
 
+### A10. Per-role `RoleRemaining` field on `NamedAnalyzerResult`
+
+**Considered:** add `RoleRemaining map[string]float64` symmetric to
+`RoleSpare`, so per-(model, role) demand bookkeeping is first-class on the
+slice entry rather than ephemeral picker state.
+
+**Rejected for now.** The per-role demand math from § D can be performed
+with picker-local state for the duration of one model's allocation pass
+without changing the slice contract. Keeping `NamedAnalyzerResult` stable
+avoids a wider downstream impact (engine populates it, optimizer consumes
+it, helpers walk it). Future PR can promote to a field if it becomes
+load-bearing for observability metrics, helper reuse, or multi-arity
+joint-allocation generalization (F11). The trade-off is local complexity
+inside the paired picker vs. structural complexity on the contract.
+
 ---
 
 ## Future direction
@@ -391,7 +522,7 @@ non-linear couplings (where `D` is not strictly proportional to `P`).
 
 For analyzers with non-universal calibration math (e.g., a future ITL-based
 analyzer that computes RC/SC itself), an `AnalyzerResult.ThresholdApplied bool`
-opt-out flag would let the engine post-step skip its calibration for that
+opt-out flag would let the engine post-step skip itssha calibration for that
 analyzer. Captured in PR1113-review.md Appendix B; deferred from PR #1228 scope.
 
 ### F4. Per-analyzer observability metrics
@@ -403,6 +534,15 @@ labeled by `analyzer_name`. Suggested names:
 `wva_analyzer_spare_capacity{...}`, `wva_analyzer_utilization{...}`. Generalizes
 the saturation-only PR #933 gauges. Coordinate with the freshness-gauge pattern
 from PR #1190 (`wva_saturation_metrics_up`).
+
+Adjacent: today's `enrichDecisionsWithKvTokenData` (engine.go) attaches
+KV-cache token usage to `VariantDecision` post-optimizer — a sat_v2-specific
+observability hook that runs only on the V2 path (not on QM, not on V1). Each
+analyzer surfaces different relevant computed metrics (KV tokens for sat_v2;
+ITL coefficients for TA; queue depth / arrival rate for QM). The
+generalization of F4 is to move per-analyzer "decision enrichment" into a
+per-analyzer hook (or onto `NamedAnalyzerResult` itself) so any analyzer can
+publish its own observability fields without engine-side special casing.
 
 ### F5. Engine model-level RC/SC for disaggregated models — known bug
 
@@ -444,6 +584,112 @@ states will emit SC where today they don't. Two restoration paths:
 (a) `AnalyzerResult.SuppressSpareCapacity` opt-out on the analyzer→engine
 contract; (b) implement the deferred `ThresholdApplied` flag (§ F3).
 Tracked in TA-PR5-plan.md §7.
+
+### F10. Fold queueing-model into the V2 multi-analyzer engine
+
+Item 1 (`multi-analyzer-optimizer`) made V2 the multi-analyzer path
+(slice contract, threshold post-step, registered-analyzer loop, paired/
+role-iterated allocation). Queueing-model (`engine_queueing_model.go`)
+remained a parallel sibling that:
+
+- builds a single-entry `[]NamedAnalyzerResult` by hand at
+  `optimizeQueueingModel`, naming it `SaturationAnalyzerName` so
+  optimizer's `saturationEntry()` lookup matches;
+- bypasses `runAnalyzersAndScore` entirely;
+- runs no other registered analyzer (TA can't post-process QM output).
+
+The optimizer PR did NOT consolidate the two engines; that was deliberate
+out-of-scope deferral (the Item 1 scope is the optimizer-side slice
+contract, not engine consolidation). Today QM works as before, modulo the
+mechanical slice-shape adapter in `engine_queueing_model.go`. The
+follow-up is to fold QM into V2 so there is one upstream slice-builder.
+
+**Two paths:**
+
+- **Option A — register QM as the saturation-slot analyzer** (recommended).
+  When `wva-queueing-model-config` ConfigMap is present, register QM under
+  `SaturationAnalyzerName` (replacing sat_v2 in that slot for the model)
+  and route through `optimizeV2`. QM gets the threshold post-step,
+  SchedulerQueue threading, disaggregation dispatch, and GPU limiter
+  constraints "for free." Registered TA can post-process QM output. Needs
+  a way to swap the saturation-slot analyzer at runtime; current registry
+  assumes a single saturation analyzer.
+
+- **Option B — give QM a distinct analyzer name and run alongside.**
+  `e.queueingModelAnalyzer` becomes a regular registered analyzer with its
+  own `Name()`. Selection between sat_v2 and QM happens via config
+  enabling/disabling. Lower coupling but two analyzers running per cycle
+  is wasted work when QM is the active mode.
+
+**Pre-existing oversights to fix at merge** (all predate Item 1, none
+introduced here):
+
+- **Threshold post-step skipped on QM path.** Today QM's analyzer writes
+  RC/SC directly (`RC = max(0, TD−TS)`); the universal post-step never
+  runs. Under the merged engine, QM should either: (a) participate in the
+  post-step like every other analyzer (and have its in-analyzer formula
+  reframed to populate `Total*` fields only, letting the engine derive
+  RC/SC), or (b) explicitly opt out via `ThresholdApplied` (§ F3). Option
+  A is cleaner — fits the per-variant canonical contract.
+- **`SchedulerQueue` field not threaded** into QM's `AnalyzerInput`. QM
+  doesn't currently use it (demand comes from per-replica `ArrivalRate`),
+  but in the merged engine the field flows uniformly; QM would have it
+  available if/when it wants. (Note: `prepareModelData` already collects
+  `SchedulerQueue` for all paths today — wasted work on the QM path. Folding
+  in addresses both ends of the asymmetry.)
+- **Disaggregation dispatch.** QM's `VariantCapacity` entries never set
+  `Role`, so `isDisaggregated()` returns false for QM-scaled models.
+  Implication: a P/D model under QM is treated as single-role. Folding
+  into V2 requires QM to set `Role` on its `VariantCapacity` (or accept
+  the same engine-side role-derivation sat_v2 uses).
+- **GPU limiter not enforced.** When `enableLimiter=true`, both V2 and QM
+  pick `GreedyByScoreOptimizer`, but only V2 computes and passes
+  `constraints` to `Optimize`. QM calls `Optimize(ctx, requests, nil)` —
+  Greedy is selected but limiter is not enforced. Folding QM into V2 fixes
+  this automatically (one call site, one constraint computation).
+
+**KV-token enrichment** (`enrichDecisionsWithKvTokenData`) is sat_v2-
+specific observability that runs only on V2; QM-scaled VAs expose zero/
+empty KV fields in their status. This is a per-analyzer observability gap
+rather than a QM-merge concern — see § F4 above for the broader
+generalization (per-analyzer decision-enrichment hook).
+
+**Constraint:** V1 stays as-is (legacy single-analyzer path) until the
+deprecation lands. F10 is V2 ↔ QM consolidation only.
+
+**Recommendation:** open the QM-merge issue **after** the optimizer PR
+merges (so it can reference the merged code). Title shape: *"Fold
+queueing-model into the V2 multi-analyzer engine (Option A: register QM
+as saturation-slot analyzer)"*. Body lists the four oversights above as
+sub-items.
+
+### F11. Joint-allocation generalization beyond P/D roles
+
+Today's paired-allocation primitive handles 2-role P/D models. The
+underlying abstraction — joint allocation across a tuple of variants
+required to satisfy demand jointly — generalizes to:
+
+- **More than 2 roles.** `min` over k role-utils; otherwise unchanged.
+- **Mixed role and non-role variants in the same model.** Untagged
+  variants behave as a single-role tuple; min over arity 1 is the
+  identity. Removes today's "fully disaggregated XOR non-disaggregated"
+  model assumption.
+- **Multi-model joint demand.** Two distinct models serving the same
+  user requests — allocating one without the other doesn't progress
+  the joint demand. Same min-of-utils framework, with the tuple
+  spanning models rather than roles.
+- **Multi-location replication.** Two variants of identical config in
+  different physical locations, both required for geo-redundant demand.
+
+In all cases the picker sizes per-tuple-leg independently and commits the
+matched-pair amount bounded by `min_leg util_leg`. The engine declares
+the tuple shape per model — today implicit via `Role` + α-derivation;
+generalization makes it explicit. Per-leg coupling ratios (today's α as
+P:D) become per-leg-pair.
+
+Implementation-side: `RoleSpare map[string]float64` (and a future
+`RoleRemaining`, see A10) extend to arbitrary leg keys; the joint commit
+math generalizes by replacing `min(util_P, util_D)` with `min over legs`.
 
 ---
 
