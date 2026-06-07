@@ -177,15 +177,17 @@ func (a *ThroughputAnalyzer) Observe(
 // Scheduler queue demand (QueueSize / (DefaultQueueDrainFactor × ITL(k_sat))) is added
 // to model-level demand after all variants are processed (non-prefill roles only).
 //
-// RequiredCapacity and SpareCapacity are computed from model-level totals, not
-// per-variant deficits. This prevents conflicting signals when one variant is
-// overloaded while another has spare capacity. PendingReplicas is included in
-// anticipated supply to suppress scale-up thrashing while pods are starting.
-// SpareCapacity is only emitted when EPP is deployed (ArrivalRate > 0).
+// TA publishes TotalSupply, TotalAnticipatedSupply, and TotalDemand on the
+// returned AnalyzerResult; RequiredCapacity and SpareCapacity are left zero.
+// The engine's universal threshold post-step writes RC/SC after Analyze returns.
+// PendingReplicas are included in TotalAnticipatedSupply to suppress redundant
+// scale-up while pods are starting. Scheduler queue demand is split across
+// non-prefill roles via distributeQueueDemandByRole.
 //
-// For P/D disaggregated models, RoleCapacities provides per-role breakdowns.
-// No role is excluded from supply/demand computation. RequiredCapacity is
-// suppressed for the prefill role: decode rate is never the prefill bottleneck.
+// For P/D disaggregated models, RoleCapacities carries per-role Total* fields
+// (TotalSupply, TotalAnticipatedSupply, TotalDemand); RC/SC per role are also
+// left zero for the engine post-step. Prefill TotalDemand is negligible after
+// the OL guard in computeLocalDemand.
 func (a *ThroughputAnalyzer) Analyze(
 	ctx context.Context,
 	input interfaces.AnalyzerInput,
@@ -524,7 +526,8 @@ func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 // Each replica's in-flight request count N_r = k_r* × KV_max_r / KVreq is divided
 // by ITL(k_r*) to approximate its current throughput. Replicas with k* = 0 or
 // KV_max = 0 are excluded (no meaningful signal at idle).
-// This estimate is used for scale-up only; SpareCapacity still requires EPP.
+// This path is scale-up only: k*-based demand may undercount arriving load
+// without EPP. The engine post-step determines SC from the published totals.
 func computeLocalDemand(metrics []interfaces.ReplicaMetrics, shape WorkloadShape, model ITLModel) float64 {
 	if shape.KVreq <= 0 || shape.AvgOutputTokens <= DefaultMinDecodeOLForLocalDemand {
 		return 0
