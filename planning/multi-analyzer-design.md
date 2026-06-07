@@ -738,8 +738,21 @@ allocation ranks by `ceil(RC/PRC) × cost`, not `cost/PRC`.
 Pre-existing behaviour inherited from the legacy cost optimizer; unchanged
 by the multi-analyzer slice migration or the Phase 3 unification. Low
 practical impact (production PRC ≫ RC residuals), surfaces at the tail.
-Follow-up: rank by actual rounded allocation cost, or add a final-replica
-swap pass. Tracked in CURRENT § Issues to Open.
+Tracked in CURRENT § Issues to Open.
+
+**Solution shape.** With N analyzers this is a multi-dimensional bounded
+covering knapsack (NP-hard in general): each analyzer is a dimension, a
+variant's replica provides a vector of per-analyzer capacities, and the goal
+is to minimise cost subject to covering RC in every dimension. In practice the
+instance is tiny (few variants, 1–3 analyzers), so **brute force** over
+allocation combinations is tractable and gives the exact optimum.
+
+Pragmatic compromise short of brute force: keep cheapest-efficiency for the
+bulk allocation; when the **last** replica of the chosen variant lands below a
+utilisation threshold X, recompute the **tail** decision by direct cost — for
+the residual RC, rank candidates by `ceil(residual/PRC) × cost` and pick the
+cheapest actual cost rather than the cheapest efficiency. Leaves the common
+RC ≫ PRC path unchanged; fixes the A/B/RC=3 tail above.
 
 ---
 
