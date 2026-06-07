@@ -1,8 +1,9 @@
 # Multi-Analyzer Optimizer — Code Review
 
-**Status: FINAL**
+**Status: FINAL (Phase 1) / DRAFT (Phase 2 — see addendum below)**
 **Reviewer:** plan-agent (reviewer role), 2026-06-07
-**Branch reviewed:** `multi-analyzer-optimizer` @ `233867bd` (8 commits on `multi-analyzer-threshold@b8b823b0`).
+**Branch reviewed:** `multi-analyzer-optimizer` @ `4bfac2fa` (11 commits on `multi-analyzer-threshold@b8b823b0`).
+Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`, Phase 2 post-review fixes).
 **Compared against:** [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md) and [`multi-analyzer-design.md`](multi-analyzer-design.md).
 
 > Method: read the code first to understand what it does, then compared
@@ -355,3 +356,88 @@ fixable in compact commits.
   design doc.
 - [`multi-analyzer-threshold-plan.md`](multi-analyzer-threshold-plan.md) —
   cross-rebase base.
+
+---
+
+## Phase 2 addendum — commits 9–11 (tip `4bfac2fa`)
+
+**Commits reviewed:**
+- `f3184dbb` — B1+T1: populate `NamedAnalyzerResult.Score` from config
+- `20d76972` — B2: paired scale-up reshape (per-role sizing + util-min joint commit)
+- `4bfac2fa` — N2+N3+N4: Disaggregated flag, drop dead code, sort roles
+
+---
+
+### What the new code does (independent reading)
+
+**B1 (`f3184dbb`):** `scoreForAnalyzer(name, cfg)` added to `engine_v2.go` — walks `cfg.Analyzers` for a matching name, returns `aw.Score` when > 0, else 1.0. Called for the saturation entry and every non-saturation entry in `runAnalyzersAndScore`. `Score` is now populated from config rather than left zero.
+
+**B2 (`20d76972`):** Paired scale-up restructured:
+- `RolePairedState = []map[string]float64` — picker-local per-role demand, indexed `[analyzer-index][role]`. Lives only inside the allocation pass (not on `NamedAnalyzerResult`, per design A10).
+- `InitRolePairedState(s)` — initialises from `RoleCapacities[role].RequiredCapacity`.
+- `roleBottleneckReplicas`, `roleAggRemaining`, `needsScaleUpPaired` — per-role analogues of the single-variant helpers.
+- `allocateForModelPairedB2`: per-role independent sizing via `roleBottleneckReplicas`, joint-commit bounded by `min_role util_role`. 0-case: `demand_role = 0 → util_role = 1.0`. Trim formula: `k_role = max(floor(Δ_util × demand / prc), min(1, n_role))`. Both `targets[vP]` and `targets[vD]` committed; `available` decremented for both. `applyAllocation(s, vP, kP)` decrements model-level `Remaining` (P-anchor only, per convention). Old `analyzerAlpha`, `bottleneckReplicasPaired`, `applyAllocationPaired` helpers removed.
+
+**N2+N3+N4 (`4bfac2fa`):**
+- Optimizers now consume `req.Disaggregated` directly; `filterVariantCapacitiesByRole` dropped; `variantsForRole` used instead.
+- Defensive copy dropped in `CostAwareOptimizer.Optimize` disaggregated branch — symmetric with non-disaggregated.
+- `sort.Strings(roles)` added in `costAwareScaleDownRoleIterated` for deterministic role-iteration order.
+- `allocateToVariantsPaired` tombstone comment at `greedy_score_optimizer.go:290`.
+
+---
+
+### Findings
+
+#### B2-gate: D-only demand silently ignored — **blocker**
+
+The outer gate in both optimizers still uses model-level `needsScaleUp(s)`, which checks `e.Remaining`. After `initDisaggregatedRemaining`, `Remaining = RoleCapacities["prefill"].RequiredCapacity`. When only decode needs scale-up (P RC = 0, D RC > 0):
+
+```go
+// CostAwareOptimizer.Optimize (cost_aware_optimizer.go:59–66)
+initDisaggregatedRemaining(s)
+if needsScaleUp(s) {           // Remaining = P RC = 0 → false
+    allocateForModelPairedB2(...)  // ← never reached
+} else {
+    costAwareScaleDownRoleIterated(...)  // ← wrong branch; no-op (D has no spare)
+}
+```
+
+Same failure in Greedy: `scaleUpWork` gate is `needsScaleUp(s) || fsv > 0`. With `Remaining = P RC = 0`, `Σ(Remaining_i × Score_i) = 0` → `fsv = 0`. D-only demand is invisible to both optimizers.
+
+The plan (`optimizer-plan.md` § "Pre-phase-2 failure mode") explicitly identifies this as the failure case B2 must fix. The B2 inner loop (`allocateForModelPairedB2`) handles D-only via `needsScaleUpPaired` + 0-case, but the outer gate was never updated to use it. The described failure mode is still present post-B2.
+
+**Fix:** change the disaggregated gate from `needsScaleUp(s)` to `needsScaleUpPaired(s, InitRolePairedState(s), []string{"prefill","decode"})` in both `CostAwareOptimizer.Optimize` and the Greedy dispatch. Requires one additional `ps := InitRolePairedState(s)` call before the gate in each path.
+
+**Missing test:** no spec covers P RC = 0, D RC > 0 → expects D-side scale-up replicas.
+
+#### B1 on QM path — plan discrepancy, low impact
+
+`engine_queueing_model.go:77` has `Score: 1.0 // QM path: single analyzer, no per-entry score config`. The plan (§ Scope summary B1) includes the QM construction site. Practical impact is low (QM is single-analyzer; Score = 1.0 is the correct default). But `scoreForAnalyzer(interfaces.SaturationAnalyzerName, config)` could be called here instead of hardcoding, for consistency with the V2 path.
+
+#### N4 implemented despite being marked deferred — minor
+
+Plan marks N4 deferred; code at `costAwareScaleDownRoleIterated:412` has `sort.Strings(roles)`. The sort is harmless and a robustness improvement for tests. No action needed — note for the PR description.
+
+#### Doc stub URL points to personal fork — cosmetic
+
+`docs/developer-guide/multi-analyzer-pipeline.md:46` links to `github.com/deanlorenz/...`. In the upstream PR this should be `github.com/llm-d/...` (or the line dropped, since the plans branch doesn't exist upstream). Fix before pushing to origin.
+
+---
+
+### Confirmed correct in Phase 2
+
+- B1 in `engine_v2.go`: `scoreForAnalyzer` called for saturation + every `analyzersSnapshot` entry; default 1.0 when config has no entry or Score ≤ 0. ✅
+- B2 inner loop: `targets[vP] += kP` and `targets[vD] += kD` both committed (lines 468–469). ✅
+- `applyAllocation(s, vP, kP)` P-anchor is correct: D-side model-level `Remaining` intentionally not decremented (inner loop uses `pickerState`, not `Remaining`). ✅
+- `available` decremented for both `vP` and `vD` accelerators inside `allocateForModelPairedB2`. ✅
+- N2: `req.Disaggregated` consumed in both optimizers; `isDisaggregated(satEntry.VariantCapacities)` removed. ✅
+- N2: `runAnalyzersAndScore` returns 2-tuple; middle return dropped. ✅
+- N3: defensive copy dropped; both branches symmetric. ✅
+- T1: `greedy_score_optimizer_test.go` "Score-Based Priority" context validates `fairShareValue = priority × Σ(Remaining × Score)` with explicit `Score` values mirroring the B1 engine fix. ✅
+- Role-iterated scale-down: correct — uses `RoleSpare` for gate and mutation; `cheapest` scoped per-role. ✅
+
+---
+
+### Phase 2 verdict
+
+One blocker (B2-gate not updated), one plan discrepancy (B1 QM path, low impact), two cosmetics (N4 harmless, doc URL). The B2 gate fix is small — change the gate check in two call sites, add one test spec. Everything else is solid. Not ready for push until the gate is fixed.
