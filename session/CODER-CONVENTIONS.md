@@ -87,6 +87,12 @@ If a test fails for reasons outside your scope (pre-existing breakage on
 main), note it in your status file and continue — do not fix unrelated
 tests.
 
+**Semantic-pivot cross-reference check.** When the plan specifies a behavioral contract
+change (rename, panic→error, sync→async, etc.), the plan will include a grep step with the
+old search term and files to scan. Run that grep after implementation and update every hit
+in comments and docstrings. If the plan omits the grep step, do not infer scope — write a
+handoff to the planner noting the gap and what term to search.
+
 ---
 
 ## 4. Developer-guide updates on your branch
