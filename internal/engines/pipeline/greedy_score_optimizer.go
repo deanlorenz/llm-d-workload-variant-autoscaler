@@ -44,28 +44,46 @@ type modelWork struct {
 	targets   map[string]int             // variant name → target replicas (ALL variants)
 }
 
-// fairShareValue computes the fair-share priority metric for one model from its
-// per-analyzer working slice. Returns priority × Σᵢ(Remainingᵢ × Scoreᵢ).
-// Falls back to max_i(Remainingᵢ) when the weighted result is zero (priority
-// unset or no score weights), matching the original fallback to RequiredCapacity.
-func fairShareValue(priority float64, s []NamedAnalyzerResult) float64 {
+// fairShareValue computes the fair-share priority metric for one model.
+// Phase 3: reads picker-local role-remaining (sum over roles × analyzer Score)
+// so the metric reflects actual per-role demand remaining rather than the
+// P-anchor model-level scalar.
+//
+//	fsv = priority × Σᵢ Score_i × Σ_role pickerState[i][role]
+//
+// Falls back to max remaining demand when the weighted result is zero.
+func fairShareValue(priority float64, s []NamedAnalyzerResult, ps RolePairedState, roles []string) float64 {
 	weighted := 0.0
-	for _, e := range s {
-		if e.Result != nil {
-			weighted += e.Remaining * e.Score
+	for i, e := range s {
+		if e.Result == nil {
+			continue
 		}
+		roleSum := 0.0
+		for _, role := range roles {
+			if i < len(ps) {
+				roleSum += ps[i][role]
+			}
+		}
+		weighted += roleSum * e.Score
 	}
 	if fsv := priority * weighted; fsv > 0 {
 		return fsv
 	}
-	// Fallback: bottleneck remaining without priority scaling.
-	maxRemaining := 0.0
-	for _, e := range s {
-		if e.Result != nil && e.Remaining > maxRemaining {
-			maxRemaining = e.Remaining
+	// Fallback: max remaining demand across roles when Score=0 or priority=0.
+	maxDemand := 0.0
+	for i, e := range s {
+		if e.Result == nil {
+			continue
+		}
+		if i < len(ps) {
+			for _, role := range roles {
+				if ps[i][role] > maxDemand {
+					maxDemand = ps[i][role]
+				}
+			}
 		}
 	}
-	return maxRemaining
+	return maxDemand
 }
 
 // Optimize produces VariantDecisions for all models, fair-sharing GPUs across
@@ -89,7 +107,7 @@ func (o *GreedyByScoreOptimizer) Optimize(
 
 		s := req.AnalyzerResults
 		roles, ps := initRoleState(s)
-		fsv := fairShareValue(req.Priority, s) // updated to role-sum in commit 3
+		fsv := fairShareValue(req.Priority, s, ps, roles)
 		if anyRoleNeedsScaleUp(ps, roles) || fsv > 0 {
 			w := o.buildScaleUpWork(req, satEntry, s, ps, roles, fsv)
 			if w != nil {
@@ -244,31 +262,15 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	allocateForModelPaired(ctx, w.s, w.satEntry.VariantCapacities, stateMap, available,
 		w.targets, pick, ps, w.roles)
 
-	// Recompute w.remaining after allocation.
-	// - "both" single-role (non-disag): s[i].Remaining (P-anchor) is reliable
-	//   since applyAllocation tracks it; fairShareValue reads it correctly.
-	// - P/D multi-role: use role-sum from ps (capped→decremented), which correctly
-	//   reaches 0 when both roles are satisfied in one step.
-	// Commit 3 unifies both cases via fairShareValue reading ps.
+	// Recompute w.remaining for fair-share ordering.
+	// For "both" (non-disag): use fresh ps so applyAllocation-decremented
+	// s[i].Remaining is read (budget-capped ps is already 0).
+	// For P/D: use local capped ps which correctly reaches 0 when both roles served.
 	if len(w.roles) == 1 && w.roles[0] == interfaces.RoleBoth {
-		w.remaining = fairShareValue(w.req.Priority, w.s)
+		_, freshPs := initRoleState(w.s)
+		w.remaining = fairShareValue(w.req.Priority, w.s, freshPs, w.roles)
 	} else {
-		sum := 0.0
-		for i, m := range ps {
-			if w.s[i].Result != nil {
-				for _, demand := range m {
-					sum += demand * w.s[i].Score
-				}
-			}
-		}
-		if sum > 0 {
-			w.remaining = w.req.Priority * sum
-			if w.remaining <= 0 {
-				w.remaining = sum
-			}
-		} else {
-			w.remaining = 0
-		}
+		w.remaining = fairShareValue(w.req.Priority, w.s, ps, w.roles)
 	}
 	return w.remaining < oldRemaining
 }
@@ -277,24 +279,11 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 // Greedy's disaggregated scale-up now delegates to allocateForModelPairedB2.
 
 // fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired loop.
-// Routes the fair-share budget per role: "both" → full target; "prefill" → full
-// target; "decode" → α-scaled target. α derivation is removed in commit 3.
+// Each role receives the same target fair-share budget. The joint Δ_util commit
+// inside allocateForModelPaired enforces P/D coupling — α is no longer needed.
 func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) RolePickFn {
-	// Derive α for D-side cap (commit 3 will drop this and use the joint min-util
-	// commit to enforce the P/D coupling instead).
-	alpha := 1.0
-	for _, e := range s {
-		if e.Result == nil || e.Result.RoleCapacities == nil {
-			continue
-		}
-		p := e.Result.RoleCapacities["prefill"].TotalDemand
-		d := e.Result.RoleCapacities["decode"].TotalDemand
-		if p > 0 && d > 0 {
-			alpha = d / p
-			break
-		}
-	}
-	_ = roles // roles available for future per-role scaling; currently uniform
+	_ = s     // slice available for future multi-analyzer demand inspection
+	_ = roles // roles available for future per-role budget splitting
 	return func(
 		role string,
 		_ []NamedAnalyzerResult,
@@ -304,10 +293,6 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 		targets map[string]int,
 	) (string, int) {
 		roleVCs := variantsForRole(variants, role)
-		scale := 1.0
-		if role == "decode" {
-			scale = alpha
-		}
 		for _, vc := range sortByCostEfficiencyAsc(roleVCs) {
 			if vc.PerReplicaCapacity <= 0 {
 				continue
@@ -321,7 +306,7 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 			if gpusAvail < gpusPR {
 				continue
 			}
-			fairShareCap := int(math.Ceil(target * scale / vc.PerReplicaCapacity))
+			fairShareCap := int(math.Ceil(target / vc.PerReplicaCapacity))
 			capN := min(fairShareCap, gpusAvail/gpusPR)
 			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
 				headroom := *state.MaxReplicas - targets[vc.VariantName]
