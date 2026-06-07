@@ -730,6 +730,58 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 	})
 
+	// Phase 3 test: D-only scale-up (RC_P=0, RC_D>0).
+	// Before Phase 3, the model-level gate read Remaining (P-anchor=0) and routed
+	// the model to scale-down instead of allocating decode. The per-role gate
+	// (anyRoleNeedsScaleUp) correctly fires on decode demand.
+	Context("Disaggregated (P/D) D-only scale-up", func() {
+
+		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
+			if r != nil {
+				req.Disaggregated = true
+				req.AnalyzerResults = []NamedAnalyzerResult{{
+					Name:      interfaces.SaturationAnalyzerName,
+					Result:    r,
+					Remaining: r.RequiredCapacity,
+					Spare:     r.SpareCapacity,
+				}}
+			}
+			return req
+		}
+
+		It("should scale up only decode when only D has demand (RC_P=0, RC_D>0)", func() {
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 10000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "prefill-v", Cost: 5.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "decode-v", Cost: 5.0, Role: "decode", PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {RequiredCapacity: 0, TotalDemand: 0},
+					"decode":  {RequiredCapacity: 10000, TotalDemand: 10000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntryPD(r, ModelScalingRequest{
+					ModelID:   "model-d-only",
+					Namespace: "default",
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "prefill-v", CurrentReplicas: 2},
+						{VariantName: "decode-v", CurrentReplicas: 1},
+					},
+				}),
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, nil)
+			dm := decisionMap(decisions)
+
+			// prefill has no demand: unchanged.
+			Expect(dm["prefill-v"].TargetReplicas).To(Equal(2))
+			// decode has demand 10000 / PRC 10000 = 1 replica added.
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(2))
+		})
+	})
+
 	Context("Disaggregated (P/D) Scale-Down", func() {
 
 		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {

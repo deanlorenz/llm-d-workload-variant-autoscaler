@@ -1103,4 +1103,102 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 
 		// filterVariantCapacitiesByRole removed (duplicate of variantsForRole in analyzer_helpers.go; N2 cleanup)
 	})
+
+	// Phase 3 test: D-only scale-up via the per-role gate.
+	Context("Disaggregated D-only scale-up (Phase 3)", func() {
+		It("should scale up only decode when RC_P=0 and RC_D>0", func() {
+			// Pre-Phase-3 the model-level gate (Remaining=0 from P-anchor) would
+			// route the model to scale-down. anyRoleNeedsScaleUp fires on D demand.
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 0,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "pf", AcceleratorName: "A100", Cost: 5.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "dc", AcceleratorName: "A100", Cost: 5.0, Role: "decode", PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {RequiredCapacity: 0, TotalDemand: 0},
+					"decode":  {RequiredCapacity: 10000, TotalDemand: 10000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				{
+					ModelID:       "d-only",
+					Namespace:     "default",
+					Disaggregated: true,
+					Priority:      1.0,
+					AnalyzerResults: []NamedAnalyzerResult{{
+						Name:      interfaces.SaturationAnalyzerName,
+						Result:    r,
+						Score:     1.0,
+						Remaining: r.RequiredCapacity,
+						Spare:     r.SpareCapacity,
+					}},
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "pf", CurrentReplicas: 2, GPUsPerReplica: 2},
+						{VariantName: "dc", CurrentReplicas: 1, GPUsPerReplica: 2},
+					},
+				},
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{"A100": {Limit: 4}}},
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			Expect(dm["pf"].TargetReplicas).To(Equal(2)) // no P demand
+			Expect(dm["dc"].TargetReplicas).To(Equal(2)) // +1 decode
+		})
+	})
+
+	// Phase 3 test: min-util coupling without α.
+	Context("Disaggregated min-util coupling (Phase 3)", func() {
+		It("should advance P and D by matched util (not fixed α ratio)", func() {
+			// P-demand=10000, D-demand=30000, PRC=10000 each.
+			// Without α: P and D are sized independently and joint-committed by Δ_util.
+			// n_P=1 (ceil(10000/10000)), n_D=3 (ceil(30000/10000)).
+			// util_P=1.0, util_D=3.0 → Δ_util=1.0 → k_P=1, k_D=3.
+			// Result: prefill+1, decode+3 — same Δ_util=1.0 for both.
+			r := &interfaces.AnalyzerResult{
+				RequiredCapacity: 10000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "pf", AcceleratorName: "A100", Cost: 5.0, Role: "prefill", PerReplicaCapacity: 10000},
+					{VariantName: "dc", AcceleratorName: "A100", Cost: 5.0, Role: "decode", PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {RequiredCapacity: 10000, TotalDemand: 10000},
+					"decode":  {RequiredCapacity: 30000, TotalDemand: 30000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				{
+					ModelID:       "pd-min-util",
+					Namespace:     "default",
+					Disaggregated: true,
+					Priority:      1.0,
+					AnalyzerResults: []NamedAnalyzerResult{{
+						Name:      interfaces.SaturationAnalyzerName,
+						Result:    r,
+						Score:     1.0,
+						Remaining: r.RequiredCapacity,
+						Spare:     r.SpareCapacity,
+					}},
+					VariantStates: []interfaces.VariantReplicaState{
+						{VariantName: "pf", CurrentReplicas: 1, GPUsPerReplica: 2},
+						{VariantName: "dc", CurrentReplicas: 1, GPUsPerReplica: 2},
+					},
+				},
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{"A100": {Limit: 12}}},
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			// Both roles committed by the same Δ_util=1.0.
+			Expect(dm["pf"].TargetReplicas).To(Equal(2)) // 1+1
+			Expect(dm["dc"].TargetReplicas).To(Equal(4)) // 1+3
+		})
+	})
 })
