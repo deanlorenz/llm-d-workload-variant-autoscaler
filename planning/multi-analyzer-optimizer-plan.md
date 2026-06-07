@@ -689,6 +689,31 @@ pass; behaviour intact). Land a 5th commit that finishes it:
 - Delete one function at a time, `make test` green after each (delete is the
   same wrap→verify→inline→**delete** discipline run to its last step — do not bulk-delete).
 
+**Commit 5 follow-up (review of `2a3b5c40` found two leftovers).** The cleanup
+landed the bulk correctly; two orphans were missed. Fold these into the cleanup
+commit (amend `2a3b5c40`):
+
+- **Delete `applyDeallocation`** (analyzer_helpers.go) — now 0 production callers
+  (its only caller was the deleted non-disag `costAwareScaleDown`; role scale-down
+  uses `applyDeallocationForRole`). Remove its test block (`analyzer_helpers_test.go`
+  `Describe("applyDeallocation", …)`) and trim the `optimizer_interfaces.go` doc-comment
+  that still names it ("applyAllocation / applyDeallocation …" → just `applyAllocation`).
+- **Reword two stale test descriptions** in `greedy_score_optimizer_test.go` that name the
+  deleted `costAwareScaleDown` in their `It(...)` strings (≈ lines 375 and 1028) → refer to
+  `scaleDownRoleIterated` / "role-iterated scale-down". String-only; the tests themselves
+  stay valid.
+
+**Verification step (run and report — must come back empty).** After the deletes,
+the coder runs and pastes the output of:
+
+```
+grep -rn 'allocateForModelPairedB2\|needsScaleUpPaired\|PickPairFn\|costGreedyPickPaired\|fairSharePickPaired\|costGreedyPick\|fairSharePick\|costAwareScaleUp\|costAwareScaleDown\|costAwareScaleDownRoleIterated\|isDisaggregated\|InitRolePairedState\|\bneedsScaleUp\b\|\bneedsScaleDown\b\|\bbottleneckReplicas\b\|\bsafeRemovalReplicas\b\|\bapplyDeallocation\b' internal/engines/pipeline/
+```
+
+Expected: **no matches** (including in `_test.go`). Any hit is either a missed
+deletion or a stale comment/string to fix. This grep-to-zero check is the gate for
+"the delete step is complete" — do not report push-ready until it is empty.
+
 ### Cost picker: integer-rounding suboptimality (pre-existing — follow-up, NOT Phase 3)
 
 The cost picker sorts by `cost/PerReplicaCapacity` ascending and allocates
