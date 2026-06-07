@@ -546,10 +546,13 @@ small follow-up commits on TA3:
 - **T1 — GPS-verification test renames.** Rename the
   `Describe("Analyze — GPS verification suppresses SpareCapacity",
   …)` block and its 4 sibling `It`s. **Preserve all scenario data
-  and `SpareCapacity == 0` assertions verbatim** — they are
-  fixtures for the future SC-gate-restoration PR (unified F3). Add
-  one-line top-of-`Describe` comment noting fixtures preserved for
-  future restoration. See review § T1.
+  and `SpareCapacity == 0` assertions verbatim** — they are fixtures
+  for the future per-analyzer status-return PR that will restore
+  the SC-suppression gate. Add a one-line top-of-`Describe` comment
+  noting fixtures preserved for future restoration. **Use descriptive
+  prose only — do not reference plans-branch identifiers (F3, etc.)
+  in the test block comment**, per CODER-CONVENTIONS § 4a. See
+  review § T1.
 - **T2 — aggregation-helper consistency specs.** Add the 5 missing
   specs from §3.4 ("New test specs to add" bullet list) that
   weren't included in the initial test migration. These lock the
