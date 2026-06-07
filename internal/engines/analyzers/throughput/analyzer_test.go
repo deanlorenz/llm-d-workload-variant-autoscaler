@@ -1303,9 +1303,9 @@ var _ = Describe("ThroughputAnalyzer", func() {
 	Describe("Analyze — GPS-mismatch scenarios (preserved fixtures for future SC gate)", func() {
 		// PR-5 dropped the EPP/GPS-mismatch SpareCapacity gate; TA now always leaves
 		// SpareCapacity=0. These test scenarios and their input data are intentionally
-		// preserved as fixtures for the future per-analyzer status-return PR (F3) that
-		// will restore the SC-suppression gate. Current assertions are pass-through:
-		// SpareCapacity==0 regardless of GPS state. Re-arm SC assertions when F3 lands.
+		// preserved as fixtures for the future per-analyzer status-return PR that will
+		// restore the SC-suppression gate. Current assertions are pass-through:
+		// SpareCapacity==0 regardless of GPS state. Re-arm SC assertions when that PR lands.
 		//
 		// Scenario: same ITL coefficients as the tier-1 scaling signal tests.
 		//   IL=5000, OL=200, prefix=0.1, KV_max=1024000, A=0.073, B=0.006
