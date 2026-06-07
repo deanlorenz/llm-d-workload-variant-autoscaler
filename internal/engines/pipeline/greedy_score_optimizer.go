@@ -233,8 +233,11 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	oldRemaining := w.remaining
 
 	if isDisaggregated(w.satEntry.VariantCapacities) {
+		ps := InitRolePairedState(w.s)
 		pick := fairSharePickPaired(target, w.s)
-		o.allocateToVariantsPaired(ctx, w, target, stateMap, available, pick)
+		allocateForModelPairedB2(ctx, w.s, w.satEntry.VariantCapacities, stateMap, available,
+			w.targets, pick, ps, []string{"prefill", "decode"})
+		// GPU budget already decremented inside allocateForModelPairedB2.
 	} else {
 		pick := fairSharePick(target)
 		o.allocateToVariants(ctx, w, target, w.satEntry.VariantCapacities, stateMap, available, pick)
@@ -286,48 +289,8 @@ func (o *GreedyByScoreOptimizer) allocateToVariants(
 	}
 }
 
-// allocateToVariantsPaired allocates paired (n_P, n_D) replicas for disaggregated models.
-// Stops when the per-iteration target budget (in P-units) is consumed.
-func (o *GreedyByScoreOptimizer) allocateToVariantsPaired(
-	ctx context.Context,
-	w *modelWork,
-	target float64,
-	stateMap map[string]interfaces.VariantReplicaState,
-	available map[string]int,
-	pick PickPairFn,
-) {
-	logger := ctrl.LoggerFrom(ctx)
-	consumed := 0.0
-	for needsScaleUp(w.s) && consumed < target {
-		vP, vD, capNP, capND := pick(w.s, w.satEntry.VariantCapacities, stateMap, available, w.targets)
-		if vP == "" || vD == "" {
-			break
-		}
-		// Cap by remaining budget (P-units).
-		prcP := prcFromVCs(w.satEntry.VariantCapacities, vP)
-		if prcP > 0 {
-			budgetCap := int(math.Ceil((target - consumed) / prcP))
-			capNP = min(capNP, budgetCap)
-		}
-		nP, nD := bottleneckReplicasPaired(w.s, vP, vD)
-		nP = min(nP, capNP)
-		nD = min(nD, capND)
-		if nP <= 0 && nD <= 0 {
-			break
-		}
-		applyAllocationPaired(w.s, vP, nP, vD, nD)
-		w.targets[vP] += nP
-		w.targets[vD] += nD
-		consumed += float64(nP) * prcP
-		available[accFromVCs(w.satEntry.VariantCapacities, vP)] -= nP * gpusPerReplicaFromState(stateMap, vP)
-		available[accFromVCs(w.satEntry.VariantCapacities, vD)] -= nD * gpusPerReplicaFromState(stateMap, vD)
-		logger.V(logging.DEBUG).Info("scale-up paired: allocated replicas",
-			"model", w.req.ModelID,
-			"prefill-variant", vP, "prefill-replicas", nP,
-			"decode-variant", vD, "decode-replicas", nD,
-			"budgetConsumed", consumed, "budgetTarget", target)
-	}
-}
+// allocateToVariantsPaired was the old α-based paired loop; retired in B2.
+// Greedy's disaggregated scale-up now delegates to allocateForModelPairedB2.
 
 // fairSharePick returns a PickVariantFn that caps allocation by the fair-share
 // target and GPU budget. Cheapest-first within eligible variants.
@@ -370,17 +333,19 @@ func fairSharePick(target float64) PickVariantFn {
 }
 
 // fairSharePickPaired returns a PickPairFn for disaggregated models.
-// Caps each side by the fair-share target scaled by α.
+// Caps each side by the fair-share target scaled by α (D:P demand ratio).
+// α is derived inline from RoleCapacities[*].TotalDemand (workload invariant).
 func fairSharePickPaired(target float64, s []NamedAnalyzerResult) PickPairFn {
-	// Derive α from the slice (first analyzer tracking both sides).
+	// Derive α = D/P from the first analyzer that has both sides > 0.
 	alpha := 1.0
 	for _, e := range s {
-		if e.Result == nil {
+		if e.Result == nil || e.Result.RoleCapacities == nil {
 			continue
 		}
-		a, _, tracksD := analyzerAlpha(e.Result)
-		if tracksD {
-			alpha = a
+		p := e.Result.RoleCapacities["prefill"].TotalDemand
+		d := e.Result.RoleCapacities["decode"].TotalDemand
+		if p > 0 && d > 0 {
+			alpha = d / p
 			break
 		}
 	}

@@ -226,67 +226,77 @@ func initDisaggregatedRemaining(s []NamedAnalyzerResult) {
 	}
 }
 
-// analyzerAlpha computes the D:P demand coupling ratio α for one analyzer result.
-// α is derived from TotalDemand — a workload invariant, not from RequiredCapacity
-// (which tracks the gap relative to current supply and would tie α to allocation state).
-// Returns (α, tracksP, tracksD).
+// =============================================================================
+// B2 paired scale-up helpers (per-role independent sizing + joint-commit trim)
+// =============================================================================
 //
-//   - Both sides: P>0, D>0 → α = D/P; tracksP, tracksD = true
-//   - P only:     P>0, D=0 → α = 0;   tracksP = true,  tracksD = false
-//   - D only:     P=0, D>0 → α = 1 (Dean's default); tracksP = false, tracksD = true
-//   - Neither:    P=0, D=0 → tracksP, tracksD = false
-func analyzerAlpha(r *interfaces.AnalyzerResult) (alpha float64, tracksP, tracksD bool) {
-	if r == nil || r.RoleCapacities == nil {
-		return 0, false, false
+// Design § Architecture/D: (model, role) is the unit of allocation math.
+// Per-role sizing uses the same bottleneck primitives as non-disaggregated
+// allocation, scoped to one role. The joint-commit step bounds by the min-util
+// role (the coupling constraint). α no longer appears in serve-math — only in
+// picker sizing when one role's demand is derived from the other.
+//
+// RolePairedState holds picker-local per-role demand tracked during one
+// model's allocation pass. Indexed as [analyzer-index][role] → remaining demand
+// (in that role's own capacity units). Initialized from RoleCapacities[role].RC;
+// decremented per joint commit. Lives only inside the allocation loop — not
+// stored on NamedAnalyzerResult (per design A10).
+type RolePairedState []map[string]float64
+
+// InitRolePairedState initializes picker-local per-role demand from the
+// engine-calibrated RoleCapacities[role].RequiredCapacity in each analyzer result.
+func InitRolePairedState(s []NamedAnalyzerResult) RolePairedState {
+	state := make(RolePairedState, len(s))
+	for i, e := range s {
+		state[i] = make(map[string]float64)
+		if e.Result != nil && e.Result.RoleCapacities != nil {
+			for role, rc := range e.Result.RoleCapacities {
+				state[i][role] = rc.RequiredCapacity
+			}
+		}
 	}
-	p := r.RoleCapacities["prefill"].TotalDemand
-	d := r.RoleCapacities["decode"].TotalDemand
-	switch {
-	case p > 0 && d > 0:
-		return d / p, true, true
-	case p > 0:
-		return 0, true, false
-	case d > 0:
-		return 1, false, true
-	default:
-		return 0, false, false
-	}
+	return state
 }
 
-// bottleneckReplicasPaired computes the (n_P, n_D) replica pair needed to serve
-// the current P-side remaining demand across all analyzers.
-//
-//	n_P = max_i (tracksP) of ceil(Remaining_i / PRC_i[vP])
-//	n_D = max_i (tracksD) of ceil(α_i × Remaining_i / PRC_i[vD])
-//
-// Returns (0, 0) if no analyzer covers the requested sides or all PRCs are zero.
-func bottleneckReplicasPaired(s []NamedAnalyzerResult, vP, vD string) (n_P, n_D int) {
-	for _, e := range s {
+// roleBottleneckReplicas computes the cross-analyzer bottleneck replica count
+// for variant v in a specific role. Returns max_i ceil(state[i][role] / PRC_i[v]).
+func roleBottleneckReplicas(s []NamedAnalyzerResult, state RolePairedState, role, v string) int {
+	max := 0
+	for i, e := range s {
 		if e.Result == nil {
 			continue
 		}
-		alpha, tracksP, tracksD := analyzerAlpha(e.Result)
-		if tracksP {
-			prc := prcForVariant(e.Result, vP)
-			if prc > 0 {
-				n := int(math.Ceil(e.Remaining / prc))
-				if n > n_P {
-					n_P = n
-				}
-			}
+		prc := prcForVariant(e.Result, v)
+		if prc <= 0 {
+			continue
 		}
-		if tracksD {
-			prc := prcForVariant(e.Result, vD)
-			if prc > 0 {
-				dRemaining := alpha * e.Remaining
-				n := int(math.Ceil(dRemaining / prc))
-				if n > n_D {
-					n_D = n
-				}
-			}
+		n := int(math.Ceil(state[i][role] / prc))
+		if n > max {
+			max = n
 		}
 	}
-	return
+	return max
+}
+
+// roleAggRemaining returns max cross-analyzer remaining demand for role.
+func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role string) float64 {
+	max := 0.0
+	for i := range s {
+		if d := state[i][role]; d > max {
+			max = d
+		}
+	}
+	return max
+}
+
+// needsScaleUpPaired reports whether any role still has aggregate remaining demand > 0.
+func needsScaleUpPaired(s []NamedAnalyzerResult, state RolePairedState, roles []string) bool {
+	for _, role := range roles {
+		if roleAggRemaining(s, state, role) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // variantsForRole returns variant capacities whose Role exactly matches role.
@@ -371,44 +381,9 @@ func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 	return true
 }
 
-// applyAllocationPaired updates each analyzer's Remaining after committing a
-// paired (n_P, n_D) allocation. The capacity served in P-units is the minimum
-// of what the P-side and D-side contribute (bottleneck of the pair).
-// Clamps Remaining to 0. Never mutates Result.
-func applyAllocationPaired(s []NamedAnalyzerResult, vP string, nP int, vD string, nD int) {
-	for i := range s {
-		e := &s[i]
-		if e.Result == nil {
-			continue
-		}
-		alpha, tracksP, tracksD := analyzerAlpha(e.Result)
-		prcP := prcForVariant(e.Result, vP)
-		prcD := prcForVariant(e.Result, vD)
-
-		var served float64
-		switch {
-		case tracksP && tracksD && prcP > 0 && prcD > 0 && alpha > 0:
-			// Both sides: served = min(P-capacity, D-capacity-in-P-units)
-			servedP := float64(nP) * prcP
-			servedD := float64(nD) * prcD / alpha
-			served = math.Min(servedP, servedD)
-		case tracksP && prcP > 0:
-			served = float64(nP) * prcP
-		case tracksD && prcD > 0 && alpha > 0:
-			served = float64(nD) * prcD / alpha
-		default:
-			continue
-		}
-		e.Remaining -= served
-		if e.Remaining < 0 {
-			e.Remaining = 0
-		}
-	}
-}
-
 // PickPairFn is the optimizer-specific paired variant selector for disaggregated models.
-// It returns the chosen (vP, vD) variants and per-side replica caps.
-// Returning ("", "", 0, 0) signals no allocatable pair exists.
+// It returns the chosen (vP, vD) variants and per-side replica caps (GPU budget +
+// maxReplicas headroom). Returning ("", "", 0, 0) signals no allocatable pair exists.
 type PickPairFn func(
 	s []NamedAnalyzerResult,
 	variants []interfaces.VariantCapacity,
@@ -417,10 +392,15 @@ type PickPairFn func(
 	targets map[string]int,
 ) (vP, vD string, capN_P, capN_D int)
 
-// allocateForModelPaired runs the generic paired scale-up loop for one
-// disaggregated model. Loops while needsScaleUp(s) is true and the picker
-// returns a valid (vP, vD) pair. Each iteration commits one (n_P, n_D) step.
-func allocateForModelPaired(
+// allocateForModelPairedB2 runs the B2 paired scale-up loop for one disaggregated
+// model. Per-role sizing is independent (same bottleneck primitive as non-disag,
+// scoped to each role's picker-local demand). Joint commit is bounded by
+// min_role { util_role } to advance both roles by the same utilization delta.
+//
+// 0-cases (per design § Architecture/D):
+//   - Demand_role = 0 → util_role = 1 (role drops from min).
+//   - Demand_role > 0, no capacity → util_role = 0 → joint bound = 0.
+func allocateForModelPairedB2(
 	ctx context.Context,
 	s []NamedAnalyzerResult,
 	variants []interfaces.VariantCapacity,
@@ -428,24 +408,76 @@ func allocateForModelPaired(
 	available map[string]int,
 	targets map[string]int,
 	pick PickPairFn,
+	pickerState RolePairedState,
+	roles []string,
 ) {
 	logger := ctrl.LoggerFrom(ctx)
-	for needsScaleUp(s) {
+	for needsScaleUpPaired(s, pickerState, roles) {
 		vP, vD, capNP, capND := pick(s, variants, stateMap, available, targets)
 		if vP == "" || vD == "" {
 			break
 		}
-		nP, nD := bottleneckReplicasPaired(s, vP, vD)
-		nP = min(nP, capNP)
-		nD = min(nD, capND)
-		if nP <= 0 && nD <= 0 {
+		prcP := prcFromVCs(variants, vP)
+		prcD := prcFromVCs(variants, vD)
+		if prcP <= 0 || prcD <= 0 {
 			break
 		}
-		applyAllocationPaired(s, vP, nP, vD, nD)
-		targets[vP] += nP
-		targets[vD] += nD
-		logger.V(logging.DEBUG).Info("scale-up paired: allocated replicas",
-			"prefill-variant", vP, "prefill-replicas", nP,
-			"decode-variant", vD, "decode-replicas", nD)
+
+		// Per-role independent sizing capped by picker resource limits.
+		nP := min(roleBottleneckReplicas(s, pickerState, "prefill", vP), capNP)
+		nD := min(roleBottleneckReplicas(s, pickerState, "decode", vD), capND)
+
+		// Aggregate demand per role for util computation.
+		demandP := roleAggRemaining(s, pickerState, "prefill")
+		demandD := roleAggRemaining(s, pickerState, "decode")
+
+		// util_role = served / demand (0-case: demand=0 → util=1, drops from min).
+		var utilP, utilD float64
+		if demandP <= 0 {
+			utilP = 1.0
+		} else {
+			utilP = float64(nP) * prcP / demandP
+		}
+		if demandD <= 0 {
+			utilD = 1.0
+		} else {
+			utilD = float64(nD) * prcD / demandD
+		}
+
+		deltaUtil := math.Min(utilP, utilD)
+		if deltaUtil <= 0 {
+			break
+		}
+
+		// Trim over-allocated role to the joint util bound.
+		// floor(Δ_util × demand / prc) trims integer replicas to the bottleneck util.
+		// When demand < prc (one replica over-serves), floor rounds to 0 — use
+		// min(1, n_role) as minimum so fractional demand still gets a replica.
+		kP, kD := 0, 0
+		if prcP > 0 && demandP > 0 {
+			kP = max(int(math.Floor(deltaUtil*demandP/prcP)), min(1, nP))
+		}
+		if prcD > 0 && demandD > 0 {
+			kD = max(int(math.Floor(deltaUtil*demandD/prcD)), min(1, nD))
+		}
+		if kP <= 0 && kD <= 0 {
+			break
+		}
+
+		// Commit.
+		targets[vP] += kP
+		targets[vD] += kD
+		for i := range pickerState {
+			pickerState[i]["prefill"] = math.Max(0, pickerState[i]["prefill"]-float64(kP)*prcP)
+			pickerState[i]["decode"] = math.Max(0, pickerState[i]["decode"]-float64(kD)*prcD)
+		}
+		applyAllocation(s, vP, kP) // decrement model-level Remaining (P-anchor)
+		if available != nil {
+			available[accFromVCs(variants, vP)] -= kP * gpusPerReplicaFromState(stateMap, vP)
+			available[accFromVCs(variants, vD)] -= kD * gpusPerReplicaFromState(stateMap, vD)
+		}
+
+		logger.V(logging.DEBUG).Info("scale-up paired B2: joint commit",
+			"vP", vP, "kP", kP, "vD", vD, "kD", kD, "deltaUtil", deltaUtil)
 	}
 }

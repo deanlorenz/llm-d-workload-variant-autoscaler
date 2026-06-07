@@ -323,91 +323,54 @@ var _ = Describe("paired helpers", func() {
 		})
 	})
 
-	Describe("analyzerAlpha", func() {
-		It("returns α=D/P and both-tracks when P>0, D>0", func() {
-			r := &interfaces.AnalyzerResult{
-				RoleCapacities: map[string]interfaces.RoleCapacity{
-					"prefill": {TotalDemand: 10000},
-					"decode":  {TotalDemand: 30000},
-				},
-			}
-			alpha, tracksP, tracksD := analyzerAlpha(r)
-			Expect(alpha).To(BeNumerically("~", 3.0, 1e-9))
-			Expect(tracksP).To(BeTrue())
-			Expect(tracksD).To(BeTrue())
+	Describe("InitRolePairedState", func() {
+		It("initializes per-role demand from RoleCapacities.RequiredCapacity", func() {
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 15000, 5000, 0, 0, 15000, 5000, "pf", 10000, "dc", 10000)}
+			ps := InitRolePairedState(s)
+			Expect(ps[0]["prefill"]).To(BeNumerically("~", 15000.0, 1e-9))
+			Expect(ps[0]["decode"]).To(BeNumerically("~", 5000.0, 1e-9))
 		})
 
-		It("returns P-only when D=0", func() {
-			r := &interfaces.AnalyzerResult{
-				RoleCapacities: map[string]interfaces.RoleCapacity{
-					"prefill": {TotalDemand: 10000},
-					"decode":  {TotalDemand: 0},
-				},
-			}
-			_, tracksP, tracksD := analyzerAlpha(r)
-			Expect(tracksP).To(BeTrue())
-			Expect(tracksD).To(BeFalse())
-		})
-
-		It("returns D-only with α=1 default when P=0, D>0", func() {
-			r := &interfaces.AnalyzerResult{
-				RoleCapacities: map[string]interfaces.RoleCapacity{
-					"prefill": {TotalDemand: 0},
-					"decode":  {TotalDemand: 5000},
-				},
-			}
-			alpha, tracksP, tracksD := analyzerAlpha(r)
-			Expect(alpha).To(Equal(1.0))
-			Expect(tracksP).To(BeFalse())
-			Expect(tracksD).To(BeTrue())
-		})
-
-		It("returns false for both when P=0, D=0", func() {
-			r := &interfaces.AnalyzerResult{
-				RoleCapacities: map[string]interfaces.RoleCapacity{
-					"prefill": {TotalDemand: 0},
-					"decode":  {TotalDemand: 0},
-				},
-			}
-			_, tracksP, tracksD := analyzerAlpha(r)
-			Expect(tracksP).To(BeFalse())
-			Expect(tracksD).To(BeFalse())
-		})
-
-		It("returns false for nil result", func() {
-			_, tracksP, tracksD := analyzerAlpha(nil)
-			Expect(tracksP).To(BeFalse())
-			Expect(tracksD).To(BeFalse())
+		It("returns zero map for analyzer without RoleCapacities", func() {
+			s := []NamedAnalyzerResult{makeNamed("sat", 20000, 0, "v", 10.0)}
+			ps := InitRolePairedState(s)
+			Expect(ps[0]["prefill"]).To(Equal(0.0))
+			Expect(ps[0]["decode"]).To(Equal(0.0))
 		})
 	})
 
-	Describe("bottleneckReplicasPaired", func() {
-		It("computes n_P and n_D from single analyzer with α=2", func() {
-			// P-Remaining=10000, PRC_P=5000 → n_P=ceil(10000/5000)=2
-			// D=α×P=20000, PRC_D=8000 → n_D=ceil(20000/8000)=3
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
-			nP, nD := bottleneckReplicasPaired(s, "pf", "dc")
-			Expect(nP).To(Equal(2))
-			Expect(nD).To(Equal(3))
-		})
-
-		It("takes max across analyzers", func() {
-			// analyzer1: P-Remaining=10000, PRC_P=5000 → nP=2; D=20000, PRC_D=8000 → nD=3
-			// analyzer2: P-Remaining=15000, PRC_P=5000 → nP=3; D=15000, PRC_D=8000 → nD=2
+	Describe("roleBottleneckReplicas", func() {
+		It("computes max cross-analyzer ceil(roleRemaining/PRC)", func() {
+			// analyzer0: prefill remaining=10000, PRC=5000 → ceil(10000/5000)=2
+			// analyzer1: prefill remaining=15000, PRC=5000 → ceil(15000/5000)=3 (max)
 			s := []NamedAnalyzerResult{
 				makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000),
 				makeNamedPD("ta", 15000, 15000, 0, 0, 15000, 15000, "pf", 5000, "dc", 8000),
 			}
-			nP, nD := bottleneckReplicasPaired(s, "pf", "dc")
-			Expect(nP).To(Equal(3)) // max(2,3)
-			Expect(nD).To(Equal(3)) // max(3,2)=3 for first, then second gives 2; max=3
+			ps := InitRolePairedState(s)
+			Expect(roleBottleneckReplicas(s, ps, "prefill", "pf")).To(Equal(3))
+			// decode: max(ceil(20000/8000)=3, ceil(15000/8000)=2) = 3
+			Expect(roleBottleneckReplicas(s, ps, "decode", "dc")).To(Equal(3))
 		})
 
-		It("returns (0,0) when PRC=0 (cold-start guard)", func() {
+		It("returns 0 when PRC=0 (cold-start guard)", func() {
 			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, "pf", 0, "dc", 0)}
-			nP, nD := bottleneckReplicasPaired(s, "pf", "dc")
-			Expect(nP).To(Equal(0))
-			Expect(nD).To(Equal(0))
+			ps := InitRolePairedState(s)
+			Expect(roleBottleneckReplicas(s, ps, "prefill", "pf")).To(Equal(0))
+		})
+	})
+
+	Describe("needsScaleUpPaired", func() {
+		It("returns true when any role has aggregate remaining demand", func() {
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 5000, 0, 0, 10000, 5000, "pf", 10000, "dc", 10000)}
+			ps := InitRolePairedState(s)
+			Expect(needsScaleUpPaired(s, ps, []string{"prefill", "decode"})).To(BeTrue())
+		})
+
+		It("returns false when all roles have zero remaining demand", func() {
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 0, 0, 10000, 5000, "pf", 10000, "dc", 10000)}
+			ps := InitRolePairedState(s)
+			Expect(needsScaleUpPaired(s, ps, []string{"prefill", "decode"})).To(BeFalse())
 		})
 	})
 
@@ -491,51 +454,62 @@ var _ = Describe("paired helpers", func() {
 		})
 	})
 
-	Describe("applyAllocationPaired", func() {
-		It("decrements Remaining by min(P-capacity, D-capacity-in-P-units)", func() {
-			// α=2 (D=2×P), PRC_P=5000, PRC_D=8000, nP=2, nD=3
-			// servedP = 2×5000=10000; servedD = 3×8000/2=12000; served=min=10000
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 20000, 0, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
-			applyAllocationPaired(s, "pf", 2, "dc", 3)
-			Expect(s[0].Remaining).To(BeNumerically("~", 10000.0, 1e-9))
-		})
-
-		It("clamps Remaining to 0 on over-allocation", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 5000, 0, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
-			applyAllocationPaired(s, "pf", 5, "dc", 5) // more than needed
-			Expect(s[0].Remaining).To(Equal(0.0))
-		})
-
-		It("does not mutate Result fields", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 0, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
-			applyAllocationPaired(s, "pf", 1, "dc", 2)
-			Expect(s[0].Result.RequiredCapacity).To(Equal(0.0)) // Result.RC unchanged (makeNamedPD sets 0)
-		})
-	})
-
-	Describe("allocateForModelPaired", func() {
-		It("allocates until needsScaleUp is false", func() {
-			// P-Remaining=10000, PRC_P=5000 → needs 2 prefill replicas
-			// D=α×P=20000, PRC_D=8000 → needs 3 decode replicas
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 0, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
+	Describe("allocateForModelPairedB2", func() {
+		// B2.1 — Joint-commit atomicity: one role exhausted.
+		It("B2.1: commits only what both roles can satisfy (decode exhausted → kP=0, kD=0)", func() {
+			// P-demand=10000, D-demand=0 (no decode demand) → decode drops from min (util=1).
+			// Reduced to single-role P allocation.
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 0, 0, 0, 10000, 0, "pf", 5000, "dc", 8000)}
 			variants := []interfaces.VariantCapacity{
 				{VariantName: "pf", Role: "prefill", PerReplicaCapacity: 5000},
 				{VariantName: "dc", Role: "decode", PerReplicaCapacity: 8000},
 			}
-			targets := map[string]int{"pf": 1, "dc": 1}
+			targets := map[string]int{"pf": 1, "dc": 3}
+			ps := InitRolePairedState(s)
 			pick := func(_ []NamedAnalyzerResult, _ []interfaces.VariantCapacity,
 				_ map[string]interfaces.VariantReplicaState,
 				_ map[string]int, _ map[string]int) (string, string, int, int) {
 				return "pf", "dc", math.MaxInt, math.MaxInt
 			}
-			allocateForModelPaired(context.Background(), s, variants, nil, nil, targets, pick)
+			allocateForModelPairedB2(context.Background(), s, variants, nil, nil, targets, pick, ps, []string{"prefill", "decode"})
+			// Only P has demand; decode drops from min → single-role P allocation
+			// demandP=10000, prcP=5000: nP=2, util_P=2*5000/10000=1.0, util_D=1.0 (demand=0)
+			// Δ_util=1.0, kP=floor(1.0*10000/5000)=2, kD=floor(1.0*0/8000)=0
 			Expect(targets["pf"]).To(Equal(3)) // 1 + 2
-			Expect(targets["dc"]).To(Equal(4)) // 1 + 3
-			Expect(needsScaleUp(s)).To(BeFalse())
+			Expect(targets["dc"]).To(Equal(3)) // unchanged (kD=0)
+		})
+
+		// B2.2 — Util-bottleneck trim: ceil-rounded sizing over-allocates one role.
+		// Step 1: nP=4 (ceil(10000/3000)), nD=1 (ceil(10000/10000)).
+		//   util_P=1.2, util_D=1.0 → Δ_util=1.0 → kP=floor(3.33)=3 (trim!), kD=1.
+		//   After step 1: P-remaining=10000-9000=1000, D-remaining=0.
+		// Step 2: P still has demand; D has none → commits 1 more P replica.
+		//   Final: kP=4, kD=1. The trim in step 1 prevented over-committing D.
+		It("B2.2: util-bottleneck trim — each step advances both roles by same Δ_util", func() {
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 10000, 0, 0, 10000, 10000, "pf", 3000, "dc", 10000)}
+			variants := []interfaces.VariantCapacity{
+				{VariantName: "pf", Role: "prefill", PerReplicaCapacity: 3000},
+				{VariantName: "dc", Role: "decode", PerReplicaCapacity: 10000},
+			}
+			targets := map[string]int{"pf": 0, "dc": 0}
+			ps := InitRolePairedState(s)
+			pick := func(_ []NamedAnalyzerResult, _ []interfaces.VariantCapacity,
+				_ map[string]interfaces.VariantReplicaState,
+				_ map[string]int, _ map[string]int) (string, string, int, int) {
+				return "pf", "dc", math.MaxInt, math.MaxInt
+			}
+			allocateForModelPairedB2(context.Background(), s, variants, nil, nil, targets, pick, ps, []string{"prefill", "decode"})
+			// Both roles fully served at end (no over-commitment beyond demand).
+			Expect(needsScaleUpPaired(s, ps, []string{"prefill", "decode"})).To(BeFalse())
+			// D satisfied in 1 replica (trim prevented committing decode beyond demand).
+			Expect(targets["dc"]).To(Equal(1))
+			// P served with ceil(10000/3000)=4 replicas (loop ran twice to cover residual).
+			Expect(targets["pf"]).To(Equal(4))
 		})
 
 		It("stops when pick returns empty pair", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 0, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 10000, 0, 0, 10000, 10000, "pf", 5000, "dc", 10000)}
+			ps := InitRolePairedState(s)
 			targets := map[string]int{"pf": 0, "dc": 0}
 			calls := 0
 			pick := func(_ []NamedAnalyzerResult, _ []interfaces.VariantCapacity,
@@ -544,7 +518,7 @@ var _ = Describe("paired helpers", func() {
 				calls++
 				return "", "", 0, 0
 			}
-			allocateForModelPaired(context.Background(), s, nil, nil, nil, targets, pick)
+			allocateForModelPairedB2(context.Background(), s, nil, nil, nil, targets, pick, ps, []string{"prefill", "decode"})
 			Expect(calls).To(Equal(1))
 		})
 	})

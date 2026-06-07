@@ -59,7 +59,9 @@ func (o *CostAwareOptimizer) Optimize(
 			copy(s, req.AnalyzerResults)
 			initDisaggregatedRemaining(s)
 			if needsScaleUp(s) {
-				allocateForModelPaired(ctx, s, satEntry.VariantCapacities, stateMap, nil, targets, costGreedyPickPaired)
+				ps := InitRolePairedState(s)
+				allocateForModelPairedB2(ctx, s, satEntry.VariantCapacities, stateMap, nil, targets,
+					costGreedyPickPaired, ps, []string{"prefill", "decode"})
 			} else {
 				costAwareScaleDownRoleIterated(ctx, s, satEntry.VariantCapacities, targets, stateMap)
 			}
