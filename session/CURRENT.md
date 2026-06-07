@@ -27,7 +27,7 @@
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
-| multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits; stacked on #1225 — **now rebases onto main directly**; diff will clean up to threshold-only changes after rebase | `b8b823b0` |
+| multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits directly on `main@f664a470`; force-pushed post-rebase; CI re-running | `b0a50fd3` |
 | multi-analyzer-optimizer | — | Local only (post-rebase); 7 commits on `multi-analyzer-threshold@b8b823b0`. **Ready for push + PR creation** — awaiting Dean force-with-lease confirmation. SchedulerQueue wiring from engine-queue-fix absorbed. | `3fe287fe` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
@@ -35,7 +35,7 @@
 
 ## Blocked on
 
-- **PR #1228** — opened 2026-06-02. #1225 merged; threshold branch can now rebase onto main to get a clean diff. Awaiting: (1) threshold coder rebases `multi-analyzer-threshold` onto `main`@`f664a470`, (2) CI re-runs on the rebased branch, (3) ev-shindin review. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md). PR #1113 stays open until Dean closes it post-coordination with ev-shindin.
+- **PR #1228** — rebased onto `main@f664a470`; force-pushed to `origin/multi-analyzer-threshold` (tip `b0a50fd3`, 4 commits, clean diff). CI re-running post-rebase. Awaiting CI signal + ev-shindin review. PR #1113 stays open until Dean closes it post-coordination with ev-shindin. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md).
 - **multi-analyzer-optimizer** — all 7 commits landed locally on `multi-analyzer-threshold@b8b823b0`. Cross-rebase complete; gates green; SchedulerQueue wiring absorbed from engine-queue-fix. **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer` and PR creation.** See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
 
