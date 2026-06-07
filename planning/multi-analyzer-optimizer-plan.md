@@ -1,4 +1,4 @@
-# Multi-Analyzer Optimizer — Plan
+o# Multi-Analyzer Optimizer — Plan
 
 > **Status: ACTIVE** — all commits landed locally; cross-rebased onto
 > `multi-analyzer-threshold@b8b823b0` (PR #1228 head). 7 commits; tip
@@ -670,6 +670,24 @@ Coder may reorganise; the review-ready history should land roughly as:
 2. `pipeline: role-generic joint scale-up + role-iterated scale-down; delete parallel non-disag paths`.
 3. `pipeline: greedy fair-share per-role + min-util coupling; drop α`.
 4. `pipeline: tests — D-only scale-up, arity-1 collapse, greedy min-util coupling`.
+
+**Commit 5 — cleanup pass (the delete step; outstanding).** Commits 1–4 landed
+the wrap + inline; the **delete step of § Deletions was not done**, so the old
+implementations remain orphaned alongside the new ones (both compile; tests
+pass; behaviour intact). Land a 5th commit that finishes it:
+
+- **Delete the orphaned functions** (0 production callers): `allocateForModelPairedB2`
+  + `needsScaleUpPaired` + `PickPairFn`; `costGreedyPickPaired`, `fairSharePickPaired`,
+  `costGreedyPick`, `fairSharePick`; `costAwareScaleUp`, `costAwareScaleDown`; the free
+  `allocateForModel` + `needsScaleUp`, `bottleneckReplicas`, `needsScaleDown`,
+  `safeRemovalReplicas`; `isDisaggregated`, `InitRolePairedState`. Several are still
+  referenced only by tests-of-dead-code — migrate or remove those specs in the same commit.
+- **Collapse the passthrough**: rename `costAwareScaleDownRoleIterated` →
+  `scaleDownRoleIterated`, drop the one-line wrapper.
+- **Fix stale comments**: the greedy tombstone referencing `allocateForModelPairedB2`,
+  the "B2 paired scale-up helpers" header, and the `RolePairedState` α comment.
+- Delete one function at a time, `make test` green after each (delete is the
+  same wrap→verify→inline→**delete** discipline run to its last step — do not bulk-delete).
 
 ### Cost picker: integer-rounding suboptimality (pre-existing — follow-up, NOT Phase 3)
 

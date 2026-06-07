@@ -1,9 +1,9 @@
 # Multi-Analyzer Optimizer — Code Review
 
-**Status: FINAL (Phase 1) / DRAFT (Phase 2 — see addendum below)**
-**Reviewer:** plan-agent (reviewer role), 2026-06-07
-**Branch reviewed:** `multi-analyzer-optimizer` @ `4bfac2fa` (11 commits on `multi-analyzer-threshold@b8b823b0`).
-Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`, Phase 2 post-review fixes).
+**Status: FINAL (Phase 1) / DRAFT (Phase 2, Phase 3 — see addenda below)**
+**Reviewer:** plan-agent (reviewer role), 2026-06-07 (P1/P2), 2026-06-08 (P3)
+**Branch reviewed:** `multi-analyzer-optimizer` @ `680b1fb8` (15 commits on `multi-analyzer-threshold@b8b823b0`).
+Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`). Phase 3 addendum covers commits 12–15 (tip `680b1fb8`).
 **Compared against:** [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md) and [`multi-analyzer-design.md`](multi-analyzer-design.md).
 
 > Method: read the code first to understand what it does, then compared
@@ -441,3 +441,95 @@ Plan marks N4 deferred; code at `costAwareScaleDownRoleIterated:412` has `sort.S
 ### Phase 2 verdict
 
 One blocker (B2-gate not updated), one plan discrepancy (B1 QM path, low impact), two cosmetics (N4 harmless, doc URL). The B2 gate fix is small — change the gate check in two call sites, add one test spec. Everything else is solid. Not ready for push until the gate is fixed.
+
+---
+
+## Phase 3 addendum — commits 12–15 (tip `680b1fb8`)
+
+**Commits reviewed:**
+- `5c18f4c5` — pipeline: initRoleState — unify role-state init
+- `2d0ce096` — pipeline: role-generic joint allocator + scale-down; unify dispatch paths
+- `0c06dcee` — pipeline: Greedy per-role fair-share + drop α
+- `680b1fb8` — pipeline: Phase 3 tests — D-only scale-up, min-util coupling
+
+### What the new code does (independent reading)
+
+Both optimizers now share one dispatch (no `if req.Disaggregated`):
+`initRoleState(s) → anyRoleNeedsScaleUp(ps, roles) ? allocateForModelPaired : scaleDownRoleIterated`.
+
+- `initRoleState` (analyzer_helpers:222) returns `(roles, pickerState)`. Disaggregated:
+  roles + per-role RC/SC from `RoleCapacities`. Non-disaggregated: one synthetic `"both"`
+  role from the model-level `Remaining`/`Spare` scalars (no re-aggregation). Populates
+  `RoleSpare` for scale-down; `pickerState` for scale-up.
+- `allocateForModelPaired` (analyzer_helpers:449) is role-generic: per-iteration it picks one
+  variant per role via a `RolePickFn`, sizes each independently (`roleBottleneckReplicas`),
+  computes `Δ_util = min_role util_role`, trims, and joint-commits. Arity-1 (`["both"]`)
+  reduces to plain allocation.
+- CostAware picker `costGreedyRolePick` (cost_aware:81) and Greedy picker `fairShareRolePick`
+  (greedy:284) are role-scoped; α is gone — the joint Δ_util commit is the coupling.
+- `fairShareValue` (greedy:49) sums picker-local role-remaining across roles.
+
+### Confirmed correct
+
+- **Unified dispatch in both optimizers** (cost_aware:59–66, greedy:108–118 + 145–148). ✅
+- **D-only gate bug is dead.** `anyRoleNeedsScaleUp` checks every role's picker-state, so
+  `RC_P=0, RC_D>0` enters scale-up. Tested: `cost_aware_optimizer_test.go:590` and
+  `greedy_score_optimizer_test.go:1108`. ✅
+- **`initRoleState` non-disag synthesis** aliases model-level RC/SC as the `"both"` role; no
+  re-aggregation. ✅
+- **α removed** from the Greedy picker; min-util commit is the coupling. ✅
+- **Arity-1 reduction** sound (`min` over one role = identity). ✅
+- **P-anchor model-level `Remaining` update** (analyzer_helpers:535–543) keeps Greedy non-disag
+  `fairShareValue` convergent. ✅
+
+### Finding P3.1 — dead code: the DELETE step was skipped (blocks push)
+
+The Phase 3 plan's deletion discipline is **wrap → verify → inline → delete**. Wrap + verify +
+inline are done (new code wired, tests green) but the **delete step was not** — the old
+implementations remain alongside the new ones. Orphaned (0 production callers, verified by
+ref-count):
+
+- `allocateForModelPairedB2` + now-exclusive deps `needsScaleUpPaired`, `PickPairFn`
+- `costGreedyPickPaired`, `fairSharePickPaired`, `costGreedyPick`, `fairSharePick`
+- `costAwareScaleUp`, `costAwareScaleDown`
+- free `allocateForModel` (analyzer_helpers:145 — the Greedy *method* of the same name shadows
+  it in grep) + its now-dead deps `needsScaleUp`, `bottleneckReplicas`, `needsScaleDown`,
+  `safeRemovalReplicas`
+- `isDisaggregated`, `InitRolePairedState`
+
+Not a correctness bug — behaviour is intact (wrap-before-delete did its job: no silent loss).
+But it is **incomplete against the plan** and ships a confusing diff: two scale-up
+implementations (`allocateForModelPaired` + `allocateForModelPairedB2`), two pickers per
+optimizer, dead scale-down — ev-shindin will not know which is live, and a future caller could
+wire the dead `allocateForModelPairedB2`. Several orphans are still referenced only by
+tests-of-dead-code (`allocateForModelPairedB2`, `costAwareScaleDown`, `isDisaggregated`,
+`needsScaleUpPaired`, `needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`,
+`safeRemovalReplicas`, `InitRolePairedState`), so the delete must migrate/remove those specs too.
+
+**Fix:** complete step 4 — delete the orphaned functions and their dead tests, `make test` green.
+Apply the same wrap→verify→inline→delete care in reverse: delete one function, run tests,
+proceed. Do not bulk-delete.
+
+### Finding P3.2 — passthrough wrappers (collapse / delete)
+
+- `scaleDownRoleIterated` (cost_aware:110–118) is a pure single-call passthrough to
+  `costAwareScaleDownRoleIterated`. Collapse: rename `costAwareScaleDownRoleIterated` →
+  `scaleDownRoleIterated`, drop the wrapper.
+- `InitRolePairedState` (analyzer_helpers:279–282) is a delegation wrapper over `initRoleState`
+  with 0 callers — delete (part of P3.1).
+
+### Finding P3.3 — stale comments (doc)
+
+- Greedy tombstone (greedy:278–279): "Greedy's disaggregated scale-up now delegates to
+  **allocateForModelPairedB2**" — it delegates to `allocateForModelPaired` now.
+- The "B2 paired scale-up helpers" header (analyzer_helpers:260) and the `RolePairedState` doc
+  ("α … only in picker sizing") are stale after α removal.
+
+### Phase 3 verdict
+
+The unification logic, the D-only fix, and the new tests are correct — the substance is right
+and behaviour is preserved. The gap is the **cleanup half**: the deletion step (P3.1), one
+passthrough collapse (P3.2), and stale comments (P3.3). **Not push-ready** until those land as a
+5th Phase 3 commit (delete orphaned functions + their dead tests, collapse the scale-down
+wrapper, fix the comments, `make test` green). This is incomplete scope, not a correctness
+blocker — distinct from the Phase 2 verdict, which was a real bug.
