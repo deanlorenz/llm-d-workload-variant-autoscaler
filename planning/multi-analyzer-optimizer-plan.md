@@ -196,6 +196,175 @@ Alternatives considered.
 
 ---
 
+## Phase 2: Post-review fixes (in scope on this branch)
+
+Phase 1 (commits 1–7, tip `3fe287fe` + dev-guide stub `233867bd`) is in
+review. Findings in
+[`multi-analyzer-optimizer-review.md`](multi-analyzer-optimizer-review.md)
+(B1, B2, T1, N2, N3, N4) land as additional commits on this branch — no
+new PR. Design framing in
+[`multi-analyzer-design.md`](multi-analyzer-design.md) § Architecture/D
+reshapes B2 from a one-line guard fix into a picker math restructure.
+**No `NamedAnalyzerResult` signature changes** (per design § Alternatives
+→ A10); per-role demand bookkeeping is picker-local for the duration of
+one model's allocation pass.
+
+### Decisions vs. review findings
+
+- **N1 — function rename rejected.** Keep `runAnalyzersAndScore`. The
+  function will populate `NamedAnalyzerResult.Score` (B1 fix), making
+  the name accurate again.
+- **N2 — `ModelScalingRequest.Disaggregated` kept.** Engine populates
+  it (already does in `collectV2ModelRequest`); optimizer changes to
+  **consume** the flag rather than re-derive via
+  `isDisaggregated([]VariantCapacity)`. Aligns with design § H (engine
+  is the broker for cross-cutting flags).
+- **N2 — `filterVariantCapacitiesByRole` dropped.** Use
+  `variantsForRole` from `analyzer_helpers.go` instead. Drop its test.
+- **N2 — middle return value of `runAnalyzersAndScore` dropped after
+  verification.** All analyzer data must continue to reach the
+  optimizer. The middle return today is the saturation `baseResult`,
+  which is *also* slot 0 of the slice — provably redundant. Coder
+  must verify no caller depends on it independently of the slice
+  before dropping; signature becomes 2-tuple.
+- **N3 — defensive copy dropped (both branches symmetric).** Engine
+  builds a fresh `ModelScalingRequest` per optimize cycle; optimizer
+  may mutate freely. The disaggregated-branch defensive copy in
+  `CostAwareOptimizer.Optimize` was unnecessary; drop for symmetry
+  with non-disag.
+- **N4 — sort role keys in `costAwareScaleDownRoleIterated`.**
+  Deterministic iteration; no behavior change for arity 2.
+- **Dev-guide update deferred** to the post-review polish item already
+  tracked in CURRENT § Issues to Open.
+
+### Scope summary (revised)
+
+| Finding | Scope | Files (primary) |
+|---|---|---|
+| **B1** — Engine populates `NamedAnalyzerResult.Score` from `config.Analyzers[name].Score` (default 1.0 when absent) in `runAnalyzersAndScore` (V2) and the QM construction site. | `internal/engines/saturation/engine_v2.go`, `internal/engines/saturation/engine_queueing_model.go` |
+| **B2** — Reshape paired scale-up to per-(model, role) independent sizing + joint commit bounded by `min_role util_role`. Trim over-allocated role; release excess to next iteration. Picker-local per-role bookkeeping (not on slice field). | `internal/engines/pipeline/analyzer_helpers.go`, `internal/engines/pipeline/cost_aware_optimizer.go`, `internal/engines/pipeline/greedy_score_optimizer.go` |
+| **T1** — Engine-level config-population assertions; remove hardcoded `Score: 1.0` from `withSatEntry`-style fixtures; multi-model fair-share priority integration test; B2 atomicity tests. | `internal/engines/saturation/*_test.go`, `internal/engines/pipeline/*_test.go` |
+| **N2** — Optimizer consumes `req.Disaggregated`; drop `filterVariantCapacitiesByRole` + its test; verify-then-drop middle return of `runAnalyzersAndScore`. | `internal/engines/pipeline/{analyzer_helpers,cost_aware_optimizer,greedy_score_optimizer}.go`, `internal/engines/saturation/{engine_v2,engine}.go` |
+| **N3** — Drop disaggregated-branch defensive copy in `CostAwareOptimizer.Optimize`. | `internal/engines/pipeline/cost_aware_optimizer.go` |
+| **N4** — Sort role keys in `costAwareScaleDownRoleIterated`. | `internal/engines/pipeline/cost_aware_optimizer.go` |
+
+### B2 picker reshape — implementation guide
+
+Per design § Architecture/D, paired scale-up is no longer "compute
+(n_P, n_D) together using α." Each role is an independent (model, role)
+mini-model for sizing; a joint-commit step bounds by min util.
+
+**Per-iteration math:**
+
+1. Per role, size independently using the same primitives as non-disag:
+   `n_role = max_i ceil(roleRemaining_i^role / PRC_i[v_role])` for the
+   picked variant in that role. Cross-analyzer aggregation unchanged.
+2. Compute candidate joint commit. For each analyzer:
+   `served_i^role = n_role × PRC_i[v_role]`,
+   `util_role = served^role / Demand_role` where `Demand_role` is
+   per-analyzer `r.RoleCapacities[role].RC` (initial), tracked locally
+   minus already-allocated-this-pass.
+3. `Δ_util = min_role { util_role }`. Trim the over-allocated role:
+   `k_role = floor(Δ_util × Demand_role / PRC_i[v_role])`.
+4. Commit `(k_P, k_D)` to `targets`; decrement picker-local
+   `roleRemaining_role` and the model-level `Remaining` field
+   (P-anchor convention) by matched joint serve in P-units.
+5. Loop until `Δ_util = 0` (no role has headroom on this candidate)
+   OR every role's `roleRemaining = 0` OR no variant has accelerator
+   capacity.
+
+**0-cases (per design § D):**
+
+- `Demand_role = 0` → `util_role = 1` by convention; role drops from
+  min. Reduces to single-role allocation when only one role has
+  demand.
+- `Demand_role > 0, Capacity_role = 0` (cold start) → `util_role = 0`
+  → joint commit is 0 until allocation lands in that role. Picker
+  must pick a variant of that role to advance.
+
+**Per-role bookkeeping shape:** picker-local
+`roleRemaining map[string]float64` per analyzer, mirroring `RoleSpare`'s
+shape. Initialized at picker entry from per-analyzer
+`r.RoleCapacities[role].RC`. Decremented per joint commit. Lives only
+inside the picker function — not stored on `NamedAnalyzerResult` (per
+design A10). Future PR can promote to a struct field if it becomes
+load-bearing.
+
+**Cross-analyzer aggregation unchanged.** Per-role sizing in step 1 is
+already cross-analyzer-aware (`max_i` over analyzers). Adding a role
+axis doesn't change how analyzers are aggregated; it adds an outer
+`min` over role axis at commit time. (See design § D "Same calculus as
+cross-analyzer aggregation.")
+
+**α stops appearing in serve-math.** Today's `analyzerAlpha`,
+`bottleneckReplicasPaired`, `applyAllocationPaired`,
+`costGreedyPickPaired`, `fairSharePickPaired` retire. Their test specs
+migrate to per-role tests of the simpler primitives. If a future
+picker wants to size one role from another, α can be derived inline
+from `RoleCapacities[*].TotalDemand` at sizing time only, but the new
+matched-pair commit doesn't need it.
+
+### Test plan
+
+- **T1.1 — Engine config-population test.** Build `config.Analyzers[]`
+  with explicit `Score` per entry; run `runAnalyzersAndScore`; assert
+  each `req.AnalyzerResults[i].Score` matches the config entry. Same
+  shape for `req.Disaggregated` (engine-populated, optimizer-consumed
+  per N2) and per-analyzer threshold overrides on the produced slice.
+- **T1.2 — Strip `Score: 1.0` from `withSatEntry` /
+  `withSatEntryV2`.** Helpers default to `Score: 0` (matching prod
+  default-of-uninit) or take a config-derived value. Tests that
+  previously relied on the hardcoded fixture set Score explicitly.
+- **T1.3 — Multi-model fair-share priority test.** Two models with
+  different priorities and different `Analyzers[].Score`; assert
+  Greedy ordering reflects priority. Would have caught B1.
+- **B2.1 — Joint-commit atomicity, role-exhausted.** Paired scale-up
+  where one role has `Capacity_role = 0` → assert no commitment on
+  the over-allocated role; symmetric for `Demand_role = 0` (single-
+  role reduction).
+- **B2.2 — Util-bottleneck trim.** Paired scale-up where ceil-rounded
+  sizing yields higher util on one role; assert over-allocated role
+  trimmed; matched serve advances both roles by same Δ_util.
+
+### Verification gates (re-run after each commit)
+
+- `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
+- `go vet ./...` — clean.
+- `go build ./...` — clean.
+- `make test` — all packages pass.
+- `go test -race ./internal/engines/saturation/... ./internal/engines/pipeline/...` — clean.
+- DCO sign-off on every new commit.
+
+### Commit shape (3 commits)
+
+1. **B1 + T1.** Engine populates Score in `runAnalyzersAndScore` (V2)
+   and the QM construction site; engine-level config-population test
+   added (T1.1); `withSatEntry`-style helpers stripped of hardcoded
+   Score (T1.2); multi-model priority integration test added (T1.3).
+2. **B2.** Picker reshape (per-role independent sizing + joint-commit
+   min-trim, picker-local `roleRemaining`); B2.1 + B2.2 tests added.
+   Old paired helpers retired; their existing specs migrate to
+   per-role tests of the simpler primitives.
+3. **N2 + N3 + N4 cleanup.** Optimizer reads `req.Disaggregated`
+   (instead of re-deriving via `isDisaggregated`); drop
+   `filterVariantCapacitiesByRole` + test; verify-then-drop middle
+   return of `runAnalyzersAndScore`; drop disaggregated-branch
+   defensive copy in CostAware; sort role keys in
+   `costAwareScaleDownRoleIterated`.
+
+Force-with-lease push only after Dean's explicit confirmation per
+CONVENTIONS.
+
+### Coordination
+
+- All work on `multi-analyzer-optimizer` branch. No new PR.
+- Branch is local-only post phase 1; phase-2 commits add to the
+  existing stack.
+- No interaction with #1225 / #1228 (upstream; will rebase onto when
+  they merge).
+
+---
+
 ## References
 
 - [`multi-analyzer-design.md`](multi-analyzer-design.md) — cross-cutting design
