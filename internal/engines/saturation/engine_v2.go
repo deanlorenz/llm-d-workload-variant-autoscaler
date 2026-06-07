@@ -94,14 +94,14 @@ func (e *Engine) runAnalyzersAndScore(
 	scaleTargets map[string]scaletarget.ScaleTargetAccessor,
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 	schedulerQueue *interfaces.SchedulerQueueMetrics,
-) ([]pipeline.NamedAnalyzerResult, *interfaces.AnalyzerResult, error) {
+) ([]pipeline.NamedAnalyzerResult, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	// Run saturation analyzer (always needed for PerReplicaCapacity).
 	baseResult, err := e.runV2AnalysisOnly(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Universal threshold post-step for saturation: recalibrate RC/SC using the
@@ -152,8 +152,7 @@ func (e *Engine) runAnalyzersAndScore(
 			Spare:     result.SpareCapacity,
 		})
 	}
-	// satResult used as the transitional model-level Result pointer until 1.6.
-	return namedResults, baseResult, nil
+	return namedResults, nil
 }
 
 // scoreForAnalyzer returns the AnalyzerScoreConfig.Score for the named analyzer,
@@ -340,7 +339,7 @@ func (e *Engine) collectV2ModelRequest(
 	variantAutoscalings map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 	schedulerQueue *interfaces.SchedulerQueueMetrics,
 ) (*pipeline.ModelScalingRequest, error) {
-	namedResults, _, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
+	namedResults, err := e.runAnalyzersAndScore(ctx, modelID, namespace, replicaMetrics, config,
 		variantStates, scaleTargets, variantAutoscalings, schedulerQueue)
 	if err != nil {
 		return nil, fmt.Errorf("collecting V2 model request for %s/%s: %w", namespace, modelID, err)

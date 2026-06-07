@@ -54,9 +54,8 @@ func (o *CostAwareOptimizer) Optimize(
 		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if isDisaggregated(satEntry.VariantCapacities) {
-			s := make([]NamedAnalyzerResult, len(req.AnalyzerResults))
-			copy(s, req.AnalyzerResults)
+		if req.Disaggregated {
+			s := req.AnalyzerResults // engine guarantees a fresh slice per cycle
 			initDisaggregatedRemaining(s)
 			if needsScaleUp(s) {
 				ps := InitRolePairedState(s)
@@ -378,8 +377,8 @@ func buildDecisionsWithOptimizer(
 	return decisions
 }
 
-// mergeConstraints combines constraints from multiple providers.
-// Currently unused in CostAwareOptimizer but available for limited mode.
+// mergeConstraints combines GPU budget constraints from multiple providers.
+// Used by GreedyByScoreOptimizer; lives here since CostAwareOptimizer owns the shared helpers.
 func mergeConstraints(constraints []*ResourceConstraints) map[string]int {
 	merged := make(map[string]int)
 	for _, c := range constraints {
@@ -455,19 +454,24 @@ func costAwareScaleDownRoleIterated(
 		states = stateMap[0]
 	}
 
-	// Collect distinct roles from the variant set.
-	roles := make(map[string]struct{})
+	// Collect distinct roles from the variant set. Sorted for determinism (N4).
+	rolesSet := make(map[string]struct{})
 	for _, vc := range variants {
 		role := vc.Role
 		if role == "" {
 			role = interfaces.RoleBoth
 		}
 		if role != interfaces.RoleBoth {
-			roles[role] = struct{}{}
+			rolesSet[role] = struct{}{}
 		}
 	}
+	roles := make([]string, 0, len(rolesSet))
+	for role := range rolesSet {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
 
-	for role := range roles {
+	for _, role := range roles {
 		roleVCs := variantsForRole(variants, role)
 		if len(roleVCs) == 0 {
 			continue

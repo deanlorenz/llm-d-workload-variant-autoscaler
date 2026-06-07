@@ -1101,29 +1101,6 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			Expect(active[2].req.ModelID).To(Equal("low"))
 		})
 
-		It("filterVariantCapacitiesByRole should filter by role", func() {
-			capacities := []interfaces.VariantCapacity{
-				{VariantName: "prefill-v", Role: "prefill"},
-				{VariantName: "decode-v", Role: "decode"},
-				{VariantName: "both-v", Role: "both"},
-				{VariantName: "empty-v", Role: ""},
-			}
-
-			prefill := filterVariantCapacitiesByRole(capacities, "prefill")
-			Expect(prefill).To(HaveLen(1))
-			Expect(prefill[0].VariantName).To(Equal("prefill-v"))
-
-			decode := filterVariantCapacitiesByRole(capacities, "decode")
-			Expect(decode).To(HaveLen(1))
-			Expect(decode[0].VariantName).To(Equal("decode-v"))
-
-			// "both" returns all
-			both := filterVariantCapacitiesByRole(capacities, "both")
-			Expect(both).To(HaveLen(4))
-
-			// empty returns all
-			empty := filterVariantCapacitiesByRole(capacities, "")
-			Expect(empty).To(HaveLen(4))
-		})
+		// filterVariantCapacitiesByRole removed (duplicate of variantsForRole in analyzer_helpers.go; N2 cleanup)
 	})
 })

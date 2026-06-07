@@ -646,10 +646,10 @@ var _ = Describe("CostAwareOptimizer", func() {
 		// withSatEntryPD builds a request with a disaggregated saturation result.
 		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
 			if r != nil {
+				req.Disaggregated = true
 				req.AnalyzerResults = []NamedAnalyzerResult{{
 					Name:      interfaces.SaturationAnalyzerName,
 					Result:    r,
-					Score:     1.0,
 					Remaining: r.RequiredCapacity,
 					Spare:     r.SpareCapacity,
 				}}
@@ -734,10 +734,10 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 		withSatEntryPD := func(r *interfaces.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
 			if r != nil {
+				req.Disaggregated = true
 				req.AnalyzerResults = []NamedAnalyzerResult{{
 					Name:      interfaces.SaturationAnalyzerName,
 					Result:    r,
-					Score:     1.0,
 					Remaining: r.RequiredCapacity,
 					Spare:     r.SpareCapacity,
 				}}

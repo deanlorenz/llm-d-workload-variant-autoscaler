@@ -85,9 +85,8 @@ func (o *GreedyByScoreOptimizer) Optimize(
 			continue
 		}
 
-		s := make([]NamedAnalyzerResult, len(req.AnalyzerResults))
-		copy(s, req.AnalyzerResults)
-		if isDisaggregated(satEntry.VariantCapacities) {
+		s := req.AnalyzerResults // engine guarantees a fresh slice per cycle
+		if req.Disaggregated {
 			initDisaggregatedRemaining(s)
 		}
 
@@ -126,9 +125,8 @@ func (o *GreedyByScoreOptimizer) Optimize(
 		vcMap := buildCapacityMap(satEntry.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
-		if isDisaggregated(satEntry.VariantCapacities) {
-			s := make([]NamedAnalyzerResult, len(req.AnalyzerResults))
-			copy(s, req.AnalyzerResults)
+		if req.Disaggregated {
+			s := req.AnalyzerResults
 			initDisaggregatedRemaining(s)
 			costAwareScaleDownRoleIterated(ctx, s, satEntry.VariantCapacities, targets, stateMap)
 		} else {
@@ -232,7 +230,7 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	stateMap := buildStateMap(w.req.VariantStates)
 	oldRemaining := w.remaining
 
-	if isDisaggregated(w.satEntry.VariantCapacities) {
+	if w.req.Disaggregated {
 		ps := InitRolePairedState(w.s)
 		pick := fairSharePickPaired(target, w.s)
 		allocateForModelPairedB2(ctx, w.s, w.satEntry.VariantCapacities, stateMap, available,
@@ -400,24 +398,6 @@ func fairSharePickPaired(target float64, s []NamedAnalyzerResult) PickPairFn {
 	}
 }
 
-// filterVariantCapacitiesByRole returns variant capacities matching the specified role.
-// For role RoleBoth or empty, returns all capacities.
-func filterVariantCapacitiesByRole(capacities []interfaces.VariantCapacity, role string) []interfaces.VariantCapacity {
-	if role == interfaces.RoleBoth || role == "" {
-		return capacities
-	}
-	var filtered []interfaces.VariantCapacity
-	for _, vc := range capacities {
-		vcRole := vc.Role
-		if vcRole == "" {
-			vcRole = interfaces.RoleBoth
-		}
-		if vcRole == role {
-			filtered = append(filtered, vc)
-		}
-	}
-	return filtered
-}
 
 // filterActive returns modelWork entries that still have remaining > 0.
 func filterActive(work []*modelWork) []*modelWork {
