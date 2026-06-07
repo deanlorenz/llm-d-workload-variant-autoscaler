@@ -14,7 +14,7 @@ import (
 //
 // Remaining and Spare are initialised from Result.RequiredCapacity and
 // Result.SpareCapacity by the engine (model scope) and decremented in place by
-// applyAllocation / applyDeallocation as the optimizer allocates replicas.
+// applyAllocation as the optimizer allocates replicas.
 // For disaggregated (P/D) models, the optimizer calls initRoleState
 // to populate RoleSpare per role and initialize picker-local demand.
 // The original Result values are never mutated.

@@ -850,33 +850,6 @@ var _ = Describe("CostAwareOptimizer", func() {
 			Expect(sorted[2].VariantName).To(Equal("expensive"))
 		})
 
-		It("sortByCostDesc should order by absolute cost descending", func() {
-			capacities := []interfaces.VariantCapacity{
-				{VariantName: "cheap", Cost: 5.0},
-				{VariantName: "expensive", Cost: 15.0},
-				{VariantName: "mid", Cost: 10.0},
-			}
-
-			sorted := sortByCostDesc(capacities)
-
-			Expect(sorted[0].VariantName).To(Equal("expensive"))
-			Expect(sorted[1].VariantName).To(Equal("mid"))
-			Expect(sorted[2].VariantName).To(Equal("cheap"))
-		})
-
-		It("sortByCostDesc should tie-break equal cost by per-replica capacity ascending", func() {
-			// Among equal-cost variants, the higher-PRC one must land last — the
-			// deterministic slot scale-down protects at one replica.
-			capacities := []interfaces.VariantCapacity{
-				{VariantName: "lo-prc", Cost: 5.0, PerReplicaCapacity: 1000},
-				{VariantName: "hi-prc", Cost: 5.0, PerReplicaCapacity: 9000},
-			}
-
-			sorted := sortByCostDesc(capacities)
-
-			Expect(sorted[len(sorted)-1].VariantName).To(Equal("hi-prc"))
-		})
-
 		It("mergeConstraints should take minimum available per type", func() {
 			constraints := []*ResourceConstraints{
 				{Pools: map[string]ResourcePool{"A100": {Limit: 10}, "H100": {Limit: 4}}},

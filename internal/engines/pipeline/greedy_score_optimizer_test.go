@@ -372,7 +372,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 
 	Context("Scale-Down", func() {
 
-		It("should reuse costAwareScaleDown for scale-down models", func() {
+		It("should apply role-iterated scale-down for scale-down models", func() {
 			r := &interfaces.AnalyzerResult{
 				SpareCapacity: 15000,
 				VariantCapacities: []interfaces.VariantCapacity{
@@ -1025,7 +1025,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			Expect(dm["cheap"].TargetReplicas).To(BeNumerically("<=", 3))
 		})
 
-		It("scale-down should respect minReplicas via costAwareScaleDown", func() {
+		It("scale-down should respect minReplicas via scaleDownRoleIterated", func() {
 			intPtr := func(n int) *int { return &n }
 
 			r := &interfaces.AnalyzerResult{

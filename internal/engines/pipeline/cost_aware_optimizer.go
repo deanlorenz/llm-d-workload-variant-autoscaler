@@ -104,84 +104,83 @@ func costGreedyRolePick(
 	return "", 0
 }
 
-// scaleDownRoleIterated is the Phase-3 unified scale-down: iterates roles
-// independently and sheds against per-role spare. Arity-1 (roles=["both"])
-// handles non-disaggregated models via the single synthetic "both" role.
-func scaleDownRoleIterated(
-	ctx context.Context,
-	s []NamedAnalyzerResult,
-	variants []interfaces.VariantCapacity,
-	targets map[string]int,
-	stateMap ...map[string]interfaces.VariantReplicaState,
-) {
-	costAwareScaleDownRoleIterated(ctx, s, variants, targets, stateMap...)
-}
-
-// scaleDownVariantSet removes replicas from the given variant set, most-expensive
-// first, until `spare` capacity is shed or each variant's minReplicas floor is
-// reached. The cheapest variant — last in the cost-descending order — is protected
-// at one replica when it would otherwise be the last variant with replicas in the
-// set, preventing a scale-to-zero deadlock.
+// scaleDownVariantSet sheds replicas from sortedVariants (PRE-SORTED cost-desc,
+// cheapest last). minReplicas floor and cheapest-at-1 protection are enforced
+// here. maxRemovable returns how many replicas of vc the caller permits to remove;
+// onRemove is invoked after committing n so the caller can update its spare bookkeeping.
 func scaleDownVariantSet(
 	ctx context.Context,
-	variants []interfaces.VariantCapacity,
-	spare float64,
+	sortedVariants []interfaces.VariantCapacity,
 	targets map[string]int,
 	states map[string]interfaces.VariantReplicaState,
+	maxRemovable func(vc interfaces.VariantCapacity) int,
+	onRemove func(vc interfaces.VariantCapacity, n int),
 ) {
 	logger := ctrl.LoggerFrom(ctx)
-
-	sorted := sortByCostDesc(variants)
-	remaining := spare
-
-	for i, vc := range sorted {
-		if remaining <= 0 {
-			break
-		}
+	for i, vc := range sortedVariants {
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}
-
 		current := targets[vc.VariantName]
-
-		// Annotation floor caps removal.
 		minReplicas := 0
 		if states != nil {
-			if state, ok := states[vc.VariantName]; ok && state.MinReplicas != nil {
-				minReplicas = *state.MinReplicas
+			if st, ok := states[vc.VariantName]; ok && st.MinReplicas != nil {
+				minReplicas = *st.MinReplicas
 			}
 		}
 		removable := current - minReplicas
 		if removable <= 0 {
 			continue
 		}
-
-		toRemove := int(math.Floor(remaining / vc.PerReplicaCapacity))
-		if toRemove > removable {
-			toRemove = removable
+		n := maxRemovable(vc)
+		if n > removable {
+			n = removable
 		}
-
-		// Protect the cheapest variant (last in cost-descending order) at one
-		// replica when removing toRemove would drop it below one and no
-		// more-expensive variant still holds replicas — i.e. it is the last with
-		// replicas in the set. When minReplicas >= 1, removable <= current-1 so
-		// toRemove <= current-1 and current-toRemove >= 1 already, so this clause
-		// never triggers.
-		if i == len(sorted)-1 && current-toRemove < 1 && !anyHasReplicas(sorted[:i], targets) {
-			toRemove = current - 1
+		// cheapest-at-1: the last (cheapest) variant is protected at 1 only when no
+		// more-expensive variant still holds replicas (#1237's positional rule).
+		if i == len(sortedVariants)-1 && current-n < 1 && !anyHasReplicas(sortedVariants[:i], targets) {
+			n = current - 1
 		}
-		if toRemove <= 0 {
+		if n <= 0 {
 			continue
 		}
-
-		targets[vc.VariantName] = current - toRemove
-		remaining -= float64(toRemove) * vc.PerReplicaCapacity
-
-		logger.V(logging.DEBUG).Info("Scale-down allocation",
-			"variant", vc.VariantName,
-			"removed", toRemove,
-			"cost", vc.Cost)
+		targets[vc.VariantName] = current - n
+		onRemove(vc, n)
+		logger.V(logging.DEBUG).Info("scale-down: removed replicas",
+			"variant", vc.VariantName, "removed", n, "cost", vc.Cost)
 	}
+}
+
+// sortVariantsForScaleDown orders a role's variants for cost-greedy scale-down:
+//  1. Cost descending — shed the most expensive first.
+//  2. Tie: score-weighted per-replica capacity ascending — Σ_i Score_i·PRC_i[v].
+//  3. Tie: variant name ascending — full determinism.
+//
+// With a single analyzer (Score=1) this reduces to Cost-desc then PRC-asc, i.e.
+// #1237's existing tie-break.
+func sortVariantsForScaleDown(s []NamedAnalyzerResult, roleVCs []interfaces.VariantCapacity) []interfaces.VariantCapacity {
+	weighted := func(name string) float64 {
+		sum := 0.0
+		for _, e := range s {
+			if e.Result == nil {
+				continue
+			}
+			sum += e.Score * prcForVariant(e.Result, name)
+		}
+		return sum
+	}
+	out := append([]interfaces.VariantCapacity(nil), roleVCs...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Cost != out[j].Cost {
+			return out[i].Cost > out[j].Cost
+		}
+		wi, wj := weighted(out[i].VariantName), weighted(out[j].VariantName)
+		if wi != wj {
+			return wi < wj
+		}
+		return out[i].VariantName < out[j].VariantName
+	})
+	return out
 }
 
 // anyHasReplicas reports whether any of the given variants has a positive target.
@@ -227,23 +226,6 @@ func sortByCostEfficiencyAsc(capacities []interfaces.VariantCapacity) []interfac
 	copy(sorted, capacities)
 	sort.Slice(sorted, func(i, j int) bool {
 		return costEfficiency(sorted[i]) < costEfficiency(sorted[j])
-	})
-	return sorted
-}
-
-// sortByCostDesc returns variants sorted by absolute cost descending. Equal-cost
-// variants are tie-broken by per-replica capacity ascending, so the highest-PRC
-// variant at the cheapest cost tier lands last — the deterministic slot the
-// scale-down protection keeps at one replica (prefer keeping the more capable
-// replica among equal-cost variants).
-func sortByCostDesc(capacities []interfaces.VariantCapacity) []interfaces.VariantCapacity {
-	sorted := make([]interfaces.VariantCapacity, len(capacities))
-	copy(sorted, capacities)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].Cost != sorted[j].Cost {
-			return sorted[i].Cost > sorted[j].Cost
-		}
-		return sorted[i].PerReplicaCapacity < sorted[j].PerReplicaCapacity
 	})
 	return sorted
 }
@@ -319,29 +301,20 @@ func mergeConstraints(constraints []*ResourceConstraints) map[string]int {
 	return merged
 }
 
-// costGreedyPickPaired selects the cheapest-by-cost-efficiency (vP, vD) pair for
-// costAwareScaleDownRoleIterated removes replicas from disaggregated models by
-// iterating each role independently. P and D scale-down are independent — trimming
-// one role's slack does not affect the other (each role's supply and demand are
-// distinct). Per role: remove from most expensive variant first; cheapest-variant
-// protection scoped to the role; minReplicas floor respected.
-func costAwareScaleDownRoleIterated(
+// scaleDownRoleIterated removes replicas role-by-role using the generalized
+// scaleDownVariantSet primitive. Roles are sorted for determinism.
+// Arity-1 (roles=["both"]) handles non-disaggregated models.
+func scaleDownRoleIterated(
 	ctx context.Context,
 	s []NamedAnalyzerResult,
 	variants []interfaces.VariantCapacity,
 	targets map[string]int,
 	stateMap ...map[string]interfaces.VariantReplicaState,
 ) {
-	logger := ctrl.LoggerFrom(ctx)
-
 	var states map[string]interfaces.VariantReplicaState
 	if len(stateMap) > 0 {
 		states = stateMap[0]
 	}
-
-	// Collect distinct roles from the variant set. Sorted for determinism (N4).
-	// "both" (non-disaggregated variants) is included so the unified path serves
-	// arity-1 models as well as multi-role disaggregated models.
 	rolesSet := make(map[string]struct{})
 	for _, vc := range variants {
 		role := vc.Role
@@ -357,51 +330,22 @@ func costAwareScaleDownRoleIterated(
 	sort.Strings(roles)
 
 	for _, role := range roles {
+		if !needsScaleDownForRole(s, role) {
+			continue
+		}
 		roleVCs := variantsForRole(variants, role)
 		if len(roleVCs) == 0 {
 			continue
 		}
-		sorted := sortByCostDesc(roleVCs)
-
-		for needsScaleDownForRole(s, role) {
-			removed := false
-			for i, vc := range sorted {
-				if !needsScaleDownForRole(s, role) {
-					break
-				}
-				if vc.PerReplicaCapacity <= 0 {
-					continue
-				}
-				current := targets[vc.VariantName]
-				minReplicas := 0
-				if states != nil {
-					if st, ok := states[vc.VariantName]; ok && st.MinReplicas != nil {
-						minReplicas = *st.MinReplicas
-					}
-				}
-				// Protect cheapest (last in cost-desc order) at 1 replica when
-				// it's the last variant with replicas in the role.
-				if i == len(sorted)-1 && !anyHasReplicas(sorted[:i], targets) && minReplicas < 1 {
-					minReplicas = 1
-				}
-				removable := current - minReplicas
-				if removable <= 0 {
-					continue
-				}
-				n := min(safeRemovalReplicasForRole(s, vc.VariantName, role), removable)
-				if n <= 0 {
-					continue
-				}
+		sorted := sortVariantsForScaleDown(s, roleVCs)
+		scaleDownVariantSet(ctx, sorted, targets, states,
+			func(vc interfaces.VariantCapacity) int {
+				return safeRemovalReplicasForRole(s, vc.VariantName, role)
+			},
+			func(vc interfaces.VariantCapacity, n int) {
 				applyDeallocationForRole(s, vc.VariantName, role, n)
-				targets[vc.VariantName] -= n
-				removed = true
-				logger.V(logging.DEBUG).Info("scale-down role-iterated: removed replicas",
-					"role", role, "variant", vc.VariantName, "removed", n, "cost", vc.Cost)
-			}
-			if !removed {
-				break
-			}
-		}
+			},
+		)
 	}
 }
 

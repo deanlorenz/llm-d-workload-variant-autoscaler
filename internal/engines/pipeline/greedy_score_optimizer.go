@@ -275,9 +275,6 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	return w.remaining < oldRemaining
 }
 
-// allocateToVariantsPaired was the old α-based paired loop; retired in B2.
-// Greedy's disaggregated scale-up now delegates to allocateForModelPairedB2.
-
 // fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired loop.
 // Each role receives the same target fair-share budget. The joint Δ_util commit
 // inside allocateForModelPaired enforces P/D coupling — α is no longer needed.
