@@ -49,8 +49,8 @@ multi-analyzer stack lands.
 |---|---|
 | #1225 `multi-analyzer-registration` | `analyzerEntry`, `analyzers []analyzerEntry`, `analyzersSnapshot`, `started bool`, `RegisterAnalyzer(name, analyzer) error`, snapshot-on-`StartOptimizeLoop`. |
 | #1228 `multi-analyzer-threshold` (stacked on #1225) | `aggregation` package (`SumTotalSupply`, `SumTotalAnticipatedSupply`, `SumTotalDemand`, `AggregateByRole`, `ScopeTotals`); engine `applyUniversalThreshold` + `resolveThresholds`; `AnalyzerResult.TotalAnticipatedSupply` and `RoleCapacity.TotalAnticipatedSupply` fields; `runRegisteredAnalyzers` calling the post-step per analyzer. |
-| `multi-analyzer-optimizer` (no PR) | `pipeline.NamedAnalyzerResult{Name, Result, Score, Remaining, Spare, SpareD}`; `ModelScalingRequest.AnalyzerResults []NamedAnalyzerResult`; per-variant slice helpers; CostAware + Greedy migrated to the slice. Saturation entry must be present (optimizer skips models without one — see §2.5). |
-| `engine-queue-fix` (deferred PR — see open question) | Wires `CollectSchedulerQueueMetrics(ctx, modelID)` through `prepareModelData` → `runV2AnalysisOnly`/`runRegisteredAnalyzer` → `AnalyzerInput.SchedulerQueue` for **every** registered analyzer (saturation and TA both). Currently sits on the pre-split engine tips; needs rebase. **Open: whether this lands as part of `multi-analyzer-optimizer` or as a standalone follow-up PR.** A trigger has been sent to the optimizer coder asking them to consider absorbing this; until that's resolved, this plan assumes the queue wiring lands separately and TA-PR5 makes no queue-related changes. |
+| `multi-analyzer-optimizer` (no PR) | `pipeline.NamedAnalyzerResult{Name, Result, Score, Remaining, Spare, RoleSpare map[string]float64}`; `ModelScalingRequest.AnalyzerResults []NamedAnalyzerResult`; per-variant slice helpers; CostAware + Greedy migrated to the slice. Saturation entry must be present (optimizer skips models without one — see §2.5). |
+| `multi-analyzer-optimizer` (no PR, queue wiring included) | Absorbs `engine-queue-fix` (commit `01ed7d8d`) in its cross-rebase fixup commit `3fe287fe`. `CollectSchedulerQueueMetrics` is wired through `prepareModelData` → `modelData.schedulerQueue` → `runV2AnalysisOnly` / `runAnalyzers` → `AnalyzerInput.SchedulerQueue` for every registered analyzer. TA-PR5 makes no queue-related changes; TA's existing nil-tolerance covers the window before the optimizer PR merges. |
 
 **Rebase order** (assuming the three PRs merge in dependency order):
 
@@ -250,19 +250,18 @@ TA today already handles `SchedulerQueue` correctly:
   lands), TA derives `queueDemand = QueueSize / (DefaultQueueDrainFactor ×
   avgDecodeITLSat)` and adds it to model-level `totalDemand`.
 
-**Engine wiring (separate from this PR):** `engine-queue-fix` (1 commit
-`01ed7d8d` on the pre-split engine tips) wires `CollectSchedulerQueueMetrics`
-through the engine for **all** analyzers, not just sat_v2. It is an open
-question whether that wiring lands as part of `multi-analyzer-optimizer` or as
-a standalone follow-up. A trigger
-(`session/handoffs/optimizer__ta-queue-wiring.md`) has been sent to the
-optimizer coder.
+**Engine wiring (resolved — absorbed into `multi-analyzer-optimizer`):**
+`engine-queue-fix` (commit `01ed7d8d`) was absorbed in the optimizer branch's
+cross-rebase fixup commit `3fe287fe`. `CollectSchedulerQueueMetrics` is wired
+through `prepareModelData → modelData.schedulerQueue → AnalyzerInput.SchedulerQueue`
+for every registered analyzer on that branch. The open-question trigger
+(`session/handoffs/optimizer__ta-queue-wiring.md`) is answered.
 
 This plan assumes:
 - TA-PR5 makes **no** changes to the engine queue wiring.
-- TA's existing nil-tolerance is sufficient: TA-PR5 ships safely whether or
-  not queue data is wired by the time it merges. When queue data lands, TA's
-  per-cycle `Analyze()` consumes it without code change.
+- TA's existing nil-tolerance is sufficient: TA-PR5 ships safely on any
+  merge ordering. When the optimizer branch lands, TA's per-cycle `Analyze()`
+  receives real queue data without code change.
 - TA's queue-demand contribution must be lifted into per-role attribution to
   preserve the per-role linearity invariant — see §3.3 (d).
 
