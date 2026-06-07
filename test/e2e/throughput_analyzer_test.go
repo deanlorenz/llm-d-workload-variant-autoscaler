@@ -1,0 +1,551 @@
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	promoperator "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	variantautoscalingv1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/test/e2e/fixtures"
+)
+
+// Saturation config YAML strings for multi-analyzer (V2) mode.
+// Both use the same threshold values; only the analyzers list differs.
+// The saturation thresholds (kvCacheThreshold, kvSpareTrigger, etc.) are set to
+// values that reliably cross with the simulator's kv-cache-size=1 setup.
+const (
+	throughputBothEnabledConfig = `
+model_id: ""
+namespace: ""
+kvCacheThreshold: 0.80
+queueLengthThreshold: 5
+kvSpareTrigger: 0.10
+queueSpareTrigger: 2
+scaleUpThreshold: 0.85
+scaleDownBoundary: 0.70
+analyzers:
+  - name: saturation
+    enabled: true
+    score: 1.0
+  - name: throughput
+    enabled: true
+    score: 1.0
+`
+
+	throughputOnlyConfig = `
+model_id: ""
+namespace: ""
+kvCacheThreshold: 0.80
+queueLengthThreshold: 5
+kvSpareTrigger: 0.10
+queueSpareTrigger: 2
+scaleUpThreshold: 0.85
+scaleDownBoundary: 0.70
+analyzers:
+  - name: saturation
+    enabled: false
+  - name: throughput
+    enabled: true
+    score: 1.0
+`
+)
+
+// throughputSustainedLoadScript is an inline shell script for a Kubernetes Job that
+// continuously sends /v1/completions requests until the Job's activeDeadlineSeconds is reached.
+// Uses /v1/completions (not /v1/chat/completions) because the llm-d simulator only tracks
+// KV cache for the text completion API endpoint.
+const throughputSustainedLoadScript = `#!/bin/sh
+set -u
+echo "Throughput load job starting: target=$TARGET_URL model=$MODEL_ID workers=$WORKERS"
+
+# Preflight: wait for the service to respond.
+CONNECTED=false
+i=1
+while [ "$i" -le "$MAX_RETRIES" ]; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$PREFLIGHT_TIMEOUT" "$TARGET_URL/../models" || true)
+  if [ "$HTTP" = "200" ]; then
+    echo "Service preflight passed (attempt $i)"
+    CONNECTED=true
+    break
+  fi
+  echo "Preflight attempt $i: HTTP $HTTP, retrying in ${RETRY_DELAY}s..."
+  sleep "$RETRY_DELAY"
+  i=$((i + 1))
+done
+
+if [ "$CONNECTED" != "true" ]; then
+  echo "ERROR: service not ready after $MAX_RETRIES attempts"
+  exit 1
+fi
+
+echo "Starting $WORKERS concurrent workers..."
+w=1
+while [ "$w" -le "$WORKERS" ]; do
+  (
+    while true; do
+      curl -s -o /dev/null --max-time "$CURL_TIMEOUT" -X POST "$TARGET_URL" \
+        -H "Content-Type: application/json" \
+        -d "{\"model\":\"$MODEL_ID\",\"prompt\":\"Explain transformer architecture in detail.\",\"max_tokens\":$MAX_TOKENS}" \
+        || true
+    done
+  ) &
+  w=$((w + 1))
+done
+
+# Wait indefinitely; the Job is killed by activeDeadlineSeconds.
+wait || true
+`
+
+// buildThroughputSustainedLoadJob returns a Job spec that sends continuous completions
+// requests to targetURL until the job's activeDeadlineSeconds deadline.
+func buildThroughputSustainedLoadJob(namespace, name, targetURL, modelID string, workers int, deadlineSec int64) *batchv1.Job {
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app":           name,
+				"test-resource": "true",
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:          ptr.To(int32(0)),
+			ActiveDeadlineSeconds: &deadlineSec,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":           name,
+						"test-resource": "true",
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					DNSConfig: &corev1.PodDNSConfig{
+						Options: []corev1.PodDNSConfigOption{
+							{Name: "ndots", Value: ptr.To("2")},
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:    "load-gen",
+							Image:   "quay.io/curl/curl:8.11.1",
+							Command: []string{"/bin/sh", "-c"},
+							Args:    []string{throughputSustainedLoadScript},
+							Env: []corev1.EnvVar{
+								{Name: "TARGET_URL", Value: targetURL},
+								{Name: "MODEL_ID", Value: modelID},
+								{Name: "WORKERS", Value: fmt.Sprintf("%d", workers)},
+								{Name: "MAX_TOKENS", Value: "400"},
+								{Name: "CURL_TIMEOUT", Value: "300"},
+								{Name: "MAX_RETRIES", Value: "24"},
+								{Name: "RETRY_DELAY", Value: "5"},
+								{Name: "PREFLIGHT_TIMEOUT", Value: "30"},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// ─── Scenario 1: Wiring Health Check (smoke/throughput) ───────────────────────
+
+var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throughput"), Ordered, func() {
+	const (
+		poolName              = "throughput-smoke-pool"
+		modelSvcName          = "throughput-smoke-ms"
+		modelDecodeDeployment = modelSvcName + "-decode"
+		serviceName           = modelSvcName + "-service"
+		smName                = modelSvcName + "-monitor"
+		vaName                = "throughput-smoke-va"
+	)
+
+	var (
+		modelID         string
+		cmName          string
+		cmOriginal      *corev1.ConfigMap
+		cmExistedBefore bool
+		cmKey           string
+		cmNamespace     string
+	)
+
+	BeforeAll(func() {
+		modelID = cfg.ModelID
+		cmName = saturationConfigMapName()
+		cmNamespace = cfg.WVANamespace
+		cmKey = "default"
+
+		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
+		if err == nil {
+			cmExistedBefore = true
+			cmOriginal = cm.DeepCopy()
+		} else if !errors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("Writing multi-analyzer config with both analyzers enabled")
+		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
+
+		By("Creating model service for throughput smoke test")
+		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
+		Expect(fixtures.CreateModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, poolName, modelID, vaName, cfg.UseSimulator, 2)).To(Succeed())
+		Expect(fixtures.EnsureService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment, 8000)).To(Succeed())
+		Expect(fixtures.EnsureServiceMonitor(ctx, crClient, cfg.MonitoringNS, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment)).To(Succeed())
+
+		By("Waiting for model service to be ready")
+		Eventually(func(g Gomega) {
+			dep, err := k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Get(ctx, modelDecodeDeployment, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(dep.Status.ReadyReplicas).To(BeNumerically(">=", 1))
+		}, time.Duration(cfg.PodReadyTimeout)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+
+		By("Creating VA for throughput smoke test")
+		Expect(fixtures.EnsureVariantAutoscalingWithDefaults(
+			ctx, crClient, cfg.LLMDNamespace, vaName,
+			modelDecodeDeployment, modelID, cfg.AcceleratorType, cfg.ControllerInstance,
+		)).To(Succeed())
+	})
+
+	AfterAll(func() {
+		By("Restoring saturation ConfigMap state")
+		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		By("Cleaning up throughput smoke test resources")
+		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
+			ObjectMeta: metav1.ObjectMeta{Name: vaName, Namespace: cfg.LLMDNamespace},
+		})
+		_ = crClient.Delete(ctx, &promoperator.ServiceMonitor{
+			ObjectMeta: metav1.ObjectMeta{Name: smName, Namespace: cfg.MonitoringNS},
+		})
+		_ = k8sClient.CoreV1().Services(cfg.LLMDNamespace).Delete(ctx, serviceName, metav1.DeleteOptions{})
+		_ = k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Delete(ctx, modelDecodeDeployment, metav1.DeleteOptions{})
+	})
+
+	It("reconciles VA to steady state with both analyzers enabled", func() {
+		By("Waiting for MetricsAvailable condition and DesiredOptimizedAlloc to be populated")
+		Eventually(func(g Gomega) {
+			va := &variantautoscalingv1alpha1.VariantAutoscaling{}
+			g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: cfg.LLMDNamespace}, va)).To(Succeed())
+
+			metricsCond := variantautoscalingv1alpha1.GetCondition(va, variantautoscalingv1alpha1.TypeMetricsAvailable)
+			if metricsCond != nil {
+				GinkgoWriter.Printf("  Smoke VA (%s): MetricsAvailable=%s reason=%s message=%q\n",
+					vaName, metricsCond.Status, metricsCond.Reason, metricsCond.Message)
+			} else {
+				GinkgoWriter.Printf("  Smoke VA (%s): MetricsAvailable=<nil>\n", vaName)
+			}
+
+			g.Expect(metricsCond).NotTo(BeNil(), "MetricsAvailable condition should be present")
+			g.Expect(metricsCond.Status).To(Equal(metav1.ConditionTrue), "MetricsAvailable should be true")
+			g.Expect(va.Status.DesiredOptimizedAlloc.Accelerator).NotTo(BeEmpty(), "DesiredOptimizedAlloc.Accelerator should be set")
+			g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil(), "DesiredOptimizedAlloc.NumReplicas should be set")
+
+			GinkgoWriter.Printf("  Smoke VA (%s): DesiredOptimizedAlloc replicas=%d accelerator=%q\n",
+				vaName, *va.Status.DesiredOptimizedAlloc.NumReplicas, va.Status.DesiredOptimizedAlloc.Accelerator)
+		}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+	})
+})
+
+// ─── Scenario 2: Tier-2 Calibration → Positive Scale-Up Signal (full/throughput) ─
+
+var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput"), Ordered, func() {
+	const (
+		poolName              = "throughput-scaleup-pool"
+		modelSvcName          = "throughput-scaleup-ms"
+		modelDecodeDeployment = modelSvcName + "-decode"
+		serviceName           = modelSvcName + "-service"
+		smName                = modelSvcName + "-monitor"
+		vaName                = "throughput-scaleup-va"
+		loadJobName           = "throughput-scaleup-load"
+	)
+
+	var (
+		modelID         string
+		cmName          string
+		cmOriginal      *corev1.ConfigMap
+		cmExistedBefore bool
+		cmKey           string
+		cmNamespace     string
+	)
+
+	BeforeAll(func() {
+		modelID = cfg.ModelID
+		cmName = saturationConfigMapName()
+		cmNamespace = cfg.WVANamespace
+		cmKey = "default"
+
+		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
+		if err == nil {
+			cmExistedBefore = true
+			cmOriginal = cm.DeepCopy()
+		} else if !errors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("Writing multi-analyzer config with both analyzers enabled")
+		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
+
+		By("Creating model service for throughput scale-up test")
+		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
+		Expect(fixtures.CreateModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, poolName, modelID, vaName, cfg.UseSimulator, 2)).To(Succeed())
+		Expect(fixtures.EnsureService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment, 8000)).To(Succeed())
+		Expect(fixtures.EnsureServiceMonitor(ctx, crClient, cfg.MonitoringNS, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment)).To(Succeed())
+
+		By("Waiting for model service to be ready")
+		Eventually(func(g Gomega) {
+			dep, err := k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Get(ctx, modelDecodeDeployment, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(dep.Status.ReadyReplicas).To(BeNumerically(">=", 1))
+		}, time.Duration(cfg.PodReadyTimeout)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+
+		By("Creating VA for throughput scale-up test")
+		Expect(fixtures.EnsureVariantAutoscalingWithDefaults(
+			ctx, crClient, cfg.LLMDNamespace, vaName,
+			modelDecodeDeployment, modelID, cfg.AcceleratorType, cfg.ControllerInstance,
+		)).To(Succeed())
+
+		By("Waiting for initial VA infra signal before starting load")
+		waitForSaturationInfraSignal(ctx, cfg.LLMDNamespace, vaName)
+
+		By("Starting sustained load to drive kv-cache saturation and ITL observations")
+		targetURL := fmt.Sprintf("http://%s:8000/v1/completions", serviceName)
+		deadlineSec := int64(cfg.EventuallyExtendedSec + 300)
+		job := buildThroughputSustainedLoadJob(cfg.LLMDNamespace, loadJobName, targetURL, modelID, 2, deadlineSec)
+		_, err = k8sClient.BatchV1().Jobs(cfg.LLMDNamespace).Create(ctx, job, metav1.CreateOptions{})
+		Expect(err).NotTo(HaveOccurred(), "failed creating sustained load job")
+	})
+
+	AfterAll(func() {
+		By("Cleaning up sustained load job")
+		propagation := metav1.DeletePropagationBackground
+		_ = k8sClient.BatchV1().Jobs(cfg.LLMDNamespace).Delete(ctx, loadJobName, metav1.DeleteOptions{PropagationPolicy: &propagation})
+
+		By("Restoring saturation ConfigMap state")
+		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		By("Cleaning up throughput scale-up test resources")
+		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
+			ObjectMeta: metav1.ObjectMeta{Name: vaName, Namespace: cfg.LLMDNamespace},
+		})
+		_ = crClient.Delete(ctx, &promoperator.ServiceMonitor{
+			ObjectMeta: metav1.ObjectMeta{Name: smName, Namespace: cfg.MonitoringNS},
+		})
+		_ = k8sClient.CoreV1().Services(cfg.LLMDNamespace).Delete(ctx, serviceName, metav1.DeleteOptions{})
+		_ = k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Delete(ctx, modelDecodeDeployment, metav1.DeleteOptions{})
+	})
+
+	It("recommends scale-up under sustained load with both analyzers enabled", func() {
+		By("Capturing baseline desired replicas")
+		var baseline int32
+		Eventually(func(g Gomega) {
+			va := &variantautoscalingv1alpha1.VariantAutoscaling{}
+			g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: cfg.LLMDNamespace}, va)).To(Succeed())
+			g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil())
+			baseline = *va.Status.DesiredOptimizedAlloc.NumReplicas
+			GinkgoWriter.Printf("  Scale-up baseline (%s): desired=%d\n", vaName, baseline)
+		}, time.Duration(cfg.EventuallyLongSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+
+		By("Waiting for positive scale-up recommendation above baseline")
+		waitForPositiveDesiredAllocationAboveBaseline(ctx, cfg.LLMDNamespace, vaName, baseline)
+	})
+})
+
+// ─── Scenario 3: TA-Only Mode (full/throughput) ────────────────────────────────
+
+var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"), Ordered, func() {
+	const (
+		poolName              = "throughput-taonly-pool"
+		modelSvcName          = "throughput-taonly-ms"
+		modelDecodeDeployment = modelSvcName + "-decode"
+		serviceName           = modelSvcName + "-service"
+		smName                = modelSvcName + "-monitor"
+		vaName                = "throughput-taonly-va"
+		loadJobName           = "throughput-taonly-load"
+	)
+
+	var (
+		modelID         string
+		cmName          string
+		cmOriginal      *corev1.ConfigMap
+		cmExistedBefore bool
+		cmKey           string
+		cmNamespace     string
+	)
+
+	BeforeAll(func() {
+		modelID = cfg.ModelID
+		cmName = saturationConfigMapName()
+		cmNamespace = cfg.WVANamespace
+		cmKey = "default"
+
+		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
+		if err == nil {
+			cmExistedBefore = true
+			cmOriginal = cm.DeepCopy()
+		} else if !errors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("Writing TA-only config: saturation disabled, throughput enabled")
+		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputOnlyConfig)).To(Succeed())
+
+		By("Creating model service for TA-only test")
+		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
+		Expect(fixtures.CreateModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, poolName, modelID, vaName, cfg.UseSimulator, 2)).To(Succeed())
+		Expect(fixtures.EnsureService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment, 8000)).To(Succeed())
+		Expect(fixtures.EnsureServiceMonitor(ctx, crClient, cfg.MonitoringNS, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment)).To(Succeed())
+
+		By("Waiting for model service to be ready")
+		Eventually(func(g Gomega) {
+			dep, err := k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Get(ctx, modelDecodeDeployment, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(dep.Status.ReadyReplicas).To(BeNumerically(">=", 1))
+		}, time.Duration(cfg.PodReadyTimeout)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+
+		By("Creating VA for TA-only test")
+		Expect(fixtures.EnsureVariantAutoscalingWithDefaults(
+			ctx, crClient, cfg.LLMDNamespace, vaName,
+			modelDecodeDeployment, modelID, cfg.AcceleratorType, cfg.ControllerInstance,
+		)).To(Succeed())
+
+		By("Waiting for initial VA infra signal before starting load")
+		waitForSaturationInfraSignal(ctx, cfg.LLMDNamespace, vaName)
+
+		By("Starting sustained load for TA-only scenario")
+		targetURL := fmt.Sprintf("http://%s:8000/v1/completions", serviceName)
+		deadlineSec := int64(cfg.EventuallyExtendedSec + 300)
+		job := buildThroughputSustainedLoadJob(cfg.LLMDNamespace, loadJobName, targetURL, modelID, 2, deadlineSec)
+		_, err = k8sClient.BatchV1().Jobs(cfg.LLMDNamespace).Create(ctx, job, metav1.CreateOptions{})
+		Expect(err).NotTo(HaveOccurred(), "failed creating sustained load job")
+	})
+
+	AfterAll(func() {
+		By("Cleaning up sustained load job")
+		propagation := metav1.DeletePropagationBackground
+		_ = k8sClient.BatchV1().Jobs(cfg.LLMDNamespace).Delete(ctx, loadJobName, metav1.DeleteOptions{PropagationPolicy: &propagation})
+
+		By("Restoring saturation ConfigMap state")
+		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		By("Cleaning up TA-only test resources")
+		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
+			ObjectMeta: metav1.ObjectMeta{Name: vaName, Namespace: cfg.LLMDNamespace},
+		})
+		_ = crClient.Delete(ctx, &promoperator.ServiceMonitor{
+			ObjectMeta: metav1.ObjectMeta{Name: smName, Namespace: cfg.MonitoringNS},
+		})
+		_ = k8sClient.CoreV1().Services(cfg.LLMDNamespace).Delete(ctx, serviceName, metav1.DeleteOptions{})
+		_ = k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Delete(ctx, modelDecodeDeployment, metav1.DeleteOptions{})
+	})
+
+	It("produces a positive desired allocation driven by the throughput analyzer", func() {
+		By("Waiting for DesiredOptimizedAlloc to reflect throughput-driven scale-up")
+		Eventually(func(g Gomega) {
+			va := &variantautoscalingv1alpha1.VariantAutoscaling{}
+			g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: cfg.LLMDNamespace}, va)).To(Succeed())
+
+			metricsCond := variantautoscalingv1alpha1.GetCondition(va, variantautoscalingv1alpha1.TypeMetricsAvailable)
+			if metricsCond != nil {
+				GinkgoWriter.Printf("  TA-only VA (%s): MetricsAvailable=%s reason=%s\n",
+					vaName, metricsCond.Status, metricsCond.Reason)
+			}
+
+			desired := int32(-1)
+			if va.Status.DesiredOptimizedAlloc.NumReplicas != nil {
+				desired = *va.Status.DesiredOptimizedAlloc.NumReplicas
+				GinkgoWriter.Printf("  TA-only VA (%s): DesiredOptimizedAlloc replicas=%d accelerator=%q\n",
+					vaName, desired, va.Status.DesiredOptimizedAlloc.Accelerator)
+			} else {
+				GinkgoWriter.Printf("  TA-only VA (%s): DesiredOptimizedAlloc replicas=<nil>\n", vaName)
+			}
+
+			g.Expect(metricsCond).NotTo(BeNil(), "MetricsAvailable condition should be present")
+			g.Expect(metricsCond.Status).To(Equal(metav1.ConditionTrue), "MetricsAvailable should be true")
+			g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil(), "DesiredOptimizedAlloc.NumReplicas should be set")
+			g.Expect(desired).To(BeNumerically(">", 0), "TA should drive a positive desired replica count")
+		}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+	})
+
+	It("preserves accelerator info from VariantCapacities even with saturation disabled", func() {
+		By("Checking DesiredOptimizedAlloc.Accelerator is non-empty (saturation always populates VariantCapacities)")
+		Eventually(func(g Gomega) {
+			va := &variantautoscalingv1alpha1.VariantAutoscaling{}
+			g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: cfg.LLMDNamespace}, va)).To(Succeed())
+			g.Expect(va.Status.DesiredOptimizedAlloc.Accelerator).NotTo(BeEmpty(),
+				"Accelerator should be populated from saturation VariantCapacities even when saturation.enabled=false")
+			GinkgoWriter.Printf("  TA-only VA (%s): Accelerator=%q\n", vaName, va.Status.DesiredOptimizedAlloc.Accelerator)
+		}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+	})
+})
+
+// ─── Shared helpers ────────────────────────────────────────────────────────────
+
+// waitForPositiveDesiredAllocationAboveBaseline waits until DesiredOptimizedAlloc.NumReplicas > baseline.
+func waitForPositiveDesiredAllocationAboveBaseline(ctx context.Context, namespace, vaName string, baseline int32) {
+	GinkgoHelper()
+	Eventually(func(g Gomega) {
+		va := &variantautoscalingv1alpha1.VariantAutoscaling{}
+		g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: namespace}, va)).To(Succeed())
+
+		metricsCond := variantautoscalingv1alpha1.GetCondition(va, variantautoscalingv1alpha1.TypeMetricsAvailable)
+		if metricsCond != nil {
+			GinkgoWriter.Printf("  Scale-up progress (%s): MetricsAvailable=%s reason=%s\n",
+				vaName, metricsCond.Status, metricsCond.Reason)
+		}
+
+		desired := int32(-1)
+		if va.Status.DesiredOptimizedAlloc.NumReplicas != nil {
+			desired = *va.Status.DesiredOptimizedAlloc.NumReplicas
+			GinkgoWriter.Printf("  Scale-up progress (%s): DesiredOptimizedAlloc replicas=%d baseline=%d accelerator=%q\n",
+				vaName, desired, baseline, va.Status.DesiredOptimizedAlloc.Accelerator)
+		} else {
+			GinkgoWriter.Printf("  Scale-up progress (%s): DesiredOptimizedAlloc replicas=<nil> baseline=%d\n", vaName, baseline)
+		}
+
+		g.Expect(metricsCond).NotTo(BeNil())
+		g.Expect(metricsCond.Status).To(Equal(metav1.ConditionTrue))
+		g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil())
+		g.Expect(desired).To(BeNumerically(">", baseline),
+			"DesiredOptimizedAlloc should exceed baseline=%d under sustained load", baseline)
+	}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
+}
+
+// restoreSaturationConfigMap restores the saturation ConfigMap to its pre-test state.
+// If the configmap existed before the test, it is recreated from the snapshot.
+// If it did not exist, it is deleted.
+func restoreSaturationConfigMap(ctx context.Context, cmNamespace, cmName string, original *corev1.ConfigMap, existedBefore bool) {
+	if existedBefore && original != nil {
+		propagation := metav1.DeletePropagationBackground
+		if err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Delete(ctx, cmName, metav1.DeleteOptions{PropagationPolicy: &propagation}); err != nil && !errors.IsNotFound(err) {
+			GinkgoWriter.Printf("Warning: failed to delete saturation configmap %s before restore: %v\n", cmName, err)
+		}
+		toCreate := saturationConfigMapForRecreate(original)
+		if _, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Create(ctx, toCreate, metav1.CreateOptions{}); err != nil {
+			GinkgoWriter.Printf("Warning: failed to recreate saturation configmap %s: %v\n", cmName, err)
+		}
+	} else {
+		_ = k8sClient.CoreV1().ConfigMaps(cmNamespace).Delete(ctx, cmName, metav1.DeleteOptions{})
+	}
+}
