@@ -24,7 +24,7 @@
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
 | TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
-| multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 5 commits on `main`@`eb327cc2`; CI in progress | `6339e495` |
+| multi-analyzer-registration | #1225 | **PR #1225 OPEN** (ready-for-review, ev-shindin); 6 commits on `main`@`eb327cc2`; docstring fixup committed locally — awaiting Dean's force-with-lease push, then ev-shindin re-review | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits on `multi-analyzer-registration`@`66001d47`. Stacked on #1225 — diff includes both PRs' commits until #1225 merges and threshold rebases onto main | `b8b823b0` |
 | multi-analyzer-optimizer | — | Local only (post-rebase); 7 commits on `multi-analyzer-threshold@b8b823b0`. **Ready for push + PR creation** — awaiting Dean force-with-lease confirmation. SchedulerQueue wiring from engine-queue-fix absorbed. | `3fe287fe` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
@@ -33,7 +33,7 @@
 
 ## Blocked on
 
-- **PR #1225** — opened 2026-06-01; awaiting CI + reviewer feedback. PR #1113 stays open until Dean closes it post-migration. See [`planning/multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md).
+- **PR #1225** — opened 2026-06-01. Stale-panic-docstring fixup committed locally as `5c73ea5f` (4 comment-only fixes after the panic→error-return change). **Awaiting Dean's `git push --force-with-lease origin multi-analyzer-registration` confirmation**, then CI re-runs and ev-shindin's final re-review. PR #1113 stays open until Dean closes it post-migration. See [`planning/multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md).
 - **PR #1228** — opened 2026-06-02; awaiting CI + reviewer feedback. Stacked on #1225. See [`planning/multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md).
 - **multi-analyzer-optimizer** — all 7 commits landed locally on `multi-analyzer-threshold@b8b823b0`. Cross-rebase complete; gates green; SchedulerQueue wiring absorbed from engine-queue-fix. **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer` and PR creation.** See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
@@ -118,6 +118,10 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 - **Multi-analyzer dev-guide polish** — currently `docs/developer-guide/multi-analyzer-pipeline.md` is a stub on the optimizer branch with a link to the design doc on the plans-branch fork. After reviewer comments on #1225 + #1228 + optimizer PR are addressed and the PRs reach final shape, fold the design content (architecture, alternatives, future direction from [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md)) plus per-PR implementation detail into the dev-guide, replacing the stub. Cover all three PRs (registration / threshold / optimizer). Doc-only commit on each branch (or a single dev-guide commit landing after the merges).
 
+- **Fold queueing-model into the V2 multi-analyzer engine** — open after the optimizer PR merges. QM (`engine_queueing_model.go`) is still a parallel data path that bypasses `runAnalyzersAndScore` and builds a single-entry slice by hand. Recommended approach: Option A (register QM under `SaturationAnalyzerName` so V2's slice-builder is the single upstream). Pre-existing QM oversights to fix at merge (none introduced by the optimizer PR): threshold post-step skipped; `SchedulerQueue` not threaded into QM's `AnalyzerInput`; `Role` never set on QM's `VariantCapacity` (disaggregation dispatch broken for QM-scaled P/D models); GPU limiter constraints not passed under `enableLimiter=true`. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F10.
+
+- **Per-analyzer decision-enrichment hook (observability)** — today's `enrichDecisionsWithKvTokenData` is a sat_v2-specific post-optimizer step that runs only on V2; QM-scaled VAs and TA decisions don't get analogous enrichment for their own relevant computed metrics (KV tokens for sat_v2, ITL coefficients for TA, queue depth / arrival rate for QM). Generalize into a per-analyzer hook (or onto `NamedAnalyzerResult` itself) so any analyzer can publish its own observability fields without engine-side special casing. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F4.
+
 ---
 
 ## Pending handoffs
@@ -127,4 +131,3 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on the 3-PR split. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
-| Dean (self) | `session/handoffs/plan__threshold-coder-rules-gap.md` | OPEN | Plan-agent decision pending: whether/how to restate CONVENTIONS' "no `cd`/`-C` to a sibling worktree for git" rule operationally inside `planning/multi-analyzer-coder-rules.md`. 4 options listed |
