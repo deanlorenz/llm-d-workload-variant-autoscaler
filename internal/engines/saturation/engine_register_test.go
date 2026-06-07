@@ -139,7 +139,7 @@ var _ = Describe("Engine analyzer registry", func() {
 		It("snapshot reader does not race with a post-Start RegisterAnalyzer attempt", func() {
 			// Verifies the race-safety contract under -race: the optimize
 			// goroutine reads analyzersSnapshot (immutable after Start) while
-			// any post-Start RegisterAnalyzer panics before mutating anything.
+			// any post-Start RegisterAnalyzer returns an error before mutating anything.
 			sourceRegistry := source.NewSourceRegistry()
 			Expect(sourceRegistry.Register("prometheus", source.NewNoOpSource())).To(Succeed())
 			testConfig := config.NewTestConfig()

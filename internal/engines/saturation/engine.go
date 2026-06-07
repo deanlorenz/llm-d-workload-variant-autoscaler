@@ -149,7 +149,7 @@ type Engine struct {
 
 	// analyzers is the engine's analyzer registry, mutated only during setup
 	// (NewEngine + RegisterAnalyzer). After StartOptimizeLoop it is frozen —
-	// further RegisterAnalyzer calls panic. The optimize goroutine reads
+	// further RegisterAnalyzer calls return an error. The optimize goroutine reads
 	// analyzersSnapshot, never analyzers, so iteration is race-free without
 	// runtime locking.
 	analyzers []analyzerEntry
@@ -163,8 +163,8 @@ type Engine struct {
 	analyzersSnapshot []analyzerEntry
 
 	// started transitions to true in StartOptimizeLoop. Late RegisterAnalyzer
-	// calls panic so the contract "register before Start" is enforced rather
-	// than just documented.
+	// calls return an error so the contract "register before Start" is enforced
+	// rather than just documented.
 	started bool
 
 	// optimizer is the V2 scaling optimizer that produces VariantDecisions from
@@ -276,7 +276,7 @@ func (e *Engine) RegisterAnalyzer(name string, a interfaces.Analyzer) error {
 //
 // Before launching the goroutine, the registered analyzers are snapshotted
 // to a frozen slice that runAnalyzersAndScore iterates. The started flag is
-// flipped so subsequent RegisterAnalyzer calls panic. The snapshot is the
+// flipped so subsequent RegisterAnalyzer calls return an error. The snapshot is the
 // natural place to invoke any future per-analyzer Init(ctx) hook.
 func (e *Engine) StartOptimizeLoop(ctx context.Context) {
 	e.analyzersSnapshot = make([]analyzerEntry, len(e.analyzers))
