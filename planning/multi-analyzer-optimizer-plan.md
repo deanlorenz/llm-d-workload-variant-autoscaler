@@ -232,8 +232,13 @@ one model's allocation pass.
   may mutate freely. The disaggregated-branch defensive copy in
   `CostAwareOptimizer.Optimize` was unnecessary; drop for symmetry
   with non-disag.
-- **N4 — sort role keys in `costAwareScaleDownRoleIterated`.**
-  Deterministic iteration; no behavior change for arity 2.
+- **N4 — deferred.** Original recommendation: sort role keys in
+  `costAwareScaleDownRoleIterated` for deterministic iteration. PR
+  #1237's review (see § "Post-#1237 merge: rebase plan" below) makes
+  the case that per-role iteration is order-independent because each
+  role's shed touches a disjoint variant set. We agree; sorting adds
+  nothing today. May revisit if a future test observes iteration
+  order.
 - **Dev-guide update deferred** to the post-review polish item already
   tracked in CURRENT § Issues to Open.
 
@@ -246,7 +251,7 @@ one model's allocation pass.
 | **T1** — Engine-level config-population assertions; remove hardcoded `Score: 1.0` from `withSatEntry`-style fixtures; multi-model fair-share priority integration test; B2 atomicity tests. | `internal/engines/saturation/*_test.go`, `internal/engines/pipeline/*_test.go` |
 | **N2** — Optimizer consumes `req.Disaggregated`; drop `filterVariantCapacitiesByRole` + its test; verify-then-drop middle return of `runAnalyzersAndScore`. | `internal/engines/pipeline/{analyzer_helpers,cost_aware_optimizer,greedy_score_optimizer}.go`, `internal/engines/saturation/{engine_v2,engine}.go` |
 | **N3** — Drop disaggregated-branch defensive copy in `CostAwareOptimizer.Optimize`. | `internal/engines/pipeline/cost_aware_optimizer.go` |
-| **N4** — Sort role keys in `costAwareScaleDownRoleIterated`. | `internal/engines/pipeline/cost_aware_optimizer.go` |
+| ~~**N4**~~ — Deferred (per-role iteration is order-independent; PR #1237 alignment). | — |
 
 ### B2 picker reshape — implementation guide
 
@@ -303,6 +308,121 @@ migrate to per-role tests of the simpler primitives. If a future
 picker wants to size one role from another, α can be derived inline
 from `RoleCapacities[*].TotalDemand` at sizing time only, but the new
 matched-pair commit doesn't need it.
+
+### Pre-phase-2 failure mode being fixed (asymmetric P/D demand)
+
+The current paired-scale-up code (commits 1–7) has a **silent bug** under
+asymmetric demand changes that B2's picker reshape eliminates. Concrete
+failure case:
+
+- Workload state: model has positive D-side demand (`RoleCapacities[D].RC > 0`),
+  P-side fully provisioned (`RoleCapacities[P].RC = 0`).
+- Optimizer dispatch (pre-phase-2):
+  ```go
+  initDisaggregatedRemaining(s)              // sets Remaining = RoleCapacities[P].RC = 0
+  if needsScaleUp(s) {                       // returns ∃ e: e.Remaining > 0 → false
+      allocateForModelPaired(...)
+  } else {
+      costAwareScaleDownRoleIterated(...)    // ← incorrect branch taken
+  }
+  ```
+- Result: optimizer routes to scale-down even though D needs more capacity.
+  `RoleSpare[P]` may also be 0 → scale-down does nothing → D under-provisioning
+  persists across cycles.
+
+The reverse case (P needs scale-up, D fine) **happens to work** because P-anchor
+makes `Remaining = RC_P > 0`, triggering the paired branch, and `analyzerAlpha`
+returns α=0 (`!tracksD`) so `applyAllocationPaired` falls through to a
+P-only commit. But the asymmetry is fragile and depends on edge-case branches
+in `analyzerAlpha`.
+
+**Phase-2 fix.** `RolePairedState` (per-(analyzer, role) demand) plus
+`needsScaleUpPaired(s, state, roles) = ∃ role: roleAggRemaining > 0` removes
+the P-anchor entirely. Both directions of asymmetric demand trigger correctly:
+
+| Pre-state | Pre-phase-2 | Phase-2 |
+|---|---|---|
+| RC_P > 0, RC_D > 0 | Paired scale-up (correct) | Per-role independent + min-util commit (correct) |
+| RC_P > 0, RC_D = 0 | Paired scale-up, α=0 P-only commit (works by edge case) | Same outcome via per-role; D drops from min |
+| RC_P = 0, RC_D > 0 | **Routes to scale-down (wrong)** | Per-role; P drops from min, D scales up |
+| RC_P = 0, RC_D = 0 | Scale-down (correct) | Same |
+
+The bug is only present under asymmetric demand changes that drive D-only need
+between cycles (e.g., decode load grows while prefill steady). Most workloads
+keep α stable enough that pre-phase-2 code happened to work; the bug surfaces
+at workload transitions and persists silently if the asymmetry is sustained.
+
+### Scale-down asymmetry (PR #1237 alignment)
+
+The dual concern — **scale-down** asymmetry where one role has spare and the
+other is saturated — is what PR #1237 fixes for the legacy single-analyzer
+path. Our `costAwareScaleDownRoleIterated` (commit 4) implements the same
+role-iterated independent shed for the multi-analyzer slice. Both:
+
+- Iterate roles independently (PR #1237: over `result.RoleCapacities`; ours:
+  over `roles []string` against `RoleSpare`).
+- Skip roles with no spare.
+- Per-role cheapest-at-1 protection, preventing whole-role zeroing.
+
+So the asymmetric-shed bug ev-shindin documented in #1237 is already absent
+from our optimizer branch's disag path. The branches converge on the same
+algorithm; rebase merges them cleanly with one helper de-duplication (see §
+"Post-#1237 merge: rebase plan" below).
+
+### Post-#1237 merge: rebase plan
+
+PR [#1237](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1237)
+("fix(optimizer): role-aware scale-down for disaggregated models") targets
+`main`. When it merges, our optimizer branch rebases onto a new `main` whose
+`cost_aware_optimizer.go` has been refactored. **Coder must handle this on
+rebase**, not as a pre-emptive change. Concrete points to expect:
+
+1. **`variantsForRole` helper collision.** PR #1237 adds
+   `variantsForRole(capacities, role)` to `cost_aware_optimizer.go` with
+   exact-match semantics. Our `analyzer_helpers.go` already defines
+   `variantsForRole(vcs, role)` with identical exact-match semantics.
+   Three-way merge surfaces the function in both places. **Resolution:**
+   keep ours in `analyzer_helpers.go` (more general home); drop the copy
+   PR #1237 introduces during rebase resolution; verify call sites in the
+   rebased `costAwareScaleDown` import from `analyzer_helpers`.
+
+2. **`costAwareScaleDown` two-branch refactor.** PR #1237 splits
+   `costAwareScaleDown` into a disag branch (per-role iteration) and a
+   non-disag branch, both calling new `scaleDownVariantSet`. Our branch
+   keeps `costAwareScaleDown` as the non-disag path and adds a separate
+   `costAwareScaleDownRoleIterated` for multi-analyzer disag. **Possible
+   simplification on rebase:** retire `costAwareScaleDownRoleIterated`;
+   extend PR #1237's `scaleDownVariantSet` to accept a multi-analyzer
+   slice and use `safeRemovalReplicasForRole`'s `min_i` math for
+   cross-analyzer aggregation. Outcome: one unified scale-down code path,
+   role-iterated, multi-analyzer-aware. Decision deferred to coder
+   judgment on rebase — consolidate if cheap, leave separate if it would
+   require restructuring more than the rebase warrants.
+
+3. **`Result` field on `ModelScalingRequest` in #1237 tests.** PR #1237's
+   new test fixtures use `Result: &interfaces.AnalyzerResult{...}` on
+   `ModelScalingRequest`. Our cleanup commit (`b4181281`) dropped the
+   `Result` field. Post-rebase, those test fixtures must migrate to the
+   slice shape: `AnalyzerResults: []NamedAnalyzerResult{{Name:
+   SaturationAnalyzerName, Result: &interfaces.AnalyzerResult{...},
+   Remaining: ..., Spare: ..., RoleSpare: ...}}`. Mechanical rewrite, but
+   the kind that's easy to miss; this is exactly what the new CONVENTIONS
+   "Commit messages must reflect the diff" rule is for. Verify on rebase.
+
+4. **N4 sort role keys — deferred.** The original review (N4) flagged
+   non-deterministic Go map iteration in `costAwareScaleDownRoleIterated`
+   and recommended sorting role keys. PR #1237 explicitly defends the
+   non-deterministic iteration: *"Each role owns a disjoint set of
+   variants and sheds against its own spare, so the map's iteration order
+   does not affect the outcome."* The reasoning is correct — the per-role
+   sheds are fully independent, no cross-iteration state. **Drop N4 from
+   phase-2 scope.** May resurface if a future test observes iteration
+   order; revisit then.
+
+The phase-2 commits land on the optimizer branch first; #1237 rebase
+happens afterward. Coder uses the procedure in `CONVENTIONS.md` (Commit
+messages must reflect the diff — pre-rebase plan + post-rebase per-file
+diff inventory + per-commit message-vs-diff check).
 
 ### Test plan
 
