@@ -533,6 +533,35 @@ opening the PR. The **final history** for review should land as roughly:
 
 Order is ergonomic, not load-bearing. Bundle however the diff reads cleanest.
 
+### 6.1 Post-review follow-ups
+
+After the initial PR-5 commits land and review completes (see
+[`TA-PR5-review.md`](TA-PR5-review.md), Status: FINAL), three
+small follow-up commits on TA3:
+
+- **D1+D2 — analyzer.go doc-comment fixes.** Rewrite the `Analyze`
+  function header (`analyzer.go:180-188`) and the
+  `estimateQueueDemand` use-site comment (`:527`) to match the new
+  contract. See review § D1, D2.
+- **T1 — GPS-verification test renames.** Rename the
+  `Describe("Analyze — GPS verification suppresses SpareCapacity",
+  …)` block and its 4 sibling `It`s. **Preserve all scenario data
+  and `SpareCapacity == 0` assertions verbatim** — they are
+  fixtures for the future SC-gate-restoration PR (unified F3). Add
+  one-line top-of-`Describe` comment noting fixtures preserved for
+  future restoration. See review § T1.
+- **T2 — aggregation-helper consistency specs.** Add the 5 missing
+  specs from §3.4 ("New test specs to add" bullet list) that
+  weren't included in the initial test migration. These lock the
+  linearity invariant in TA's own test surface. See review § T2.
+
+Don't-touch list (deliberate placeholders): the
+`_ = anyEPP; _ = anyGPSMismatch` discards in `Analyze` stay; the
+GPS-verification scenario data stays. See review § N1, T1.
+
+H1 (RegisterAnalyzer error-return wiring) is tracked separately,
+folded into the final rebase onto post-#1225 main.
+
 ---
 
 ## 7. Follow-up issues to open after PR-5
