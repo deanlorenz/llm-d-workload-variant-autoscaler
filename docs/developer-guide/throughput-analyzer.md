@@ -252,7 +252,8 @@ Two-tier calibration of `ITL(k) = A·k + B`. See [ITL Model Calibration](#itl-mo
 **ThroughputAnalyzer (`analyzer.go`)**  
 Implements `interfaces.Analyzer`. Groups replicas by `VariantName`, runs sanity checks,
 updates per-variant shape tracker and observation window in `Observe()`, then computes
-supply, demand, and model-level RC/SC signals in `Analyze()`.
+supply and demand signals in `Analyze()`, publishing raw `Total*` fields.
+The engine's universal threshold post-step writes `RequiredCapacity` and `SpareCapacity`.
 
 ### State and High Availability
 
@@ -269,7 +270,7 @@ Per-variant state is minimal:
 
 **In HA mode**, the engine reconciliation loops run only on the elected leader (gated in `main.go`). The `ThroughputAnalyzer` instance lives inside that loop — state is local to the leader process and is never shared across replicas.
 
-On leader failover the incoming leader starts with an empty analyzer. During warm-up (until the observation window re-accumulates ≥ 10 samples with ≥ 0.30 k-spread), the TA emits no scaling signal (`RC = 0, SC = 0`). The saturation analyzer runs unaffected and provides coverage throughout. Warm-up completes within a few minutes at normal traffic levels.
+On leader failover the incoming leader starts with an empty analyzer. During warm-up (until the observation window re-accumulates ≥ 10 samples with ≥ 0.30 k-spread), the TA emits no scaling signal (`TotalDemand = 0, TotalSupply = 0`). The saturation analyzer runs unaffected and provides coverage throughout. Warm-up completes within a few minutes at normal traffic levels.
 
 **No external state store is needed.** State loss on failover is equivalent to a workload shape change (which already clears the window by design). The gap is bounded and temporary; adding a ConfigMap or lease annotation to persist calibration state would not be worth the added complexity at this stage.
 
@@ -308,16 +309,15 @@ On leader failover the incoming leader starts with an empty analyzer. During war
   └──────────────────────────────────┬────────────────────────────────────────────┘
                                      │ per-variant outputs accumulated
   ┌──────────────────────────────────▼────────────────────────────────────────────┐
-  │  Model-Level Aggregation                                                      │
+  │  Model-Level Aggregation (TA publishes; engine post-step writes RC/SC)        │
   │                                                                               │
-  │  totalSupply      = Σ μ_dec_sat                                               │
-  │  totalDemand      = Σ λ_dec  +  QueueSize / (QueueDrainFactor × ITL(k_sat))   │
-  │  totalAnticipated = Σ (current + pending) × perReplicaSupply                  │
+  │  TotalSupply            = Σ μ_dec_sat                                         │
+  │  TotalDemand            = Σ λ_dec  +  QueueSize / (factor × ITL(k_sat))       │
+  │  TotalAnticipatedSupply = Σ (current + pending) × perReplicaSupply            │
   │                                                                               │
-  │  RequiredCapacity = max(0, totalDemand − totalAnticipated)                    │
-  │  SpareCapacity    = max(0, totalSupply  − totalDemand)    [if anyEPP          │
-  │                                                             && !gpsMismatch]  │
-  │  RoleCapacities                                           [if P/D roles]      │
+  │  RequiredCapacity = 0  ← engine writes after Analyze() returns                │
+  │  SpareCapacity    = 0  ← engine writes after Analyze() returns                │
+  │  RoleCapacities  [if P/D roles: TotalSupply/TotalDemand/TotalAnticipated]     │
   └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -356,20 +356,25 @@ On leader failover the incoming leader starts with an empty analyzer. During war
 │                                                          │
 │  model-level:                                            │
 │    + queue demand from QueueSize / (factor×ITL)          │
-│    RC = max(0, totalDemand − totalAnticipated)           │
-│    SC = max(0, totalSupply − totalDemand)  [EPP]         │
+│    TotalSupply, TotalDemand, TotalAnticipatedSupply       │
+│    RequiredCapacity = 0, SpareCapacity = 0 (engine fills) │
 └──────┬───────────────────────────────────────────────────┘
-       │ AnalyzerResult{RequiredCapacity, SpareCapacity, VariantCapacities, RoleCapacities}
+       │ AnalyzerResult{TotalSupply, TotalDemand, TotalAnticipatedSupply,
+       │                VariantCapacities, RoleCapacities}
        ↓
-┌──────────────────────────────────────┐
-│ combineAnalyzerResults()             │  ← any-up / all-down with saturation
-│ (internal/engines/saturation)        │
-└──────────────────┬───────────────────┘
-                   │ combined AnalyzerResult
+┌──────────────────────────────────────────────┐
+│ Engine universal threshold post-step         │
+│   RC = max(0, TotalDemand/scaleUp − TotalAnticipatedSupply) │
+│   SC = max(0, TotalSupply − TotalDemand/scaleDown)          │
+└──────────────────┬───────────────────────────┘
+                   │ AnalyzerResult with RC/SC populated
                    ↓
-┌────────────────────┐
-│ ScalingOptimizer   │  → VariantDecisions → Controller
-└────────────────────┘
+┌──────────────────────────────────────┐
+│ Multi-analyzer optimizer             │  ← slice-predicate any-up/all-down
+│ (internal/engines/pipeline)          │
+└──────────────────┬───────────────────┘
+                   │ VariantDecisions → Controller
+                   ↓
 ```
 
 ## ITL Model Calibration
@@ -442,8 +447,8 @@ When EPP is absent but `VLLMRequestRate > 0`:
 ```
 λ_dec = Σ VLLMRequestRate_r × AvgOutputTokens_r
 ```
-Same structure as primary but using the vLLM-side completion rate. SpareCapacity (scale-down)
-is suppressed when isEPP is false — the vLLM rate only counts served requests, not arriving ones.
+Same structure as primary but using the vLLM-side completion rate. The vLLM rate counts
+only served (completed) requests and undercounts arriving demand under load.
 
 **3. k\*-based local** (scale-up only)  
 When both EPP and vLLM rates are zero, demand is derived from the current KV utilization:
@@ -451,7 +456,8 @@ When both EPP and vLLM rates are zero, demand is derived from the current KV uti
 λ_local = Σ_r  k_r* × KV_max_r / KVreq / ITL(k_r*)
 ```
 Each replica's in-flight request count `N_r = k_r* × KV_max / KVreq` is divided by `ITL(k_r*)`
-to approximate its current throughput. Scale-down is still gated on EPP when this path is used.
+to approximate its current throughput. This path is scale-up only (no EPP → demand may be
+underestimated; TA publishes the raw `TotalDemand` and the engine post-step determines SC).
 
 ### Scheduler Queue Demand
 
@@ -479,21 +485,45 @@ as a separate engine PR and will not require changes to the TA.
 
 ### Model-Level Aggregation
 
-`RequiredCapacity` and `SpareCapacity` are computed from model-level totals, not accumulated
-per-variant. This prevents simultaneous conflicting signals when variant A is overloaded and
-variant B has spare.
+TA publishes raw `Total*` fields on `AnalyzerResult`; the engine's universal threshold
+post-step writes `RequiredCapacity` and `SpareCapacity` after `Analyze()` returns.
 
 ```
-totalAnticipated = Σ_v (current_replicas_v + pending_replicas_v) × perReplicaSupply_v
-requiredCapacity = max(0, totalDemand − totalAnticipated)
-spareCapacity    = max(0, totalSupply − totalDemand)   if anyEPP && !gpsMismatch else 0
+TotalSupply            = aggregation.SumTotalSupply(VariantCapacities)
+                       = Σ_v ReplicaCount_v × PerReplicaCapacity_v
+TotalAnticipatedSupply = aggregation.SumTotalAnticipatedSupply(VariantCapacities)
+                       = Σ_v (ReplicaCount_v + PendingReplicas_v) × PerReplicaCapacity_v
+TotalDemand            = aggregation.SumTotalDemand(VariantCapacities)
+                       + QueueSize / (DefaultQueueDrainFactor × ITL(k_sat))
 ```
 
-`PendingReplicas` counts replicas that have been provisioned but not yet in service. Including
-them in `totalAnticipated` suppresses redundant scale-up requests while pods are starting.
+`PendingReplicas` (booting replicas not yet in service) are included in anticipated supply
+to suppress redundant scale-up requests while pods are starting.
 
-By construction, `requiredCapacity` and `spareCapacity` cannot both be non-zero in the same
-cycle: if demand exceeds anticipated supply then spare = max(0, supply−demand) = 0.
+The engine post-step formula (using the model's configured `scaleUpThreshold` / `scaleDownBoundary`):
+```
+RC = max(0, TotalDemand / scaleUpThreshold  − TotalAnticipatedSupply)
+SC = max(0, TotalSupply  − TotalDemand / scaleDownBoundary)
+```
+
+See [`saturation-scaling-config.md`](../saturation-scaling-config.md) § Universal Threshold Post-Step
+for the authoritative formula and per-analyzer threshold override configuration.
+
+### Known Regression
+
+**PR-5 drops the EPP-presence and GPS-mismatch gates that previously suppressed `SpareCapacity`.**
+Under the old behavior, TA set `SpareCapacity = 0` when EPP was not deployed or when a GPS
+mismatch flagged the ITL model as unreliable. Under the new contract, TA leaves `SpareCapacity`
+zero and the engine post-step computes it unconditionally from `TotalSupply` and `TotalDemand`.
+
+This means:
+- In EPP-absent deployments, TA's model-level `SC > 0` will be forwarded to the optimizer,
+  potentially triggering scale-down on a supply estimate that may be less reliable.
+- When the GPS mismatch flag is active (ITL model suspect), TA no longer blocks scale-down.
+
+These safety properties will be restored in a follow-up PR once the analyzer→engine contract
+supports an SC opt-out signal (`AnalyzerResult.SuppressSpareCapacity` or equivalent).
+TA-only deployments with EPP and without persistent GPS mismatches are unaffected.
 
 ### GPS Verification
 
@@ -508,13 +538,15 @@ this against the ITL model's prediction:
 gpsErrPct = |μ_model(k*) − GPS_obs| / GPS_obs × 100
 ```
 
-When any replica in any variant shows `gpsErrPct > 15%` at `k* ≥ 0.30`, the ITL model's supply
-estimate is considered unreliable. The response is asymmetric:
+When any replica in any variant shows `gpsErrPct > 15%` at `k* ≥ 0.30`, the mismatch is
+recorded and logged. TA sets `consecutiveGPSMismatches` on the variant state; if this reaches
+`DefaultGPSMismatchClearThreshold` (3) consecutive cycles, the observation window is cleared to
+force ITL model recalibration.
 
-- **SpareCapacity is suppressed** (set to 0) — fail toward keeping capacity rather than scaling
-  down with a wrong model.
-- **RequiredCapacity is unaffected** — if demand genuinely exceeds supply, the scale-up signal
-  stands regardless of model accuracy.
+**Note:** Prior to PR-5, TA suppressed `SpareCapacity` when a GPS mismatch was active. Under the
+multi-analyzer engine contract, TA leaves `RequiredCapacity` and `SpareCapacity` at zero and the
+engine post-step computes both unconditionally. The GPS-mismatch SC gate is no longer applied.
+See the Known Regression section above.
 
 The `k* ≥ 0.30` guard prevents false positives at low load where GPS is noisy and N_dec is small.
 
@@ -536,10 +568,14 @@ GPS mismatch is logged at INFO so operators see it without enabling debug loggin
 Roles are read from `AnalyzerInput.VariantStates` and stored in per-variant state. All roles
 use the same decode-rate framework.
 
-- `RequiredCapacity` is **suppressed for the prefill role**: decode rate is never the bottleneck
-  for a prefill-only pod. Prefill-specific rate signals (based on prefill token throughput) are
-  deferred to a later PR.
-- `SpareCapacity` for a role requires EPP on at least one variant of that role.
+- TA publishes `TotalSupply`, `TotalAnticipatedSupply`, and `TotalDemand` per role.
+  `RequiredCapacity` and `SpareCapacity` are left zero — the engine post-step fills them.
+- **Prefill role:** `TotalDemand` is negligible after the OL guard in `computeLocalDemand`
+  (EPP and vLLM demand multiply by `AvgOutputTokens ≈ 0` for prefill pods; k*-based local demand
+  is also gated on `AvgOutputTokens > DefaultMinDecodeOLForLocalDemand`). The engine post-step
+  therefore produces RC ≈ 0 for the prefill role naturally.
+- **Queue demand attribution:** queue demand is decode-rate-denominated and split evenly across
+  active non-prefill roles (`distributeQueueDemandByRole`).
 - `RoleCapacities` is nil when all variants have role `""` or `"both"` (non-disaggregated model).
 
 ## Constants and Tuning
