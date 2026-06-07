@@ -8,6 +8,7 @@
 
 ## Recent activity
 
+- **2026-06-08 — TA3 PR-5 code complete; reviewed.** Rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip (`3b1c5ad2`). Coder reports all gates green. Review captured at [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md) (DRAFT) — implementation matches plan §3.3 precisely; 4 small follow-ups (D1+D2 doc fixes, T1 test renames, T2 aggregation-helper specs, H1 rebase-tracker note); SC-gate restoration deferred to unified F3.
 - **2026-06-07 — Optimizer Phase 2 complete.** All review findings (B1, B2, T1, N2, N3, N4) addressed in 3 commits on `multi-analyzer-optimizer` (tip `4bfac2fa`, 11 commits total on `multi-analyzer-threshold@b8b823b0`). All gates green, DCO-signed. **Awaiting Dean force-with-lease push and PR creation.** N4 (sort role keys in `costAwareScaleDownRoleIterated`) was committed in `4bfac2fa` before plan was updated to defer per PR #1237 alignment — sort is harmless; planner suggestion is leave as-is, revert if alignment preferred. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 2.
 - **2026-06-07 — PR #1237 reviewed.** 6 comments posted on ev-shindin's `fix/role-aware-scaledown` PR (5 top-level + 1 inline on `cheapest := findCheapestVariant(variants)` covering redundancy, implicit-sort-order assumption, lazy walk, and equal-cost tiebreak). Awaiting author response. Post-#1237 rebase plan captured in optimizer plan § Phase 2.
 - **2026-06-07 — PR #1225 merged.** `multi-analyzer-registration` landed as `f664a470` on upstream/main. `origin/main` fast-forwarded to match. `multi-analyzer-threshold` (#1228) can now rebase onto main directly and get a clean diff. `multi-analyzer-optimizer` can target main once #1228 merges (or main directly if landing standalone).
@@ -26,7 +27,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | —     | Local only; rebase onto upstream/main now unblocked               | `7506634b` |
+| TA3                   | —     | PR-5 code complete; rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip; reviewed (DRAFT — see `planning/TA-PR5-review.md`) | `3b1c5ad2` |
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **PR #1228 OPEN** (ready-for-review, ev-shindin); 4 commits directly on `main@f664a470`; force-pushed post-rebase; CI re-running | `b0a50fd3` |
@@ -64,13 +65,13 @@
 
 ---
 
-## TA3 (ThroughputAnalyzer) — paused
+## TA3 (ThroughputAnalyzer) — PR-5 code complete; awaiting Dean review
 
-PR-4 (ITL model + scaling signal) and PR-5 (engine wiring) code-complete on TA3 branch (`7506634b`). E2E Steps 1a/1b/2a-2e PASSED on kind cluster `kind-wva-gpu-cluster`. Step 2f (full TA scenarios) pending discussion. Three pre-existing smoke failures (`smoke_test.go:339, :542, :1724`) need triage — regression in main vs. TA3-action.
+PR-4 + PR-5 code-complete on TA3 branch (`3b1c5ad2`, rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip). All gates green per coder. Review captured at [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md) (DRAFT). E2E Steps 1a/1b/2a-2e PASSED on kind cluster `kind-wva-gpu-cluster`; Step 2f pending discussion. Three pre-existing smoke failures (`smoke_test.go:339, :542, :1724`) need triage.
 
-**Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md) (overall roadmap, per-PR status, design alternatives), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md) (PR-4 details incl. Tier-2 fallback B with `lastFittedB`), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) (PR-5 wiring; rewritten 2026-06-04 against the 3-PR multi-analyzer split), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md) (e2e execution + cluster state), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
+**Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
-**Next steps for TA3:** rebase onto upstream/main; apply the contract redesign per `TA-PR5-plan.md` §3 once one of the multi-analyzer PRs merges; triage the 3 pre-existing smoke failures; discuss Step 2f.
+**Next steps for TA3:** address review follow-ups (D1+D2 docs, T1 test renames, T2 aggregation-helper specs); final rebase onto upstream/main once multi-analyzer PRs merge (then apply `RegisterAnalyzer` error-return wrapper per H1); discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
 
 ---
 
@@ -114,7 +115,7 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 - **Engine model-level RC/SC for disaggregated models** — additive computation in `applyUniversalThreshold` is meaningless for disaggregated models. Once optimizer no longer reads model-level for disaggregated, the buggy computation becomes latent. Follow-up: remove or redefine. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F5 and `multi-analyzer-optimizer-plan.md` § Upstream interactions.
 
-- **Restore TA's EPP/GPS-mismatch SC gate** — TA-PR5 drops the EPP-presence and GPS-mismatch gates that previously suppressed `SpareCapacity`. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F9 and `planning/TA-PR5-plan.md` §7.
+- **Per-analyzer status-return state (unified F3)** — analyzer→engine contract extension: `AnalyzerStatus` for `SuppressSC` / `SuppressRC` / `Fail`. Restores TA's EPP-queue-missing + GPS-mismatch gating; subsumes the narrower F9. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F3.
 
 - **Replica-count accounting consistency across analyzers** — TA uses `len(variantMetrics)`; sat_v2 uses `readyCount`. Reconcile to a single canonical source. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F8 and `planning/TA-PR5-plan.md` §7.
 

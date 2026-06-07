@@ -518,12 +518,96 @@ analyzer publishes `α` directly on `RoleCapacities`, or even `D(p)` as a
 function. Supports vector demands (multi-dimensional analyzer outputs) and
 non-linear couplings (where `D` is not strictly proportional to `P`).
 
-### F3. `ThresholdApplied` opt-out flag
+### F3. Per-analyzer status return state (analyzer→engine contract)
 
-For analyzers with non-universal calibration math (e.g., a future ITL-based
-analyzer that computes RC/SC itself), an `AnalyzerResult.ThresholdApplied bool`
-opt-out flag would let the engine post-step skip itssha calibration for that
-analyzer. Captured in PR1113-review.md Appendix B; deferred from PR #1228 scope.
+Today's `AnalyzerResult` is a pure data record — analyzers publish raw
+`Total*` and the engine post-step writes RC/SC unconditionally.
+Analyzers have no way to signal "my output is degraded — engine should
+adjust." A small return-state field lets each analyzer communicate
+that, applicable to **any** analyzer (sat_v2, TA, QM, future):
+
+    type AnalyzerStatus int
+    const (
+        AnalyzerOK AnalyzerStatus = iota
+        AnalyzerSuppressSpareCapacity   // supply estimate unreliable; don't claim spare
+        AnalyzerSuppressRequiredCapacity // demand estimate unreliable; don't claim need
+        AnalyzerSuppressBoth            // both unreliable; engine holds all scaling decisions
+        AnalyzerFail                    // analyzer cannot produce a result for this cycle
+    )
+
+The engine post-step honors the status: skip SC write when
+`SuppressSpareCapacity` (or `SuppressBoth`); skip RC write when
+`SuppressRequiredCapacity` (or `SuppressBoth`); skip the analyzer's
+result entry from the slice entirely on `Fail`. `Total*` fields stay
+raw under all states so observability is preserved.
+
+Subsumes the narrower `ThresholdApplied` flag captured in
+PR1113-review.md Appendix B (deferred from PR #1228 scope).
+
+#### TA's failure modes (the load-bearing example)
+
+TA's pre-PR-5 gate dropped SC when `!anyEPP || anyGPSMismatch`. The
+two underlying conditions are different, and only one of them
+genuinely needs gating:
+
+- **Per-replica EPP arrival rate missing** — `ReplicaMetrics.ArrivalRate
+  == 0` for all replicas. **Has a fallback**: TA falls back to vLLM
+  `RequestsRate × AvgOutputTokens`. The fallback is acceptable; SC
+  needs no suppression for this case alone. The pre-PR-5 `anyEPP`
+  proxy was over-conservative — it suppressed SC in the legitimately
+  quiet case.
+
+- **EPP scheduler queue signal missing** — `AnalyzerInput.SchedulerQueue
+  == nil`. **No fallback**: queue depth is orchestration-layer state
+  vLLM can't see. Queued-but-not-yet-on-pod demand contributes 0 to
+  `TotalDemand` → engine's `SC = TS − TD/scaleDown` is over-estimated
+  → unsafe scale-down. This is the case that genuinely needs SC
+  suppression (`AnalyzerSuppressSpareCapacity`).
+
+- **GPS mismatch** — measured `GenerationTokenRate` deviates from the
+  ITL model's predicted `μ_dec` by > 15% at `k* ≥ 0.30`. Already
+  triggers observation-window-clear (TA recovers via re-fit); SC
+  suppression during the mismatch window is additional safety since
+  the supply estimate is wrong until the new fit lands. Maps to
+  `AnalyzerSuppressSpareCapacity` for the affected window.
+
+Refined gate: `Suppress = (input.SchedulerQueue == nil) ||
+anyGPSMismatch`. Strictly more accurate than the old `anyEPP` proxy
+(see TA-PR5-review for the full truth table).
+
+#### Engine-side signal hygiene
+
+`AnalyzerInput.SchedulerQueue` should distinguish three legitimate
+states so analyzers can act correctly:
+
+- **Flow control disabled** (operator config) — analyzers don't
+  suppress; queue contribution to demand is correctly zero.
+- **Queue present, empty** — analyzers don't suppress; queue
+  contribution is zero because there's nothing waiting.
+- **Queue signal genuinely missing** (collection failed) — analyzers
+  suppress (or return `AnalyzerFail`).
+
+Today the engine collector returns nil in all three states, so
+analyzers can't distinguish them from inputs. Operators detect the
+"genuinely missing" state externally via EPP's own queue-depth
+metric, which is exported to Prometheus by the EPP layer (the metric
+goes absent/stale when EPP is broken). That out-of-band observability
+is sufficient for *detection* but not for *correct gating* — the
+analyzer still over-claims spare during a missing-signal incident.
+
+The fix lives on the analyzer-input side: `*SchedulerQueueMetrics`
+either gains a `Disabled bool` / `Missing bool` discriminator, or
+becomes a sum type with explicit cases. The engine's
+`CollectSchedulerQueueMetrics` is updated to populate the
+discriminators correctly. Then analyzers can gate.
+
+#### Scope
+
+This is one PR's worth of work: contract field on `AnalyzerResult`
+(plus per-role `RoleCapacity` if per-role suppression is wanted),
+engine post-step honoring the status, engine collector signal
+hygiene for SchedulerQueueMetrics, and analyzer-side adoption
+(TA first, others as needed). Replaces the narrower F9 entry below.
 
 ### F4. Per-analyzer observability metrics
 
@@ -577,13 +661,11 @@ TA; engine-side fix. Tracked in TA-PR5-plan.md §7.
 
 ### F9. Restore TA's EPP/GPS-mismatch SC gate
 
-TA-PR5 drops the EPP-presence and GPS-mismatch gates that previously suppressed
-`SpareCapacity` in TA's `Analyze()` (the new contract has no SC opt-out).
-Engine post-step always computes SC, so EPP-absent or active-GPS-mismatch
-states will emit SC where today they don't. Two restoration paths:
-(a) `AnalyzerResult.SuppressSpareCapacity` opt-out on the analyzer→engine
-contract; (b) implement the deferred `ThresholdApplied` flag (§ F3).
-Tracked in TA-PR5-plan.md §7.
+Folded into F3 above. PR-5 dropped the gate; restoration happens as
+part of the broader per-analyzer status-return state. See F3 for the
+distinctions between EPP arrival-rate (fallback), EPP queue (no
+fallback), and GPS-mismatch failure modes, and for the engine-side
+signal hygiene needed on `SchedulerQueueMetrics`.
 
 ### F10. Fold queueing-model into the V2 multi-analyzer engine
 
