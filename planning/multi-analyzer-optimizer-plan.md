@@ -36,11 +36,97 @@ Alternatives considered.
 ## Branch state
 
 - **Branch:** `multi-analyzer-optimizer` in worktree `multi-analyzer-optimizer/`.
-- **Base (post-cross-rebase):** `multi-analyzer-threshold`@`b8b823b0` (PR #1228 head).
-- **Tip:** `3fe287fe` (7 commits).
-- **Backup ref:** `backup/multi-analyzer-optimizer-pre-rebase` → `ae456aa0`
-  (pre-rebase tip, in case of need).
-- **Origin:** local-only post-rebase. Awaiting force-with-lease push.
+- **Base:** `multi-analyzer-threshold`@`b8b823b0` (the OLD threshold tip — now stale; see § Rebase onto main below).
+- **Tip:** `1648f3f6` (16 commits; Phase 1+2+3+cleanup).
+- **Origin:** pushed at `1648f3f6` (2026-06-08).
+- **Backup ref:** `backup/multi-analyzer-optimizer-pre-rebase` → `ae456aa0`.
+
+---
+
+## Rebase onto main (post-#1228 merge) — CURRENT NEXT ACTION (coder)
+
+> PR #1228 (threshold) merged into upstream/main on 2026-06-08 as `d9e4ae1f`.
+> `origin/main` is fast-forwarded to it. The optimizer's base `b8b823b0` was the
+> *old* threshold tip; the threshold work is now on main in its merged form, so
+> the optimizer must rebase onto main and the PR targets `main`.
+
+This is a single, self-contained pass — do it once, verify, hand off. Do not
+improvise scope beyond what's here.
+
+**0. Pre-rebase plan (CONVENTIONS step 0).** Before touching anything, write
+`planning/multi-analyzer-optimizer-rebase-main.md` (ephemeral; delete after the
+rebase verifies): the 16-commit list with a one-line "behaviour to preserve" per
+commit (mined from each commit message), the files expected to conflict (below),
+and the post-rebase verification checklist (below). This is mandatory because
+threshold-owned files moved between `b8b823b0` and `d9e4ae1f`.
+
+**1. Confirm starting state.**
+```
+git -C ../Main rev-parse main          # must be d9e4ae1f
+git rev-parse HEAD                       # must be 1648f3f6
+git rev-parse 0ecb6038^                  # must be b8b823b0 (the rebase base)
+```
+
+**2. Rebase — replay exactly the 16 optimizer commits onto main:**
+```
+git rebase --onto main b8b823b0 multi-analyzer-optimizer
+```
+This drops the old threshold base (now on main in merged form) and replays only
+the 16 `pipeline:`/`engines:` optimizer commits.
+
+**3. Expected conflicts** (the merged threshold rewrote these; keep main's
+threshold version, re-apply the optimizer delta on top):
+- `internal/engines/saturation/engine_v2.go` — main has the merged
+  `applyUniversalThreshold` / `resolveThresholds` / `runRegisteredAnalyzers`;
+  the optimizer adds the `[]NamedAnalyzerResult` slice collection, `scoreForAnalyzer`,
+  SchedulerQueue threading, and the renamed `runAnalyzers`. Keep main's threshold
+  bodies; layer the optimizer's slice/score/queue changes on top.
+- `internal/engines/analyzers/saturation_v2/analyzer.go` — main has the merged
+  aggregation-helper version; the optimizer did not need to change it beyond what
+  threshold already did. Prefer main's version; re-apply only genuine optimizer hunks.
+- `internal/interfaces/analyzer.go` — main (threshold) added `TotalAnticipatedSupply`
+  etc.; the optimizer's cleanup commit dropped `AnalyzerResult.Score`. Resolution:
+  keep main's threshold additions AND drop `AnalyzerResult.Score` (the optimizer's
+  intent). Verify the field is gone post-rebase.
+- `internal/engines/saturation/engine.go`, `engine_register_test.go`,
+  `engine_queueing_model.go` — minor; reconcile by keeping main's shape + optimizer's
+  slice/Score/queue wiring.
+
+**4. Per-commit + per-file checks (CONVENTIONS "commit messages must reflect the
+diff").** After the rebase: for each touched file run
+`git diff <pre-rebase-tip 1648f3f6> <post-rebase-tip> -- <file>` and confirm every
+behaviour each commit's message claims is still present. Cross-rebase three-way
+merge silently drops hunks that no longer apply — this check is mandatory, not
+optional.
+
+**5. Grep-to-zero (deletions must survive the rebase).** Re-run the § Phase 3
+grep-to-zero; must be empty. A rebase can resurrect a deleted symbol via a
+conflict mis-resolution.
+
+**6. Behaviour backstops — confirm these still hold post-rebase:**
+- D-only scale-up gate (`anyRoleNeedsScaleUp`) — the D-only test passes.
+- One role-generic `allocateForModelPaired` + `scaleDownRoleIterated`; no
+  `allocateForModelPairedB2`, no `isDisaggregated` dispatch.
+- α removed from the Greedy picker.
+- `AnalyzerResult.Score` field gone; `NamedAnalyzerResult.Score` populated by
+  `scoreForAnalyzer`.
+- SchedulerQueue threaded to `AnalyzerInput` for every analyzer.
+
+**7. Gates:** `gofmt -l` empty, `go build ./...` clean, `make test` pass,
+`go test -race ./internal/engines/...` clean, DCO sign-off on all 16 rebased commits.
+
+**8. Hand off.** Report new tip + the per-file diff inventory + grep-to-zero output.
+Do NOT push (Dean force-with-lease pushes after review — this rebase rewrites the
+16 commits, so origin will need `--force-with-lease`). Delete the pre-rebase plan
+doc once verified. The `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0` ref
+stays until the PR opens.
+
+After this rebase the optimizer PR targets **`main`** (single-purpose diff: the
+16 optimizer commits only).
+
+> Separate concern: PR #1237 (`fix/role-aware-scaledown`) — if/when it merges, the
+> `variantsForRole` collision + scale-down consolidation in § "Post-#1237 merge:
+> rebase plan" still apply. Not part of this #1228 rebase.
 
 ---
 
