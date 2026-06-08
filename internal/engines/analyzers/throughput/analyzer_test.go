@@ -36,15 +36,16 @@ func makeMetrics(variant string, count int, baseK float64, kStep float64) []inte
 
 // injectWindowObs injects individual-replica observations to build an OLS-ready
 // window. Each call to Observe adds one replica; kValues provides the k (and
-// implicitly ITL = A·k + B) for each injection.
+// implicitly ITL = 0.073·k + B) for each injection.
 func injectWindowObs(a *ThroughputAnalyzer, ctx context.Context, modelID, namespace, variant string,
-	il, ol, prefixRate float64, kvMax int64, A, B float64, kValues []float64) {
+	il, ol, prefixRate float64, kvMax int64, b float64, kValues []float64) {
+	const A = 0.073
 	for _, k := range kValues {
 		m := interfaces.ReplicaMetrics{
 			VariantName:           variant,
 			KvCacheUsage:          k,
 			KvUsageInstant:        k,
-			AvgITL:                A*k + B,
+			AvgITL:                A*k + b,
 			AvgInputTokens:        il,
 			AvgOutputTokens:       ol,
 			PrefixCacheHitRate:    prefixRate,
@@ -275,7 +276,9 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		// baseReplica is a healthy replica for the signal-test variant.
-		baseReplica := func(k, arrivalRate float64) interfaces.ReplicaMetrics {
+		baseReplica := func(arrivalRate float64) interfaces.ReplicaMetrics {
+			const A = 0.073
+			const k = 0.50
 			return interfaces.ReplicaMetrics{
 				VariantName:           "v1",
 				KvCacheUsage:          k,
@@ -290,7 +293,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		}
 
 		buildReadyWindow := func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 			state, ok := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(ok).To(BeTrue())
 			Expect(state.ObservationReady).To(BeTrue())
@@ -303,7 +306,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(0.50, 15)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(15)},
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
@@ -321,7 +324,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(0.50, 5)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(5)},
 			}
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
@@ -336,7 +339,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			buildReadyWindow()
 
 			// ArrivalRate=0, VLLMRequestRate=0 → isEPP=false → no scale-down signal
-			replica := baseReplica(0.50, 0)
+			replica := baseReplica(0)
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
@@ -353,7 +356,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(0.50, 5)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(5)},
 			}
 			result, _ := analyzer.Analyze(ctx, input)
 			Expect(result.VariantCapacities).To(HaveLen(1))
@@ -368,7 +371,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(0.50, 5)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica(5)},
 			}
 			analyzer.Analyze(ctx, input) //nolint:errcheck
 
@@ -454,7 +457,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			// Build an OLS-ready window.
 			kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 			injectWindowObs(analyzer, ctx, modelID, namespace, "v1",
-				5000, 200, 0.1, 1024000, 0.073, 0.006, kValues)
+				5000, 200, 0.1, 1024000, 0.006, kValues)
 			state, _ := analyzer.VariantState(modelID, namespace, "v1")
 			Expect(state.ObservationReady).To(BeTrue())
 
@@ -558,7 +561,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		It("suppresses RequiredCapacity when pending replicas cover anticipated demand", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			replica := interfaces.ReplicaMetrics{
 				VariantName:           "v1",
@@ -586,7 +589,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("still emits RequiredCapacity when pending replicas are insufficient", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			// 3 replicas running, ArrivalRate=15 each → λ_dec = 3×3000 = 9000 tok/s
 			// μ_sat ≈ 2782 tok/s per replica; anticipated = 3 × 2782 ≈ 8346 < 9000
@@ -634,10 +637,12 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		buildVariantWindow := func(variant string) {
-			injectWindowObs(analyzer, ctx, modelID, namespace, variant, il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, variant, il, ol, prefix, kvMax, B, kValues)
 		}
 
-		baseReplica := func(variant string, k, arrivalRate float64) interfaces.ReplicaMetrics {
+		baseReplica := func(variant string, arrivalRate float64) interfaces.ReplicaMetrics {
+			const A = 0.073
+			const k = 0.50
 			return interfaces.ReplicaMetrics{
 				VariantName:           variant,
 				KvCacheUsage:          k,
@@ -659,8 +664,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ModelID:   modelID,
 				Namespace: namespace,
 				ReplicaMetrics: []interfaces.ReplicaMetrics{
-					baseReplica("v-decode", 0.50, 5),
-					baseReplica("v-prefill", 0.50, 5),
+					baseReplica("v-decode", 5),
+					baseReplica("v-prefill", 5),
 				},
 				VariantStates: []interfaces.VariantReplicaState{
 					{VariantName: "v-decode", Role: "decode"},
@@ -683,8 +688,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				ModelID:   modelID,
 				Namespace: namespace,
 				ReplicaMetrics: []interfaces.ReplicaMetrics{
-					baseReplica("v-decode", 0.50, 15),
-					baseReplica("v-prefill", 0.50, 15),
+					baseReplica("v-decode", 15),
+					baseReplica("v-prefill", 15),
 				},
 				VariantStates: []interfaces.VariantReplicaState{
 					{VariantName: "v-decode", Role: "decode"},
@@ -712,7 +717,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica("v1", 0.50, 5)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica("v1", 5)},
 				// No VariantStates → role is "" for all variants
 			}
 			result, err := analyzer.Analyze(ctx, input)
@@ -726,7 +731,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			input := interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
-				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica("v-decode", 0.50, 5)},
+				ReplicaMetrics: []interfaces.ReplicaMetrics{baseReplica("v-decode", 5)},
 				VariantStates: []interfaces.VariantReplicaState{
 					{VariantName: "v-decode", Role: "decode"},
 				},
@@ -758,7 +763,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		It("emits RequiredCapacity from k* when EPP is absent", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.95, KvUsageInstant: 0.95,
@@ -784,7 +789,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("emits no SpareCapacity from k* even when k* is low (scale-down requires EPP)", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			// Low k* → λ_local << μ_sat, but no EPP → no scale-down.
 			replica := interfaces.ReplicaMetrics{
@@ -805,7 +810,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			// EPP and vLLM paths are also absent (no ArrivalRate, no VLLMRequestRate).
 			// Expected: demand=0, RC=0, SC=0.
 			const lowOL = 5.0
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, lowOL, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, lowOL, prefix, kvMax, B, kValues)
 
 			replica := interfaces.ReplicaMetrics{
 				VariantName:           "v1",
@@ -852,7 +857,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		}
 
 		It("adds queue demand and emits RequiredCapacity when queue is large", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			withQueue := interfaces.AnalyzerInput{
 				ModelID: modelID, Namespace: namespace,
@@ -868,7 +873,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("emits no RequiredCapacity when SchedulerQueue is nil", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
 
 			noQueue := interfaces.AnalyzerInput{
 				ModelID: modelID, Namespace: namespace,
@@ -898,8 +903,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		It("emits only SpareCapacity (not RequiredCapacity) when model has overall spare despite one hot variant", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", il, ol, prefix, kvMax, B, kValues)
 
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
@@ -926,8 +931,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("emits only RequiredCapacity (not SpareCapacity) when both variants are overloaded", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, A, B, kValues)
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", il, ol, prefix, kvMax, A, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", il, ol, prefix, kvMax, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", il, ol, prefix, kvMax, B, kValues)
 
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
@@ -966,8 +971,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValuesA := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		It("TotalSupply equals aggregation.SumTotalSupply(VariantCapacities)", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v2", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
 					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
@@ -985,7 +990,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("TotalAnticipatedSupply equals aggregation.SumTotalAnticipatedSupply(VariantCapacities)", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
 					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
@@ -1006,7 +1011,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("TotalDemand equals aggregation.SumTotalDemand(VariantCapacities) plus queue demand", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v1", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
 					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
@@ -1028,8 +1033,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("RoleCapacities[role].TotalAnticipatedSupply matches per-role aggregation", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v-decode", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
 					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
@@ -1058,8 +1063,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("RoleCapacities[decode].TotalDemand includes the queue-demand share", func() {
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
-			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			replicas := []interfaces.ReplicaMetrics{
 				{VariantName: "v-decode", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
 					AvgITL: aA*0.50 + bA, AvgInputTokens: ilA, AvgOutputTokens: olA,
@@ -1086,8 +1091,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(errNoQ).NotTo(HaveOccurred())
 
 			analyzer2 := NewThroughputAnalyzer()
-			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
-			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, aA, bA, kValuesA)
+			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-decode", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
+			injectWindowObs(analyzer2, ctx, modelID, namespace, "v-prefill", ilA, olA, prefixA, kvMaxA, bA, kValuesA)
 			resultWithQ, errWithQ := analyzer2.Analyze(ctx, inputWithQ)
 			Expect(errWithQ).NotTo(HaveOccurred())
 
@@ -1208,7 +1213,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		buildTier1Window := func() {
 			kValues := []float64{0.20, 0.30, 0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80}
 			injectWindowObs(analyzer, ctx, modelID, namespace, "v1",
-				1024, 256, 0.0, 65536, trueA, trueB, kValues)
+				1024, 256, 0.0, 65536, trueB, kValues)
 		}
 
 		It("saves lastFittedB after a successful Tier-1 OLS fit", func() {
@@ -1325,7 +1330,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 		buildWindowG := func() {
 			injectWindowObs(analyzer, ctx, modelID, namespace, "gv1",
-				ilG, olG, pfxG, kvMaxG, aG, bG, kValuesG)
+				ilG, olG, pfxG, kvMaxG, bG, kValuesG)
 			state, ok := analyzer.VariantState(modelID, namespace, "gv1")
 			Expect(ok).To(BeTrue())
 			Expect(state.ObservationReady).To(BeTrue())
@@ -1347,16 +1352,16 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		}
 
 		// muDecG is the model-predicted μ_dec(k*) for the scenario above.
-		muDecG := func(k float64) float64 {
+		muDecG := func() float64 {
 			kvReq := ilG*(1-pfxG) + olG/2 // 4600
-			nDec := k * float64(kvMaxG) / kvReq
-			return nDec / (aG*k + bG)
+			nDec := kStar * float64(kvMaxG) / kvReq
+			return nDec / (aG*kStar + bG)
 		}
 
 		It("GPS within 15% of model prediction — fixture for future SC pass-through", func() {
 			buildWindowG()
 			// GPS equals model value → 0% error, well within threshold.
-			gps := muDecG(kStar)
+			gps := muDecG()
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
@@ -1372,7 +1377,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		It("GPS deviates > 15% at k* ≥ DefaultGPSMinKForVerification — fixture for future SC suppression", func() {
 			buildWindowG()
 			// GPS is 50% of model → gpsErrPct = |1 - 0.5| / 0.5 × 100 = 100% >> 15%.
-			gps := muDecG(kStar) * 0.5
+			gps := muDecG() * 0.5
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
@@ -1385,7 +1390,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		It("GPS deviates but k* < DefaultGPSMinKForVerification — fixture for future SC pass-through", func() {
 			buildWindowG()
 			// k*=0.20 < DefaultGPSMinKForVerification(0.30); GPS check is skipped.
-			gps := muDecG(kStar) * 0.1 // enormous mismatch, but k* too low to trust
+			gps := muDecG() * 0.1 // enormous mismatch, but k* too low to trust
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
@@ -1417,7 +1422,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			buildWindowG()
 			// High ArrivalRate drives demand > supply (RC > 0).
 			// GPS gate is dropped — TA always leaves SC=0; SC=0 is now unconditional.
-			gps := muDecG(kStar) * 0.1
+			gps := muDecG() * 0.1
 			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
 				ModelID:        modelID,
 				Namespace:      namespace,
@@ -1446,7 +1451,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 		buildWindowW := func() {
 			injectWindowObs(analyzer, ctx, modelID, namespace, "wv1",
-				ilW, olW, pfxW, kvMaxW, aW, bW, kValuesW)
+				ilW, olW, pfxW, kvMaxW, bW, kValuesW)
 			state, ok := analyzer.VariantState(modelID, namespace, "wv1")
 			Expect(ok).To(BeTrue())
 			Expect(state.ObservationReady).To(BeTrue())
@@ -1555,7 +1560,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 
 			// Trigger a shape change by injecting observations with a very different OL.
 			injectWindowObs(analyzer, ctx, modelID, namespace, "wv1",
-				ilW, olW*10, pfxW, kvMaxW, aW, bW, kValuesW)
+				ilW, olW*10, pfxW, kvMaxW, bW, kValuesW)
 
 			// One more mismatch — but the counter was reset by the shape change,
 			// so the total consecutive count is 1, not N.
