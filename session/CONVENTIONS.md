@@ -316,12 +316,16 @@ After any rebase that replays a commit onto a base where the touched files have 
 cleanly — leaving the commit message intact while the behavior is gone. Procedure for non-trivial
 rebases (multi-commit stack AND any touched file has been modified on the new base):
 
-0. **Pre-rebase plan.** Before executing the rebase, write a short plan at
-   `planning/<branch>-rebase-<target>.md` (Type 3-style, ephemeral — delete after the rebase is
-   verified). Contents: ordered commit list with a one-line "behavior to preserve" per commit
-   (mined from the commit message), files expected to conflict on the new base, and the
-   post-rebase verification checklist (which diffs to run, which claimed behaviors to confirm).
-   Skip the plan for single-commit rebases or rebases that apply cleanly.
+0. **Pre-rebase plan.** Before executing the rebase, write a short plan (Type 3-style, ephemeral
+   — delete after the rebase is verified). Contents: ordered commit list with a one-line "behavior
+   to preserve" per commit (mined from the commit message), files expected to conflict on the new
+   base, and the post-rebase verification checklist (which diffs to run, which claimed behaviors to
+   confirm). **Where it lives depends on your role's write scope** (per "Worktree scope" above):
+   the **plan-agent** writes it at `planning/<branch>-rebase-<target>.md`; a **coder** has no write
+   access to `plans/planning/`, so the coder instead records it in its own
+   `plans/session/status/<branch>.md` (or a `plan__*.md` handoff) — never under `planning/`. The
+   artifact is the same; only the sanctioned location differs by role. Skip the plan entirely for
+   single-commit rebases or rebases that apply cleanly.
 1. **Per-file diff inventory.** After the rebase, for each touched file, run
    `git diff <pre-rebase-tip> <post-rebase-tip> -- <file>` and confirm every behavior claimed in
    the rebased commits' messages is still present in the post-rebase code.

@@ -53,9 +53,15 @@ Alternatives considered.
 > code. Follow it literally — it is the output of a long design discussion you
 > were not part of, so do **not** infer scope beyond what is written here.
 
-**Scope note (boundary):** everything here is inside your worktree. Do **not**
-write to `plans/planning/`. Put any pre-rebase notes in your **status file** or
-the **plan-handoff**, never a `planning/` doc.
+**Scope note (boundary).** This is a non-trivial rebase, so CONVENTIONS step 0
+("commit messages must reflect the diff") requires a **pre-rebase plan**. Per
+that step's role rule: you are the **coder** and have no write access to
+`plans/planning/`, so write the pre-rebase plan in your
+`plans/session/status/multi-analyzer-optimizer.md` (or a `plan__*.md` handoff)
+— **not** under `planning/`. That is the *only* exception-free way to satisfy
+step 0 in your scope; it is not a contradiction with CONVENTIONS, it is what
+CONVENTIONS step 0 now says for the coder role. All code edits stay inside the
+`multi-analyzer-optimizer` worktree.
 
 ### Step 1 — Rebase onto the post-#1237 main
 
