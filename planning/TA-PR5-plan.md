@@ -94,11 +94,28 @@ rebasing onto `badc48be`. Planner verified what this churn means for TA3:
   **as part of the re-rebase** (it cannot be a standalone pre-rebase commit — on
   the current void-signature base, error-handling would not compile).
 
-**Re-rebase timing.** Do **not** rebase onto the optimizer branch tip while #1246
-is mid-rebase (moving target) — TA3 would have to redo it. Preferred: rebase TA3
-onto **`main` once #1246 merges** (main then has registration+threshold+optimizer
-— a single clean rebase). If TA3 must move sooner, rebase onto the *settled*
-post-#1237 optimizer tip after that coder hands off, not before.
+**Re-rebase timing — CLEARED to rebase onto `main@badc48be` NOW (2026-06-09), as a SIBLING PR.**
+Verified: `main@badc48be` carries the full merged contract TA3 depends on (#1225 registration,
+#1228 threshold + `aggregation` + `AnalyzerResult`, #1237). TA3's 21 own commits (`4bfac2fa..HEAD`)
+touch no `pipeline/`/`engine`/`interfaces/`/`saturation_v2` files → the rebase is conflict-free
+except `cmd/main.go` (the H1 wiring). TA3 compiles, unit-tests, lints, and builds on main alone,
+so its blocking CI gate (`lint-and-test`) is green without #1246. **TA3 is a sibling of #1246,
+not a dependent** — both attach to the merged contract and land on main independently.
+
+```
+git fetch upstream
+git rebase --onto main 4bfac2fa TA3      # replay the 21 TA commits onto main@badc48be
+```
+
+Drops the old optimizer/threshold base (superseded on main). Apply **H1** as part of this rebase
+(§3.1 — the `cmd/main.go` conflict; lint-blocking).
+
+**Caveat (not a review blocker).** On main the engine runs `TA.Analyze()` but **discards** the
+result — the per-analyzer slice consumer (`NamedAnalyzerResult`) is #1246-only. So TA's scaling
+signal is inert until #1246 merges: the **smoke** e2e (wiring health) passes, but the **full** e2e
+(TA-driven scale-up / TA-only mode) needs #1246. Full e2e is comment-triggered, not the
+auto-blocking gate — review/CI is not blocked. Reviewer reviews code+contract+unit tests now;
+TA's end-to-end effect validates once #1246 lands.
 
 **Scale-down semantic interaction (for e2e expectations, not a code change).**
 TA3's per-role `RoleCapacities[role].SpareCapacity` (engine-written) now feeds the
@@ -551,6 +568,9 @@ TA PR will tap into those.
 Each commit and the final tip must satisfy:
 
 - `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
+- **`make lint` — clean (required gate).** golangci-lint (nakedret/unparam/gocritic/…) is what
+  CI's `lint-and-test` blocks on, and it is *not* caught by gofmt/build/test. TA3 predates this
+  gate, so expect pre-existing findings — fix them (`make lint-fix` for the mechanical ones).
 - `go vet ./...` — clean.
 - `go build ./...` — clean.
 - `make test` — all packages pass.
