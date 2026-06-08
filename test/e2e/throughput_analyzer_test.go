@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -145,7 +146,7 @@ func buildThroughputSustainedLoadJob(namespace, name, targetURL, modelID string,
 							Env: []corev1.EnvVar{
 								{Name: "TARGET_URL", Value: targetURL},
 								{Name: "MODEL_ID", Value: modelID},
-								{Name: "WORKERS", Value: fmt.Sprintf("%d", workers)},
+								{Name: "WORKERS", Value: strconv.Itoa(workers)},
 								{Name: "MAX_TOKENS", Value: "400"},
 								{Name: "CURL_TIMEOUT", Value: "300"},
 								{Name: "MAX_RETRIES", Value: "24"},
@@ -169,6 +170,8 @@ func buildThroughputSustainedLoadJob(namespace, name, targetURL, modelID string,
 		},
 	}
 }
+
+const defaultConfigKey = "default"
 
 // ─── Scenario 1: Wiring Health Check (smoke/throughput) ───────────────────────
 
@@ -195,7 +198,7 @@ var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throu
 		modelID = cfg.ModelID
 		cmName = saturationConfigMapName()
 		cmNamespace = cfg.WVANamespace
-		cmKey = "default"
+		cmKey = defaultConfigKey
 
 		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
 		if err == nil {
@@ -294,7 +297,7 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 		modelID = cfg.ModelID
 		cmName = saturationConfigMapName()
 		cmNamespace = cfg.WVANamespace
-		cmKey = "default"
+		cmKey = defaultConfigKey
 
 		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
 		if err == nil {
@@ -398,7 +401,7 @@ var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"),
 		modelID = cfg.ModelID
 		cmName = saturationConfigMapName()
 		cmNamespace = cfg.WVANamespace
-		cmKey = "default"
+		cmKey = defaultConfigKey
 
 		cm, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
 		if err == nil {
