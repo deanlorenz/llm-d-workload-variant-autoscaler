@@ -9,7 +9,7 @@ import (
 
 // makeNamed builds a NamedAnalyzerResult with the given RC, SC, and per-variant
 // (variantName, perReplicaCapacity) pairs.
-func makeNamed(name string, RC, SC float64, vcs ...any) NamedAnalyzerResult {
+func makeNamed(name string, rc, sc float64, vcs ...any) NamedAnalyzerResult {
 	var caps []interfaces.VariantCapacity
 	for i := 0; i+1 < len(vcs); i += 2 {
 		vName := vcs[i].(string)
@@ -22,12 +22,12 @@ func makeNamed(name string, RC, SC float64, vcs ...any) NamedAnalyzerResult {
 	return NamedAnalyzerResult{
 		Name: name,
 		Result: &interfaces.AnalyzerResult{
-			RequiredCapacity:  RC,
-			SpareCapacity:     SC,
+			RequiredCapacity:  rc,
+			SpareCapacity:     sc,
 			VariantCapacities: caps,
 		},
-		Remaining: RC,
-		Spare:     SC,
+		Remaining: rc,
+		Spare:     sc,
 	}
 }
 
@@ -79,13 +79,13 @@ var _ = Describe("analyzer helpers", func() {
 
 // makeNamedPD builds a NamedAnalyzerResult with RoleCapacities for P/D tests.
 // RoleSpare is initialized from pSC/dSC (as initDisaggregatedRemaining would do).
-func makeNamedPD(name string, pRC, dRC, pSC, dSC float64, pDemand, dDemand float64, vPName string, vPPRC float64, vDName string, vDPRC float64) NamedAnalyzerResult {
+func makeNamedPD(name string, pRC, dRC, pSC, dSC float64, pDemand, dDemand float64, vPPRC float64, vDPRC float64) NamedAnalyzerResult {
 	return NamedAnalyzerResult{
 		Name: name,
 		Result: &interfaces.AnalyzerResult{
 			VariantCapacities: []interfaces.VariantCapacity{
-				{VariantName: vPName, Role: "prefill", PerReplicaCapacity: vPPRC},
-				{VariantName: vDName, Role: "decode", PerReplicaCapacity: vDPRC},
+				{VariantName: "pf", Role: "prefill", PerReplicaCapacity: vPPRC},
+				{VariantName: "dc", Role: "decode", PerReplicaCapacity: vDPRC},
 			},
 			RoleCapacities: map[string]interfaces.RoleCapacity{
 				"prefill": {Role: "prefill", RequiredCapacity: pRC, SpareCapacity: pSC, TotalDemand: pDemand},
@@ -101,7 +101,7 @@ var _ = Describe("paired helpers", func() {
 
 	Describe("initRoleState", func() {
 		It("disaggregated: roles from RoleCapacities; picker-state from RC; RoleSpare from SC", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 15000, 5000, 20000, 10000, 15000, 5000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 15000, 5000, 20000, 10000, 15000, 5000, 10000, 10000)}
 			roles, ps := initRoleState(s)
 			Expect(roles).To(ConsistOf("prefill", "decode"))
 			Expect(ps[0]["prefill"]).To(BeNumerically("~", 15000.0, 1e-9))
@@ -124,8 +124,8 @@ var _ = Describe("paired helpers", func() {
 			// analyzer0: prefill remaining=10000, PRC=5000 → ceil(10000/5000)=2
 			// analyzer1: prefill remaining=15000, PRC=5000 → ceil(15000/5000)=3 (max)
 			s := []NamedAnalyzerResult{
-				makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, "pf", 5000, "dc", 8000),
-				makeNamedPD("ta", 15000, 15000, 0, 0, 15000, 15000, "pf", 5000, "dc", 8000),
+				makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, 5000, 8000),
+				makeNamedPD("ta", 15000, 15000, 0, 0, 15000, 15000, 5000, 8000),
 			}
 			_, ps := initRoleState(s)
 			Expect(roleBottleneckReplicas(s, ps, "prefill", "pf")).To(Equal(3))
@@ -134,7 +134,7 @@ var _ = Describe("paired helpers", func() {
 		})
 
 		It("returns 0 when PRC=0 (cold-start guard)", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, "pf", 0, "dc", 0)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 10000, 20000, 0, 0, 10000, 20000, 0, 0)}
 			_, ps := initRoleState(s)
 			Expect(roleBottleneckReplicas(s, ps, "prefill", "pf")).To(Equal(0))
 		})
@@ -143,14 +143,14 @@ var _ = Describe("paired helpers", func() {
 	Describe("safeRemovalReplicasForRole", func() {
 		It("computes removable replicas from RoleSpare for a given role", func() {
 			// RoleSpare["prefill"]=20000, PRC_P=10000 → floor(20000/10000)=2
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, 10000, 10000)}
 			Expect(safeRemovalReplicasForRole(s, "pf", "prefill")).To(Equal(2))
 			// RoleSpare["decode"]=30000, PRC_D=10000 → floor(30000/10000)=3
 			Expect(safeRemovalReplicasForRole(s, "dc", "decode")).To(Equal(3))
 		})
 
 		It("returns 0 when RoleSpare for role is 0", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 0, 30000, 10000, 30000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 0, 30000, 10000, 30000, 10000, 10000)}
 			Expect(safeRemovalReplicasForRole(s, "pf", "prefill")).To(Equal(0))
 		})
 
@@ -164,7 +164,7 @@ var _ = Describe("paired helpers", func() {
 	Describe("applyDeallocationForRole", func() {
 		It("decrements RoleSpare[role] by n×PRC", func() {
 			// RoleSpare["prefill"]=20000, PRC=10000, n=2 → 20000-20000=0
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, 10000, 10000)}
 			applyDeallocationForRole(s, "pf", "prefill", 2)
 			Expect(s[0].RoleSpare["prefill"]).To(Equal(0.0))
 			// decode spare unchanged
@@ -172,7 +172,7 @@ var _ = Describe("paired helpers", func() {
 		})
 
 		It("clamps RoleSpare to 0", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 5000, 0, 10000, 0, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 5000, 0, 10000, 0, 10000, 10000)}
 			applyDeallocationForRole(s, "pf", "prefill", 5) // would subtract 50000
 			Expect(s[0].RoleSpare["prefill"]).To(Equal(0.0))
 		})
@@ -180,13 +180,13 @@ var _ = Describe("paired helpers", func() {
 
 	Describe("needsScaleDownForRole", func() {
 		It("returns true when all analyzers have RoleSpare[role] > 0", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, 10000, 10000)}
 			Expect(needsScaleDownForRole(s, "prefill")).To(BeTrue())
 			Expect(needsScaleDownForRole(s, "decode")).To(BeTrue())
 		})
 
 		It("returns false when any analyzer has RoleSpare[role] = 0", func() {
-			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 0, 30000, 10000, 30000, "pf", 10000, "dc", 10000)}
+			s := []NamedAnalyzerResult{makeNamedPD("sat", 0, 0, 0, 30000, 10000, 30000, 10000, 10000)}
 			Expect(needsScaleDownForRole(s, "prefill")).To(BeFalse())
 			Expect(needsScaleDownForRole(s, "decode")).To(BeTrue())
 		})
@@ -210,13 +210,19 @@ var _ = Describe("paired helpers", func() {
 			Expect(variantsForRole(vcs, "decode")[0].VariantName).To(Equal("dc"))
 		})
 
-		It("returns all variants for role 'both' or empty", func() {
+		It("matches 'both' query against both explicit 'both' and empty-role variants", func() {
 			vcs := []interfaces.VariantCapacity{
 				{VariantName: "pf", Role: "prefill"},
 				{VariantName: "dc", Role: "decode"},
+				{VariantName: "all", Role: "both"},
+				{VariantName: "also-both"}, // empty Role → canonicalized to "both" by variantsForRole
 			}
-			Expect(variantsForRole(vcs, "both")).To(HaveLen(2))
-			Expect(variantsForRole(vcs, "")).To(HaveLen(2))
+			result := variantsForRole(vcs, "both")
+			Expect(result).To(HaveLen(2))
+			names := []string{result[0].VariantName, result[1].VariantName}
+			Expect(names).To(ConsistOf("all", "also-both"))
+			// querying "" matches nothing (vc empty roles are canonicalized to "both", not "")
+			Expect(variantsForRole(vcs, "")).To(BeEmpty())
 		})
 	})
 

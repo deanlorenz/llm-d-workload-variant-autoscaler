@@ -279,26 +279,26 @@ var _ = Describe("CostAwareOptimizer", func() {
 			// decode has spare. Model-level SpareCapacity aggregates both roles, so a
 			// role-blind scale-down would trim the expensive prefill. Role-aware
 			// scale-down must leave the saturated prefill untouched and shed decode.
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 20000, // aggregate (decode's spare) — gates scale-down
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "prefill", Role: "prefill", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+					{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {Role: "prefill", SpareCapacity: 0},
+					"decode":  {Role: "decode", SpareCapacity: 20000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 20000, // aggregate (decode's spare) — gates scale-down
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "prefill", Role: "prefill", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-							{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-						},
-						RoleCapacities: map[string]interfaces.RoleCapacity{
-							"prefill": {Role: "prefill", SpareCapacity: 0},
-							"decode":  {Role: "decode", SpareCapacity: 20000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "prefill", Role: "prefill", CurrentReplicas: 2},
 						{VariantName: "decode", Role: "decode", CurrentReplicas: 3},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -315,26 +315,26 @@ var _ = Describe("CostAwareOptimizer", func() {
 		It("should shed each role by its own spare when both have slack", func() {
 			// Both roles have spare, but different amounts. Each role must shed by
 			// its own per-role spare, not the aggregate.
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 30000, // aggregate — gates scale-down
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "prefill", Role: "prefill", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+					{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {Role: "prefill", SpareCapacity: 10000}, // 1 replica
+					"decode":  {Role: "decode", SpareCapacity: 20000},  // 2 replicas
+				},
+			}
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 30000, // aggregate — gates scale-down
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "prefill", Role: "prefill", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-							{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-						},
-						RoleCapacities: map[string]interfaces.RoleCapacity{
-							"prefill": {Role: "prefill", SpareCapacity: 10000}, // 1 replica
-							"decode":  {Role: "decode", SpareCapacity: 20000},  // 2 replicas
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "prefill", Role: "prefill", CurrentReplicas: 3},
 						{VariantName: "decode", Role: "decode", CurrentReplicas: 3},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -350,25 +350,25 @@ var _ = Describe("CostAwareOptimizer", func() {
 			// Only decode has a RoleCapacities entry (e.g. a prefill data-collection
 			// gap). The one-iteration path must shed decode against its own spare and
 			// keep the cheapest decode variant at one replica.
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 20000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "decode-exp", Role: "decode", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+					{VariantName: "decode-cheap", Role: "decode", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"decode": {Role: "decode", SpareCapacity: 20000}, // 2 replicas
+				},
+			}
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 20000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "decode-exp", Role: "decode", Cost: 10.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-							{VariantName: "decode-cheap", Role: "decode", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
-						},
-						RoleCapacities: map[string]interfaces.RoleCapacity{
-							"decode": {Role: "decode", SpareCapacity: 20000}, // 2 replicas
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "decode-exp", Role: "decode", CurrentReplicas: 1},
 						{VariantName: "decode-cheap", Role: "decode", CurrentReplicas: 1},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)
@@ -385,28 +385,28 @@ var _ = Describe("CostAwareOptimizer", func() {
 			// prefill/decode RoleCapacities map — so the per-role sheds never include it.
 			// The design assumes one role per variant; this pins the defensive behavior
 			// if that assumption is violated: the orphan is left as-is.
+			r := &interfaces.AnalyzerResult{
+				SpareCapacity: 20000,
+				VariantCapacities: []interfaces.VariantCapacity{
+					{VariantName: "prefill", Role: "prefill", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+					{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
+					{VariantName: "orphan", Role: "", Cost: 20.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
+				},
+				RoleCapacities: map[string]interfaces.RoleCapacity{
+					"prefill": {Role: "prefill", SpareCapacity: 0},
+					"decode":  {Role: "decode", SpareCapacity: 20000},
+				},
+			}
 			requests := []ModelScalingRequest{
-				{
+				withSatEntry(r, ModelScalingRequest{
 					ModelID:   "model-1",
 					Namespace: "default",
-					Result: &interfaces.AnalyzerResult{
-						SpareCapacity: 20000,
-						VariantCapacities: []interfaces.VariantCapacity{
-							{VariantName: "prefill", Role: "prefill", Cost: 15.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-							{VariantName: "decode", Role: "decode", Cost: 5.0, ReplicaCount: 3, PerReplicaCapacity: 10000},
-							{VariantName: "orphan", Role: "", Cost: 20.0, ReplicaCount: 2, PerReplicaCapacity: 10000},
-						},
-						RoleCapacities: map[string]interfaces.RoleCapacity{
-							"prefill": {Role: "prefill", SpareCapacity: 0},
-							"decode":  {Role: "decode", SpareCapacity: 20000},
-						},
-					},
 					VariantStates: []interfaces.VariantReplicaState{
 						{VariantName: "prefill", Role: "prefill", CurrentReplicas: 2},
 						{VariantName: "decode", Role: "decode", CurrentReplicas: 3},
 						{VariantName: "orphan", Role: "", CurrentReplicas: 2},
 					},
-				},
+				}),
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, nil)

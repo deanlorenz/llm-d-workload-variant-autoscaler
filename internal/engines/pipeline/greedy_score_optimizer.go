@@ -320,7 +320,6 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 	}
 }
 
-
 // filterActive returns modelWork entries that still have remaining > 0.
 func filterActive(work []*modelWork) []*modelWork {
 	var active []*modelWork

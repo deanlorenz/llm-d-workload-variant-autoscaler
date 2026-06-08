@@ -108,7 +108,7 @@ func initRoleState(s []NamedAnalyzerResult) (roles []string, pickerState RolePai
 		roles = append(roles, role)
 	}
 	sort.Strings(roles)
-	return
+	return roles, pickerState
 }
 
 // =============================================================================
