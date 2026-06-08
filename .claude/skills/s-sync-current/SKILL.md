@@ -64,6 +64,30 @@ same section, apply them in file-system order and note any conflicts to the user
 CURRENT.md has per-task sections — never overwrite a sibling task's state unless the
 handoff explicitly says to.
 
+**Edit by targeted section edits, never a wholesale rewrite of CURRENT.md** — a full-file
+rewrite reconstructs from memory and silently drops items. If you must rewrite, diff
+old-vs-new and account for every removed line before continuing.
+
+---
+
+## Step 3a: Prune, reconcile, and ref-check (keep CURRENT.md bounded)
+
+After folding in handoffs, restore CURRENT.md to its Type-5 bounded shape (CONVENTIONS
+Type 5). Targeted edits only — no wholesale rewrite.
+
+1. **Recent-activity window.** Keep ≈5 active-WIP abstracts in the head; move older ones to
+   the tail as 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item only
+   once its substance is in git or a permanent doc.
+2. **Reconcile against PR Status.** Drop Blocked-on / Next-steps entries that PR Status shows
+   as done or contradicts (e.g. "awaiting CI" after CI ran). PR Status is the source of truth
+   for branch/PR state.
+3. **Backlogs stay refs.** Issues-to-Open items are one-line title + `→ Fnn`/doc ref, not prose.
+4. **Ref-check.** Scan CURRENT.md for `→ Fnn`/`→ Ann` and doc-section refs; for any doc
+   changed in this sync, confirm the anchor still resolves and fix it if it renumbered.
+5. **No-loss guard (verify-or-copy-then-delete).** Never remove a forward-looking TODO that
+   has no home elsewhere. If a handoff or a prune would drop something with no permanent home,
+   **stop and surface it** to the user rather than deleting.
+
 ---
 
 ## Step 4: Mark processed handoffs `.DONE`
@@ -120,3 +144,7 @@ Print the commit SHA or the up-to-date message when done.
   business. Leave them alone; their recipients process them.
 - Status files at `plans/session/status/<branch>.md` are not handoffs. Leave them
   alone; they are continuously rewritten by their owning coder.
+- **Never rewrite CURRENT.md wholesale.** Edit section by section; a blind rewrite silently
+  drops items. Keep it bounded per CONVENTIONS Type 5 (rolling-window recent activity,
+  refs-not-prose backlogs, one source per task). The Step 3a prune is part of every sync,
+  not a separate effort.

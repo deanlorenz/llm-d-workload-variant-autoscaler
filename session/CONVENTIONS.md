@@ -98,11 +98,32 @@ Types 1/2/3 may be linked from the PR description for deeper context but are not
 reading.
 
 **Type 5 — session state** (`session/CURRENT.md`)
-Living work tracker. Enables any new session to resume without prior memory. Contains
-per-task sections with work items, progress, open issues, and intermediate decisions.
-References other docs rather than duplicating them; removes content once it lands in a
-permanent doc. Updated continuously as work progresses — by the plan-agent directly, or
-by coding agents via handoff files.
+Living work tracker; lets any new session resume without prior memory. Holds **operational
+state + short abstracts only** — references permanent docs rather than duplicating them;
+landed history lives in git. Updated continuously — by the plan-agent directly, or by coding
+agents via handoff files.
+
+*Bounded shape (prevents unbounded growth):*
+- **Recent activity** is a rolling window: a short **head** of active-WIP abstracts (≈5) + a
+  **tail** of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress a head item to a
+  tail pointer once its substance is in git or a permanent doc — the ID/ref is the recovery
+  handle.
+- **Backlogs** (Issues to Open, …) are *refs, not prose*: link the design-doc `Fnn`/`Ann`
+  item or a one-line title; full prose lives in the permanent doc.
+- **One source per task**: the per-task section holds the abstract; the PR-Status row is a
+  one-line pointer. No triplication.
+
+*Editing discipline (content-loss is costly):*
+- **verify-or-copy-then-delete, per item.** Before removing any detail, confirm it already
+  exists in its permanent home (design/plan doc, or git via a commit/PR ID). If it does,
+  delete here; if not, copy it there and verify first. A forward-looking TODO with no other
+  home must never be dropped.
+- **Tidy by targeted edits, never a blind wholesale rewrite.** A full-file rewrite reconstructs
+  from memory and silently loses items that don't fit the template. Edit section by section;
+  if you must rewrite, diff old-vs-new and account for every removed line before committing.
+- **Ref integrity.** CURRENT.md is updated *last*. When a referenced doc changes (especially
+  design-doc `Fnn`/`Ann` anchors, which renumber), re-validate CURRENT.md's refs into it and
+  fix any that no longer resolve.
 
 **Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
