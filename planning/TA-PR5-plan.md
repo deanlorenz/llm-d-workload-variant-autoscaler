@@ -68,6 +68,47 @@ that.
 obsolete — the same plumbing landed via #1225 with a different shape (slice +
 snapshot, error-returning). The wiring commit shrinks to `cmd/main.go` only.
 
+### Re-rebase impact analysis (verified 2026-06-09)
+
+TA3 currently sits on the **old** optimizer tip `4bfac2fa` (pre-Phase-3,
+pre-#1228-merge, pre-#1237). #1225 + #1228 are now merged on `main@d9e4ae1f`;
+#1237 (role-aware scale-down) merged as `badc48be`; the optimizer (#1246) is
+rebasing onto `badc48be`. Planner verified what this churn means for TA3:
+
+- **Contract is unchanged.** `git diff 4bfac2fa <optimizer-tip> -- internal/interfaces/analyzer.go`
+  is **empty**, and the `internal/engines/aggregation/` package is **empty-diff**
+  too. So `AnalyzerResult` / `VariantCapacity` / `RoleCapacity` and the
+  `aggregation` helpers TA3 builds against are byte-identical → **`throughput/analyzer.go`
+  needs no contract adaptation** on re-rebase.
+- **#1237 has zero direct impact** — it touches none of `interfaces/`, the engine,
+  or `throughput/`. It's entirely optimizer-internal (`cost_aware_optimizer.go`
+  scale-down). TA3 imports only `interfaces` + `aggregation`, never `pipeline`, so
+  the whole scale-down redesign is invisible to TA3's code.
+- **Conflict surface = `cmd/main.go` only.** TA3's own commits change only
+  `throughput/*`, `collector/registration/throughput_analyzer.go`, `cmd/main.go`
+  (4 lines), e2e, and docs. The single file shared with the multi-analyzer stack
+  is `cmd/main.go`.
+- **H1 is now CI-lint-blocking — see §3.1.** `RegisterAnalyzer` is now
+  `(name, a) error` on main; TA3's void-style call still compiles but `make lint`
+  (`errcheck`, a required gate) fails on the unchecked error. H1 must be applied
+  **as part of the re-rebase** (it cannot be a standalone pre-rebase commit — on
+  the current void-signature base, error-handling would not compile).
+
+**Re-rebase timing.** Do **not** rebase onto the optimizer branch tip while #1246
+is mid-rebase (moving target) — TA3 would have to redo it. Preferred: rebase TA3
+onto **`main` once #1246 merges** (main then has registration+threshold+optimizer
+— a single clean rebase). If TA3 must move sooner, rebase onto the *settled*
+post-#1237 optimizer tip after that coder hands off, not before.
+
+**Scale-down semantic interaction (for e2e expectations, not a code change).**
+TA3's per-role `RoleCapacities[role].SpareCapacity` (engine-written) now feeds the
+optimizer's role-iterated scale-down and its equal-cost tie-break key
+`Σ_i Score_i·PRC_i[v]` (summed over all enabled analyzers). On a disaggregated
+model with TA + saturation both enabled: per-role scale-down requires **both**
+analyzers' `RoleSpare[role] > 0` (all-down), and throughput's `Score` (config) +
+PRC participate in shed ordering. Intended contract behavior; the `enabled:false`
+veto and TA-only-scale-down-blocked caveats (§7) are unchanged by this.
+
 ---
 
 ## 2. Contract TA must satisfy after rebase
@@ -335,6 +376,14 @@ if err := engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThrough
 
 The exact return-handling matches sibling registration sites — match style on
 the rebased main.
+
+> **This is H1, and it is now CI-lint-blocking.** `RegisterAnalyzer(...) error`
+> is on `main`. The void-style call still *compiles* (Go allows ignoring a
+> returned value at statement position), but `make lint`'s `errcheck` — a
+> **required gate** as of 2026-06-09 — fails on the unchecked error. Apply this
+> **as part of the re-rebase**: it cannot be a standalone pre-rebase commit,
+> because on TA3's current `4bfac2fa` base `RegisterAnalyzer` is still void, so
+> error-handling would not compile there. Verify with `make lint` after rebase.
 
 ### 3.2 `internal/engines/saturation/engine.go` — drop the obsolete plumbing
 
