@@ -43,80 +43,245 @@ Alternatives considered.
 
 ---
 
-## CURRENT NEXT ACTION (coder): rebase onto `main@badc48be` (#1237) + fix lint
+## CURRENT NEXT ACTION (coder): rebase onto `main@badc48be` (#1237) + adopt #1237's scale-down primitive + fix lint
 
-> Two things landed after PR #1246 opened: (1) CI's `lint-and-test` failed on
-> three golangci-lint findings (`make lint` was not in the gate set — now it is),
-> and (2) **PR #1237 merged** to upstream/main as `badc48be`
-> ("fix(optimizer): role-aware scale-down for disaggregated models"), touching the
-> *same* `cost_aware_optimizer.go` scale-down code. Do both in one pass: rebase
-> onto `badc48be`, resolve the #1237 conflicts, fix the three lint findings, run
-> the full gate set (now including `make lint`), hand off. Single pass — verify,
-> don't iterate.
+> Two things landed after PR #1246 opened: (1) CI `lint-and-test` failed on three
+> golangci-lint findings (`make lint` is now a required gate), and (2) **PR #1237
+> merged** to upstream/main as `badc48be` ("fix(optimizer): role-aware scale-down
+> for disaggregated models") — it reworked the *same* `cost_aware_optimizer.go`
+> scale-down. This plan section is self-contained; it specifies the exact target
+> code. Follow it literally — it is the output of a long design discussion you
+> were not part of, so do **not** infer scope beyond what is written here.
 
 **Scope note (boundary):** everything here is inside your worktree. Do **not**
-write to `plans/planning/`. Record your pre-rebase per-commit "behaviour to
-preserve" notes in your **status file** or the **plan-handoff** (your sanctioned
-paths), not a `planning/` doc.
+write to `plans/planning/`. Put any pre-rebase notes in your **status file** or
+the **plan-handoff**, never a `planning/` doc.
 
-**1. Rebase** (replays the 16 optimizer commits onto the post-#1237 main):
+### Step 1 — Rebase onto the post-#1237 main
+
 ```
 git fetch upstream
-git rebase --onto upstream/main d9e4ae1f multi-analyzer-optimizer   # d9e4ae1f = current base
+git rebase --onto upstream/main d9e4ae1f multi-analyzer-optimizer   # d9e4ae1f = current base; replays the 16 commits
 ```
 
-**2. #1237 conflict resolution — concentrated in `cost_aware_optimizer.go`.**
-#1237 refactored the *legacy single-`AnalyzerResult`* scale-down; our branch
-deleted that path and uses the slice. Net principle: **our slice-based
-`scaleDownRoleIterated` supersedes #1237's legacy scale-down. #1237's role-aware
-*behaviour* is already what `scaleDownRoleIterated` does, so nothing is lost —
-drop #1237's now-dead legacy helpers during resolution.** Specifically:
+Resolve conflicts so the branch reaches the **target end-state in Step 2** (do
+not try to preserve intermediate-commit shapes hunk-by-hunk; resolve toward the
+final functions below). The conflict is concentrated in `cost_aware_optimizer.go`
+(both #1237 and our Phase-3 rewrote it) with smaller touches in
+`greedy_score_optimizer.go` and `cost_aware_optimizer_test.go`.
 
-- **`scaleDownVariantSet` + `anyHasReplicas`** (added by #1237): drop them. Their
-  only caller was #1237's `costAwareScaleDown`, which our branch already deleted —
-  they have no caller under the slice contract.
-- **`variantsForRole`**: keep **one** definition — ours in `analyzer_helpers.go`
-  (identical exact-match semantics). Drop #1237's copy in `cost_aware_optimizer.go`
-  (duplicate-definition compile error otherwise).
-- **`findCheapestVariant`**: #1237 removed it from main; our `scaleDownRoleIterated`
-  uses it → **keep our definition**.
-- **`greedy_score_optimizer.go`** (#1237 changed ~8 lines) and
-  **`cost_aware_optimizer_test.go`** (#1237 added ~160 lines testing
-  `scaleDownVariantSet`): keep ours; drop #1237's tests for the dropped legacy
-  helpers (they test code that no longer exists under the slice contract).
+### Step 2 — Target end-state: reuse #1237's `scaleDownVariantSet` as the shared shedding primitive
 
-**3. Fix the three lint findings** (from #1246 CI `lint-and-test`):
+**Design decision (do not deviate):** our multi-analyzer role-iterated scale-down
+**reuses** #1237's `scaleDownVariantSet` + `anyHasReplicas` as the shedding
+skeleton — do **not** drop them, do **not** keep a parallel hand-rolled loop.
+#1237's function is *generalized* to inject the sizing/bookkeeping so it works in
+the multi-analyzer slice world. Concretely, `cost_aware_optimizer.go` must end up
+with these four functions:
+
+**(a) `scaleDownVariantSet` — generalized (keep #1237's name + skeleton; replace the
+single `spare float64` with injected `maxRemovable`/`onRemove`; take variants
+PRE-SORTED, drop the internal sort):**
+```go
+// scaleDownVariantSet sheds replicas from sortedVariants (PRE-SORTED cost-desc,
+// cheapest last). minReplicas floor and cheapest-at-1 protection are enforced
+// here. maxRemovable returns how many replicas of vc the caller permits to remove;
+// onRemove is invoked after committing n so the caller can update its spare bookkeeping.
+func scaleDownVariantSet(
+	ctx context.Context,
+	sortedVariants []interfaces.VariantCapacity,
+	targets map[string]int,
+	states map[string]interfaces.VariantReplicaState,
+	maxRemovable func(vc interfaces.VariantCapacity) int,
+	onRemove func(vc interfaces.VariantCapacity, n int),
+) {
+	logger := ctrl.LoggerFrom(ctx)
+	for i, vc := range sortedVariants {
+		if vc.PerReplicaCapacity <= 0 {
+			continue
+		}
+		current := targets[vc.VariantName]
+		minReplicas := 0
+		if states != nil {
+			if st, ok := states[vc.VariantName]; ok && st.MinReplicas != nil {
+				minReplicas = *st.MinReplicas
+			}
+		}
+		removable := current - minReplicas
+		if removable <= 0 {
+			continue
+		}
+		n := maxRemovable(vc)
+		if n > removable {
+			n = removable
+		}
+		// cheapest-at-1: the last (cheapest) variant is protected at 1 only when no
+		// more-expensive variant still holds replicas (#1237's positional rule).
+		if i == len(sortedVariants)-1 && current-n < 1 && !anyHasReplicas(sortedVariants[:i], targets) {
+			n = current - 1
+		}
+		if n <= 0 {
+			continue
+		}
+		targets[vc.VariantName] = current - n
+		onRemove(vc, n)
+		logger.V(logging.DEBUG).Info("scale-down: removed replicas",
+			"variant", vc.VariantName, "removed", n, "cost", vc.Cost)
+	}
+}
+```
+Keep #1237's `anyHasReplicas` unchanged.
+
+**(b) `sortVariantsForScaleDown` — new helper, the deterministic comparator:**
+```go
+// sortVariantsForScaleDown orders a role's variants for cost-greedy scale-down:
+//   1. Cost descending — shed the most expensive first.
+//   2. Tie: score-weighted per-replica capacity ascending — Σ_i Score_i·PRC_i[v].
+//   3. Tie: variant name ascending — full determinism.
+// With a single analyzer (Score=1) this reduces to Cost-desc then PRC-asc, i.e.
+// #1237's existing tie-break.
+func sortVariantsForScaleDown(s []NamedAnalyzerResult, roleVCs []interfaces.VariantCapacity) []interfaces.VariantCapacity {
+	weighted := func(name string) float64 {
+		sum := 0.0
+		for _, e := range s {
+			if e.Result == nil {
+				continue
+			}
+			sum += e.Score * prcForVariant(e.Result, name)
+		}
+		return sum
+	}
+	out := append([]interfaces.VariantCapacity(nil), roleVCs...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Cost != out[j].Cost {
+			return out[i].Cost > out[j].Cost
+		}
+		wi, wj := weighted(out[i].VariantName), weighted(out[j].VariantName)
+		if wi != wj {
+			return wi < wj
+		}
+		return out[i].VariantName < out[j].VariantName
+	})
+	return out
+}
+```
+
+**(c) `scaleDownRoleIterated` — rewrite as a thin per-role iterator over (a):**
+```go
+func scaleDownRoleIterated(
+	ctx context.Context,
+	s []NamedAnalyzerResult,
+	variants []interfaces.VariantCapacity,
+	targets map[string]int,
+	stateMap ...map[string]interfaces.VariantReplicaState,
+) {
+	var states map[string]interfaces.VariantReplicaState
+	if len(stateMap) > 0 {
+		states = stateMap[0]
+	}
+	// distinct roles, "" → interfaces.RoleBoth, sorted (keep the existing collection logic)
+	roles := distinctRolesSorted(variants)
+	for _, role := range roles {
+		if !needsScaleDownForRole(s, role) { // all-down ENTRY gate — `if`, not `for`
+			continue
+		}
+		roleVCs := variantsForRole(variants, role)
+		if len(roleVCs) == 0 {
+			continue
+		}
+		sorted := sortVariantsForScaleDown(s, roleVCs)
+		scaleDownVariantSet(ctx, sorted, targets, states,
+			func(vc interfaces.VariantCapacity) int { return safeRemovalReplicasForRole(s, vc.VariantName, role) },
+			func(vc interfaces.VariantCapacity, n int) { applyDeallocationForRole(s, vc.VariantName, role, n) },
+		)
+	}
+}
+```
+Notes that are NOT optional:
+- The outer `for needsScaleDownForRole(...)` loop and its `removed` progress
+  guard are **gone** — replaced by the single `if` entry gate + one pass through
+  `scaleDownVariantSet`. (A single cost-desc pass with `min_i` sizing is
+  sufficient: removals only consume spare, so a repeat pass removes nothing.)
+- `distinctRolesSorted` is whatever the current code already does to collect roles
+  (`""`→`RoleBoth`, `sort.Strings`); keep it (extract to a helper or inline).
+
+**(d) `variantsForRole` — unify on ONE definition in `analyzer_helpers.go`,
+using #1237's exact-match body (handles mixed models) and the `interfaces.RoleBoth`
+constant:**
+```go
+// variantsForRole returns the capacities whose role matches role exactly,
+// canonicalizing an empty Role to interfaces.RoleBoth.
+func variantsForRole(vcs []interfaces.VariantCapacity, role string) []interfaces.VariantCapacity {
+	out := make([]interfaces.VariantCapacity, 0, len(vcs))
+	for _, vc := range vcs {
+		r := vc.Role
+		if r == "" {
+			r = interfaces.RoleBoth
+		}
+		if r == role {
+			out = append(out, vc)
+		}
+	}
+	return out
+}
+```
+- Replace our current early-return body (`if role=="" || role==RoleBoth { return vcs }`)
+  with the exact-match body above. Keep it in `analyzer_helpers.go`. **Drop #1237's
+  duplicate `variantsForRole` in `cost_aware_optimizer.go`** (otherwise: redeclared-
+  in-package compile error).
+- This is behavior-equivalent on supported model shapes (non-disaggregated: all
+  variants are `""`/`RoleBoth`, so exact-match on `RoleBoth` returns all — same as
+  the early-return) and additionally correct for mixed sets. The test suites
+  (ours + #1237's, which both survive the rebase) are the equivalence proof.
+
+**(e) Deletions** — after (a)–(d), these become unused; remove them (golangci-lint
+`unused` will fail otherwise):
+- `findCheapestVariant` — replaced by `scaleDownVariantSet`'s positional cheapest-at-1.
+- our old `sortByCostDesc` — replaced by `sortVariantsForScaleDown`. (Confirm no
+  other caller first; scale-**up** uses `sortByCostEfficiencyAsc`, a different func.)
+- Run the § Phase 3 grep-to-zero **plus** `findCheapestVariant` and `sortByCostDesc`
+  after this step; must be empty.
+
+`greedy_score_optimizer.go`: its scale-down already delegates to
+`scaleDownRoleIterated`, so no separate change beyond reconciling #1237's ~8-line
+touch during the rebase. `cost_aware_optimizer_test.go`: drop #1237's tests that
+exercised the old single-`AnalyzerResult` `scaleDownVariantSet(spare)` signature
+(that signature no longer exists); keep/extend our role-iterated scale-down specs.
+
+### Step 3 — Fix the three lint findings (from #1246 CI)
+
 - `analyzer_helpers.go` `initRoleState` — **nakedret**: replace the bare `return`
-  with an explicit `return roles, pickerState`.
+  with explicit `return roles, pickerState`.
 - `analyzer_helpers_test.go` `makeNamedPD` — **unparam**: `vPName` always receives
-  `"pf"`; drop the parameter (inline the constant) or vary call sites.
+  `"pf"`; drop the parameter and inline the constant.
 - `analyzer_helpers_test.go` — **gocritic captLocal**: rename local `RC` → `rc`.
 
-**4. Verify (the full gate set, in order):**
+### Step 4 — Verify (full gate set, in order)
+
 - `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
-- **`make lint` — clean** (this is the gate #1246 failed; do not skip).
+- **`make lint` — clean** (the gate #1246 failed; do NOT skip).
 - `go build ./...` — clean.
 - `make test` — pass; `go test -race ./internal/engines/...` — clean.
-- **Grep-to-zero** (deletions must survive the rebase): re-run the § Phase 3
-  grep; must be empty.
+- **Grep-to-zero** — § Phase 3 list **+ `findCheapestVariant` + `sortByCostDesc`** — empty.
 - **Behaviour backstops:** D-only scale-up gate (`anyRoleNeedsScaleUp`),
-  role-generic `allocateForModelPaired` + `scaleDownRoleIterated`, α removed,
-  `AnalyzerResult.Score` gone, SchedulerQueue threaded. The #1237 behaviour
-  (role-aware disaggregated scale-down) must still hold — confirm via the
-  disaggregated scale-down specs.
-- **Per-file diff inventory + per-commit message-vs-diff** (cross-rebase
-  discipline — a three-way merge can silently drop hunks): for each touched file
-  `git diff <pre-rebase ee8bd815> <post-rebase tip> -- <file>` and confirm no
-  optimizer behaviour was lost.
-- DCO sign-off on all 16 rebased commits.
+  role-generic `allocateForModelPaired`, α removed, `AnalyzerResult.Score` gone,
+  SchedulerQueue threaded. Disaggregated **scale-down** still role-iterated and
+  cheapest-protected (the #1237 behaviour, now via the shared primitive) — confirm
+  via the disaggregated scale-down specs.
+- **Per-file diff inventory:** for each touched file,
+  `git diff ee8bd815 <post-rebase-tip> -- <file>`, and confirm no optimizer
+  behaviour was lost in the rebase (silent-hunk-drop guard).
+- DCO sign-off on all rebased commits.
 
-**5. Hand off** — report new tip, the per-file diff inventory, `make lint`
-output (clean), and grep-to-zero (empty). Do **not** push — PR #1246 is OPEN, so
-Dean force-with-lease pushes after review (warn-before-push applies). The
-`backup/...@ae456aa0` ref stays until merge.
+### Step 5 — Hand off
 
-> The earlier "Post-#1237 merge: rebase plan" section below predates Phase 3 and
-> is **superseded** by this section — follow this one.
+Report: new tip, per-file diff inventory, `make lint` output (clean), grep-to-zero
+(empty), and confirmation the disaggregated scale-down specs pass. Do **not**
+push — PR #1246 is OPEN; Dean force-with-lease pushes after review. Keep
+`backup/...@ae456aa0` until merge.
+
+> The older "Post-#1237 merge: rebase plan" section below predates this discussion
+> and is **superseded** — follow this section.
 
 ---
 
