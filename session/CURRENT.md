@@ -8,6 +8,7 @@
 
 ## Recent activity
 
+- **2026-06-09 — PR #1246 CI lint failed; #1237 merged; rebase+lint handoff.** #1246's `lint-and-test` failed on 3 golangci-lint findings (nakedret in `initRoleState`, unparam `makeNamedPD.vPName`, gocritic `RC`) — golangci-lint was never run locally (`make lint` was optional, not a gate). **Gap closed:** `make lint` added to CODER-CONVENTIONS §3 + CONVENTIONS pre-push checklist. Separately, **PR #1237 merged** to upstream/main (`badc48be`, role-aware scale-down) — touches the same `cost_aware_optimizer.go`. Coder triggered for a single-pass: rebase onto `main@badc48be` + resolve #1237 conflicts (our slice-based `scaleDownRoleIterated` supersedes #1237's legacy helpers) + fix the 3 lint findings + full gates incl. `make lint`. Spec in optimizer plan § "CURRENT NEXT ACTION".
 - **2026-06-08 — Optimizer PR #1246 opened.** Force-with-lease pushed (`1648f3f6→ee8bd815`), then opened [#1246](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1246) (base `main`, head `deanlorenz:multi-analyzer-optimizer`, assignee ev-shindin). Completes the 3-PR multi-analyzer split (#1225 + #1228 merged; this is Item 1 — delete combine / per-analyzer slice). Awaiting CI + review.
 - **2026-06-08 — Optimizer rebased onto main; verified push-ready.** Coder rebased the 16 commits `b8b823b0 → main@d9e4ae1f` (tip `ee8bd815`). Planner-verified: `git diff 1648f3f6 ee8bd815 -- internal/engines/pipeline/` **empty** (optimizer logic replayed byte-identical — no silent hunk-drop), grep-to-zero empty, gofmt/build/test pass, DCO 16/16, `AnalyzerResult.Score` gone, SchedulerQueue at 2 sites. Awaiting Dean force-with-lease push (origin still at pre-rebase `1648f3f6`), then PR targeting `main`.
 - **2026-06-08 — PR #1228 merged; main synced; optimizer rebase instructed.** Threshold #1228 merged into upstream/main as `d9e4ae1f`; `main` fast-forwarded `f664a470..d9e4ae1f` and pushed to origin. Optimizer is based on the old threshold tip `b8b823b0`, so it now needs a cross-rebase onto main (`git rebase --onto main b8b823b0`). Full single-pass instruction written to optimizer plan § "Rebase onto main (post-#1228 merge)"; coder triggered. PR will target `main` after.
@@ -37,7 +38,7 @@
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 into upstream/main as `d9e4ae1f`; `origin/main` fast-forwarded | `d9e4ae1f` |
-| multi-analyzer-optimizer | #1246 | **PR #1246 OPEN** (base `main`, assignee ev-shindin) 2026-06-08; 16 commits, planner-verified clean. Awaiting CI + review. | `ee8bd815` |
+| multi-analyzer-optimizer | #1246 | **PR #1246 OPEN** (base `main`, ev-shindin). CI `lint-and-test` **failed** (3 golangci-lint findings — `make lint` wasn't in the gate set; now added). Also #1237 merged to main. Coder triggered: rebase onto `main@badc48be` (#1237) + fix lint, single pass. | `ee8bd815` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
 ---

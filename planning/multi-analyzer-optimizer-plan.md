@@ -36,10 +36,87 @@ Alternatives considered.
 ## Branch state
 
 - **Branch:** `multi-analyzer-optimizer` in worktree `multi-analyzer-optimizer/`.
-- **Base:** `multi-analyzer-threshold`@`b8b823b0` (the OLD threshold tip — now stale; see § Rebase onto main below).
-- **Tip:** `1648f3f6` (16 commits; Phase 1+2+3+cleanup).
-- **Origin:** pushed at `1648f3f6` (2026-06-08).
+- **Base:** rebased onto `main@d9e4ae1f` (post-#1228); now needs re-rebase onto `main@badc48be` (post-#1237) — see § CURRENT NEXT ACTION below.
+- **Tip:** `ee8bd815` (16 commits); PR #1246 OPEN against `main`.
+- **Origin:** pushed at `ee8bd815`.
 - **Backup ref:** `backup/multi-analyzer-optimizer-pre-rebase` → `ae456aa0`.
+
+---
+
+## CURRENT NEXT ACTION (coder): rebase onto `main@badc48be` (#1237) + fix lint
+
+> Two things landed after PR #1246 opened: (1) CI's `lint-and-test` failed on
+> three golangci-lint findings (`make lint` was not in the gate set — now it is),
+> and (2) **PR #1237 merged** to upstream/main as `badc48be`
+> ("fix(optimizer): role-aware scale-down for disaggregated models"), touching the
+> *same* `cost_aware_optimizer.go` scale-down code. Do both in one pass: rebase
+> onto `badc48be`, resolve the #1237 conflicts, fix the three lint findings, run
+> the full gate set (now including `make lint`), hand off. Single pass — verify,
+> don't iterate.
+
+**Scope note (boundary):** everything here is inside your worktree. Do **not**
+write to `plans/planning/`. Record your pre-rebase per-commit "behaviour to
+preserve" notes in your **status file** or the **plan-handoff** (your sanctioned
+paths), not a `planning/` doc.
+
+**1. Rebase** (replays the 16 optimizer commits onto the post-#1237 main):
+```
+git fetch upstream
+git rebase --onto upstream/main d9e4ae1f multi-analyzer-optimizer   # d9e4ae1f = current base
+```
+
+**2. #1237 conflict resolution — concentrated in `cost_aware_optimizer.go`.**
+#1237 refactored the *legacy single-`AnalyzerResult`* scale-down; our branch
+deleted that path and uses the slice. Net principle: **our slice-based
+`scaleDownRoleIterated` supersedes #1237's legacy scale-down. #1237's role-aware
+*behaviour* is already what `scaleDownRoleIterated` does, so nothing is lost —
+drop #1237's now-dead legacy helpers during resolution.** Specifically:
+
+- **`scaleDownVariantSet` + `anyHasReplicas`** (added by #1237): drop them. Their
+  only caller was #1237's `costAwareScaleDown`, which our branch already deleted —
+  they have no caller under the slice contract.
+- **`variantsForRole`**: keep **one** definition — ours in `analyzer_helpers.go`
+  (identical exact-match semantics). Drop #1237's copy in `cost_aware_optimizer.go`
+  (duplicate-definition compile error otherwise).
+- **`findCheapestVariant`**: #1237 removed it from main; our `scaleDownRoleIterated`
+  uses it → **keep our definition**.
+- **`greedy_score_optimizer.go`** (#1237 changed ~8 lines) and
+  **`cost_aware_optimizer_test.go`** (#1237 added ~160 lines testing
+  `scaleDownVariantSet`): keep ours; drop #1237's tests for the dropped legacy
+  helpers (they test code that no longer exists under the slice contract).
+
+**3. Fix the three lint findings** (from #1246 CI `lint-and-test`):
+- `analyzer_helpers.go` `initRoleState` — **nakedret**: replace the bare `return`
+  with an explicit `return roles, pickerState`.
+- `analyzer_helpers_test.go` `makeNamedPD` — **unparam**: `vPName` always receives
+  `"pf"`; drop the parameter (inline the constant) or vary call sites.
+- `analyzer_helpers_test.go` — **gocritic captLocal**: rename local `RC` → `rc`.
+
+**4. Verify (the full gate set, in order):**
+- `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
+- **`make lint` — clean** (this is the gate #1246 failed; do not skip).
+- `go build ./...` — clean.
+- `make test` — pass; `go test -race ./internal/engines/...` — clean.
+- **Grep-to-zero** (deletions must survive the rebase): re-run the § Phase 3
+  grep; must be empty.
+- **Behaviour backstops:** D-only scale-up gate (`anyRoleNeedsScaleUp`),
+  role-generic `allocateForModelPaired` + `scaleDownRoleIterated`, α removed,
+  `AnalyzerResult.Score` gone, SchedulerQueue threaded. The #1237 behaviour
+  (role-aware disaggregated scale-down) must still hold — confirm via the
+  disaggregated scale-down specs.
+- **Per-file diff inventory + per-commit message-vs-diff** (cross-rebase
+  discipline — a three-way merge can silently drop hunks): for each touched file
+  `git diff <pre-rebase ee8bd815> <post-rebase tip> -- <file>` and confirm no
+  optimizer behaviour was lost.
+- DCO sign-off on all 16 rebased commits.
+
+**5. Hand off** — report new tip, the per-file diff inventory, `make lint`
+output (clean), and grep-to-zero (empty). Do **not** push — PR #1246 is OPEN, so
+Dean force-with-lease pushes after review (warn-before-push applies). The
+`backup/...@ae456aa0` ref stays until merge.
+
+> The earlier "Post-#1237 merge: rebase plan" section below predates Phase 3 and
+> is **superseded** by this section — follow this one.
 
 ---
 
