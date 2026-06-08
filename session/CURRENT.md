@@ -8,6 +8,7 @@
 
 ## Recent activity
 
+- **2026-06-08 — Optimizer PR #1246 opened.** Force-with-lease pushed (`1648f3f6→ee8bd815`), then opened [#1246](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1246) (base `main`, head `deanlorenz:multi-analyzer-optimizer`, assignee ev-shindin). Completes the 3-PR multi-analyzer split (#1225 + #1228 merged; this is Item 1 — delete combine / per-analyzer slice). Awaiting CI + review.
 - **2026-06-08 — Optimizer rebased onto main; verified push-ready.** Coder rebased the 16 commits `b8b823b0 → main@d9e4ae1f` (tip `ee8bd815`). Planner-verified: `git diff 1648f3f6 ee8bd815 -- internal/engines/pipeline/` **empty** (optimizer logic replayed byte-identical — no silent hunk-drop), grep-to-zero empty, gofmt/build/test pass, DCO 16/16, `AnalyzerResult.Score` gone, SchedulerQueue at 2 sites. Awaiting Dean force-with-lease push (origin still at pre-rebase `1648f3f6`), then PR targeting `main`.
 - **2026-06-08 — PR #1228 merged; main synced; optimizer rebase instructed.** Threshold #1228 merged into upstream/main as `d9e4ae1f`; `main` fast-forwarded `f664a470..d9e4ae1f` and pushed to origin. Optimizer is based on the old threshold tip `b8b823b0`, so it now needs a cross-rebase onto main (`git rebase --onto main b8b823b0`). Full single-pass instruction written to optimizer plan § "Rebase onto main (post-#1228 merge)"; coder triggered. PR will target `main` after.
 - **2026-06-08 — Optimizer pushed to origin.** Phase 3 cleanup follow-up complete (deleted `applyDeallocation` + dead test; reworded stale test strings); grep-to-zero verification empty. Planner verified all gates (gofmt/build/test/DCO 16/16). Fast-forward push `233867bd..1648f3f6` to `origin/multi-analyzer-optimizer` (branch pre-existed at `233867bd` → **no force needed**; the standing force-with-lease note was stale). **Next: open PR.**
@@ -36,14 +37,14 @@
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 into upstream/main as `d9e4ae1f`; `origin/main` fast-forwarded | `d9e4ae1f` |
-| multi-analyzer-optimizer | — | **Pushed** (force-with-lease `1648f3f6→ee8bd815`) onto `main@d9e4ae1f`; 16 commits, planner-verified clean. `origin/multi-analyzer-optimizer` == `ee8bd815`. **Next: open PR targeting `main`.** | `ee8bd815` |
+| multi-analyzer-optimizer | #1246 | **PR #1246 OPEN** (base `main`, assignee ev-shindin) 2026-06-08; 16 commits, planner-verified clean. Awaiting CI + review. | `ee8bd815` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
 ---
 
 ## Blocked on
 
-- **multi-analyzer-optimizer** — force-with-lease pushed (`1648f3f6→ee8bd815`); `origin/multi-analyzer-optimizer` == `ee8bd815` (16 commits on `main@d9e4ae1f`, planner-verified clean). **Next: open PR targeting `main`** (draft text → Dean approval → `gh pr create`). After PR opens: close `engine-queue-fix` + drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`.
+- **PR #1246** (`multi-analyzer-optimizer` → `main`) — opened 2026-06-08, assignee ev-shindin; 16 commits, planner-verified clean. Awaiting CI + review. Now that the PR is open: `engine-queue-fix` branch + worktree can be closed/removed, and `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0` can be dropped.
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
 
 ## Next steps
