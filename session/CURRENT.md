@@ -1,30 +1,27 @@
 # Current Work
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-09
 
-> ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md has per-task sections — add or update sections that belong to your current task; never overwrite a sibling task's state. **Per the doc taxonomy, CURRENT.md holds operational state and short abstracts only — design and per-PR detail live in `planning/`.**
+> ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
 ---
 
 ## Recent activity
 
-- **2026-06-09 — PR #1246 CI lint failed; #1237 merged; rebase+lint handoff.** #1246's `lint-and-test` failed on 3 golangci-lint findings (nakedret in `initRoleState`, unparam `makeNamedPD.vPName`, gocritic `RC`) — golangci-lint was never run locally (`make lint` was optional, not a gate). **Gap closed:** `make lint` added to CODER-CONVENTIONS §3 + CONVENTIONS pre-push checklist. Separately, **PR #1237 merged** to upstream/main (`badc48be`, role-aware scale-down) — touches the same `cost_aware_optimizer.go`. Coder triggered for a single-pass: rebase onto `main@badc48be` + resolve #1237 conflicts (our slice-based `scaleDownRoleIterated` supersedes #1237's legacy helpers) + fix the 3 lint findings + full gates incl. `make lint`. Spec in optimizer plan § "CURRENT NEXT ACTION".
-- **2026-06-08 — Optimizer PR #1246 opened.** Force-with-lease pushed (`1648f3f6→ee8bd815`), then opened [#1246](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1246) (base `main`, head `deanlorenz:multi-analyzer-optimizer`, assignee ev-shindin). Completes the 3-PR multi-analyzer split (#1225 + #1228 merged; this is Item 1 — delete combine / per-analyzer slice). Awaiting CI + review.
-- **2026-06-08 — Optimizer rebased onto main; verified push-ready.** Coder rebased the 16 commits `b8b823b0 → main@d9e4ae1f` (tip `ee8bd815`). Planner-verified: `git diff 1648f3f6 ee8bd815 -- internal/engines/pipeline/` **empty** (optimizer logic replayed byte-identical — no silent hunk-drop), grep-to-zero empty, gofmt/build/test pass, DCO 16/16, `AnalyzerResult.Score` gone, SchedulerQueue at 2 sites. Awaiting Dean force-with-lease push (origin still at pre-rebase `1648f3f6`), then PR targeting `main`.
-- **2026-06-08 — PR #1228 merged; main synced; optimizer rebase instructed.** Threshold #1228 merged into upstream/main as `d9e4ae1f`; `main` fast-forwarded `f664a470..d9e4ae1f` and pushed to origin. Optimizer is based on the old threshold tip `b8b823b0`, so it now needs a cross-rebase onto main (`git rebase --onto main b8b823b0`). Full single-pass instruction written to optimizer plan § "Rebase onto main (post-#1228 merge)"; coder triggered. PR will target `main` after.
-- **2026-06-08 — Optimizer pushed to origin.** Phase 3 cleanup follow-up complete (deleted `applyDeallocation` + dead test; reworded stale test strings); grep-to-zero verification empty. Planner verified all gates (gofmt/build/test/DCO 16/16). Fast-forward push `233867bd..1648f3f6` to `origin/multi-analyzer-optimizer` (branch pre-existed at `233867bd` → **no force needed**; the standing force-with-lease note was stale). **Next: open PR.**
-- **2026-06-08 — Optimizer Phase 3 complete (unify P/D + non-P/D paths).** 4 commits on top of Phase 2; branch now 15 commits on `multi-analyzer-threshold@b8b823b0`, tip `680b1fb8`. `initRoleState` unifies role-state init (non-disag = synthetic `"both"` role); one role-generic `allocateForModelPaired` + `scaleDownRoleIterated`; `fairShareValue` reads picker-local role-sum; α removed from Greedy picker (joint Δ_util commit is the coupling); D-only scale-up (RC_P=0, RC_D>0) routes correctly via `anyRoleNeedsScaleUp`. New specs: D-only scale-up (CostAware+Greedy), min-util coupling. Coder reports all gates green, DCO on all 15. **Pending planner Phase 3 review before push** (per §5.4 / standing discipline — Phase 2 review caught a blocker). See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 3.
-- **2026-06-08 — TA3 PR-5 review FINAL; coder triggered.** Review at [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md) (FINAL). Action items: D1+D2 doc fixes, T1 test renames (preserve scenarios), T2 add 5 aggregation-helper specs. Don't-touch list: `anyEPP`/`anyGPSMismatch` placeholders + GPS test fixtures (deliberate). SC-gate restoration deferred to unified F3 (design doc § Future direction). H1 (RegisterAnalyzer error-return) folded into final rebase onto post-#1225 main.
-- **2026-06-08 — TA3 PR-5 code complete.** Rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip (`3b1c5ad2`). Coder reports all gates green. Implementation matches plan §3.3 precisely.
-- **2026-06-07 — Optimizer Phase 2 complete.** All review findings (B1, B2, T1, N2, N3, N4) addressed in 3 commits on `multi-analyzer-optimizer` (tip `4bfac2fa`, 11 commits total on `multi-analyzer-threshold@b8b823b0`). All gates green, DCO-signed. **Awaiting Dean force-with-lease push and PR creation.** N4 (sort role keys in `costAwareScaleDownRoleIterated`) was committed in `4bfac2fa` before plan was updated to defer per PR #1237 alignment — sort is harmless; planner suggestion is leave as-is, revert if alignment preferred. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § Phase 2.
-- **2026-06-07 — PR #1237 reviewed.** 6 comments posted on ev-shindin's `fix/role-aware-scaledown` PR (5 top-level + 1 inline on `cheapest := findCheapestVariant(variants)` covering redundancy, implicit-sort-order assumption, lazy walk, and equal-cost tiebreak). Awaiting author response. Post-#1237 rebase plan captured in optimizer plan § Phase 2.
-- **2026-06-07 — PR #1225 merged.** `multi-analyzer-registration` landed as `f664a470` on upstream/main. `origin/main` fast-forwarded to match. `multi-analyzer-threshold` (#1228) can now rebase onto main directly and get a clean diff. `multi-analyzer-optimizer` can target main once #1228 merges (or main directly if landing standalone).
-- **2026-06-07 — TA-PR5 plan verified** against current multi-analyzer docs. Two stale items fixed: `engine-queue-fix` absorbed into optimizer branch (`3fe287fe`); `NamedAnalyzerResult.SpareD` → `RoleSpare map[string]float64`. Plan ready for the TA3 coder once the multi-analyzer stack lands.
-- **2026-06-05 — Optimizer (Item 1) implementation complete.** 7 commits on `multi-analyzer-threshold@b8b823b0`; tip `3fe287fe`. Cross-rebase done. SchedulerQueue wiring absorbed from `engine-queue-fix` (single commit `01ed7d8d` folded into commit 7). All gates green. Ready for force-with-lease push and PR creation. See [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md).
-- **2026-06-04 — TA-PR5 plan rewritten** for the 3-PR multi-analyzer split. Contract reframed; PR-5 wiring shrinks to a 2-line `cmd/main.go` change + error handling for the new `RegisterAnalyzer(...) error` API. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
-- **2026-06-04 — Multi-analyzer doc taxonomy reorg.** Three per-PR plan docs (`multi-analyzer-{registration,threshold,optimizer}-plan.md`) + one cross-cutting design doc ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md)). The design doc holds mission, architecture, alternatives considered (incl. rejected combine-in-engine algorithm), and future direction. Per-PR plans are concrete implementation only.
-- **2026-06-03 — Optimizer P/D design** settled on paired (n_P, n_D) scale-up + role-iterated scale-down (Evgeny's PR #1237 approach for the slice path). See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) §§ Architecture/D + Alternatives/A4.
-- **2026-05-29 — PR1113 design split** into 3 PRs (registration / threshold / optimizer). See [`planning/PR1113-review.md`](../planning/PR1113-review.md) (historical review of original PR #1113).
+**Active (full abstracts):**
+
+- **2026-06-09 — Optimizer #1246: lint fix + rebase onto #1237 in flight.** #1246's `lint-and-test` failed on 3 golangci-lint findings (nakedret `initRoleState`, unparam `makeNamedPD.vPName`, gocritic `RC`); `make lint` is now a **required gate** (CODER-CONVENTIONS §3 + pre-push checklist). #1237 separately merged to main (`badc48be`, role-aware scale-down) — same `cost_aware_optimizer.go`. Coder doing one pass: rebase onto `badc48be`, **reuse** #1237's `scaleDownVariantSet` (generalized) as the shared shedding primitive, fix lint, full gates. Spec: [`planning/multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) § CURRENT NEXT ACTION.
+- **2026-06-09 — TA3 re-rebase impact verified.** Contract (`interfaces/analyzer.go`) + `aggregation` pkg byte-identical at TA3 base `4bfac2fa` → optimizer tip; #1237 touches none of interfaces/engine/throughput → no analyzer adaptation; conflict surface = `cmd/main.go` only; H1 (`RegisterAnalyzer` error-return) now lint-blocking, applied during the re-rebase. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) § Re-rebase impact analysis.
+
+**Tail (compressed — recover via the ID/ref):**
+
+- 2026-06-08 — #1246 opened (base `main`, ev-shindin), tip `ee8bd815`; completes the 3-PR split.
+- 2026-06-08 — #1228 threshold MERGED `d9e4ae1f`; #1237 role-aware scale-down MERGED `badc48be`; #1225 registration MERGED `f664a470` (06-07).
+- 2026-06-08 — TA3 PR-5 review FINAL ([`TA-PR5-review.md`](../planning/TA-PR5-review.md)): D1/D2 docs, T1 renames, T2 specs; SC-gate→F3; H1 on rebase; don't-touch `anyEPP`/`anyGPSMismatch` + GPS fixtures.
+- 2026-06-08 — optimizer Phase 1/2/3 + cleanup on-branch → `3fe287fe`/`4bfac2fa`/`680b1fb8`/`1648f3f6`/`ee8bd815`; detail in optimizer-plan §§ Phase 2/3 + commit stack.
+- 2026-06-07 — #1237 reviewed (6 comments) pre-merge; TA-PR5 plan verified (engine-queue-fix absorbed `3fe287fe`; `SpareD`→`RoleSpare`) → TA-PR5-plan / optimizer-plan.
+- 2026-06-04 — TA-PR5 plan rewritten for the 3-PR split; multi-analyzer doc taxonomy reorg → `planning/` (design doc + 3 per-PR plans).
+- 2026-06-03 / 05-29 — optimizer P/D design settled (design §§ Architecture/D, A4); PR #1113 split into 3 PRs → [`PR1113-review.md`](../planning/PR1113-review.md).
 
 ---
 
@@ -34,10 +31,11 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | —     | PR-5 code complete; rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip; reviewed (FINAL — see `planning/TA-PR5-review.md`); coder triggered for D1+D2+T1+T2 follow-ups | `3b1c5ad2` |
-| engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
-| multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
-| multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 into upstream/main as `d9e4ae1f`; `origin/main` fast-forwarded | `d9e4ae1f` |
+| TA3                   | —     | PR-5 code complete + reviewed FINAL (`planning/TA-PR5-review.md`); re-rebase onto main (post-optimizer) + H1 + follow-ups pending. See § TA3. | `5e316104` |
+| engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
+| multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
+| multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
+| (upstream) role-aware scale-down | #1237 | **MERGED** 2026-06-08 (`badc48be` on main) | `badc48be` |
 | multi-analyzer-optimizer | #1246 | **PR #1246 OPEN** (base `main`, ev-shindin). CI `lint-and-test` **failed** (3 golangci-lint findings — `make lint` wasn't in the gate set; now added). Also #1237 merged to main. Coder triggered: rebase onto `main@badc48be` (#1237) + fix lint, single pass. | `ee8bd815` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
@@ -45,17 +43,16 @@
 
 ## Blocked on
 
-- **PR #1246** (`multi-analyzer-optimizer` → `main`) — opened 2026-06-08, assignee ev-shindin; 16 commits, planner-verified clean. Awaiting CI + review. Now that the PR is open: `engine-queue-fix` branch + worktree can be closed/removed, and `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0` can be dropped.
-- **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
+- **PR #1246** — CI `lint-and-test` failed; coder mid-rebase onto `main@badc48be` (#1237) + lint fix (spec in optimizer-plan § CURRENT NEXT ACTION). On hand-off: planner verifies (grep-to-zero incl. `findCheapestVariant`/`sortByCostDesc`, `make lint`, disaggregated scale-down specs, per-file diff inventory) → Dean force-with-lease push → re-trigger CI.
+- **TA3** — re-rebase blocked on the optimizer settling; preferably rebase onto `main` once #1246 merges. Then apply H1.
 
 ## Next steps
 
-- **Now:** threshold coder — rebase `multi-analyzer-threshold` onto `main`@`f664a470`; push; CI re-runs; await ev-shindin review on the clean diff.
-- **Optimizer push + PR.** Rebase onto main done + planner-verified (tip `ee8bd815`). **Force-with-lease push** `multi-analyzer-optimizer` to origin (rewrites the 16 commits; origin at pre-rebase `1648f3f6`), then **open PR targeting `main`**. After PR opens: close `engine-queue-fix` + remove its worktree, drop `backup/multi-analyzer-optimizer-pre-rebase`.
-- **N4 decision.** Sort now lives in `scaleDownRoleIterated` (renamed from `costAwareScaleDownRoleIterated` in Phase 3). Committed before the plan deferred N4 per #1237 alignment. Sort is harmless. Suggested: leave as-is; revert only if #1237-alignment is preferred.
-- **TA3 re-rebase.** TA3 PR-5 (`3b1c5ad2`) was rebased onto the old optimizer tip `4bfac2fa`; Phase 3 moved optimizer to `680b1fb8` (+4 commits). TA3 needs re-rebase onto `680b1fb8` (or onto `main`/`multi-analyzer-optimizer` once it lands). TA3 coder's plan (`TA-PR5-plan.md` §3) governs; trigger if needed.
-- The `engine-multi-analyzer` worktree's run-1 wrap-up is complete; worktree can be removed at Dean's discretion.
-- **Parallel track (NOT authorized yet):** WVA-vs-KEDA benchmark — see § Benchmark below.
+- **Optimizer (now):** coder finishes the #1237 rebase + lint pass; planner review; push; CI.
+- **TA3 (after optimizer lands):** re-rebase onto main + H1 + review follow-ups (D1/D2/T1/T2); discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
+- **N4 decision (open):** sort in `scaleDownRoleIterated` — harmless; leave as-is unless #1237-alignment preferred.
+- **Post-#1246-open cleanup:** close `engine-queue-fix` branch+worktree; drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`; remove `engine-multi-analyzer` worktree at discretion.
+- **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
 ---
 
@@ -71,9 +68,9 @@
 
 ---
 
-## TA3 (ThroughputAnalyzer) — PR-5 code complete; awaiting Dean review
+## TA3 (ThroughputAnalyzer) — PR-5 code complete; awaiting re-rebase + Dean review
 
-PR-4 + PR-5 code-complete on TA3 branch (`3b1c5ad2`, rebased onto `multi-analyzer-optimizer@4bfac2fa`; 18 commits above optimizer tip). All gates green per coder. Review captured at [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md) (DRAFT). E2E Steps 1a/1b/2a-2e PASSED on kind cluster `kind-wva-gpu-cluster`; Step 2f pending discussion. Three pre-existing smoke failures (`smoke_test.go:339, :542, :1724`) need triage.
+PR-4 + PR-5 code-complete on TA3 (`5e316104`, on `multi-analyzer-optimizer@4bfac2fa`). All gates green per coder. Review **FINAL** ([`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md)). E2E Steps 1a/1b/2a-2e PASSED on kind `kind-wva-gpu-cluster`; Step 2f pending discussion; 3 pre-existing smoke failures (`smoke_test.go:339, :542, :1724`) to triage. Re-rebase onto main (post-optimizer) + H1 + review follow-ups tracked in [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) (§ Re-rebase impact analysis, §3.1, §6.1).
 
 **Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
@@ -88,8 +85,8 @@ Three branches, one mission. See [`planning/multi-analyzer-design.md`](../planni
 | Item | Branch / PR | Plan |
 |---|---|---|
 | Item 3 — Race-safe analyzer registry | `multi-analyzer-registration` / [#1225](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1225) **MERGED** 2026-06-07 | [`multi-analyzer-registration-plan.md`](../planning/multi-analyzer-registration-plan.md) |
-| Item 2 — Universal threshold post-step + aggregation helpers | `multi-analyzer-threshold` / [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228) | [`multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) |
-| Item 1 — Per-analyzer slice → optimizers (delete combine) | `multi-analyzer-optimizer` / not yet open | [`multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) |
+| Item 2 — Universal threshold post-step + aggregation helpers | `multi-analyzer-threshold` / [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228) **MERGED** | [`multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) |
+| Item 1 — Per-analyzer slice → optimizers (delete combine) | `multi-analyzer-optimizer` / [#1246](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1246) **OPEN** | [`multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) |
 
 The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-PR split. PR #1113 stays open until Dean closes it post-coordination with ev-shindin.
 
@@ -103,39 +100,27 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 ## Issues to Open (post-merge)
 
-- **Engine SchedulerQueue wiring** — ✅ absorbed into `multi-analyzer-optimizer` commit `3fe287fe`. Threads `CollectSchedulerQueueMetrics` through `prepareModelData` → `modelData.schedulerQueue` → `runV2AnalysisOnly` / `runAnalyzers` → `AnalyzerInput.SchedulerQueue` for all registered analyzers. Lands when the optimizer PR merges.
+Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction:
 
-- **Bob review 1.3 — ArrivalRate staleness check in `computeDemand`** — defer ArrivalRate staleness detection (warn when `ArrivalRate` metric is stale/zero while queue is non-empty) to a later observability PR. Related to the Prometheus gauge work below.
+- Per-analyzer status-return state (`AnalyzerStatus`: SuppressSC/SuppressRC/Fail; restores TA EPP-queue + GPS gating; subsumes F9) → **F3**
+- Per-analyzer observability metrics + decision-enrichment hook (generalize `enrichDecisionsWithKvTokenData`) → **F4**
+- Engine model-level RC/SC for disaggregated models (latent additive bug) → **F5**
+- Replica-count accounting consistency (TA `len(variantMetrics)` vs sat_v2 `readyCount`) → **F8**
+- Fold queueing-model into the V2 multi-analyzer engine (Option A; + 4 pre-existing QM oversights) → **F10**
+- Per-role RC/SC canonical end-to-end (drop optimizer synthesis; resolves F5) → **F12**
+- Cost picker integer-rounding suboptimality → **F13**
+- `enabled:false` analyzer exempt from `needsScaleDown` → **A8**
+- Engine SchedulerQueue wiring — ✅ absorbed into optimizer `3fe287fe`; lands when #1246 merges.
 
-- **Prometheus gauges for ITL model coefficients** — export `wva_throughput_analyzer_itl_model_a` and `wva_throughput_analyzer_itl_model_b` gauges (labels: `namespace`, `model_id`, `variant`, `tier`) so operators can graph ITL model stability in Grafana. Separate observability PR after PR-5 merges. (From Bob's review, 3.1)
+Infra / misc (no design-doc home; file as separate issues):
 
-- **EPP image version mismatch** — `install.sh` patches EPP to v0.7.0 but local llm-d is v0.5.0; file as infra bug.
-
-- **Gateway prompt bug** — `install_core.sh` fires interactive prompt when `E2E_TESTS_ENABLED=false` even with explicit `INSTALL_GATEWAY_CTRLPLANE=true`; file as infra bug.
-
-- **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable; file as Makefile bug.
-
-- **ndots fix standalone PR** — commit `0614d9d` on TA3 (`test/e2e/fixtures/workload_builder.go`) needs its own PR to `main` before or alongside TA3 merge.
-
-- **Per-analyzer observability metrics** — once `multi-analyzer-optimizer` merges and `[]NamedAnalyzerResult` is flowing to the optimizers, expose each analyzer's per-VA demand/capacity as Prometheus gauges labeled by `analyzer_name`. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F4 for detail.
-
-- **Engine model-level RC/SC for disaggregated models** — additive computation in `applyUniversalThreshold` is meaningless for disaggregated models. Once optimizer no longer reads model-level for disaggregated, the buggy computation becomes latent. Follow-up: remove or redefine. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F5 and `multi-analyzer-optimizer-plan.md` § Upstream interactions.
-
-- **Per-analyzer status-return state (unified F3)** — analyzer→engine contract extension: `AnalyzerStatus` for `SuppressSC` / `SuppressRC` / `Fail`. Restores TA's EPP-queue-missing + GPS-mismatch gating; subsumes the narrower F9. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F3.
-
-- **Replica-count accounting consistency across analyzers** — TA uses `len(variantMetrics)`; sat_v2 uses `readyCount`. Reconcile to a single canonical source. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F8 and `planning/TA-PR5-plan.md` §7.
-
-- **`enabled:false` analyzer should be exempt from `needsScaleDown`** — slice-predicate treats disabled analyzer (Spare=0) as a veto, breaking TA-only scale-down. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Alternatives → A8 and `planning/TA-PR5-plan.md` §7.
-
-- **Cost picker integer-rounding suboptimality** — `CostAwareOptimizer` ranks by `cost/PerReplicaCapacity` and allocates `ceil(RC/PRC)` of the most-efficient variant; under integer rounding (RC < PRC) a high-PRC variant overshoots and can cost more than a cheaper low-PRC variant that still covers RC (e.g. A cost10/PRC10 vs B cost4/PRC3, RC=3 → picks A@10, B@4 is cheaper+sufficient). Pre-existing (legacy cost optimizer); unchanged by multi-analyzer slice migration or optimizer Phase 3 unification. Multi-dimensional bounded knapsack (NP-hard) but tiny in practice → brute force; or compromise = cheapest-efficiency bulk + direct-cost tail when last replica is below util X. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F13.
-
-- **Per-role RC/SC canonical end-to-end (drop optimizer synthesis)** — optimizer Phase 3 uses option (b): synthesize a `"both"` role from model-level RC/SC for non-disaggregated models. Option (a) future: engine always populates `RoleCapacities` (incl. `"both"`), making per-role the single source of truth, dropping the model-level RC/SC scalars (resolves F5) and the `NamedAnalyzerResult.Remaining/Spare` scalars. Ripples into #1228 contract + TA analyzer. Open after optimizer PR merges. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F12.
-
-- **Multi-analyzer dev-guide polish** — currently `docs/developer-guide/multi-analyzer-pipeline.md` is a stub on the optimizer branch with a link to the design doc on the plans-branch fork. After reviewer comments on #1225 + #1228 + optimizer PR are addressed and the PRs reach final shape, fold the design content (architecture, alternatives, future direction from [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md)) plus per-PR implementation detail into the dev-guide, replacing the stub. Cover all three PRs (registration / threshold / optimizer). Doc-only commit on each branch (or a single dev-guide commit landing after the merges).
-
-- **Fold queueing-model into the V2 multi-analyzer engine** — open after the optimizer PR merges. QM (`engine_queueing_model.go`) is still a parallel data path that bypasses `runAnalyzersAndScore` and builds a single-entry slice by hand. Recommended approach: Option A (register QM under `SaturationAnalyzerName` so V2's slice-builder is the single upstream). Pre-existing QM oversights to fix at merge (none introduced by the optimizer PR): threshold post-step skipped; `SchedulerQueue` not threaded into QM's `AnalyzerInput`; `Role` never set on QM's `VariantCapacity` (disaggregation dispatch broken for QM-scaled P/D models); GPU limiter constraints not passed under `enableLimiter=true`. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F10.
-
-- **Per-analyzer decision-enrichment hook (observability)** — today's `enrichDecisionsWithKvTokenData` is a sat_v2-specific post-optimizer step that runs only on V2; QM-scaled VAs and TA decisions don't get analogous enrichment for their own relevant computed metrics (KV tokens for sat_v2, ITL coefficients for TA, queue depth / arrival rate for QM). Generalize into a per-analyzer hook (or onto `NamedAnalyzerResult` itself) so any analyzer can publish its own observability fields without engine-side special casing. See [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction → F4.
+- **Multi-analyzer dev-guide polish** — fold design content (architecture, alternatives, future direction) + per-PR detail into `docs/developer-guide/multi-analyzer-pipeline.md`, replacing the stub and its plans-branch-fork link, once #1225/#1228/#1246 reach final shape. Doc-only commit per branch (or one after merges).
+- **Bob review 1.3** — ArrivalRate staleness check in `computeDemand` (observability PR).
+- **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); observability PR after PR-5.
+- **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
+- **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
+- **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable (Makefile bug).
+- **ndots fix standalone PR** — TA3 commit `0614d9d` (`test/e2e/fixtures/workload_builder.go`) needs its own PR before/with TA3 merge.
 
 ---
 
