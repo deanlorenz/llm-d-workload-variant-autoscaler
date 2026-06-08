@@ -36,14 +36,14 @@
 | engine-multi-analyzer | #1113 | **Superseded** by `multi-analyzer-registration` (off current main). PR #1113 to be closed by Dean after talking to ev-shindin. Worktree retained for reference. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 as `f664a470` on upstream/main | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 into upstream/main as `d9e4ae1f`; `origin/main` fast-forwarded | `d9e4ae1f` |
-| multi-analyzer-optimizer | — | **Rebased onto `main@d9e4ae1f`** (post-#1228 merge); 16 commits, tip `ee8bd815`. Planner-verified: pipeline logic byte-identical to pre-rebase `1648f3f6` (no silent drop), grep-to-zero empty, gofmt/build/test pass, DCO 16/16, `AnalyzerResult.Score` gone, SchedulerQueue threaded. **Push-ready (force-with-lease — rebase rewrote history); then open PR targeting `main`.** | `ee8bd815` |
+| multi-analyzer-optimizer | — | **Pushed** (force-with-lease `1648f3f6→ee8bd815`) onto `main@d9e4ae1f`; 16 commits, planner-verified clean. `origin/multi-analyzer-optimizer` == `ee8bd815`. **Next: open PR targeting `main`.** | `ee8bd815` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 
 ---
 
 ## Blocked on
 
-- **multi-analyzer-optimizer** — rebased onto `main@d9e4ae1f` (tip `ee8bd815`, 16 commits); planner-verified clean (pipeline logic byte-identical to pre-rebase, grep-to-zero empty, gates green, DCO 16/16). **Awaiting Dean force-with-lease push to `origin/multi-analyzer-optimizer`** (rebase rewrote the 16 commits; origin is at the pre-rebase `1648f3f6`), then **open PR targeting `main`**. After PR opens: close `engine-queue-fix` + drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`.
+- **multi-analyzer-optimizer** — force-with-lease pushed (`1648f3f6→ee8bd815`); `origin/multi-analyzer-optimizer` == `ee8bd815` (16 commits on `main@d9e4ae1f`, planner-verified clean). **Next: open PR targeting `main`** (draft text → Dean approval → `gh pr create`). After PR opens: close `engine-queue-fix` + drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`.
 - **engine-queue-fix** — absorbed (commit `01ed7d8d` folded into multi-analyzer-optimizer commit 7). Branch + worktree can be closed/removed.
 
 ## Next steps
