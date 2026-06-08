@@ -568,9 +568,14 @@ TA PR will tap into those.
 Each commit and the final tip must satisfy:
 
 - `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
-- **`make lint` — clean (required gate).** golangci-lint (nakedret/unparam/gocritic/…) is what
-  CI's `lint-and-test` blocks on, and it is *not* caught by gofmt/build/test. TA3 predates this
-  gate, so expect pre-existing findings — fix them (`make lint-fix` for the mechanical ones).
+- **`make lint` — must exit 0 (required gate).** golangci-lint (nakedret/unparam/gocritic/…) is
+  what CI's `lint-and-test` blocks on, and it is *not* caught by gofmt/build/test. TA3 predates
+  this gate, so expect pre-existing findings — **fix them** (`make lint-fix` for the mechanical
+  ones). A golangci-lint finding is a **blocking failure, never an "acceptable warning"**: if
+  `make lint` exits non-zero, the gate is NOT met. Fix each finding; only if one is a genuine
+  false positive, suppress it with an inline `//nolint:<linter> // <reason>` — never leave a bare
+  finding and never wave it through as acceptable. (Unparam on a test helper = the parameter
+  always receives one constant: drop the param and inline the constant, or vary the call sites.)
 - `go vet ./...` — clean.
 - `go build ./...` — clean.
 - `make test` — all packages pass.

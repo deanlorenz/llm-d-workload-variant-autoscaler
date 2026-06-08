@@ -31,7 +31,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | —     | PR-5 code complete + reviewed FINAL; **cleared to rebase onto `main@badc48be` now (sibling of #1246)** — coder triggered (rebase + H1 + green gates incl `make lint`), then Dean opens PR (base main). See § TA3. | `5e316104` |
+| TA3                   | —     | Rebased onto `main@badc48be` (sibling of #1246); H1 applied, rebase clean (no file leak), review follow-ups folded in. **NOT push-ready: `make lint` fails (4 `unparam` in `analyzer_test.go`) — fix triggered.** See § TA3. | `7163a835` |
 | engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
@@ -44,7 +44,7 @@
 ## Blocked on
 
 - **PR #1246** — rebased onto `main@badc48be` (#1237) + lint-fixed; force-with-lease pushed (`ad1a8e1e`). CI green except `e2e-tests-smoke` IN_PROGRESS. Awaiting ev-shindin review.
-- **TA3** — **cleared to rebase onto `main@badc48be` now** (sibling of #1246, not dependent — verified TA3 needs only the merged contract on main; 21 commits touch no optimizer/engine/interfaces files). Coder triggered: `git rebase --onto main 4bfac2fa TA3` + H1 + full gates incl `make lint`. Caveat: TA's signal is discarded on main until #1246 merges, so full e2e needs #1246 (comment-triggered, not the blocking gate).
+- **TA3** — rebased onto `main@badc48be` (tip `7163a835`, sibling of #1246); planner-verified: H1 applied, rebase clean (no optimizer/engine/interfaces file leak), review follow-ups folded in. **Blocked on lint:** `make lint` fails on 4 `unparam` findings in `analyzer_test.go` (coder wrongly waved them through as "acceptable"; fix triggered). Push-ready once `make lint` exits 0. Caveat unchanged: TA's signal discarded on main until #1246 (full e2e needs #1246, not the blocking gate).
 
 ## Next steps
 
