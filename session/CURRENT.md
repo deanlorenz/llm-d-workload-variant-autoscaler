@@ -10,6 +10,7 @@
 
 **Active (full abstracts):**
 
+- **2026-06-09 — TA3 PR #1250 opened.** Force-with-lease pushed (`7506634b→dbf3a981`; rebase onto `main@badc48be`), then opened [#1250](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250) (base `main`, head `deanlorenz:TA3`, assignee ev-shindin). 24 commits; all gates verified (lint 0, test pass, DCO 24/24). Sibling of #1246; TA's signal inert on main until #1246 merges (full e2e comment-triggered). Awaiting CI + review.
 - **2026-06-09 — Optimizer #1246: rebased onto `main@badc48be` (#1237) + lint fixed; pushed.** New tip `ad1a8e1e` (17 commits = 16 rebased + 1 lint-fix on top of `badc48be`). Reuses #1237's `scaleDownVariantSet` as the shared shedding primitive (generalized with `maxRemovable`/`onRemove` callbacks); adds deterministic `sortVariantsForScaleDown` (Cost-desc → score-weighted PRC-asc → name-asc); old `findCheapestVariant`/`sortByCostDesc` deleted. All gates green (`make lint` 0, test 136/136, -race clean, DCO 17/17). CI on `ad1a8e1e`: `lint-and-test` ✅ (was the failing gate); `e2e-tests-smoke` IN_PROGRESS; other gates ✅/SKIPPED. PR body bullet fixed for current Phase-3 vocabulary ("paired" → "joint"). Phase 4 review FINAL in [`planning/multi-analyzer-optimizer-review.md`](../planning/multi-analyzer-optimizer-review.md). Awaiting ev-shindin review.
 - **2026-06-09 — TA3 re-rebase impact verified.** Contract (`interfaces/analyzer.go`) + `aggregation` pkg byte-identical at TA3 base `4bfac2fa` → optimizer tip; #1237 touches none of interfaces/engine/throughput → no analyzer adaptation; conflict surface = `cmd/main.go` only; H1 (`RegisterAnalyzer` error-return) now lint-blocking, applied during the re-rebase. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) § Re-rebase impact analysis.
 
@@ -31,7 +32,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | —     | Rebased onto `main@badc48be` (sibling of #1246); H1 applied, rebase clean (no file leak), review follow-ups folded in. **NOT push-ready: `make lint` fails (4 `unparam` in `analyzer_test.go`) — fix triggered.** See § TA3. | `7163a835` |
+| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin) 2026-06-09; 24 commits, all gates verified (lint 0, test pass, DCO 24/24). Sibling of #1246. | `dbf3a981` |
 | engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
@@ -44,7 +45,7 @@
 ## Blocked on
 
 - **PR #1246** — rebased onto `main@badc48be` (#1237) + lint-fixed; force-with-lease pushed (`ad1a8e1e`). CI green except `e2e-tests-smoke` IN_PROGRESS. Awaiting ev-shindin review.
-- **TA3** — rebased onto `main@badc48be` (tip `7163a835`, sibling of #1246); planner-verified: H1 applied, rebase clean (no optimizer/engine/interfaces file leak), review follow-ups folded in. **Blocked on lint:** `make lint` fails on 4 `unparam` findings in `analyzer_test.go` (coder wrongly waved them through as "acceptable"; fix triggered). Push-ready once `make lint` exits 0. Caveat unchanged: TA's signal discarded on main until #1246 (full e2e needs #1246, not the blocking gate).
+- **PR #1250** (`TA3` → `main`) — opened 2026-06-09, assignee ev-shindin; 24 commits, planner-verified clean (lint 0, test pass, DCO 24/24, no file leak). Sibling of #1246. Awaiting CI + review.
 
 ## Next steps
 

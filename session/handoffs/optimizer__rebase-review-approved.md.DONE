@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/multi-analyzer-optimizer-review.md
+note: Phase 4 addendum appended (rebase + lint).
