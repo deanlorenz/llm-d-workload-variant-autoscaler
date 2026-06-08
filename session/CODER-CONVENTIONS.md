@@ -16,6 +16,68 @@ If anything here conflicts with `CONVENTIONS.md`, CONVENTIONS wins.
 
 ---
 
+## 0. Session start — verify you're in the target worktree
+
+**Standard coder workflow:** Start Bob Shell from within the target worktree,
+not from `plans/` or the container directory.
+
+```bash
+# Correct workflow
+cd /path/to/llm-d-workload-variant-autoscaler/TA3
+bob --chat-mode=coder
+
+# Wrong - do not start from plans/ or container
+cd /path/to/llm-d-workload-variant-autoscaler/plans
+bob --chat-mode=coder  # ✗ Wrong location
+```
+
+**At session start, verify your CWD:**
+
+1. Run `pwd` and `git branch --show-current`
+2. Confirm you're in the target worktree (e.g., `TA3/` on branch `TA3`)
+3. If not, **STOP** and inform the user:
+
+```
+ERROR: Coder session started in wrong location.
+
+Current: /path/to/plans (branch: plans)
+Expected: /path/to/TA3 (branch: TA3)
+
+Please restart Bob Shell from the target worktree:
+  cd /path/to/TA3
+  bob --chat-mode=coder
+```
+
+**Why this matters:**
+- `read_file` tool has path restrictions — starting in the target worktree
+  makes all code files directly accessible
+- All gates (`make test`, `make lint`, `git` commands) run in correct context
+- Only need `cd ../plans/session/...` for status/handoff writes (sanctioned
+  exception per §1)
+
+**Convenience alias (optional):**
+
+Add to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+# Start Bob Shell coder in a worktree
+bob-code() {
+  local worktree="${1:-.}"
+  if [[ ! -d "$worktree/.git" ]] && [[ ! -f "$worktree/.git" ]]; then
+    echo "Error: $worktree is not a git worktree"
+    return 1
+  fi
+  cd "$worktree" && bob --chat-mode=coder
+}
+
+# Usage:
+#   bob-code TA3
+#   bob-code ../multi-analyzer-optimizer
+#   bob-code .  # current directory
+```
+
+---
+
 ## 1. Worktree scope — only edit inside your branch
 
 You operate exclusively within one worktree (your assigned branch).
