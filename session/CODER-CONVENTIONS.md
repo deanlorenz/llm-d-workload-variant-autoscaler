@@ -91,6 +91,12 @@ log, diff, status, branch listing) from your own worktree.
     directly.
 - Run `gofmt -l ./internal/... ./pkg/... ./cmd/...` (WVA-specific) — must
   be empty.
+- Run `make lint` (WVA-specific) — must be clean. This runs golangci-lint
+  with the repo's `.golangci.yml` (nakedret, unparam, gocritic, staticcheck,
+  …). **It is a required gate, not optional** — CI's `lint-and-test` job
+  blocks on it, and `gofmt` / `go build` / `make test` do NOT catch these
+  findings (they compile and pass tests). `make lint-fix` auto-fixes the
+  mechanical ones. Run it before declaring work done, not just before push.
 - Run `go build ./...` — must be clean.
 - Use `-race` when relevant (especially for concurrency-sensitive code).
 

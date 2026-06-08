@@ -282,8 +282,9 @@ genuinely absent from the current branch.
 1. **Check current branch** — `git branch --show-current`. Confirm you are on the intended branch before any commit, amend, or rebase.
 2. **gofmt** — `gofmt -l ./internal/... ./pkg/... ./cmd/...`. No output means clean.
 3. **Tests** — `go test ./internal/... ./pkg/... ./cmd/...`. All pass.
-4. **DCO sign-off** — every commit must carry `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`. Use `git commit --signoff` or `git commit --amend --signoff`. Verify with `git log upstream/main..HEAD --format="%b" | grep Signed-off-by`. DCO failure blocks CI and requires a force-push after the PR is open.
-5. **Build** — `go build ./...`. Clean.
+4. **Lint** — `make lint`. Clean. This runs golangci-lint with the repo's `.golangci.yml` (nakedret, unparam, gocritic, staticcheck, …) — CI's `lint-and-test` job blocks on it, and **gofmt/build/test do NOT catch these** (they are lint-only findings that compile and pass tests). Skipping this step is how PR #1246 went green locally but failed CI lint.
+5. **DCO sign-off** — every commit must carry `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`. Use `git commit --signoff` or `git commit --amend --signoff`. Verify with `git log upstream/main..HEAD --format="%b" | grep Signed-off-by`. DCO failure blocks CI and requires a force-push after the PR is open.
+6. **Build** — `go build ./...`. Clean.
 
 **No push without explicit confirmation.**
 Never run `git push` (or any variant) without Dean's explicit confirmation for that specific push.
