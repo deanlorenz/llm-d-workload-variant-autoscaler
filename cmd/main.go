@@ -458,7 +458,9 @@ func main() {
 			cfg, // Pass unified Config to engine
 		)
 		registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
-		engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer())
+		if err := engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer()); err != nil {
+			return err
+		}
 		go engine.StartOptimizeLoop(ctx)
 		return nil
 	}))
