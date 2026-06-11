@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-10
+**Last updated:** 2026-06-11
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -12,11 +12,12 @@
 
 - **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
 - **2026-06-09 — PR #1245 (ScalingPolicy CRD core) reviewed + comment posted.** ev-shindin's minimal-CRD proposal (split from #1194; one new doc, +144). After two discussion rounds with Dean (and Dean↔author), corrected the design model: one CRD attached at multiple tree-A levels with **inheritance** (no-CR node inherits parent's resolved policy); mandatory **root CR is definitional** (registration + default thresholds/scores), two controller modes (cluster / namespace); SOT facts (cost/min-max/modelID) stay on HPA-KEDA CR (#1130 track), not this CRD; P/D one-role+one-model per pool ⇒ per-pool `priority` unambiguous today; **external limiters/quota not WVA-owned** — prefer unified inheritable WVA-native cap validated ≤ quota & ≤ physical. Posted single global comment ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)): 6 items (5 clarity + 1 possible-schema on limiters/quota). Local DRAFT review at [`planning/PR1245-review.md`](../planning/PR1245-review.md). Note: **#1255 referenced in discussion does not exist (404); VA-deprecation tracker is #1130.**
-- **2026-06-09 — TA3 PR #1250 opened.** Force-with-lease pushed (`7506634b→dbf3a981`; rebase onto `main@badc48be`), then opened [#1250](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250) (base `main`, head `deanlorenz:TA3`, assignee ev-shindin). 24 commits; all gates verified (lint 0, test pass, DCO 24/24). Sibling of now-merged #1246; TA's signal is now live on main. All CI green. Awaiting ev-shindin review.
-- **2026-06-09 — TA3 re-rebase impact verified.** Contract (`interfaces/analyzer.go`) + `aggregation` pkg byte-identical at TA3 base `4bfac2fa` → optimizer tip; #1237 touches none of interfaces/engine/throughput → no analyzer adaptation; conflict surface = `cmd/main.go` only; H1 (`RegisterAnalyzer` error-return) now lint-blocking, applied during the re-rebase. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) § Re-rebase impact analysis.
+- **2026-06-11 — PR #1250 triaged; ev-shindin COMMENTED; rebase gated on #1260.** ev-shindin left a COMMENTED (not APPROVED) review. Positive overall; one rebase blocker: `by (pod)` drops `llm_d_ai_variant` from 3 throughput queries — harmless on old base but breaks pod→VA attribution on current main. Decision: **Option B** — hold rebase until [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) (ev-shindin's pod→VA derivation PR, all CI green, CHANGES_REQUESTED from Lionel) lands; TA3 queries already in the right shape. Two other threads (SC-gate regression + sanity gate) deferred to [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) (analyzer interface extension: accept-for-SC/RC/all + sanity helper). PR reply posted ([issuecomment-4682116701](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250#issuecomment-4682116701)). Local DRAFT review: [`planning/PR1250-review.md`](../planning/PR1250-review.md) (includes rebase impact analysis + λ_dec/sanity analysis).
+- **2026-06-09 — TA3 PR #1250 opened.** Pushed `dbf3a981`; 24 commits, all gates verified (lint 0, test pass, DCO 24/24). All CI green. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-06-11 — TA3 re-rebase impact verified: conflict surface = `cmd/main.go` only; TA3 queries already correct for post-#1260 world. → [`planning/PR1250-review.md`](../planning/PR1250-review.md) § Discussion.
 - 2026-06-09 — #1246 rebased onto `main@badc48be` + lint-fix, pushed `ad1a8e1e`; all CI green; approved + merged 2026-06-10 (`09e1c386`). Phase 4 review FINAL: [`planning/multi-analyzer-optimizer-review.md`](../planning/multi-analyzer-optimizer-review.md).
 - 2026-06-08 — #1246 opened (base `main`, ev-shindin), tip `ee8bd815`; completes the 3-PR split.
 - 2026-06-08 — #1228 threshold MERGED `d9e4ae1f`; #1237 role-aware scale-down MERGED `badc48be`; #1225 registration MERGED `f664a470` (06-07).
@@ -34,7 +35,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin) 2026-06-09; 24 commits, all gates verified (lint 0, test pass, DCO 24/24). All CI green. Awaiting ev-shindin review. | `dbf3a981` |
+| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin) 2026-06-09; 24 commits, all CI green. ev-shindin COMMENTED 2026-06-11; rebase **gated on #1260** (pod→VA derivation). One pre-rebase action: add single-flight comment (`analyzer.go:208`). SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `dbf3a981` |
 | engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
@@ -50,7 +51,7 @@
 
 ## Next steps
 
-- **TA3 (now):** PR #1250 open, all CI green; awaiting ev-shindin review. Then review follow-ups (D1/D2/T1/T2); discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
+- **TA3 (now):** Waiting on [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) to land before rebasing. Pre-rebase: add `Analyze` single-flight comment (`analyzer.go:208`). Post-rebase: verify throughput query attribution, sweep label comments, push, await re-review. Then: review follow-ups (D1/D2/T1/T2); discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
 - **Post-#1246-merge cleanup:** close `engine-queue-fix` branch+worktree; drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`; close PR #1113 + remove `engine-multi-analyzer` worktree; remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
@@ -74,7 +75,7 @@ PR-4 + PR-5 code-complete on TA3 (`5e316104`, on `multi-analyzer-optimizer@4bfac
 
 **Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
-**Next steps for TA3:** await ev-shindin review on #1250. Then review follow-ups (D1+D2 docs, T1 test renames, T2 aggregation-helper specs); discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
+**Next steps for TA3:** Wait for [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) to land. Pre-rebase: add `Analyze` single-flight comment. Post-rebase: verify signal attribution, sweep label comments, push, await re-review. Then: review follow-ups (D1+D2 docs, T1 test renames, T2 aggregation-helper specs); discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
 
 ---
 
@@ -102,7 +103,7 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 
 Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction:
 
-- Per-analyzer status-return state (`AnalyzerStatus`: SuppressSC/SuppressRC/Fail; restores TA EPP-queue + GPS gating; subsumes F9) → **F3**
+- Per-analyzer status-return state (`AnalyzerStatus`: SuppressSC/SuppressRC/Fail; restores TA EPP-queue + GPS gating; subsumes F9) → **F3** — **FILED as [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261)** (framed as analyzer interface extension: accept-for-SC/RC/all + sanity helper mechanism; motivated by TA3 #1250 review)
 - Per-analyzer observability metrics + decision-enrichment hook (generalize `enrichDecisionsWithKvTokenData`) → **F4**
 - Engine model-level RC/SC for disaggregated models (latent additive bug) → **F5**
 - Replica-count accounting consistency (TA `len(variantMetrics)` vs sat_v2 `readyCount`) → **F8**

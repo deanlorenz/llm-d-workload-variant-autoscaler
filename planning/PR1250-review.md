@@ -49,12 +49,12 @@ Two options offered: **(A)** restore the label in all three queries now; **(B)**
 **`internal/engines/analyzers/throughput/analyzer.go` line 343 — open, unanswered**
 GPS-mismatch / no-EPP spare-capacity gate was computed but then discarded (Known Regression in PR). Reviewer asks to link a follow-up issue and explicitly call out the scale-**down** risk: a wrong ITL model or EPP-absent variant can publish spare capacity and drive scale-down on uncertain data.
 
-**Resolution:** Deferred to the analyzer interface extension issue (see Issues to Open). The fix is not a simple gate restore but a richer result type from the analyzer interface that lets the optimizer decide whether to accept a result for SC/RC/all. PR doc should note scale-down risk with issue link. ITL(k*) fallback mechanism limits the risk: implausible model parameters trigger a conservative (high-ITL) estimate → supply is conservative → SC less likely.
+**Resolution:** Deferred to [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) (analyzer interface extension). The fix is not a simple gate restore but a richer result type from the analyzer interface that lets the optimizer decide whether to accept a result for SC/RC/all. PR doc should note scale-down risk with issue link. ITL(k*) fallback mechanism limits the risk: implausible model parameters trigger a conservative (high-ITL) estimate → supply is conservative → SC less likely.
 
 **`internal/engines/analyzers/throughput/analyzer.go` line 243 — open, unanswered**
 `OK`-failing sanity report does not skip the variant; stale/invalid metrics flow into `computeDemand`. Reviewer asks: confirm acceptable, or gate the demand path on `lastSanityReport`.
 
-**Resolution:** Deferred to same issue (analyzer interface extension + sanity helper mechanism). See λ_dec analysis below — the existing fallback cascade in `computeDemand` already degrades gracefully; the risk is bounded. PR doc should note the deferral with issue link.
+**Resolution:** Deferred to [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) (same issue — analyzer interface extension + sanity helper mechanism). See λ_dec analysis below — the existing fallback cascade in `computeDemand` already degrades gracefully; the risk is bounded. PR doc should note the deferral with issue link.
 
 **`internal/engines/analyzers/throughput/analyzer.go` line 208 — open, unanswered**
 `Analyze` lock sequence (role-update lock → `Observe` internal lock → main lock) is safe under the single-threaded optimize loop, but a concurrent `VariantState()` snapshot could observe partial state. Reviewer flags it as "fine to leave" — just requests a one-line comment that `Analyze` is assumed single-flight.
