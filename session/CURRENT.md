@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-11 (post-push)
+**Last updated:** 2026-06-12
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,13 +10,14 @@
 
 **Active (full abstracts):**
 
+- **2026-06-12 — PR #1266 opened** (`multi-analyzer-addendum`, tip `0eeb659c`). Addendum to #1246: disabled-analyzer veto bug fix (`effectiveEnabled` helper — `Enabled:false` was parsed but not checked at runtime, causing zero-SpareCapacity veto of scale-down), config-bridge + non-uniform Score tests, full rewrite of `docs/developer-guide/multi-analyzer-pipeline.md` (architecture diagram, data model, optimizer internals). Reviewer: ev-shindin. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md).
 - **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
-- **2026-06-09 — PR #1245 (ScalingPolicy CRD core) reviewed + comment posted.** ev-shindin's minimal-CRD proposal (split from #1194; one new doc, +144). After two discussion rounds with Dean (and Dean↔author), corrected the design model: one CRD attached at multiple tree-A levels with **inheritance** (no-CR node inherits parent's resolved policy); mandatory **root CR is definitional** (registration + default thresholds/scores), two controller modes (cluster / namespace); SOT facts (cost/min-max/modelID) stay on HPA-KEDA CR (#1130 track), not this CRD; P/D one-role+one-model per pool ⇒ per-pool `priority` unambiguous today; **external limiters/quota not WVA-owned** — prefer unified inheritable WVA-native cap validated ≤ quota & ≤ physical. Posted single global comment ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)): 6 items (5 clarity + 1 possible-schema on limiters/quota). Local DRAFT review at [`planning/PR1245-review.md`](../planning/PR1245-review.md). Note: **#1255 referenced in discussion does not exist (404); VA-deprecation tracker is #1130.**
 - **2026-06-11 — PR #1250 pushed (tip f5385168); 28 commits; awaiting re-review.** ev-shindin COMMENTED; two bugs found and fixed: Bug A (throughput metrics always-zero — key-mismatch in `replica_metrics.go` + missing `instance`/`llm_d_ai_variant` in 3 queries) and Bug B (3 comment items in `analyzer.go`). New test `TestCollectReplicaMetrics_ThroughputKeyMerge` added. Rebased onto `main@0e977b3b`; pushed force-with-lease. [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) filed (SC-gate + sanity extension). Follow-up: post comment to ev-shindin explaining key-mismatch discovery + Option A decision. Review: [`planning/PR1250-review.md`](../planning/PR1250-review.md).
 - **2026-06-09 — TA3 PR #1250 opened.** Pushed `dbf3a981`; 24 commits, all gates verified. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-06-09 — #1245 (ScalingPolicy CRD) reviewed; comment posted ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)); DRAFT review → [`planning/PR1245-review.md`](../planning/PR1245-review.md).
 - 2026-06-11 — TA3 re-rebase impact verified: conflict surface = `cmd/main.go` only; TA3 queries already correct for post-#1260 world. → [`planning/PR1250-review.md`](../planning/PR1250-review.md) § Discussion.
 - 2026-06-09 — #1246 rebased onto `main@badc48be` + lint-fix, pushed `ad1a8e1e`; all CI green; approved + merged 2026-06-10 (`09e1c386`). Phase 4 review FINAL: [`planning/multi-analyzer-optimizer-review.md`](../planning/multi-analyzer-optimizer-review.md).
 - 2026-06-08 — #1246 opened (base `main`, ev-shindin), tip `ee8bd815`; completes the 3-PR split.
@@ -42,6 +43,7 @@
 | (upstream) role-aware scale-down | #1237 | **MERGED** 2026-06-08 (`badc48be` on main) | `badc48be` |
 | multi-analyzer-optimizer | #1246 | **MERGED** 2026-06-10 (`09e1c386` on main). ev-shindin approved; 2 follow-up items in Issues to Open. | `ad1a8e1e` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
+| multi-analyzer-addendum | #1266 | **PR #1266 OPEN** (base `main`, reviewer ev-shindin) 2026-06-12; 6 commits, all CI green. Addendum to #1246. | `0eeb659c` |
 
 ---
 
@@ -52,6 +54,7 @@
 ## Next steps
 
 - **TA3 (now):** Two bugs to fix before rebase — see [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250. Bug A: throughput queries missing `instance` in `by()` + 3 processing loops use bare pod name instead of `buildInstanceKey()` → GenerationTokenRate/KvUsageInstant/VLLMRequestRate always zero (fix: `throughput_analyzer.go` + `replica_metrics.go`). Bug B: three comment/doc items in `analyzer.go` (208/343/243). Then rebase onto current main, run gates, push. No #1260 dependency. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
+- **multi-analyzer-addendum (now):** Await ev-shindin review of [#1266](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1266).
 - **Post-#1246-merge cleanup:** close `engine-queue-fix` branch+worktree; drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`; close PR #1113 + remove `engine-multi-analyzer` worktree; remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
@@ -112,19 +115,16 @@ Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../plann
 - Fold queueing-model into the V2 multi-analyzer engine (Option A; + 4 pre-existing QM oversights) → **F10**
 - Per-role RC/SC canonical end-to-end (drop optimizer synthesis; resolves F5) → **F12**
 - Cost picker integer-rounding suboptimality → **F13**
-- `enabled:false` analyzer exempt from `needsScaleDown` → **A8**
 - Engine SchedulerQueue wiring — ✅ landed with #1246 merge (2026-06-10, `09e1c386`).
 
 Infra / misc (no design-doc home; file as separate issues):
 
-- **Multi-analyzer dev-guide polish** — fold design content (architecture, alternatives, future direction) + per-PR detail into `docs/developer-guide/multi-analyzer-pipeline.md`, replacing the stub and its plans-branch-fork link, once #1225/#1228/#1246 reach final shape. Doc-only commit per branch (or one after merges).
 - **Bob review 1.3** — ArrivalRate staleness check in `computeDemand` (observability PR).
 - **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); observability PR after PR-5.
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable (Makefile bug).
 - **ndots fix standalone PR** — TA3 commit `0614d9d` (`test/e2e/fixtures/workload_builder.go`) needs its own PR before/with TA3 merge.
-- **Greedy fair-share priority test coverage** — #1246 B1 fix removed hardcoded `Score:1.0` from test helpers; only one T1.3 multi-model integration test covers the priority path. Add a multi-model fair-share test with **non-uniform `Score`** across analyzers. From the Phase 4 review (non-blocking); file now (post-merge).
 - **Optimizer `max`-shadowing cleanup** — `analyzer_helpers.go`: `roleBottleneckReplicas` (~L132) and `roleAggRemaining` (~L151) declare local `max` shadowing the Go builtin; flagged by ev-shindin in #1246 review. Minor cleanup; file post-merge.
 
 ---
