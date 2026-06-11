@@ -1,0 +1,40 @@
+from: TA3
+session: Bug A + Bug B fixed; PR #1250 ready for push
+
+## What changed
+
+Two bugs fixed per ev-shindin's review of PR #1250. Rebased onto main@0e977b3b. Tip: f5385168.
+28 commits above upstream/main. All gates green (make test, make lint, build, gofmt, DCO 28/28).
+
+Commits:
+- 4b72d6ab — collector: fix throughput query labels and processing key (Bug A)
+- b9b8599d — engines/analyzers/throughput: single-flight note; link #1261 (Bug B)
+- f5385168 — collector: fix ThroughputKeyMerge test (post-rebase signature update)
+
+### Bug A detail
+GenerationTokenRate, KvUsageInstant, VLLMRequestRate were always zero because the three
+throughput loops used bare pod name as key; all others use buildInstanceKey composite key.
+Fixed: added `instance, pod, llm_d_ai_variant` to query by() clauses; switched loops to
+buildInstanceKey; added has* boolean fields (internal half of #1264); added merge test.
+Note: llm_d_ai_variant in by() is temporary — drop after #1260 + #1263 land.
+
+### Bug B detail
+Three comment items in analyzer.go (lines 208, 243, 343): single-flight note, sanity-gate
+deferral linked to #1261, scale-down risk of missing SC gate documented with #1261 reference.
+
+## Update CURRENT.md
+
+### PR Status — TA3 row:
+TA3 bugs fixed (Bug A key-mismatch + Bug B comment items). Rebased onto main@0e977b3b;
+tip f5385168; 28 commits; all gates green. Awaiting Dean push confirmation + force-with-lease
+to origin/TA3, then PR #1250 update (add #1261 link + scale-down risk note to description).
+
+### Blocked on:
+Remove "Two bugs to fix (key-mismatch + 3 comment items)" — those are done.
+Add: "Awaiting push confirmation (force-with-lease to origin/TA3)."
+
+## Next steps for plan
+1. Dean: confirm push (force-with-lease to origin/TA3) — present commit range to Dean first
+2. Update PR #1250 description: add #1261 link + scale-down risk note (text in TA3.1-plan §Complete #1250 step 11)
+3. Await ev-shindin re-review
+4. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures

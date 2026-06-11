@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-11
+**Last updated:** 2026-06-11 (post-push)
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -12,8 +12,8 @@
 
 - **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
 - **2026-06-09 — PR #1245 (ScalingPolicy CRD core) reviewed + comment posted.** ev-shindin's minimal-CRD proposal (split from #1194; one new doc, +144). After two discussion rounds with Dean (and Dean↔author), corrected the design model: one CRD attached at multiple tree-A levels with **inheritance** (no-CR node inherits parent's resolved policy); mandatory **root CR is definitional** (registration + default thresholds/scores), two controller modes (cluster / namespace); SOT facts (cost/min-max/modelID) stay on HPA-KEDA CR (#1130 track), not this CRD; P/D one-role+one-model per pool ⇒ per-pool `priority` unambiguous today; **external limiters/quota not WVA-owned** — prefer unified inheritable WVA-native cap validated ≤ quota & ≤ physical. Posted single global comment ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)): 6 items (5 clarity + 1 possible-schema on limiters/quota). Local DRAFT review at [`planning/PR1245-review.md`](../planning/PR1245-review.md). Note: **#1255 referenced in discussion does not exist (404); VA-deprecation tracker is #1130.**
-- **2026-06-11 — PR #1250 triaged; ev-shindin COMMENTED; rebase gated on #1260.** ev-shindin left a COMMENTED (not APPROVED) review. Positive overall; one rebase blocker: `by (pod)` drops `llm_d_ai_variant` from 3 throughput queries — harmless on old base but breaks pod→VA attribution on current main. Decision: **Option B** — hold rebase until [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) (ev-shindin's pod→VA derivation PR, all CI green, CHANGES_REQUESTED from Lionel) lands; TA3 queries already in the right shape. Two other threads (SC-gate regression + sanity gate) deferred to [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) (analyzer interface extension: accept-for-SC/RC/all + sanity helper). PR reply posted ([issuecomment-4682116701](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250#issuecomment-4682116701)). Local DRAFT review: [`planning/PR1250-review.md`](../planning/PR1250-review.md) (includes rebase impact analysis + λ_dec/sanity analysis).
-- **2026-06-09 — TA3 PR #1250 opened.** Pushed `dbf3a981`; 24 commits, all gates verified (lint 0, test pass, DCO 24/24). All CI green. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
+- **2026-06-11 — PR #1250 pushed (tip f5385168); 28 commits; awaiting re-review.** ev-shindin COMMENTED; two bugs found and fixed: Bug A (throughput metrics always-zero — key-mismatch in `replica_metrics.go` + missing `instance`/`llm_d_ai_variant` in 3 queries) and Bug B (3 comment items in `analyzer.go`). New test `TestCollectReplicaMetrics_ThroughputKeyMerge` added. Rebased onto `main@0e977b3b`; pushed force-with-lease. [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) filed (SC-gate + sanity extension). Follow-up: post comment to ev-shindin explaining key-mismatch discovery + Option A decision. Review: [`planning/PR1250-review.md`](../planning/PR1250-review.md).
+- **2026-06-09 — TA3 PR #1250 opened.** Pushed `dbf3a981`; 24 commits, all gates verified. See [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
@@ -47,7 +47,7 @@
 
 ## Blocked on
 
-- **PR #1250** (`TA3` → `main`) — ev-shindin COMMENTED 2026-06-11. Coder working on Bug A (key-mismatch) + Bug B (comment items) before rebase+push. After push: awaiting re-review. See [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250.
+- **PR #1250** (`TA3` → `main`) — pushed `f5385168` 2026-06-11; 28 commits above `main@0e977b3b`. Bug A + Bug B fixed. Awaiting ev-shindin re-review. Follow-up comment needed (Option A explanation). All CI pending.
 
 ## Next steps
 
