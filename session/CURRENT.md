@@ -104,6 +104,8 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction:
 
 - Per-analyzer status-return state (`AnalyzerStatus`: SuppressSC/SuppressRC/Fail; restores TA EPP-queue + GPS gating; subsumes F9) → **F3** — **FILED as [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261)** (framed as analyzer interface extension: accept-for-SC/RC/all + sanity helper mechanism; motivated by TA3 #1250 review)
+- Remove `llm_d_ai_variant` from all PromQL groupbys post-#1260 — **FILED as [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263)** (move VA attribution fully to collector layer; unblocks InferencePool-selector scoping #1072)
+- Distinguish unavailable metric from genuine zero in `ReplicaMetrics` (`*float64` nil semantics for 3 throughput fields + sanity update) — **FILED as [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264)** (prerequisite: #1250 Bug A fix; follow-up after #1250 merges)
 - Per-analyzer observability metrics + decision-enrichment hook (generalize `enrichDecisionsWithKvTokenData`) → **F4**
 - Engine model-level RC/SC for disaggregated models (latent additive bug) → **F5**
 - Replica-count accounting consistency (TA `len(variantMetrics)` vs sat_v2 `readyCount`) → **F8**

@@ -52,15 +52,23 @@ saturation.go pattern):
 ```
 
 Note: `llm_d_ai_variant` in the `by()` clause handles VA attribution on
-current main. When PR #1260 (pod→VA derivation) lands, this label can be
-dropped from these three queries in a follow-up commit.
+current main. It is a temporary addition: once PR #1260 (pod→VA derivation)
+and issue #1263 (remove label from all groupbys) land on main, this label
+is dropped from all three queries in a follow-up commit. #1263 is the
+explicit tracker for that cleanup across all analyzer queries.
 
 **Fix 2 — `internal/collector/replica_metrics.go`**
 
 In the three throughput processing loops (lines ~558, ~579, ~600), replace
-the bare-pod-key pattern with `buildInstanceKey`:
+the bare-pod-key pattern with `buildInstanceKey`. Also add `has*` boolean
+fields to `podMetricData` (aligns with issue #1264 direction):
 
 ```go
+// In podMetricData struct — add alongside the existing fields:
+hasGenTokenRate bool
+hasKvInstant    bool
+hasVLLMRate     bool
+
 // Before (same pattern in all three loops):
 podName := value.Labels["pod"]
 if podName == "" {
@@ -83,10 +91,18 @@ if podData[instanceKey] == nil {
     podData[instanceKey] = &podMetricData{}
 }
 podData[instanceKey].generationTokenRate = value.Value   // (or .kvUsageInstant / .vllmRequestRate)
+podData[instanceKey].hasGenTokenRate = true              // (or .hasKvInstant / .hasVLLMRate)
 ```
 
 `podName` from `buildInstanceKey` is available for logging if needed; the
 map key changes from bare pod name to composite instance key.
+
+The `has*` flags are the internal half of issue #1264's minimum fix
+(distinguishing "metric not collected" from "genuine zero"). The public
+half — propagating the three throughput fields as `*float64` in
+`interfaces.ReplicaMetrics` — is follow-up work tracked in #1264 and
+does not need to land in this PR. The flags are cheap to add now and
+avoid a second pass through this struct when #1264 work begins.
 
 ### Bug B — ev-shindin review: three small comment/doc items
 
@@ -119,6 +135,17 @@ dropped). Existing `replica_metrics` tests in
 `internal/collector/replica_metrics_test.go` and
 `internal/collector/build_instance_key_test.go` cover the key-building
 side; add or confirm a test that exercises the throughput merge path.
+
+### Longer-term alignment
+
+| Issue | Relation to this PR | Action |
+|---|---|---|
+| [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) — pod→VA derivation | Enables dropping `llm_d_ai_variant` from query `by()` | After #1260 merges: rebase TA3 again, drop label, push |
+| [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) — remove label from all groupbys | Explicitly tracks the `llm_d_ai_variant` removal for all queries | Separate follow-up PR post-#1260 |
+| [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264) — nil vs zero in `ReplicaMetrics` | #1250 is a prerequisite; #1264 builds on top | `*float64` interface change for the 3 fields + sanity-check update — separate PR after #1250 merges |
+
+The `has*` flags added in Fix 2 are the internal half of #1264's minimum fix
+and reduce the delta when #1264 work begins.
 
 ### Rebase + push (after commits above)
 
