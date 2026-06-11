@@ -262,8 +262,11 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 		avgITLTimestamp      time.Time
 		// Throughput analyzer fields
 		generationTokenRate float64
+		hasGenTokenRate     bool
 		kvUsageInstant      float64
+		hasKvInstant        bool
 		vllmRequestRate     float64
+		hasVLLMRate         bool
 	}
 
 	// trackMetricFreshness determines the freshness status of metrics in podMetricData
@@ -633,18 +636,16 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 	if result := results[registration.QueryGenerationTokenRate]; result != nil {
 		if !result.HasError() {
 			for _, value := range result.Values {
-				podName := value.Labels["pod"]
-				if podName == "" {
-					podName = value.Labels["pod_name"]
-				}
-				if podName == "" {
+				instanceKey, _, _ := buildInstanceKey(value.Labels)
+				if instanceKey == "" {
 					continue
 				}
-				if podData[podName] == nil {
-					podData[podName] = &podMetricData{}
+				if podData[instanceKey] == nil {
+					podData[instanceKey] = &podMetricData{}
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
-					podData[podName].generationTokenRate = value.Value
+					podData[instanceKey].generationTokenRate = value.Value
+					podData[instanceKey].hasGenTokenRate = true
 				}
 			}
 		}
@@ -654,18 +655,16 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 	if result := results[registration.QueryKvUsageInstant]; result != nil {
 		if !result.HasError() {
 			for _, value := range result.Values {
-				podName := value.Labels["pod"]
-				if podName == "" {
-					podName = value.Labels["pod_name"]
-				}
-				if podName == "" {
+				instanceKey, _, _ := buildInstanceKey(value.Labels)
+				if instanceKey == "" {
 					continue
 				}
-				if podData[podName] == nil {
-					podData[podName] = &podMetricData{}
+				if podData[instanceKey] == nil {
+					podData[instanceKey] = &podMetricData{}
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 && value.Value <= 1 {
-					podData[podName].kvUsageInstant = value.Value
+					podData[instanceKey].kvUsageInstant = value.Value
+					podData[instanceKey].hasKvInstant = true
 				}
 			}
 		}
@@ -675,18 +674,16 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 	if result := results[registration.QueryVLLMRequestRate]; result != nil {
 		if !result.HasError() {
 			for _, value := range result.Values {
-				podName := value.Labels["pod"]
-				if podName == "" {
-					podName = value.Labels["pod_name"]
-				}
-				if podName == "" {
+				instanceKey, _, _ := buildInstanceKey(value.Labels)
+				if instanceKey == "" {
 					continue
 				}
-				if podData[podName] == nil {
-					podData[podName] = &podMetricData{}
+				if podData[instanceKey] == nil {
+					podData[instanceKey] = &podMetricData{}
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
-					podData[podName].vllmRequestRate = value.Value
+					podData[instanceKey].vllmRequestRate = value.Value
+					podData[instanceKey].hasVLLMRate = true
 				}
 			}
 		}
