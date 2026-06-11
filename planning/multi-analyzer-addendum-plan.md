@@ -394,6 +394,13 @@ anything". Item closed before PR-A opens.
 **Commit 3:** `docs: expand multi-analyzer pipeline developer guide; fix fork URL`
 - `docs/developer-guide/multi-analyzer-pipeline.md` — full rewrite (MA-OPT-1 + MA-OPT-2).
 
+**Commit 4 (addendum — doc only):** `docs: add architecture, data flow, and optimizer internals to pipeline guide`
+- `docs/developer-guide/multi-analyzer-pipeline.md` — add before `## Components`:
+  - `## Architecture` section with ASCII data-flow diagram, Key concepts table, Responsibility table.
+  - After `## How results combine`: `## Data model: AnalyzerResult → NamedAnalyzerResult` and
+    `## Optimizer internals and helper composition` sections.
+- See exact content in the review conversation (2026-06-11). No code changes; gates expected clean.
+
 Sign-off each commit: `--signoff` (Signed-off-by: Dean H Lorenz <dean@il.ibm.com>).
 
 ---
@@ -443,6 +450,7 @@ Run in order from the `multi-analyzer-addendum` worktree:
 | MA-OPT-4 non-uniform Score spec (greedy_score_optimizer_test.go) | [ ] |
 | MA-OPT-2 fork URL fix | [ ] |
 | MA-OPT-1 dev guide expansion | [ ] |
+| Doc addendum: Architecture + data flow diagram + internals | [ ] |
 | All gates green (gofmt, make test, make lint, go build) | [ ] |
 | DCO verified on all commits | [ ] |
 | Review trigger written | [ ] |
