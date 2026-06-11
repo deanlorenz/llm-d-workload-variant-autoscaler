@@ -1,11 +1,140 @@
-# TA3.1 — Post-Review Follow-Up PR (PR-B)
+# TA3.1 — Complete PR #1250 + Post-Review Follow-Up (PR-B)
 
-> **Status: STANDBY** — All four review items (D1, D2, T1, T2) from the
-> TA-PR5 review are **already committed on the TA3 branch** and included
-> in PR #1250. No separate PR-B is needed for those items unless ev-shindin
-> requests substantive rework. This plan serves as a decision tree and
-> reference for the post-#1250-merge residue and any new items that emerge
-> from ev-shindin's review.
+> **Status: ACTIVE** — ev-shindin COMMENTED 2026-06-11 on PR #1250. Two
+> bugs must be fixed before rebase + push. D1/D2/T1/T2 are already in the
+> PR; PR-B is STANDBY unless ev-shindin requests rework after merge.
+>
+> Triage doc: [`planning/PR1250-review.md`](PR1250-review.md)
+
+---
+
+## Complete #1250 — Coder Task
+
+Two bugs discovered during ev-shindin's review. Both must be fixed, then
+rebased onto current main and pushed. No external dependency.
+
+### Bug A — throughput metrics always zero (key mismatch)
+
+**Root cause (pre-existing, introduced in #1051/TA1):**
+`replica_metrics.go` processes the three throughput query results using
+`value.Labels["pod"]` as the `podData` map key (bare pod name, e.g.
+`"pod-abc"`). All other processing loops use `buildInstanceKey(value.Labels)`
+which produces a composite `"pod-abc:8000"` key. The entries never merge.
+At assembly, the throughput-only entry has `hasKv = false` and is dropped.
+Result: `GenerationTokenRate`, `KvUsageInstant`, and `VLLMRequestRate` are
+always zero in every `ReplicaMetrics` the throughput analyzer receives.
+
+The throughput queries also need `instance` in their `by()` clause so the
+result labels include it — `buildInstanceKey` cannot produce the composite
+key from `pod`-only results.
+
+**Fix 1 — `internal/collector/registration/throughput_analyzer.go`**
+
+Change all three `by()` clauses to include `instance` and `llm_d_ai_variant`:
+
+```
+// Before (lines 108, 120, 133):
+sum by (pod) (rate(vllm:request_generation_tokens_sum{...}[1m]))
+max by (pod) (vllm:kv_cache_usage_perc{...})
+sum by (pod) (rate(vllm:request_generation_tokens_count{...}[1m]))
+
+// After:
+sum by (instance, pod, llm_d_ai_variant) (rate(vllm:request_generation_tokens_sum{...}[1m]))
+max by (instance, pod, llm_d_ai_variant) (vllm:kv_cache_usage_perc{...})
+sum by (instance, pod, llm_d_ai_variant) (rate(vllm:request_generation_tokens_count{...}[1m]))
+```
+
+Add the standard preserve comment above each registration (matching
+saturation.go pattern):
+```go
+// Preserves instance (IP:port for composite key), pod (for pod lookup),
+// and llm_d_ai_variant (for direct pod-to-VA mapping).
+```
+
+Note: `llm_d_ai_variant` in the `by()` clause handles VA attribution on
+current main. When PR #1260 (pod→VA derivation) lands, this label can be
+dropped from these three queries in a follow-up commit.
+
+**Fix 2 — `internal/collector/replica_metrics.go`**
+
+In the three throughput processing loops (lines ~558, ~579, ~600), replace
+the bare-pod-key pattern with `buildInstanceKey`:
+
+```go
+// Before (same pattern in all three loops):
+podName := value.Labels["pod"]
+if podName == "" {
+    podName = value.Labels["pod_name"]
+}
+if podName == "" {
+    continue
+}
+if podData[podName] == nil {
+    podData[podName] = &podMetricData{}
+}
+podData[podName].generationTokenRate = value.Value   // (or .kvUsageInstant / .vllmRequestRate)
+
+// After:
+instanceKey, podName, _ := buildInstanceKey(value.Labels)
+if instanceKey == "" {
+    continue
+}
+if podData[instanceKey] == nil {
+    podData[instanceKey] = &podMetricData{}
+}
+podData[instanceKey].generationTokenRate = value.Value   // (or .kvUsageInstant / .vllmRequestRate)
+```
+
+`podName` from `buildInstanceKey` is available for logging if needed; the
+map key changes from bare pod name to composite instance key.
+
+### Bug B — ev-shindin review: three small comment/doc items
+
+In `internal/engines/analyzers/throughput/analyzer.go`:
+
+- **Line 208** — add one-line comment: `Analyze` is assumed single-flight;
+  concurrent `VariantState()` snapshots may observe partial state across the
+  lock gaps.
+- **Line 343** — update the TODO comment to note scale-down risk explicitly
+  and link [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261).
+- **Line 243** — update the TODO comment to note sanity-gate deferral and
+  link [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261).
+
+### Commit structure
+
+**Commit 1** — `collector: fix throughput query labels and processing key`
+- `internal/collector/registration/throughput_analyzer.go` — Fix 1 above
+- `internal/collector/replica_metrics.go` — Fix 2 above
+
+**Commit 2** — `engines/analyzers/throughput: single-flight note; link #1261 for deferred gates`
+- `internal/engines/analyzers/throughput/analyzer.go` — Bug B items above
+
+### Verification
+
+After the fix, a unit or integration test should confirm that populating
+both KV-cache and generation-token-rate results for the same pod produces
+**one** `ReplicaMetrics` entry with both `KvUsageInstant` and
+`GenerationTokenRate` non-zero (not two separate entries, one of which is
+dropped). Existing `replica_metrics` tests in
+`internal/collector/replica_metrics_test.go` and
+`internal/collector/build_instance_key_test.go` cover the key-building
+side; add or confirm a test that exercises the throughput merge path.
+
+### Rebase + push (after commits above)
+
+1. `git branch --show-current` → must be `TA3`
+2. `git status` → no uncommitted changes
+3. `git rebase upstream/main` (current main is `ad1a8e1e` + #1237/`badc48be` merged; tip is `09e1c386`)
+4. Resolve `cmd/main.go` if conflict (TA3 adds `RegisterThroughputAnalyzerQueries` + `RegisterAnalyzer`; main may differ in surrounding wiring)
+5. `gofmt -l ./internal/... ./pkg/... ./cmd/...` → empty
+6. `make test` → all pass
+7. `make lint` → clean
+8. `go build ./...` → clean
+9. DCO: `git log upstream/main..HEAD --format="%b" | grep Signed-off-by` → one per commit (26 total after the 2 new commits)
+10. Push: present commit range + force-with-lease rationale to Dean, wait for approval
+11. Update PR description with #1261 link + scale-down risk note: draft text for Dean, wait for approval before `gh pr edit`
+
+---
 
 ---
 

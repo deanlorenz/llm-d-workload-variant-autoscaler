@@ -35,7 +35,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin) 2026-06-09; 24 commits, all CI green. ev-shindin COMMENTED 2026-06-11; rebase **gated on #1260** (pod→VA derivation). One pre-rebase action: add single-flight comment (`analyzer.go:208`). SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `dbf3a981` |
+| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin) 2026-06-09; 24 commits, all CI green. ev-shindin COMMENTED 2026-06-11. Two bugs to fix (key-mismatch always-zero + 3 comment items), then rebase + push. No #1260 dependency. SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `dbf3a981` |
 | engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
@@ -51,7 +51,7 @@
 
 ## Next steps
 
-- **TA3 (now):** Waiting on [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) to land before rebasing. Pre-rebase: add `Analyze` single-flight comment (`analyzer.go:208`). Post-rebase: verify throughput query attribution, sweep label comments, push, await re-review. Then: review follow-ups (D1/D2/T1/T2); discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
+- **TA3 (now):** Two bugs to fix before rebase — see [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250. Bug A: throughput queries missing `instance` in `by()` + 3 processing loops use bare pod name instead of `buildInstanceKey()` → GenerationTokenRate/KvUsageInstant/VLLMRequestRate always zero (fix: `throughput_analyzer.go` + `replica_metrics.go`). Bug B: three comment/doc items in `analyzer.go` (208/343/243). Then rebase onto current main, run gates, push. No #1260 dependency. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`).
 - **Post-#1246-merge cleanup:** close `engine-queue-fix` branch+worktree; drop `backup/multi-analyzer-optimizer-pre-rebase@ae456aa0`; close PR #1113 + remove `engine-multi-analyzer` worktree; remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
@@ -75,7 +75,7 @@ PR-4 + PR-5 code-complete on TA3 (`5e316104`, on `multi-analyzer-optimizer@4bfac
 
 **Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) (PR-B — STANDBY; D1/D2/T1/T2 in #1250), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
-**Next steps for TA3:** Wait for [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) to land. Pre-rebase: add `Analyze` single-flight comment. Post-rebase: verify signal attribution, sweep label comments, push, await re-review. Then: review follow-ups (D1+D2 docs, T1 test renames, T2 aggregation-helper specs); discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
+**Next steps for TA3:** Fix Bug A (key-mismatch: `throughput_analyzer.go` + `replica_metrics.go`) + Bug B (comment items in `analyzer.go`). Rebase onto current main. No #1260 dependency. Full task in [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250. Then: discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
 
 ---
 

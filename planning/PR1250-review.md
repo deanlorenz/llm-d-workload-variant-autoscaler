@@ -65,12 +65,19 @@ GPS-mismatch / no-EPP spare-capacity gate was computed but then discarded (Known
 
 ## Pending Actions
 
-- [ ] Hold rebase until #1260 (pod→VA derivation) lands on main. No TA3 code changes needed for the `by(pod)` issue.
-- [ ] Reply to ev-shindin: confirm Option B; ack SC-gate + sanity concerns with issue link; note rebase is gated on #1260; confirm single-flight comment will be added.
-- [ ] Add one-line `Analyze` single-flight assumption comment (`analyzer.go:208`).
-- [ ] Open analyzer-interface extension issue covering SC/RC accept flags + sanity helper mechanism; link from PR description and from `analyzer.go:343` / `analyzer.go:243` TODO comments.
-- [ ] Update PR description: add scale-down risk callout for SC-gate regression; link issue.
-- [ ] After #1260 lands: rebase TA3 onto new main; verify throughput queries produce signal (check `groupByVariant` attribution); sweep any comments referencing old `llm_d_ai_variant` label mechanism.
+**Bugs to fix before rebase (coder task — see `planning/TA3.1-plan.md` § Complete #1250):**
+- [ ] **Bug A** — `internal/collector/registration/throughput_analyzer.go`: `by (pod)` → `by (instance, pod, llm_d_ai_variant)` in 3 queries; add preserve comments.
+- [ ] **Bug A** — `internal/collector/replica_metrics.go`: replace bare `podData[podName]` key with `podData[instanceKey]` via `buildInstanceKey()` in 3 throughput loops.
+- [ ] **Bug B** — `analyzer.go:208`: add single-flight assumption comment.
+- [ ] **Bug B** — `analyzer.go:343` and `:243`: update TODO comments linking [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261).
+
+**Planner actions (already done):**
+- [x] Reply posted: Option B (gated on #1260) — note: superseded by Bug A discovery; Option A now applies with `instance` added.
+- [x] [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) opened for SC-gate + sanity extension.
+
+**Remaining planner actions:**
+- [ ] Update PR description: scale-down risk callout + [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) link — draft for Dean, post after coder pushes.
+- [ ] Rebase TA3 onto current main after bug fixes; push (needs Dean's approval).
 
 ---
 
