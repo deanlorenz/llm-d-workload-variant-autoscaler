@@ -559,3 +559,89 @@ func TestCollectReplicaMetrics_ErrorMetrics(t *testing.T) {
 		}
 	}
 }
+
+// TestCollectReplicaMetrics_ThroughputKeyMerge verifies that when the KV-cache
+// query and the throughput queries (GenerationTokenRate, KvUsageInstant,
+// VLLMRequestRate) return results for the same pod, they merge into a single
+// ReplicaMetrics entry with all fields non-zero.
+//
+// Before the Bug A fix, throughput loops used the bare pod name as the podData
+// key while all other loops used buildInstanceKey's composite key (pod:port).
+// The entries never merged and the throughput fields were always zero.
+func TestCollectReplicaMetrics_ThroughputKeyMerge(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	if err := metrics.InitMetrics(registry); err != nil {
+		t.Fatalf("InitMetrics: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := llmdVariantAutoscalingV1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	podLabels := map[string]string{
+		"pod":                               "pod-abc",
+		"instance":                          "10.0.0.1:8000",
+		constants.VariantLabelPrometheusKey: "va-1",
+	}
+	ts := time.Now()
+
+	mockSource := &mockMetricsSource{
+		refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+			return map[string]*source.MetricResult{
+				"kv_cache_usage": {
+					Values: []source.MetricValue{
+						{Labels: podLabels, Value: 0.55, Timestamp: ts},
+					},
+				},
+				"generation_token_rate": {
+					Values: []source.MetricValue{
+						{Labels: podLabels, Value: 1500.0, Timestamp: ts},
+					},
+				},
+				"kv_usage_instant": {
+					Values: []source.MetricValue{
+						{Labels: podLabels, Value: 0.50, Timestamp: ts},
+					},
+				},
+				"vllm_request_rate": {
+					Values: []source.MetricValue{
+						{Labels: podLabels, Value: 7.0, Timestamp: ts},
+					},
+				},
+			}, nil
+		},
+	}
+
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient)
+	results, err := collector.CollectReplicaMetrics(
+		context.Background(),
+		"test-model",
+		"test-ns",
+		make(map[string]scaletarget.ScaleTargetAccessor),
+		make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
+		make(map[string]float64),
+	)
+	if err != nil {
+		t.Fatalf("CollectReplicaMetrics: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected exactly 1 ReplicaMetrics entry (key merge), got %d", len(results))
+	}
+
+	m := results[0]
+	if m.GenerationTokenRate == 0 {
+		t.Errorf("GenerationTokenRate is zero — throughput key merge failed")
+	}
+	if m.KvUsageInstant == 0 {
+		t.Errorf("KvUsageInstant is zero — throughput key merge failed")
+	}
+	if m.VLLMRequestRate == 0 {
+		t.Errorf("VLLMRequestRate is zero — throughput key merge failed")
+	}
+	if m.KvCacheUsage == 0 {
+		t.Errorf("KvCacheUsage is zero — KV cache result not merged")
+	}
+}
