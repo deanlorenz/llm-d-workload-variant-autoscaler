@@ -44,7 +44,12 @@ Same issue on three queries. TA3 drops `llm_d_ai_variant` from `by ()`. On the o
 
 Two options offered: **(A)** restore the label in all three queries now; **(B)** wait for #1260 (pod→VA derivation, implements #1210) to merge — collector then derives pod→VA itself, `by (pod)` is correct as-is.
 
-**Decision: Option B.** #1260 (opened 2026-06-11 by ev-shindin; all CI green; CHANGES_REQUESTED from lionelvillard pending) enables the correct long-term path. TA3 queries are already in the right shape for post-#1260 main. No code change needed in TA3 for this. Rebase is held until #1260 lands.
+**Decision: Option A (revised) — key-mismatch bug discovered; no #1260 dependency.**
+Post-triage analysis found a pre-existing key-mismatch bug (introduced in #1051/TA1): the three throughput processing loops in `replica_metrics.go` use bare `value.Labels["pod"]` as the `podData` map key, while all other loops use `buildInstanceKey()` → composite `"pod:port"`. The entries never merge; `GenerationTokenRate`, `KvUsageInstant`, `VLLMRequestRate` are always zero. Fixing this requires `instance` in the `by()` clause (so `buildInstanceKey()` has the label it needs).
+
+Full fix: `by (pod)` → `by (instance, pod, llm_d_ai_variant)` in all 3 queries (matching the saturation pattern) + use `buildInstanceKey()` in the 3 processing loops. The `llm_d_ai_variant` addition is temporary; it is removed post-#1260+[#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263). See [`planning/TA3.1-plan.md`](TA3.1-plan.md) § Complete #1250 for full coder task.
+
+Note: initial PR reply stated Option B; a follow-up comment to ev-shindin explaining the discovery should be posted once the coder pushes the fix.
 
 **`internal/engines/analyzers/throughput/analyzer.go` line 343 — open, unanswered**
 GPS-mismatch / no-EPP spare-capacity gate was computed but then discarded (Known Regression in PR). Reviewer asks to link a follow-up issue and explicitly call out the scale-**down** risk: a wrong ITL model or EPP-absent variant can publish spare capacity and drive scale-down on uncertain data.

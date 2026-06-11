@@ -47,7 +47,7 @@
 
 ## Blocked on
 
-- **PR #1250** (`TA3` → `main`) — opened 2026-06-09, assignee ev-shindin; 24 commits, all CI green. Awaiting ev-shindin review.
+- **PR #1250** (`TA3` → `main`) — ev-shindin COMMENTED 2026-06-11. Coder working on Bug A (key-mismatch) + Bug B (comment items) before rebase+push. After push: awaiting re-review. See [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250.
 
 ## Next steps
 
