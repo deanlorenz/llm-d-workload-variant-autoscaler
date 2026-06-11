@@ -280,9 +280,9 @@ var _ = Describe("resolveSaturationConfig", func() {
 	})
 })
 
-var _ = Describe("runAnalyzersAndScore enabled gate (MA-F7)", func() {
+var _ = Describe("runAnalyzersAndScore disabled-analyzer gate", func() {
 
-	It("MA-F7: disabled analyzer is not appended and its Analyze is never called", func() {
+	It("disabled analyzer is not appended and its Analyze is never called", func() {
 		fakeSat := &fakeAnalyzerWithResult{
 			analyzerName: interfaces.SaturationAnalyzerName,
 			result:       &interfaces.AnalyzerResult{SpareCapacity: 1000},
@@ -313,7 +313,7 @@ var _ = Describe("runAnalyzersAndScore enabled gate (MA-F7)", func() {
 	})
 })
 
-var _ = Describe("collectV2ModelRequest Disaggregated flag (MA-H-1)", func() {
+var _ = Describe("collectV2ModelRequest Disaggregated flag", func() {
 
 	It("sets Disaggregated=true when any variant has a non-both role", func() {
 		fakeSat := &fakeAnalyzerWithResult{
