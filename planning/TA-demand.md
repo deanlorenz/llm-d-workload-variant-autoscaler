@@ -190,6 +190,30 @@ drain-time framing. This is added to model-level decode demand only (prefill
 demand contribution from the queue is deferred to a later PR when prefill-rate
 supply/demand is added).
 
+**Future direction — multi-EPP P/D topology.** Today there is a single
+flow-control queue per model (`sum(...{target_model_name=M})`), and it is split
+across roles synthetically: it is the *entry* queue, so it correctly drives both
+prefill and decode demand. When the disaggregated P/D design moves to multiple
+EPPs with a coordinator above (a separate prefill EPP and decode EPP, each with
+its own flow-control queue), the collection must **not** simply `sum` across both
+queues: the decode-side queue is a *lagging, internal* signal (requests only land
+there after prefill completes and hands off KV). Driving decode scale-up off the
+decode queue alone would cascade — decode demand appears only after prefill
+drains, delaying decode scale-up exactly under surge.
+
+The expected fix is cheap and preserves today's behavior: **use the prefill
+(entry) queue as the demand driver for both roles, as today; then add the decode
+queue to the decode role only.** The entry queue remains the leading indicator
+for both; the decode queue contributes any genuine decode-stage backlog on top,
+without double-counting the entry demand. This is a forward design constraint for
+whoever implements multi-EPP queue collection — not a change to the current
+single-queue model.
+
+Note: the drain-rate target $W_{max}$ will also need recalculation for this
+topology — the entry-queue and decode-queue contributions drain on different
+time bases (prefill admission vs. decode generation), so a single $\text{ITL}(k_{sat})$-based
+$W_{max}$ may not be the right bound for both terms.
+
 ---
 
 ## 5. Metric Sources
