@@ -1,8 +1,8 @@
-# multi-analyzer-cleanup — PR-A Task Plan
+# multi-analyzer-addendum — Task Plan
 
 **Type:** 3 (task plan)
-**Branch:** `multi-analyzer-cleanup` (new worktree; base `main@2a0c3a7c`)
-**Goal:** Land a focused cleanup PR before TA3 (#1250) merges so the reviewer sees correct docs and the disabled-analyzer veto bug is fixed.
+**Branch:** `multi-analyzer-addendum` (new worktree; base `main@2a0c3a7c`)
+**Goal:** Land the addendum to the three-PR multi-analyzer stack (#1225/#1228/#1246): pipeline dev guide, test coverage gaps, and the disabled-analyzer veto bug fix. Target: merged before TA3 (#1250).
 
 ---
 
@@ -29,16 +29,16 @@ instead of duplicating optimizer-specific content.
 
 ```bash
 git -C /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/repo \
-    worktree add ../multi-analyzer-cleanup -b multi-analyzer-cleanup main
+    worktree add ../multi-analyzer-addendum -b multi-analyzer-addendum main
 ```
 
 Verify:
 ```bash
-git -C /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/multi-analyzer-cleanup \
-    branch --show-current   # must be: multi-analyzer-cleanup
+git -C /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/multi-analyzer-addendum \
+    branch --show-current   # must be: multi-analyzer-addendum
 ```
 
-Then `EnterWorktree path: .../multi-analyzer-cleanup` before any edits.
+Then `EnterWorktree path: .../multi-analyzer-addendum` before any edits.
 
 ---
 
@@ -400,9 +400,9 @@ Sign-off each commit: `--signoff` (Signed-off-by: Dean H Lorenz <dean@il.ibm.com
 
 ## Pre-push checklist (per CONVENTIONS.md)
 
-Run in order from the `multi-analyzer-cleanup` worktree:
+Run in order from the `multi-analyzer-addendum` worktree:
 
-1. `git branch --show-current` → must be `multi-analyzer-cleanup`.
+1. `git branch --show-current` → must be `multi-analyzer-addendum`.
 2. `gofmt -l ./internal/... ./pkg/... ./cmd/...` → empty output.
 3. `make test` → all pass.
 4. `make lint` → clean.
@@ -428,7 +428,7 @@ Run in order from the `multi-analyzer-cleanup` worktree:
    paragraph.
 
 3. **PR #1252 status at write time:** check `gh pr view 1252 --json state` before pushing. If
-   merged, rebase `multi-analyzer-cleanup` onto updated main before pushing.
+   merged, rebase `multi-analyzer-addendum` onto updated main before pushing.
 
 ---
 
