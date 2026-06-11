@@ -138,6 +138,9 @@ func (e *Engine) runAnalyzersAndScore(
 		if entry.name == interfaces.SaturationAnalyzerName {
 			continue
 		}
+		if !effectiveEnabled(entry.name, config) {
+			continue
+		}
 		result := runRegisteredAnalyzer(ctx, logger, entry, modelID, input)
 		if result == nil {
 			continue
@@ -179,6 +182,21 @@ func resolveThresholds(analyzerName string, cfg config.SaturationScalingConfig) 
 		}
 	}
 	return cfg.ScaleUpThreshold, cfg.ScaleDownBoundary
+}
+
+// effectiveEnabled returns false only when the analyzer has an explicit
+// Enabled:false entry in cfg.Analyzers. Absent entries and nil Enabled
+// pointers default to true (consistent with ApplyDefaults).
+func effectiveEnabled(analyzerName string, cfg config.SaturationScalingConfig) bool {
+	for _, aw := range cfg.Analyzers {
+		if aw.Name == analyzerName {
+			if aw.Enabled != nil {
+				return *aw.Enabled
+			}
+			return true
+		}
+	}
+	return true
 }
 
 // runRegisteredAnalyzers invokes Analyze on every registered non-saturation

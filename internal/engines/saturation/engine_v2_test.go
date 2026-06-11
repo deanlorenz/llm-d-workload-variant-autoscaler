@@ -280,6 +280,94 @@ var _ = Describe("resolveSaturationConfig", func() {
 	})
 })
 
+var _ = Describe("runAnalyzersAndScore enabled gate (MA-F7)", func() {
+
+	It("MA-F7: disabled analyzer is not appended and its Analyze is never called", func() {
+		fakeSat := &fakeAnalyzerWithResult{
+			analyzerName: interfaces.SaturationAnalyzerName,
+			result:       &interfaces.AnalyzerResult{SpareCapacity: 1000},
+		}
+		spy := &spyAnalyzer{name: "spy"}
+		e := &Engine{
+			saturationV2Analyzer: fakeSat,
+			analyzersSnapshot: []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: fakeSat},
+				{name: "spy", analyzer: spy},
+			},
+			started: true,
+		}
+		f := false
+		cfg := config.SaturationScalingConfig{
+			ScaleUpThreshold:  0.85,
+			ScaleDownBoundary: 0.70,
+			Analyzers: []config.AnalyzerScoreConfig{
+				{Name: "spy", Enabled: &f},
+			},
+		}
+
+		results, err := e.runAnalyzersAndScore(context.Background(), "m", "ns", nil, cfg, nil, nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(HaveLen(1), "only saturation entry — disabled spy must not be appended")
+		Expect(results[0].Name).To(Equal(interfaces.SaturationAnalyzerName))
+		Expect(spy.callCount).To(Equal(0), "Analyze must not be called for a disabled analyzer")
+	})
+})
+
+var _ = Describe("collectV2ModelRequest Disaggregated flag (MA-H-1)", func() {
+
+	It("sets Disaggregated=true when any variant has a non-both role", func() {
+		fakeSat := &fakeAnalyzerWithResult{
+			analyzerName: interfaces.SaturationAnalyzerName,
+			result:       &interfaces.AnalyzerResult{},
+		}
+		e := &Engine{
+			saturationV2Analyzer: fakeSat,
+			analyzersSnapshot: []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: fakeSat},
+			},
+			started: true,
+		}
+		cfg := config.SaturationScalingConfig{
+			ScaleUpThreshold:  0.85,
+			ScaleDownBoundary: 0.70,
+		}
+		variantStates := []interfaces.VariantReplicaState{
+			{VariantName: "prefill-v1", Role: "prefill"},
+			{VariantName: "decode-v1", Role: "decode"},
+		}
+
+		req, err := e.collectV2ModelRequest(context.Background(), "m", "ns", nil, cfg, variantStates, nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.Disaggregated).To(BeTrue())
+	})
+
+	It("sets Disaggregated=false when all variants have role 'both' or empty", func() {
+		fakeSat := &fakeAnalyzerWithResult{
+			analyzerName: interfaces.SaturationAnalyzerName,
+			result:       &interfaces.AnalyzerResult{},
+		}
+		e := &Engine{
+			saturationV2Analyzer: fakeSat,
+			analyzersSnapshot: []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: fakeSat},
+			},
+			started: true,
+		}
+		cfg := config.SaturationScalingConfig{
+			ScaleUpThreshold:  0.85,
+			ScaleDownBoundary: 0.70,
+		}
+		variantStates := []interfaces.VariantReplicaState{
+			{VariantName: "v1", Role: interfaces.RoleBoth},
+			{VariantName: "v2", Role: ""},
+		}
+
+		req, err := e.collectV2ModelRequest(context.Background(), "m", "ns", nil, cfg, variantStates, nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.Disaggregated).To(BeFalse())
+	})
+})
+
 func decisionsByVariant(decisions []interfaces.VariantDecision) map[string]interfaces.VariantDecision {
 	m := make(map[string]interfaces.VariantDecision, len(decisions))
 	for _, d := range decisions {
