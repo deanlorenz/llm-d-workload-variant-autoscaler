@@ -36,6 +36,7 @@ bob --chat-mode=coder  # ✗ Wrong location
 1. Run `pwd` and `git branch --show-current`
 2. Confirm you're in the target worktree (e.g., `TA3/` on branch `TA3`)
 3. If not, **STOP** and inform the user:
+4. Run `git status` — note ALL modified, staged, and untracked files. This is your full work scope regardless of how the session was triggered. **Never declare work done while `git status` shows uncommitted changes that belong to your branch.** A trigger names what to re-read; it does not limit your scope to its stated topic.
 
 ```
 ERROR: Coder session started in wrong location.

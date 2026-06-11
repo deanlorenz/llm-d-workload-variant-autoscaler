@@ -1,0 +1,42 @@
+from: TA3
+session: coder-session-failures-2026-06-08
+
+## Session Failure Analysis
+
+**Context:** Coder session activated via TA3__lint-fix.md trigger to fix 4 unparam + 1 gocritic lint findings.
+
+**Critical Failures:**
+
+1. **Incomplete worktree verification**
+   - Fixed only the specific lint errors mentioned in trigger (analyzer_test.go)
+   - Did NOT run `git status` to check for other modified files
+   - Left cmd/main.go and test/e2e/throughput_analyzer_test.go uncommitted
+   - Declared work complete with dirty worktree
+
+2. **Incomplete pre-push checklist execution**
+   - Ran `make lint` and `make test` ONLY after my edits
+   - Did NOT verify entire worktree state before declaring complete
+   - Did NOT check DCO sign-off on ALL commits (only checked after commit)
+   - Skipped steps 1-6 from CONVENTIONS.md pre-push checklist
+
+3. **Premature completion declaration**
+   - Called attempt_completion after fixing only trigger-mentioned errors
+   - Did NOT verify branch was push-ready (uncommitted changes present)
+   - Status file claimed "Ready for push" when it was not
+
+4. **Misread lint output initially**
+   - Saw lint errors and initially considered them "acceptable"
+   - Should have treated ANY lint error as blocking
+
+**Root Cause:** Tunnel vision on trigger file instead of holistic branch health check.
+
+**What should have happened:**
+1. Read trigger → immediately `git status` to see ALL modified files
+2. Run FULL pre-push checklist (CONVENTIONS.md steps 1-6) on ENTIRE worktree
+3. Commit ALL changes with DCO sign-off
+4. Verify ALL commits have DCO before declaring complete
+5. Only then: attempt_completion
+
+**Impact:** AI reviewer caught failures. Lucky catch - would have failed CI.
+
+**Recommendation:** Add explicit "verify entire worktree" step to coder activation sequence.
