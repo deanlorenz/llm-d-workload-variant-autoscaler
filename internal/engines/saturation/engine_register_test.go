@@ -64,7 +64,7 @@ var _ = Describe("Engine analyzer registry", func() {
 
 			Expect(engine.analyzers).To(HaveLen(1))
 			Expect(engine.analyzers[0].name).To(Equal(interfaces.SaturationAnalyzerName))
-			Expect(engine.analyzers[0].analyzer).To(BeIdenticalTo(interfaces.Analyzer(engine.saturationV2Analyzer)))
+			Expect(engine.analyzers[0].analyzer).To(BeIdenticalTo(engine.saturationV2Analyzer))
 		})
 	})
 
