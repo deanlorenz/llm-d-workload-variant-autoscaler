@@ -1,9 +1,9 @@
 # Multi-Analyzer Optimizer — Code Review
 
-**Status: FINAL (Phase 1) / DRAFT (Phase 2, Phase 3 — see addenda below)**
-**Reviewer:** plan-agent (reviewer role), 2026-06-07 (P1/P2), 2026-06-08 (P3)
-**Branch reviewed:** `multi-analyzer-optimizer` @ `680b1fb8` (15 commits on `multi-analyzer-threshold@b8b823b0`).
-Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`). Phase 3 addendum covers commits 12–15 (tip `680b1fb8`).
+**Status: FINAL (Phase 1) / DRAFT (Phase 2, Phase 3, Phase 4 — see addenda below)**
+**Reviewer:** plan-agent (reviewer role), 2026-06-07 (P1/P2), 2026-06-08 (P3/P4)
+**Branch reviewed:** `multi-analyzer-optimizer` @ `ad1a8e1e` (17 commits on `main@badc48be` post-#1237).
+Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`). Phase 3 addendum covers commits 12–15 (tip `680b1fb8`). Phase 4 addendum covers the rebase onto `main@badc48be` + lint-fix (tip `ad1a8e1e`).
 **Compared against:** [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md) and [`multi-analyzer-design.md`](multi-analyzer-design.md).
 
 > Method: read the code first to understand what it does, then compared
@@ -533,3 +533,112 @@ passthrough collapse (P3.2), and stale comments (P3.3). **Not push-ready** until
 5th Phase 3 commit (delete orphaned functions + their dead tests, collapse the scale-down
 wrapper, fix the comments, `make test` green). This is incomplete scope, not a correctness
 blocker — distinct from the Phase 2 verdict, which was a real bug.
+
+---
+
+## Phase 4 addendum (2026-06-08): rebase onto `main@badc48be` (post-#1237) + lint-fix
+
+**Scope.** Reviewer pass over the rebase the optimizer coder performed after PR #1237
+(*role-aware scale-down for disaggregated models*) merged into `upstream/main` as `badc48be`.
+Optimizer was rebased `git rebase --onto upstream/main d9e4ae1f`; conflicts resolved toward
+the target end-state in [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md)
+§ "CURRENT NEXT ACTION" Step 2; one lint-fix commit (`ad1a8e1e`) on top to clear the 5
+golangci-lint findings (3 from #1246 CI + 2 surfaced by `make lint` locally). New tip
+`ad1a8e1e`, 17 commits = 16 rebased + 1 lint. Origin still at pre-rebase `ee8bd815`.
+
+### P3.1/P3.2/P3.3 gap from Phase 3 — closed
+
+Phase 3 verdict said "not push-ready until a 5th cleanup commit lands". That commit is now in
+the stack as `2711bdc1` (`pipeline: Phase 3 cleanup — delete orphaned functions, collapse
+passthrough`). Verified via grep-to-zero in production code:
+`findCheapestVariant`, `sortByCostDesc`, `costAwareScaleDownRoleIterated`,
+`filterVariantCapacitiesByRole`, standalone `applyDeallocation`, `allocateForModelPairedB2`,
+`needsScaleUp`, `needsScaleDown`, `bottleneckReplicas`, `safeRemovalReplicas`,
+`isDisaggregated`, `InitRolePairedState`, `needsScaleUpPaired`, `PickPairFn`, `PickVariantFn` —
+0 production references. The one tombstone match is a comment in
+`greedy_score_optimizer_test.go` explaining the removal. The scale-down passthrough wrapper
+is collapsed (`scaleDownRoleIterated` is now the implementation, not a wrapper). Stale Greedy
+tombstone comment + the "B2" header are gone. ✅
+
+### Target end-state from § Step 2 — verified literally
+
+| Plan target | In code | Verdict |
+|---|---|---|
+| `scaleDownVariantSet` (generalized #1237 primitive with `maxRemovable`/`onRemove` callbacks; PRE-SORTED input; `minReplicas` floor + cheapest-at-1 enforced internally) | [cost_aware_optimizer.go:111–152](../multi-analyzer-optimizer/internal/engines/pipeline/cost_aware_optimizer.go#L111-L152) | ✅ byte-equivalent to spec |
+| `sortVariantsForScaleDown` — Cost-desc → score-weighted PRC-asc → name-asc | [cost_aware_optimizer.go:161–184](../multi-analyzer-optimizer/internal/engines/pipeline/cost_aware_optimizer.go#L161-L184) | ✅ byte-equivalent to spec |
+| `scaleDownRoleIterated` — thin per-role iterator over `scaleDownVariantSet` (single `if !needsScaleDownForRole(...)` entry gate, no outer loop) | [cost_aware_optimizer.go:307–350](../multi-analyzer-optimizer/internal/engines/pipeline/cost_aware_optimizer.go#L307-L350) | ✅ matches spec; `distinctRolesSorted` inlined per the plan's "extract or inline" allowance |
+| `variantsForRole` — single definition in `analyzer_helpers.go`, exact-match body, `Role==""` canonicalised to `interfaces.RoleBoth` | [analyzer_helpers.go:175–187](../multi-analyzer-optimizer/internal/engines/pipeline/analyzer_helpers.go#L175-L187) | ✅ byte-equivalent; no duplicate in `cost_aware_optimizer.go` |
+| `anyHasReplicas` (kept from #1237 unchanged) | [cost_aware_optimizer.go:187–194](../multi-analyzer-optimizer/internal/engines/pipeline/cost_aware_optimizer.go#L187-L194) | ✅ |
+
+### Per-file diff inventory `ee8bd815..ad1a8e1e`
+
+```
+internal/engines/pipeline/analyzer_helpers.go      |  19 +--
+internal/engines/pipeline/analyzer_helpers_test.go |  48 ++--
+internal/engines/pipeline/cost_aware_optimizer.go  | 187 ++++++---
+internal/engines/pipeline/cost_aware_optimizer_test.go | 171 +++++++++--
+```
+
+`greedy_score_optimizer.go` net diff = 0 (a hunk from the rebase reintroduced a trailing
+blank, which the lint-fix commit then removed; file is byte-identical pre/post-rebase).
+Greedy still delegates scale-down to `scaleDownRoleIterated`; no Greedy-specific behaviour
+change. `cost_aware_optimizer_test.go`: +4 disaggregated-scale-down `It(...)` specs (#1237's
+tests preserved per plan: *"the test suites — ours + #1237's — both survive the rebase as
+the equivalence proof"*); −2 `It(...)` for deleted helpers (`sortByCostDesc`,
+`findCheapestVariant`) — correct.
+
+### Lint-fix commit `ad1a8e1e` is mechanical only
+
+Read the diff: `nakedret` → `return roles, pickerState`; `unparam` → inlined `"pf"`/`"dc"`
+in `makeNamedPD`; `gocritic captLocal` → `RC`/`SC` → `rc`/`sc` in test helpers; one trailing
+blank line in `greedy_score_optimizer.go`; 4 test cases switched from stale `Result:` field
+to `withSatEntry` helper; `variantsForRole` "both"/"" test updated for the exact-match
+contract. **No behaviour change.** ✅
+
+### Behaviour deltas worth flagging in PR description (not regressions)
+
+1. **Cheapest-variant tie-break is now deterministic.** Before:
+   `findCheapestVariant` returned the first input-order variant at min-cost. After: positional
+   rule on the sorted slice — among ties at min-cost, the alphabetically-largest name is the
+   protected one (because `sortVariantsForScaleDown` puts cheapest last with name-asc
+   tie-break). Plan-acknowledged: *"With a single analyzer (Score=1) this reduces to
+   Cost-desc then PRC-asc, i.e. #1237's existing tie-break."* Strictly more deterministic;
+   no scenario where this is worse.
+2. **Outer scale-down loop replaced by single-pass.** Before:
+   `for needsScaleDownForRole(...) { ... if !removed { break } }` — could re-iterate. After:
+   single `if` entry gate + one pass through `scaleDownVariantSet`. Plan rationale: *"a single
+   cost-desc pass with min_i sizing is sufficient: removals only consume spare, so a repeat
+   pass removes nothing."* Equivalent terminal state, fewer iterations.
+
+### Phase 1/2 review findings — addressed
+
+- **B1** (Score never populated): commit `9935aded` populates
+  `NamedAnalyzerResult.Score` via `scoreForAnalyzer(name, config)` at both V2 and QM
+  construction sites; T1.3 adds a multi-model fair-share priority integration test that
+  exercises the path. ✅
+- **B2** (paired scale-up commits unmatched replicas on one-side exhaustion): commit
+  `feac0d30` reshapes paired scale-up (per-role sizing + util-min joint commit); commit
+  `afbc0182` makes the joint allocator role-generic; α removed in `48437abb`. ✅
+
+### Gates per coder status file
+
+`make lint` 0 issues (the gate #1246 CI failed on); `gofmt` clean; `go build` clean;
+`make test` 136/136; `go test -race ./internal/engines/...` clean; DCO 17/17.
+
+### Phase 4 verdict — push-ready
+
+No silent hunk drops; target end-state matches plan literally; lint-fix is mechanical;
+P3 gap closed; B1+B2 addressed in earlier commits in this stack; gates green per coder.
+
+**Force-with-lease push to `origin/multi-analyzer-optimizer` is approved.** PR #1246 will
+update automatically. Lease anchor `ee8bd815` (current origin tip). Backup ref
+`backup/multi-analyzer-optimizer-pre-rebase` to be kept until merge per plan.
+
+### Small follow-up (not blocking)
+
+The B1 fix removed hardcoded `Score: 1.0` from common test helpers
+(`withSatEntry`/`withSatEntryV2`/`makeNamed`/`makeNamedPD`) so existing tests exercise the
+production fallback path and a single new T1.3 integration test covers multi-model priority.
+Add at least one more multi-model fair-share test with **non-uniform `Score` values across
+analyzers** to widen the priority-path coverage. File on the planner's Issues-to-Open queue
+post-merge — not a release blocker.
