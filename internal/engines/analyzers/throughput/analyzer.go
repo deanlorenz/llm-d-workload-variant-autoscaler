@@ -204,6 +204,8 @@ func (a *ThroughputAnalyzer) Analyze(
 		pendingByVariant[vs.VariantName] = vs.PendingReplicas
 	}
 
+	// Analyze is assumed single-flight per model; concurrent VariantState() snapshots
+	// may observe partial state across the lock gaps below.
 	// Update variant roles so state.role is current when Observe() runs.
 	a.mu.Lock()
 	for _, vs := range input.VariantStates {
@@ -240,8 +242,10 @@ func (a *ThroughputAnalyzer) Analyze(
 			continue
 		}
 
-		// TODO: skip variant when state.lastSanityReport is not OK — stale/invalid
+		// TODO(#1261): skip variant when state.lastSanityReport is not OK — stale/invalid
 		// metrics from Observe() do not currently block demand computation here.
+		// Gating demand on the sanity report is deferred to the per-analyzer status-return
+		// PR; it requires the engine contract to accept an AnalyzerStatus opt-out signal.
 		model, ok := a.resolveITLModel(state, variantMetrics, input.Namespace, input.ModelID, variantName)
 		if !ok {
 			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
@@ -337,9 +341,12 @@ func (a *ThroughputAnalyzer) Analyze(
 
 	// TA publishes raw Total* fields; RequiredCapacity and SpareCapacity are left
 	// zero — the engine's universal threshold post-step writes them after Analyze returns.
-	// The GPS/EPP gate that previously suppressed SpareCapacity is dropped here
-	// (see docs/developer-guide/throughput-analyzer.md Known Regression).
-	// anyEPP and anyGPSMismatch are retained for potential future use.
+	// The GPS/EPP gate that previously suppressed SpareCapacity is dropped here; without
+	// it, a missing SchedulerQueue (nil) causes TotalDemand to be under-estimated and the
+	// engine may compute SC > 0 when queued requests exist — a scale-down risk.
+	// Restoring the gate (conditioned on SchedulerQueue == nil || anyGPSMismatch) is
+	// tracked in issue #1261 and requires a per-analyzer status-return signal in the
+	// engine contract. anyEPP and anyGPSMismatch are retained as placeholders for that PR.
 	_ = anyEPP
 	_ = anyGPSMismatch
 
