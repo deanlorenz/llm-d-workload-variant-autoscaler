@@ -49,7 +49,7 @@ Post-triage analysis found a pre-existing key-mismatch bug (introduced in #1051/
 
 Full fix: `by (pod)` → `by (instance, pod, llm_d_ai_variant)` in all 3 queries (matching the saturation pattern) + use `buildInstanceKey()` in the 3 processing loops. The `llm_d_ai_variant` addition is temporary; it is removed post-#1260+[#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263). See [`planning/TA3.1-plan.md`](TA3.1-plan.md) § Complete #1250 for full coder task.
 
-Note: initial PR reply stated Option B; a follow-up comment to ev-shindin explaining the discovery should be posted once the coder pushes the fix.
+Follow-up posted ([issuecomment-4685034585](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250#issuecomment-4685034585)) explaining key-mismatch discovery, Option A switch, and push.
 
 **`internal/engines/analyzers/throughput/analyzer.go` line 343 — open, unanswered**
 GPS-mismatch / no-EPP spare-capacity gate was computed but then discarded (Known Regression in PR). Reviewer asks to link a follow-up issue and explicitly call out the scale-**down** risk: a wrong ITL model or EPP-absent variant can publish spare capacity and drive scale-down on uncertain data.
