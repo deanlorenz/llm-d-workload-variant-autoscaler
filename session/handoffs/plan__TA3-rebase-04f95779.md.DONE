@@ -1,0 +1,30 @@
+from: TA3
+session: rebase onto main@04f95779 complete
+
+## What changed
+
+Rebased onto upstream/main@04f95779 (#1267 locator, #1270 VA-deprecation, #1271 V2-default).
+1 conflict resolved (cmd/main.go import block: kept locator + registration).
+
+Post-rebase adaptations (new commit b0284253):
+- Updated 3 throughput loops to c.buildInstanceKey(ctx, namespace, labels) — #1267 promoted
+  the closure to a method; our Bug A commit still used the old form.
+- Folded in Bug C (UnattributedReadyPods K8s event from #1275): constant, helper, check,
+  and test (TestCollectReplicaMetrics_UnattributedReadyPodsEvent).
+
+Tip: b0284253. 28 commits above upstream/main@04f95779.
+All gates: make test PASS, make lint 0 issues, gofmt clean, DCO 28/28.
+
+## Update CURRENT.md
+
+### TA3 PR Status — update:
+Rebased onto main@04f95779; tip b0284253; 28 commits; all gates green.
+Bug C (UnattributedReadyPods) folded in. Awaiting push confirmation.
+
+### Blocked on:
+Awaiting Dean push confirmation (force-with-lease to origin/TA3).
+
+### Next steps:
+1. Dean: confirm push (present branch + force-with-lease rationale, wait for approval)
+2. Update PR #1250 description: add #1261 link, scale-down risk note, Bug C mention
+3. Await ev-shindin re-review
