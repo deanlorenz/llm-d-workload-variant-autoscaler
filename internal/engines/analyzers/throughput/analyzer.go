@@ -144,7 +144,11 @@ func (a *ThroughputAnalyzer) Observe(
 		// Collect one (k*, ITL) observation per healthy replica. Per-replica variation
 		// in k* provides the k-spread needed for a reliable OLS fit.
 		for _, m := range healthyMetrics {
-			state.observationWindow.Add(m.KvUsageInstant, m.AvgITL, now)
+			if dropped := state.observationWindow.Add(m.KvUsageInstant, m.AvgITL, now); dropped {
+				ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: observation dropped (k out of range or ITL invalid)",
+					"namespace", namespace, "modelID", modelID, "variant", variantName,
+					"k", m.KvUsageInstant, "itl", m.AvgITL)
+			}
 		}
 		state.observationWindow.Prune(now)
 	}
@@ -252,7 +256,7 @@ func (a *ThroughputAnalyzer) Analyze(
 		// upward → systematic under-provisioning. Supply counting (computeVariantSupply,
 		// computeDemand) uses the unfiltered variantMetrics to include booting replicas.
 		healthyMetrics := filterHealthyForShape(variantMetrics)
-		model, ok := a.resolveITLModel(state, healthyMetrics, input.Namespace, input.ModelID, variantName)
+		model, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
 		if !ok {
 			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
 				"namespace", input.Namespace,
@@ -297,7 +301,7 @@ func (a *ThroughputAnalyzer) Analyze(
 			nDecodeVariants++
 		}
 
-		if checkVariantGPSMismatch(healthyMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
+		if checkVariantGPSMismatch(ctx, healthyMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
 			anyGPSMismatch = true
 			state.consecutiveGPSMismatches++
 			if state.consecutiveGPSMismatches >= DefaultGPSMismatchClearThreshold {
@@ -447,12 +451,12 @@ func (a *ThroughputAnalyzer) getOrCreateVariantState(key string) *variantState {
 // is extended to iterate variants with state but no current replica metrics.
 //
 // Must be called with a.mu held.
-func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []interfaces.ReplicaMetrics, namespace, modelID, variantName string) (ITLModel, bool) {
+func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variantState, metrics []interfaces.ReplicaMetrics, namespace, modelID, variantName string) (ITLModel, bool) {
 	// Tier 1: OLS fit.
 	if state.observationWindow.Ready() {
 		obs := state.observationWindow.Observations()
 		if model, ok := FitITLModel(obs); ok {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit",
 				"namespace", namespace, "modelID", modelID, "variant", variantName,
 				"A", model.A, "B", model.B, "samples", len(obs),
 			)
@@ -460,7 +464,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 			state.hasFittedB = true
 			return model, true
 		}
-		ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit failed, trying tier-2",
+		ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit failed, trying tier-2",
 			"namespace", namespace, "modelID", modelID, "variant", variantName,
 			"samples", len(obs),
 		)
@@ -487,7 +491,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 	if n > 0 && sumK2 > 0 {
 		A := numerator / sumK2
 		if A > 0 {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: tier-2 constrained OLS fit",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: tier-2 constrained OLS fit",
 				"namespace", namespace, "modelID", modelID, "variant", variantName,
 				"A", A, "B", baselineB, "replicas", int(n),
 			)
@@ -676,6 +680,7 @@ func safeDivide(num, denom float64) float64 {
 //   - Shape mismatch: ITL fits well but GPS × AvgITL disagrees with KV-derived N_dec,
 //     suggesting IL, OL, or prefix-hit-rate parameters are wrong.
 func checkVariantGPSMismatch(
+	ctx context.Context,
 	metrics []interfaces.ReplicaMetrics,
 	shape WorkloadShape,
 	model ITLModel,
@@ -706,7 +711,7 @@ func checkVariantGPSMismatch(
 			continue
 		}
 		mismatch = true
-		ctrl.Log.Info("throughput analyzer: GPS mismatch detected",
+		ctrl.LoggerFrom(ctx).Info("throughput analyzer: GPS mismatch detected",
 			"namespace", namespace,
 			"modelID", modelID,
 			"variant", variantName,
@@ -723,7 +728,7 @@ func checkVariantGPSMismatch(
 		}
 		itlResidual := math.Abs(m.AvgITL-itlAtK) / m.AvgITL
 		if itlResidual > DefaultNearKSatITLResidualThreshold {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: near-k_sat ITL residual high (model drift or bad data)",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: near-k_sat ITL residual high (model drift or bad data)",
 				"namespace", namespace,
 				"modelID", modelID,
 				"variant", variantName,
@@ -739,7 +744,7 @@ func checkVariantGPSMismatch(
 			nDecGPS := m.GenerationTokenRate * m.AvgITL
 			nDecErrPct := math.Abs(nDec-nDecGPS) / nDec * 100
 			if nDecErrPct > DefaultNearKSatNDecResidualThreshold*100 {
-				ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: near-k_sat N_dec mismatch (shape wrong?)",
+				ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: near-k_sat N_dec mismatch (shape wrong?)",
 					"namespace", namespace,
 					"modelID", modelID,
 					"variant", variantName,
