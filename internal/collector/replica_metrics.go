@@ -361,11 +361,8 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 		avgITLTimestamp      time.Time
 		// Throughput analyzer fields
 		generationTokenRate float64
-		hasGenTokenRate     bool
 		kvUsageInstant      float64
-		hasKvInstant        bool
 		vllmRequestRate     float64
-		hasVLLMRate         bool
 	}
 
 	// trackMetricFreshness determines the freshness status of metrics in podMetricData
@@ -703,7 +700,6 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
 					podData[instanceKey].generationTokenRate = value.Value
-					podData[instanceKey].hasGenTokenRate = true
 				}
 			}
 		}
@@ -722,7 +718,6 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 && value.Value <= 1 {
 					podData[instanceKey].kvUsageInstant = value.Value
-					podData[instanceKey].hasKvInstant = true
 				}
 			}
 		}
@@ -741,7 +736,6 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
 					podData[instanceKey].vllmRequestRate = value.Value
-					podData[instanceKey].hasVLLMRate = true
 				}
 			}
 		}
