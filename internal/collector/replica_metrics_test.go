@@ -31,6 +31,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	corev1 "k8s.io/api/core/v1"
+
 	llmdVariantAutoscalingV1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/constants"
@@ -614,7 +616,7 @@ func TestCollectReplicaMetrics_ThroughputKeyMerge(t *testing.T) {
 		},
 	}
 
-	collector := NewReplicaMetricsCollector(mockSource, k8sClient, nil)
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient, nil, nil)
 	results, err := collector.CollectReplicaMetrics(
 		context.Background(),
 		"test-model",
@@ -644,5 +646,100 @@ func TestCollectReplicaMetrics_ThroughputKeyMerge(t *testing.T) {
 	}
 	if m.KvCacheUsage == 0 {
 		t.Errorf("KvCacheUsage is zero — KV cache result not merged")
+	}
+}
+
+// mockScaleTargetAccessor implements scaletarget.ScaleTargetAccessor for testing.
+// Only GetStatusReadyReplicas is meaningful; all other methods return zero/nil.
+type mockScaleTargetAccessor struct {
+	readyReplicas int32
+}
+
+func (m *mockScaleTargetAccessor) GetName() string                                   { return "" }
+func (m *mockScaleTargetAccessor) GetNamespace() string                              { return "" }
+func (m *mockScaleTargetAccessor) GetReplicas() *int32                               { return nil }
+func (m *mockScaleTargetAccessor) GetDeletionTimestamp() *metav1.Time                { return nil }
+func (m *mockScaleTargetAccessor) GetStatusReplicas() int32                          { return 0 }
+func (m *mockScaleTargetAccessor) GetStatusReadyReplicas() int32                     { return m.readyReplicas }
+func (m *mockScaleTargetAccessor) GetTotalGPUsPerReplica() int                       { return 0 }
+func (m *mockScaleTargetAccessor) GetLeaderPodTemplateSpec() *corev1.PodTemplateSpec { return nil }
+func (m *mockScaleTargetAccessor) GetWorkerPodTemplateSpec() *corev1.PodTemplateSpec { return nil }
+func (m *mockScaleTargetAccessor) GetGroupSize() int32                               { return 1 }
+
+// TestCollectReplicaMetrics_UnattributedReadyPodsEvent verifies that when a VA
+// has Ready pods but none are attributed this cycle, a Warning/UnattributedReadyPods
+// K8s event is emitted exactly once (deduped via vaEventTracker on second call).
+func TestCollectReplicaMetrics_UnattributedReadyPodsEvent(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	require.NoError(t, metrics.InitMetrics(registry))
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, llmdVariantAutoscalingV1alpha1.AddToScheme(scheme))
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	// One pod attributed to "va-other", not to "va-target".
+	podLabels := map[string]string{
+		"pod":                               "pod-other",
+		"instance":                          "10.0.0.2:8000",
+		constants.VariantLabelPrometheusKey: "va-other",
+	}
+	ts := time.Now()
+	mockSource := &mockMetricsSource{
+		refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+			return map[string]*source.MetricResult{
+				"kv_cache_usage": {
+					Values: []source.MetricValue{{Labels: podLabels, Value: 0.5, Timestamp: ts}},
+				},
+			}, nil
+		},
+	}
+
+	va := &llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+		ObjectMeta: metav1.ObjectMeta{Name: "va-target", Namespace: "default"},
+		Spec: llmdVariantAutoscalingV1alpha1.VariantAutoscalingSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "Deployment", Name: "dep-target"},
+			ModelID:        "test-model",
+			MaxReplicas:    5,
+		},
+	}
+	variantAutoscalings := map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+		"default/va-target": va,
+	}
+	scaleTargets := map[string]scaletarget.ScaleTargetAccessor{
+		"default/dep-target": &mockScaleTargetAccessor{readyReplicas: 2},
+	}
+	variantCosts := make(map[string]float64)
+
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient, fakeRecorder, nil)
+
+	// First call: metrics present for a different VA → va-target has 0 attributed but 2 ready.
+	vaEventTracker := make(map[string]bool)
+	results, err := collector.CollectReplicaMetrics(
+		context.Background(), "test-model", "default",
+		scaleTargets, variantAutoscalings, vaEventTracker, variantCosts,
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, results, "expected attributed results for va-other")
+
+	select {
+	case event := <-fakeRecorder.Events:
+		assert.Contains(t, event, constants.K8SEventUnattributedReadyPods)
+		assert.Contains(t, event, "va-target")
+	default:
+		t.Error("expected UnattributedReadyPods event but none received")
+	}
+
+	// Second call with same vaEventTracker: event must NOT be re-emitted (deduped).
+	_, err = collector.CollectReplicaMetrics(
+		context.Background(), "test-model", "default",
+		scaleTargets, variantAutoscalings, vaEventTracker, variantCosts,
+	)
+	require.NoError(t, err)
+	select {
+	case event := <-fakeRecorder.Events:
+		t.Errorf("unexpected duplicate event: %s", event)
+	default:
+		// Expected: no second event
 	}
 }
