@@ -195,6 +195,178 @@ clean, `go build ./...` clean, DCO on every commit. Then internal review
 
 ---
 
+## Review-driven fixes (round 3) — Coder Task
+
+A third review pass surfaced 4 should-fix + 3 nits, all analyzer-internal.
+
+**Scope + landing (Dean, 2026-06-16):**
+- **DO NOT push.** Leave `origin/TA3` at `f11f5120` (the in-flight Kind/OpenShift
+  E2E + ev-shindin review continue undisturbed). Commit **locally** on `TA3` only.
+- **One self-contained commit per fix**, each **independently droppable**, so Dean
+  can later select which to include before any push.
+- **F1 is the first commit and fully standalone** (no dependency on commits 2–5).
+  This makes "keep F1, drop the rest" a simple truncation (`git reset --hard
+  <F1-sha>`), no rebase/conflict. Order the rest after F1; touching disjoint
+  regions of `analyzer.go` keeps each individually droppable.
+- After committing + gates + internal review, **stop** — write the plan-handoff
+  listing the per-commit SHAs so Dean can choose what to push. No push, no PR action.
+
+### F1 — EPP-present + `AvgOutputTokens==0` → spurious scale-down (correctness)
+
+`computeDemand` (`analyzer.go:509`) sets `isEPP=true` and accumulates
+`lambdaDec += ArrivalRate × AvgOutputTokens`. At warm-up (EPP routing, but no
+generation tokens completed yet) this returns `(0, true)`. The caller
+(`analyzer.go:278`) gates the local fallback on `demand == 0 && !isEPP`, so with
+`isEPP=true` the fallback is skipped → variant published with `supply>0, demand=0`
+→ `Utilization=0` → post-step `SpareCapacity>0` → **scale-down while busy**.
+Reachable on every cold-start.
+
+**Fix — `computeDemand` falls through when EPP yields zero usable demand:**
+```go
+func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
+	var lambdaDec float64
+	var isEPP bool
+	for _, m := range metrics {
+		if m.ArrivalRate > 0 {
+			isEPP = true
+			lambdaDec += m.ArrivalRate * m.AvgOutputTokens
+		}
+	}
+	if lambdaDec > 0 {
+		return lambdaDec, isEPP // EPP present and gave usable demand
+	}
+	// EPP absent, OR EPP present but zero usable demand (warm-up, no completions yet):
+	// fall through to the vLLM request-rate proxy.
+	var lambdaDecFallback float64
+	for _, m := range metrics {
+		if m.VLLMRequestRate > 0 && m.AvgOutputTokens > 0 {
+			lambdaDecFallback += m.VLLMRequestRate * m.AvgOutputTokens
+		}
+	}
+	return lambdaDecFallback, isEPP // isEPP still reflects "EPP present"
+}
+```
+
+**Fix — caller falls to local demand whenever demand is still zero** (`analyzer.go:278`):
+```go
+demand, isEPP := computeDemand(variantMetrics)
+if demand == 0 {
+	demand = computeLocalDemand(variantMetrics, shape, model)
+}
+```
+`isEPP` remains the "EPP present" signal for `anyEPP`. `computeLocalDemand` is
+k*-based: a busy warm-up replica (high k*) yields non-zero local demand →
+high utilization → no scale-down; a genuinely idle replica (k*=0) yields 0 →
+scale-down is then correct. Update the `computeDemand` doc-comment: the EPP path
+falls through to vLLM/local when it yields zero, and `isEPP` means "EPP present"
+not "demand is from EPP".
+
+**Test:** `metrics` with `ArrivalRate>0, AvgOutputTokens==0, KvUsageInstant>0` →
+resulting `demand > 0` (via local), and the variant's `Utilization > 0` (not a
+spurious spare signal). Plus: EPP with usable `AvgOutputTokens` still uses the
+EPP path; vLLM-only path unchanged.
+
+### F2 — `VariantCapacity.TotalCapacity` violates its doc (contract; cosmetic)
+
+`analyzer.go:325` sets `TotalCapacity: supply` (sum over KV-capable replicas =
+`n × perReplicaSupply`), but the field is documented as
+`ReplicaCount × PerReplicaCapacity` and `ReplicaCount = len(variantMetrics)`
+(includes booting). **Verified: `vc.TotalCapacity` and `vc.Utilization` are NOT
+consumed downstream** — `aggregation` recomputes model-level `TotalSupply` from
+`ReplicaCount × PerReplicaCapacity` (`aggregation.go:43/80`), so this is cosmetic.
+Fix for self-consistency:
+```go
+TotalCapacity: float64(len(variantMetrics)) * perReplicaSupply,
+Utilization:   safeDivide(demand, float64(len(variantMetrics))*perReplicaSupply),
+```
+Now `TotalCapacity == ReplicaCount × PerReplicaCapacity` (doc-accurate) and
+matches the model-level `TotalSupply` interpretation (booting replicas counted at
+`perReplicaSupply`). Keep the existing comment block above the append.
+
+### F3 — throughput loops create orphan `podData` entries (data hygiene)
+
+`replica_metrics.go:694/712/730` (the 3 throughput loops) create a fresh
+`podData[instanceKey] = &podMetricData{}` (empty `vaName`) for instances the
+KV/queue queries didn't see — unlike `QueryCacheConfigInfo`, which `continue`s on
+unknown instances. This pollutes freshness metrics under the `""` VA bucket.
+
+**Fix — mirror skip-unknown in all 3 loops:**
+```go
+if podData[instanceKey] == nil {
+	continue
+}
+```
+Safe: the KV/queue queries run earlier and create the real entries; a pod with
+throughput metrics but no KV entry is scrape skew. (This is consistent with the
+ThroughputKeyMerge test, which provides KV + throughput for the same pod, so the
+entry already exists when the throughput loop runs.) Confirm
+`TestCollectReplicaMetrics_ThroughputKeyMerge` still passes; add a small case
+asserting a throughput-only orphan instance produces no `""`-vaName entry.
+
+### F4 — `ctrl.Log` in helpers; `Add` logs under mutex (consistency)
+
+`Observe`/`Analyze` were converted to `ctrl.LoggerFrom(ctx)`, but these still use
+global `ctrl.Log`:
+- `resolveITLModel` (`analyzer.go:453/461/488`) — add a `ctx context.Context`
+  param; caller at `analyzer.go:258` has `ctx`.
+- `checkVariantGPSMismatch` (`analyzer.go:704/721/737`) — add a `ctx` param;
+  caller at `analyzer.go:298` has `ctx`.
+- `ObservationWindow.Add` (`observation_window.go:45`) — logs the
+  out-of-range-drop while `a.mu` is held. Change `Add` to **return a bool**
+  (`dropped`) and have the caller (`analyzer.go:147`, inside `Observe`) log via
+  `ctrl.LoggerFrom(ctx)`. Keeps `Add` a pure data method.
+
+Use `ctrl.LoggerFrom(ctx)` in the threaded helpers so GPS-mismatch / ITL-fit /
+dropped-observation logs carry the reconcile-scoped fields.
+
+### Nits (fold in)
+
+- `itl_model.go` (~L50) — add an explicit `if math.IsNaN(B) || math.IsInf(B, 0) {
+  return ITLModel{}, false }` before the `A*DefaultKSat+B <= 0` guard (reads more
+  defensively even though the downstream check catches it).
+- `analyzer.go:735` — one-line comment that `nDec > 0` is guaranteed by the
+  upstream guards (protects the `…/nDec*100` invariant from future refactors).
+- `a.mu` held across the whole `Analyze` loop — **no action** (single-flight, no
+  race; just a long critical section). Acknowledged, left as-is.
+
+### Semantic cross-reference greps (run after edits)
+
+- `grep -n "computeDemand(" internal/engines/analyzers/throughput/` → only the one caller; confirm the gate change.
+- `grep -n "resolveITLModel(\|checkVariantGPSMismatch(" internal/engines/analyzers/throughput/` → update every call site for the new `ctx` param.
+- `grep -rn "\.Add(" internal/engines/analyzers/throughput/` → update the `ObservationWindow.Add` call site for the new bool return.
+
+### Required commit structure (one per fix, F1 first, each droppable)
+
+Each commit must build + pass tests + lint **on its own** so any later commit can
+be dropped by truncation or `git rebase --onto` without breaking the ones kept.
+F1 first so "keep F1, drop F2–F5" is a clean `git reset --hard <F1-sha>`.
+
+1. **F1** — `engines/throughput: fall through to fallback demand when EPP yields zero` (+ test + dev-guide demand-cascade note). **Standalone; the keeper.**
+2. **F2** — `engines/throughput: TotalCapacity matches ReplicaCount × PerReplicaCapacity`.
+3. **F3** — `collector: skip unknown instances in throughput query loops` (+ test).
+4. **F4** — `engines/throughput: thread ctx into ITL/GPS helpers; Add returns drop bool`.
+5. **nits** — `engines/throughput: defensive B guard; document nDec>0 invariant`.
+
+Keep the F1 dev-guide note inside the F1 commit (so dropping commits 2–5 doesn't
+strand a doc edit). If a later commit conflicts with F1's `analyzer.go` regions, adjust
+ordering so the kept set stays conflict-free — F1's hunks (`computeDemand` ~L509,
+caller ~L278) are disjoint from F2 (append ~L325), F4 (~L453/673), nits (~L735).
+
+### Dev-guide
+
+In the **F1 commit**, update `docs/developer-guide/throughput-analyzer.md`
+demand-cascade description: the fallback (vLLM → local k*) now also triggers when
+EPP is present but yields zero usable demand (warm-up), not only when EPP is absent.
+
+### Gates (round 3) — NO PUSH
+
+Run the full pre-push gates (`gofmt`, `make test`, `make lint`, `go build`, DCO)
+**after each commit** (each must be green standalone). Write the internal-review
+trigger when done. **Do not push and do not touch `origin/TA3`.** The plan-handoff
+must list every per-commit SHA so Dean can choose which to push later.
+
+---
+
 ## Complete #1250 — Coder Task
 
 Two bugs from ev-shindin's review are fixed (`ce39267e`). The remaining
