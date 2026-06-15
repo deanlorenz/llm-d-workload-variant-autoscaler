@@ -20,6 +20,24 @@
 
 ---
 
+## Context and prerequisite reading
+
+Read these before starting Part 1:
+
+- `docs/two-variant-wva-ta3-runbook.md` — current cluster state (namespace `dhl-wva`,
+  deployment names, image build command `make docker-build IMG=quay.io/deanlorenz/...`),
+  known issues, and the k2Source log format observed in practice.
+- `internal/engines/engine_v2.go` — find the existing `"V2 saturation analysis completed"`
+  and `"Applied saturation decision"` log calls. Match their logging library and style
+  for the new line (WVA uses controller-runtime logr/zap, not stdlib slog — read the
+  existing calls before writing any new ones).
+- `internal/engines/analyzers/saturation_v2/analyzer.go` — check what the analyzer
+  returns to the engine. If k2, k2Source, cost, perReplicaCapacity are only logged
+  inside the analyzer and not returned in its result struct, the new INFO line must go
+  inside the analyzer rather than in the engine. Confirm before writing code.
+
+---
+
 ## Part 1 — WVA code: INFO decision summary line
 
 ### What to add
@@ -88,8 +106,11 @@ truncation and line-buffered grep.
 
 ### What to change
 
-In `hack/benchmark/run/run_ci_benchmark.sh` (or the equivalent two-variant run
-script), add an in-flight log capture step alongside the benchmark run:
+Add the in-flight capture to **`hack/benchmark/run/run_ci_benchmark.sh`** (the
+existing CI script). A dedicated two-variant script does not yet exist; extend
+the general script rather than forking it. Place the capture start immediately
+after the GuideLLM harness is launched (before the wait-for-completion loop) and
+kill it in the cleanup block after the harness exits.
 
 ```bash
 # Start WVA decision log capture (filtered to decision summary lines only)
@@ -229,8 +250,14 @@ Adjust `MIN_EXPECTED` based on scenario duration and rate. For
 
 1. **Part 5 first** — workload validation is self-contained and catches the §10b
    zero-load problem immediately. No dependency on other parts.
-2. **Part 1** — WVA code change. Build and push a new image after adding the log line
-   and its unit test. Confirm the line appears in `kubectl logs` before continuing.
+2. **Part 1** — WVA code change. After adding the log line and its unit test, build and
+   push a new image:
+   ```
+   make docker-build IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3
+   make docker-push  IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3
+   ```
+   (repo must be public on quay.io — see runbook §4). Then restart the WVA deployment
+   in `dhl-wva` and confirm the new log line appears in `kubectl logs` before continuing.
 3. **Part 2** — in-flight capture. Verify the filtered log file is non-empty after a
    test run (even idle WVA emits the summary line every reconcile).
 4. **Parts 3 and 4** — decision table and correctness analysis. Can be developed and
