@@ -368,11 +368,20 @@ wiring smoke test too, to make it meaningful):
    the assertion fail. Pick a confirmation signal the harness already exposes
    (rollout completed + controller Ready is the minimum; a stronger signal is fine
    if cheap).
-3. **`AfterAll`:** restore the default (saturation-only) config **and restart the
-   controller back**, so sibling suites that require TA **off** (notably
-   `saturation_v2_test.go:280` scale-down) are not contaminated by a lingering
-   TA-enabled controller. Ordering matters — a TA-enabled controller left running
-   would re-introduce the scale-down veto in later specs.
+3. **`AfterAll` — same order in reverse, and the restart is mandatory:**
+   a. Restore the default (saturation-only) config (`restoreSaturationConfigMap`).
+   b. **Then restart** the controller again and wait Ready.
+   **Why the restart is not optional:** registration is sticky — once a TA-enabled
+   pod is running, writing saturation-only config at runtime does NOT un-register
+   TA (`RegisterAnalyzer` is frozen after `StartOptimizeLoop`, and on this branch a
+   registered analyzer is consumed unconditionally). So a config-only restore leaves
+   TA registered and still vetoing scale-down. Only a restart with saturation-only
+   config already in place yields a true TA-off controller. Skipping this (or
+   restarting before restoring config) contaminates sibling suites that require TA
+   off — notably `saturation_v2_test.go:280` scale-down, which would fail with the
+   exact veto F1/the gate fixed.
+   *Defensive option:* a suite that hard-requires TA-off may also restart-to-clean in
+   its own `BeforeAll`, so it doesn't depend on a prior suite's cleanup ordering.
 
 Remove the now-stale "deferred as a follow-up" comments (L215/320) since the
 restart is implemented here.
