@@ -17,6 +17,16 @@ operating point, and scales before demand exceeds that supply.
 
 > **Status:** Implementation complete and wired into the engine's multi-analyzer pipeline.
 > Enable via the `analyzers:` field in `wva-saturation-scaling-config` — see [Configuration](#configuration).
+>
+> **Enablement:** The ThroughputAnalyzer is **opt-in**. At startup, the controller checks whether
+> any saturation config entry lists `throughput` with `enabled != false`. If none does, the
+> analyzer is not registered and never participates in scaling. The default config ships with
+> saturation only, so throughput is off by default.
+>
+> **Runtime toggling requires a restart.** Registration is frozen after `StartOptimizeLoop`.
+> Editing the configmap to add `throughput` takes effect only after a controller restart.
+> This is a stopgap; the per-cycle consumption gate (effectiveEnabled opt-in fix) is the
+> correct long-term home and will remove the need for a restart when it lands.
 
 ## Table of Contents
 
