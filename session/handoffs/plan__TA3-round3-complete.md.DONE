@@ -1,0 +1,34 @@
+from: TA3
+session: round-3 review fixes complete (F1–F5 + nits)
+
+## What changed
+
+6 local-only commits above f11f5120 (the prior push tip). NO PUSH — Dean selects.
+Tip: 8fcaaaed. 39 commits above upstream/main@04f95779. All gates green. DCO 39/39.
+
+Per-commit SHAs (droppable individually per plan — F1 is the keeper):
+
+| Commit | Item | Droppable? |
+|---|---|---|
+| 8bf3d44f | F1 — EPP warm-up spurious scale-down fix + test + dev-guide | **Standalone keeper** |
+| d187b670 | F2 — TotalCapacity = ReplicaCount × PerReplicaCapacity | Yes |
+| 5b4bfa58 | F3 — skip orphan instances in throughput loops + test | Yes |
+| 8754af50 | F4 — thread ctx into ITL/GPS helpers; Add returns drop bool | Yes |
+| 0a6c93eb | nits — defensive B guard; nDec>0 comment | Yes |
+| 8fcaaaed | F5 — e2e restart controller + skip-guard; AfterAll mandatory restart | Not droppable if full-E2E green matters |
+
+## Update CURRENT.md
+
+### TA3 PR Status row:
+Round-3 review fixes committed locally (6 commits, tip 8fcaaaed). All gates green. Awaiting Dean's push decision (F1 is the standalone keeper; F2–F5 each independently droppable by truncation).
+
+### Blocked on:
+Awaiting Dean's push selection + confirmation (force-with-lease to origin/TA3).
+
+## Cross-reference greps (confirmed empty by coder):
+- grep "hasGenTokenRate|hasKvInstant|hasVLLMRate" internal/ → empty
+- grep "itlKnowledgeStore|ITLKnowledgeStore" internal/ → empty
+- grep '"prefill"' internal/engines/analyzers/throughput/*.go (code, non-comment) → empty
+- grep "computeDemand(" — one caller, updated
+- grep "resolveITLModel(|checkVariantGPSMismatch(" — each one caller, updated
+- grep "\.Add(" observation_window → one caller, updated
