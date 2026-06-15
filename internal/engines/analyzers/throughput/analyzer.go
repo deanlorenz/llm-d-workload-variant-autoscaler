@@ -324,9 +324,9 @@ func (a *ThroughputAnalyzer) Analyze(
 			ReplicaCount:       len(variantMetrics),
 			PendingReplicas:    pending,
 			PerReplicaCapacity: perReplicaSupply,
-			TotalCapacity:      supply,
+			TotalCapacity:      float64(len(variantMetrics)) * perReplicaSupply,
 			TotalDemand:        demand,
-			Utilization:        safeDivide(demand, supply),
+			Utilization:        safeDivide(demand, float64(len(variantMetrics))*perReplicaSupply),
 		})
 	}
 
