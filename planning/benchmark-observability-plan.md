@@ -246,11 +246,74 @@ Adjust `MIN_EXPECTED` based on scenario duration and rate. For
 
 ---
 
+## Part 6 — Fix guidellm zero-load (HF_TOKEN not forwarded to harness pod)
+
+### Root cause
+
+During `llmdbenchmark run`, step 03 discovers the `llm-d-hf-token` secret in the
+namespace (pattern `llm-d-hf.*token` matches the secret name), extracts the token,
+and sets `HF_TOKEN` in the **local `llmdbenchmark` process environment**. It does NOT
+propagate it further automatically.
+
+Step 07 (deploy harness) only injects env vars into the harness pod when they are
+listed in `context.harness_envvars_to_pod`, which comes from
+`LLMDBENCH_HARNESS_ENVVARS_TO_YAML` (or the `-g` CLI flag). The default value is
+`"LLMDBENCH_RUN_EXPERIMENT"` — `HF_TOKEN` is absent. The harness pod therefore runs
+without it.
+
+guidellm needs the HuggingFace tokenizer for `unsloth/Meta-Llama-3.1-8B` to generate
+synthetic prompts with correct token counts. That model is gated (Meta Llama license);
+without `HF_TOKEN` in the pod env the download returns 401, guidellm fails to
+initialise, emits no load, and the pod silently reports "running" with 0 requests.
+
+### Verified state on cluster
+
+- Secret `llm-d-hf-token` exists in namespace `dhl-wva`, key `HF_TOKEN`, length 37,
+  valid `hf_...` format. ✓
+- `discover_hf_token_secret` pattern `llm-d-hf.*token` matches it. ✓
+- `extract_hf_token_from_secret` succeeds (token starts with `hf_`). ✓
+- The token is NOT in the harness pod env by default. ✗
+
+### Immediate fix (no code change needed)
+
+Pass `-g HF_TOKEN` to every `llmdbenchmark run` invocation that uses guidellm:
+
+```bash
+llmdbenchmark --spec guides/two-variant-wva \
+  --workspace "$PWD" --base-dir "$PWD/llm-d-benchmark" \
+  run -p dhl-wva -l guidellm -w wva_decode_steps \
+  -g HF_TOKEN
+```
+
+Step 03 sets `HF_TOKEN` in the local process env from the cluster secret; `-g
+HF_TOKEN` tells step 07 to read that value and inject it into the harness pod spec.
+
+Update `run_ci_benchmark.sh` to always pass `-g HF_TOKEN` when `HARNESS=guidellm`
+(or unconditionally — it is a no-op for harnesses that don't use it).
+
+### Permanent fix (scenario yaml)
+
+In `llm-d-benchmark/config/scenarios/guides/two-variant-wva.yaml`, add to the
+harness configuration so users don't need to remember the flag:
+
+```yaml
+harness:
+  envVarsToForwardToPod:
+    - HF_TOKEN
+```
+
+(Check the exact key name against the scenario schema — search for
+`harness_envvars_to_pod` in `llmdbenchmark/parser/config_schema.py`.)
+
+---
+
 ## Implementation order
 
-1. **Part 5 first** — workload validation is self-contained and catches the §10b
-   zero-load problem immediately. No dependency on other parts.
-2. **Part 1** — WVA code change. After adding the log line and its unit test, build and
+1. **Part 6 first** — one-line fix to `run_ci_benchmark.sh` (add `-g HF_TOKEN`). Unblocks
+   guidellm immediately; validate with a short test run before any other work.
+2. **Part 5** — workload validation gate. Self-contained; now actually useful because
+   guidellm delivers load.
+3. **Part 1** — WVA code change. After adding the log line and its unit test, build and
    push a new image:
    ```
    make docker-build IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta3
@@ -258,9 +321,9 @@ Adjust `MIN_EXPECTED` based on scenario duration and rate. For
    ```
    (repo must be public on quay.io — see runbook §4). Then restart the WVA deployment
    in `dhl-wva` and confirm the new log line appears in `kubectl logs` before continuing.
-3. **Part 2** — in-flight capture. Verify the filtered log file is non-empty after a
+4. **Part 2** — in-flight capture. Verify the filtered log file is non-empty after a
    test run (even idle WVA emits the summary line every reconcile).
-4. **Parts 3 and 4** — decision table and correctness analysis. Can be developed and
+5. **Parts 3 and 4** — decision table and correctness analysis. Can be developed and
    tested against a captured `wva-decision-summary.ndjson` file without running a
    full benchmark.
 
@@ -272,7 +335,7 @@ Adjust `MIN_EXPECTED` based on scenario duration and rate. For
 |---|---|
 | `internal/engines/engine_v2.go` (or sibling) | Add INFO decision summary log line |
 | `internal/engines/engine_v2_test.go` (or sibling) | Unit test for summary line presence |
-| `hack/benchmark/run/run_ci_benchmark.sh` | Add in-flight capture (Part 2), workload validation (Part 5) |
+| `hack/benchmark/run/run_ci_benchmark.sh` | Add `-g HF_TOKEN` to guidellm run (Part 6), in-flight capture (Part 2), workload validation (Part 5) |
 | `hack/benchmark/dump_wva_decision_table.py` | New script (Part 3) |
 | `hack/benchmark/analyze_wva_decisions.py` | New script (Part 4) |
 | `docs/two-variant-wva-ta3-runbook.md` | Update §14 to reference new observability artifacts |
