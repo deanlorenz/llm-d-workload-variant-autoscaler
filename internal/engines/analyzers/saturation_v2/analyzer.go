@@ -87,7 +87,7 @@ func (a *SaturationAnalyzer) Analyze(ctx context.Context, input interfaces.Analy
 	}
 
 	// Phase 2: Per-variant aggregation
-	variantCapacities := a.aggregateByVariant(replicaCapacities, input.ReplicaMetrics, input.VariantStates, input.ModelID, input.Namespace, satConfig.KvCacheThreshold)
+	variantCapacities, satVCs := a.aggregateByVariant(replicaCapacities, input.ReplicaMetrics, input.VariantStates, input.ModelID, input.Namespace, satConfig.KvCacheThreshold)
 
 	// Phase 3: Model-level aggregation via shared helpers (enforces linearity invariant).
 	totalSupply := aggregation.SumTotalSupply(variantCapacities)
@@ -122,16 +122,17 @@ func (a *SaturationAnalyzer) Analyze(ctx context.Context, input interfaces.Analy
 	// the engine post-step overwrites them using TotalDemand, TotalSupply,
 	// and TotalAnticipatedSupply with the resolved thresholds.
 	result := &interfaces.AnalyzerResult{
-		AnalyzerName:           a.Name(),
-		ModelID:                input.ModelID,
-		Namespace:              input.Namespace,
-		AnalyzedAt:             time.Now(),
-		VariantCapacities:      variantCapacities,
-		TotalSupply:            totalSupply,
-		TotalDemand:            totalDemand,
-		TotalAnticipatedSupply: totalAnticipatedSupply,
-		Utilization:            utilization,
-		RoleCapacities:         roleCapacities,
+		AnalyzerName:                a.Name(),
+		ModelID:                     input.ModelID,
+		Namespace:                   input.Namespace,
+		AnalyzedAt:                  time.Now(),
+		VariantCapacities:           variantCapacities,
+		TotalSupply:                 totalSupply,
+		TotalDemand:                 totalDemand,
+		TotalAnticipatedSupply:      totalAnticipatedSupply,
+		Utilization:                 utilization,
+		RoleCapacities:              roleCapacities,
+		SaturationVariantCapacities: satVCs,
 	}
 
 	return result, nil
@@ -320,14 +321,15 @@ func (a *SaturationAnalyzer) computeK2(
 }
 
 // aggregateByVariant groups replica capacities by variant and computes
-// per-variant capacity metrics.
+// per-variant capacity metrics. The second return value carries saturation-
+// specific k1/k2/k2Source detail for each variant with ready replicas.
 func (a *SaturationAnalyzer) aggregateByVariant(
 	replicaCapacities []ReplicaCapacity,
 	inputMetrics []interfaces.ReplicaMetrics,
 	variantStates []interfaces.VariantReplicaState,
 	modelID, namespace string,
 	kvCacheThreshold float64,
-) []interfaces.VariantCapacity {
+) ([]interfaces.VariantCapacity, []interfaces.SaturationVariantCapacity) {
 	// Group replicas by variant
 	byVariant := make(map[string][]ReplicaCapacity)
 	for _, rc := range replicaCapacities {
@@ -349,6 +351,7 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 	modelAvgInput, modelAvgOutput, _ := computeModelWorkloadAverages(inputMetrics)
 
 	result := make([]interfaces.VariantCapacity, 0, len(variantStates))
+	satVCs := make([]interfaces.SaturationVariantCapacity, 0, len(variantStates))
 	for _, vs := range variantStates {
 		replicas := byVariant[vs.VariantName]
 
@@ -362,9 +365,6 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			readyCount = 0
 		}
 
-		var medianK1, medianK2 int64
-		var k2Source string
-
 		if len(replicas) > 0 {
 			// Use median effective capacity from ready pods
 			capacities := make([]int64, 0, len(replicas))
@@ -376,9 +376,12 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			if accelerator == "" {
 				accelerator = replicas[0].AcceleratorName
 			}
-			medianK1 = median(k1Slice(replicas))
-			medianK2 = median(k2Slice(replicas))
-			k2Source = k2SourceLabel(replicas)
+			satVCs = append(satVCs, interfaces.SaturationVariantCapacity{
+				VariantName:   vs.VariantName,
+				MedianK1:      median(k1Slice(replicas)),
+				MedianK2:      median(k2Slice(replicas)),
+				K2SourceLabel: k2SourceLabel(replicas),
+			})
 		} else if rec := a.capacityStore.Get(namespace, modelID, vs.VariantName); rec != nil && rec.EffectiveCapacity > 0 {
 			// No ready replicas — use stored capacity, enhanced with k2 derivation
 			// for deployment-derived records when workload data is available.
@@ -395,7 +398,7 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			utilization = totalDemand / totalCapacity
 		}
 
-		vc := interfaces.VariantCapacity{
+		result = append(result, interfaces.VariantCapacity{
 			VariantName:        vs.VariantName,
 			AcceleratorName:    accelerator,
 			Cost:               cost,
@@ -406,14 +409,10 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			TotalCapacity:      totalCapacity,
 			TotalDemand:        totalDemand,
 			Utilization:        utilization,
-			MedianK1:           medianK1,
-			MedianK2:           medianK2,
-			K2SourceLabel:      k2Source,
-		}
-		result = append(result, vc)
+		})
 	}
 
-	return result
+	return result, satVCs
 }
 
 // aggregateByRole groups variant capacities by role and returns per-role
@@ -665,27 +664,24 @@ func k2Slice(replicas []ReplicaCapacity) []int64 {
 	return s
 }
 
-// k2SourceLabel returns the K2Priority label for the representative replica —
-// the one whose EffectiveCapacity equals the median EffectiveCapacity (the
-// same replica that determines PerReplicaCapacity). On tie, the first match
-// is used. Returns "" when replicas is empty.
+// k2SourceLabel returns the K2Priority label for the lower-median replica by
+// EffectiveCapacity. It sorts a copy of the slice and picks index
+// (n-1)/2, which always resolves to an actual replica (no average is taken),
+// avoiding the even-replica case where a median average matches no element.
+// Returns "" when replicas is empty.
 func k2SourceLabel(replicas []ReplicaCapacity) string {
 	if len(replicas) == 0 {
 		return ""
 	}
-	effs := make([]int64, len(replicas))
-	for i, r := range replicas {
-		effs[i] = r.EffectiveCapacity
-	}
-	medEff := median(effs)
+	sorted := make([]ReplicaCapacity, len(replicas))
+	copy(sorted, replicas)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].EffectiveCapacity < sorted[j].EffectiveCapacity
+	})
+	medIdx := (len(sorted) - 1) / 2
 	k2PriorityLabels := map[int]string{1: "P1-obs", 2: "P2-hist", 3: "P3-deriv", 4: "P4-k1"}
-	for _, r := range replicas {
-		if r.EffectiveCapacity == medEff {
-			if label, ok := k2PriorityLabels[r.K2Priority]; ok {
-				return label
-			}
-			return ""
-		}
+	if label, ok := k2PriorityLabels[sorted[medIdx].K2Priority]; ok {
+		return label
 	}
 	return ""
 }

@@ -38,10 +38,15 @@ func TestLogDecisionSummary_EmitsRequiredFields(t *testing.T) {
 							VariantName:        "primary",
 							Cost:               10,
 							PerReplicaCapacity: 50000,
-							MedianK1:           60000,
-							MedianK2:           50000,
-							K2SourceLabel:      "P2-hist",
 							ReplicaCount:       1,
+						},
+					},
+					SaturationVariantCapacities: []interfaces.SaturationVariantCapacity{
+						{
+							VariantName:   "primary",
+							MedianK1:      60000,
+							MedianK2:      50000,
+							K2SourceLabel: "P2-hist",
 						},
 					},
 				},

@@ -82,6 +82,15 @@ type RoleCapacity struct {
 	SpareCapacity          float64
 }
 
+// SaturationVariantCapacity carries per-variant k1/k2/k2Source detail
+// produced by the saturation V2 analyzer. Nil for all other analyzers.
+type SaturationVariantCapacity struct {
+	VariantName   string
+	MedianK1      int64
+	MedianK2      int64
+	K2SourceLabel string // k2 priority of the lower-median replica by EffectiveCapacity: "P1-obs","P2-hist","P3-deriv","P4-k1"
+}
+
 // AnalyzerResult is the common output produced by all analyzers.
 // The engine consumes these results to build scaling plans.
 type AnalyzerResult struct {
@@ -120,6 +129,10 @@ type AnalyzerResult struct {
 	// RoleCapacities holds per-role capacity aggregation for P/D disaggregated models.
 	// nil when no disaggregation is active (all variants are role "both").
 	RoleCapacities map[string]RoleCapacity
+
+	// SaturationVariantCapacities carries per-variant k1/k2/k2Source detail
+	// produced by the saturation V2 analyzer. Nil for all other analyzers.
+	SaturationVariantCapacities []SaturationVariantCapacity
 }
 
 // VariantCapacity holds per-variant capacity data in analyzer-specific units.
@@ -136,12 +149,6 @@ type VariantCapacity struct {
 	// PerReplicaCapacity is the representative capacity per replica.
 	// For saturation V2: median(effectiveCapacity) in tokens across ready replicas.
 	PerReplicaCapacity float64
-
-	// Per-variant capacity detail set by the saturation V2 analyzer.
-	// Zero for all other analyzers.
-	MedianK1      int64  // median memory-bound capacity per replica (tokens)
-	MedianK2      int64  // median compute-bound capacity per replica (tokens)
-	K2SourceLabel string // how k2 was computed: "P1-obs","P2-hist","P3-deriv","P4-k1"
 
 	// TotalCapacity is ReplicaCount × PerReplicaCapacity.
 	TotalCapacity float64

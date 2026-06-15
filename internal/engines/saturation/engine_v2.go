@@ -377,18 +377,24 @@ func logDecisionSummary(
 			Action       string  `json:"action"`
 		}
 
+		satVCByVariant := make(map[string]interfaces.SaturationVariantCapacity, len(satResult.SaturationVariantCapacities))
+		for _, svc := range satResult.SaturationVariantCapacities {
+			satVCByVariant[svc.VariantName] = svc
+		}
+
 		summaries := make([]variantSummary, 0, len(satResult.VariantCapacities))
 		for _, vc := range satResult.VariantCapacities {
 			d := decMap[decKey{req.Namespace, req.ModelID, vc.VariantName}]
+			svc := satVCByVariant[vc.VariantName]
 			var eff float64
 			if vc.PerReplicaCapacity > 0 {
 				eff = vc.Cost / vc.PerReplicaCapacity
 			}
 			summaries = append(summaries, variantSummary{
 				Name:         vc.VariantName,
-				K1:           vc.MedianK1,
-				K2:           vc.MedianK2,
-				K2Source:     vc.K2SourceLabel,
+				K1:           svc.MedianK1,
+				K2:           svc.MedianK2,
+				K2Source:     svc.K2SourceLabel,
 				Cost:         vc.Cost,
 				PRC:          vc.PerReplicaCapacity,
 				Eff:          eff,
