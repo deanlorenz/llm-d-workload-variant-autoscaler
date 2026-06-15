@@ -348,12 +348,20 @@ registered/disabled, and **pass** when TA is enabled.
 both-enabled scale-up `[full]` test and the TA-only mode `[full]` suite; the
 wiring smoke test too, to make it meaningful):
 
-1. **`BeforeAll`:** write the throughput-enabled config to `saturationConfigMapName()`
-   / `defaultConfigKey`, then **restart the controller** so the gate re-evaluates at
-   startup: patch the `wva-controller-manager` Deployment (`cfg.WVANamespace`) pod
-   template with a `kubectl.kubernetes.io/restartedAt` annotation, wait for the
-   rollout to complete and pods Ready (label `control-plane=controller-manager`).
-   The restarted controller reads the both-enabled config → gate registers TA.
+1. **`BeforeAll` — order is load-bearing: config first, then restart.**
+   a. Write the throughput-enabled config to `saturationConfigMapName()` /
+      `defaultConfigKey` (`upsertSaturationConfigEntry` is a synchronous API write —
+      it is in etcd once the call returns).
+   b. **Then** restart the controller: patch the `wva-controller-manager` Deployment
+      (`cfg.WVANamespace`) pod template with a `kubectl.kubernetes.io/restartedAt`
+      annotation; wait for the rollout to complete and the new pod Ready (label
+      `control-plane=controller-manager`).
+   The fresh pod's `BootstrapInitialConfigMaps` reads the **current** configmap from
+   the K8s API (not a mounted volume — so there is no kubelet file-sync delay to wait
+   on), and the gate (a post-start runnable) then sees `throughput` enabled and
+   registers TA. **If the restart fires before the config write, the new pod reads
+   the old saturation-only config and skips TA** — never restart before the write
+   has returned.
 2. **Skip-guard (honors the contract):** if TA enablement cannot be confirmed after
    the restart (bounded wait), `Skip("ThroughputAnalyzer not registered — TA tests
    require throughput enabled in the controller's startup config")` rather than let
