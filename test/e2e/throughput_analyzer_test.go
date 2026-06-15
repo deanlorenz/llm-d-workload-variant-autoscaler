@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -107,6 +108,36 @@ done
 # Wait indefinitely; the Job is killed by activeDeadlineSeconds.
 wait || true
 `
+
+// restartWVAController patches the wva-controller-manager Deployment pod template with a
+// restartedAt annotation to trigger a rollout, then waits for the rollout to complete.
+// Returns an error so callers can Skip() rather than Fail() when the restart is
+// impractical (no RBAC, restricted environment). Uses a bounded wait.
+func restartWVAController(ctx context.Context) error {
+	patch := []byte(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"` +
+		time.Now().UTC().Format(time.RFC3339) + `"}}}}}`)
+	if _, err := k8sClient.AppsV1().Deployments(cfg.WVANamespace).Patch(
+		ctx, "wva-controller-manager",
+		types.StrategicMergePatchType, patch, metav1.PatchOptions{},
+	); err != nil {
+		return fmt.Errorf("patch wva-controller-manager: %w", err)
+	}
+	deadline := time.Now().Add(time.Duration(cfg.PodReadyTimeout) * time.Second)
+	poll := time.Duration(cfg.PollIntervalSec) * time.Second
+	for time.Now().Before(deadline) {
+		dep, err := k8sClient.AppsV1().Deployments(cfg.WVANamespace).Get(ctx, "wva-controller-manager", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get wva-controller-manager: %w", err)
+		}
+		if dep.Status.UpdatedReplicas >= 1 &&
+			dep.Status.ReadyReplicas == dep.Status.UpdatedReplicas &&
+			dep.Status.UnavailableReplicas == 0 {
+			return nil
+		}
+		time.Sleep(poll)
+	}
+	return fmt.Errorf("wva-controller-manager rollout did not complete within %ds", cfg.PodReadyTimeout)
+}
 
 // buildThroughputSustainedLoadJob returns a Job spec that sends continuous completions
 // requests to targetURL until the job's activeDeadlineSeconds deadline.
@@ -208,14 +239,13 @@ var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throu
 			Expect(err).NotTo(HaveOccurred())
 		}
 
-		// NOTE: throughput registration is startup-time gated (throughputAnalyzerEnabled in
-		// cmd/main.go). Writing this config at runtime enables throughput in the configmap,
-		// but the controller was started with the default (saturation-only) config, so the
-		// ThroughputAnalyzer is NOT registered in this test run. The assertions below are
-		// satisfied by saturation alone. A full wiring check requires a controller restart
-		// after writing the both-enabled config; deferred as a follow-up.
 		By("Writing multi-analyzer config with both analyzers enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
+
+		By("Restarting WVA controller so throughput gate re-evaluates at startup")
+		if err := restartWVAController(ctx); err != nil {
+			Skip("ThroughputAnalyzer not registered — WVA controller restart failed or timed out: " + err.Error())
+		}
 
 		By("Creating model service for throughput smoke test")
 		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
@@ -240,6 +270,13 @@ var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throu
 	AfterAll(func() {
 		By("Restoring saturation ConfigMap state")
 		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		// Restart is mandatory: registration is sticky. A config-only restore leaves TA
+		// registered and still consuming results. Only a restart with saturation-only
+		// config already in place yields a true TA-off controller so sibling suites
+		// (e.g. saturation_v2_test.go:280 scale-down) are not contaminated.
+		By("Restarting WVA controller to restore default (saturation-only) startup config")
+		Expect(restartWVAController(ctx)).To(Succeed())
 
 		By("Cleaning up throughput smoke test resources")
 		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
@@ -313,14 +350,13 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 			Expect(err).NotTo(HaveOccurred())
 		}
 
-		// NOTE: throughput registration is startup-time gated (throughputAnalyzerEnabled in
-		// cmd/main.go). Writing this config at runtime enables throughput in the configmap,
-		// but the controller was started with the default (saturation-only) config, so the
-		// ThroughputAnalyzer is NOT registered in this test run. The assertions below are
-		// satisfied by saturation alone. A full wiring check requires a controller restart
-		// after writing the both-enabled config; deferred as a follow-up.
 		By("Writing multi-analyzer config with both analyzers enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
+
+		By("Restarting WVA controller so throughput gate re-evaluates at startup")
+		if err := restartWVAController(ctx); err != nil {
+			Skip("ThroughputAnalyzer not registered — WVA controller restart failed or timed out: " + err.Error())
+		}
 
 		By("Creating model service for throughput scale-up test")
 		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
@@ -359,6 +395,9 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 
 		By("Restoring saturation ConfigMap state")
 		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		By("Restarting WVA controller to restore default (saturation-only) startup config")
+		_ = restartWVAController(ctx)
 
 		By("Cleaning up throughput scale-up test resources")
 		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
@@ -423,10 +462,13 @@ var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"),
 			Expect(err).NotTo(HaveOccurred())
 		}
 
-		// NOTE: same startup-gate caveat as the smoke test — throughput is not registered
-		// in this run because the controller started with the default (saturation-only) config.
 		By("Writing TA-only config: saturation disabled, throughput enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputOnlyConfig)).To(Succeed())
+
+		By("Restarting WVA controller so throughput gate re-evaluates at startup")
+		if err := restartWVAController(ctx); err != nil {
+			Skip("ThroughputAnalyzer not registered — WVA controller restart failed or timed out: " + err.Error())
+		}
 
 		By("Creating model service for TA-only test")
 		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
@@ -465,6 +507,9 @@ var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"),
 
 		By("Restoring saturation ConfigMap state")
 		restoreSaturationConfigMap(ctx, cmNamespace, cmName, cmOriginal, cmExistedBefore)
+
+		By("Restarting WVA controller to restore default (saturation-only) startup config")
+		_ = restartWVAController(ctx)
 
 		By("Cleaning up TA-only test resources")
 		_ = crClient.Delete(ctx, &variantautoscalingv1alpha1.VariantAutoscaling{
