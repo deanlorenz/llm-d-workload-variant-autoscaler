@@ -27,9 +27,21 @@ Message: `"saturation cycle summary"` (fixed string — grep target for benchmar
 | Key | Type | Source |
 |---|---|---|
 | `model` | string | `"namespace/modelID"` |
-| `totalSupply` | float64 | `AnalyzerResult.TotalSupply` |
-| `totalDemand` | float64 | `AnalyzerResult.TotalDemand` |
-| `utilization` | float64 | `AnalyzerResult.Utilization` |
+| `totalSupply` | float64 | `AnalyzerResult.TotalSupply` (saturation) |
+| `totalDemand` | float64 | `AnalyzerResult.TotalDemand` (saturation) |
+| `utilization` | float64 | `AnalyzerResult.Utilization` (saturation) |
+| `analyzerSignals` | []object | one entry per analyzer that ran (see below) |
+
+**Per-analyzer signals** (`analyzerSignals` key):
+
+| Field | Type | Source |
+|---|---|---|
+| `name` | string | `NamedAnalyzerResult.Name` (e.g. `"saturation"`, `"throughput"`) |
+| `rc` | float64 | `AnalyzerResult.RequiredCapacity` after universal threshold step |
+| `sc` | float64 | `AnalyzerResult.SpareCapacity` after universal threshold step |
+
+This lets readers see whether TA's RC was positive when sat_v2's RC was zero
+("TA leads sat_v2" case) without needing to parse debug logs.
 
 **Per-variant slice** (`variants` key, one entry per variant):
 
@@ -54,6 +66,10 @@ Do NOT use stdlib `slog`.
 ```
 {"level":"info","msg":"saturation cycle summary","model":"ns/m",
 "totalSupply":658534,"totalDemand":1041047,"utilization":1.58,
+"analyzerSignals":[
+  {"name":"saturation","rc":0,"sc":50000},
+  {"name":"throughput","rc":15000,"sc":0}
+],
 "variants":[
   {"name":"primary","k1":751820,"k2":1152000,"k2Source":"P3-deriv","cost":10,
    "prc":1152000,"eff":8.68e-06,"currReplicas":1,"tgtReplicas":2,"action":"ScaleUp"},
@@ -177,6 +193,25 @@ func logDecisionSummary(
             continue
         }
 
+        // Per-analyzer RC/SC signals — lets readers see whether TA's RC was
+        // positive even when sat_v2's RC was zero ("TA leads sat_v2" case).
+        type analyzerSignal struct {
+            Name string  `json:"name"`
+            RC   float64 `json:"rc"`
+            SC   float64 `json:"sc"`
+        }
+        signals := make([]analyzerSignal, 0, len(req.AnalyzerResults))
+        for _, nr := range req.AnalyzerResults {
+            if nr.Result == nil {
+                continue
+            }
+            signals = append(signals, analyzerSignal{
+                Name: nr.Name,
+                RC:   nr.Result.RequiredCapacity,
+                SC:   nr.Result.SpareCapacity,
+            })
+        }
+
         type variantSummary struct {
             Name         string  `json:"name"`
             K1           int64   `json:"k1"`
@@ -216,6 +251,7 @@ func logDecisionSummary(
             "totalSupply", satResult.TotalSupply,
             "totalDemand", satResult.TotalDemand,
             "utilization", satResult.Utilization,
+            "analyzerSignals", signals,
             "variants", summaries,
         )
     }
@@ -292,7 +328,7 @@ func TestLogDecisionSummary_EmitsRequiredFields(t *testing.T) {
     variants := entry.Context // zap fields
     _ = variants
     // Assert all required top-level keys are present.
-    for _, key := range []string{"model","totalSupply","totalDemand","utilization","variants"} {
+    for _, key := range []string{"model","totalSupply","totalDemand","utilization","analyzerSignals","variants"} {
         assert.Contains(t, fields, key, "missing key %q", key)
     }
 }
