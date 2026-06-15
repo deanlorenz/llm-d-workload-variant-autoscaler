@@ -14,6 +14,7 @@ type ReplicaCapacity struct {
 	TotalKvCapacityTokens int64
 	MemoryBoundCapacity   int64 // k1: KV-cache-limited capacity
 	ComputeBoundCapacity  int64 // k2: compute/scheduling-limited capacity
+	K2Priority            int   // how k2 was computed: 1=observed, 2=history, 3=derived, 4=fallback
 	EffectiveCapacity     int64 // min(k1, k2)
 	IsSaturated           bool
 	ReplicaDemand         int64 // tokensInUse + queueLength * avgInputTokens
