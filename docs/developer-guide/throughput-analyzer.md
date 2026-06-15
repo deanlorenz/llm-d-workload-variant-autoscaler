@@ -442,9 +442,10 @@ per-analyzer constant pending alignment with the EPP system-wide k_sat (see open
 
 ### Priority Chain
 
-Demand is resolved in priority order per variant. The first non-zero source wins.
+Demand is resolved in priority order per variant. The cascade falls through to the next
+source whenever the current source yields zero.
 
-**1. EPP primary** (isEPP = true)  
+**1. EPP primary**  
 When any replica has `ArrivalRate > 0`:
 ```
 λ_dec = Σ ArrivalRate_r × AvgOutputTokens_r
@@ -452,8 +453,12 @@ When any replica has `ArrivalRate > 0`:
 Each replica contributes its own arrival rate × output length. This avoids averaging-the-averages
 when replicas have different throughput.
 
-**2. vLLM fallback** (isEPP = false)  
-When EPP is absent but `VLLMRequestRate > 0`:
+If EPP is present but all `AvgOutputTokens == 0` (warm-up: scheduler is dispatching
+requests but no generation tokens have completed yet), this path yields zero and the
+cascade falls through. `isEPP` remains true so the engine is aware EPP is deployed.
+
+**2. vLLM fallback**  
+When EPP is absent **or** EPP is present but yielded zero (warm-up), and `VLLMRequestRate > 0`:
 ```
 λ_dec = Σ VLLMRequestRate_r × AvgOutputTokens_r
 ```
@@ -461,7 +466,8 @@ Same structure as primary but using the vLLM-side completion rate. The vLLM rate
 only served (completed) requests and undercounts arriving demand under load.
 
 **3. k\*-based local** (scale-up only)  
-When both EPP and vLLM rates are zero, demand is derived from the current KV utilization:
+When EPP and vLLM both yield zero (EPP absent or warm-up; vLLM rate also zero), demand
+is derived from the current KV utilization:
 ```
 λ_local = Σ_r  k_r* × KV_max_r / KVreq / ITL(k_r*)
 ```

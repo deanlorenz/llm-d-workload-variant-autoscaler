@@ -833,6 +833,79 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
+	Describe("Analyze — EPP warm-up: ArrivalRate>0 but AvgOutputTokens==0", func() {
+		// Regression test for F1: EPP present (ArrivalRate > 0) but no completions
+		// yet (AvgOutputTokens == 0). Before the fix, computeDemand returned (0, true)
+		// and the caller skipped computeLocalDemand because isEPP==true; the variant
+		// was published with supply>0, demand=0 → Utilization=0 → spurious scale-down.
+		const (
+			ilW     = 5000.0
+			olW     = 200.0
+			prefixW = 0.1
+			kvMaxW  = int64(1024000)
+			BW      = 0.006
+		)
+		kValuesW := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
+
+		It("uses local k* demand when EPP is present but AvgOutputTokens==0 (warm-up)", func() {
+			// OLS-ready window.
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1",
+				ilW, olW, prefixW, kvMaxW, BW, kValuesW)
+
+			// Replica with EPP ArrivalRate>0 but AvgOutputTokens==0 (no completions yet).
+			// k*=0.85 is near saturation → local demand is high.
+			replica := interfaces.ReplicaMetrics{
+				VariantName:           "v1",
+				KvCacheUsage:          0.85,
+				KvUsageInstant:        0.85,
+				AvgITL:                0.073*0.85 + BW,
+				AvgInputTokens:        ilW,
+				AvgOutputTokens:       0, // warm-up: no completions yet
+				PrefixCacheHitRate:    prefixW,
+				TotalKvCapacityTokens: kvMaxW,
+				ArrivalRate:           5.0, // EPP present
+			}
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replica},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Local demand must be > 0 (k*=0.85 is busy) so Utilization > 0 and
+			// the engine does NOT emit SC (no spurious scale-down).
+			Expect(result.TotalDemand).To(BeNumerically(">", 0),
+				"warm-up replica must have non-zero demand via local k* fallback")
+			Expect(result.RequiredCapacity).To(Equal(0.0))
+			Expect(result.SpareCapacity).To(Equal(0.0))
+		})
+
+		It("still uses EPP path when ArrivalRate>0 and AvgOutputTokens>0", func() {
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v1",
+				ilW, olW, prefixW, kvMaxW, BW, kValuesW)
+
+			// Normal operation: EPP present with usable demand.
+			replica := interfaces.ReplicaMetrics{
+				VariantName:           "v1",
+				KvCacheUsage:          0.50,
+				KvUsageInstant:        0.50,
+				AvgITL:                0.073*0.50 + BW,
+				AvgInputTokens:        ilW,
+				AvgOutputTokens:       olW,
+				PrefixCacheHitRate:    prefixW,
+				TotalKvCapacityTokens: kvMaxW,
+				ArrivalRate:           10.0, // 10 req/s × 200 ol = 2000 tok/s
+			}
+			result, err := analyzer.Analyze(ctx, interfaces.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{replica},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// EPP demand = 10×200 = 2000 tok/s; TotalDemand must reflect that.
+			Expect(result.TotalDemand).To(BeNumerically("~", 2000.0, 1.0))
+			Expect(result.RequiredCapacity).To(Equal(0.0))
+			Expect(result.SpareCapacity).To(Equal(0.0))
+		})
+	})
+
 	Describe("Analyze — scheduler queue demand", func() {
 		// OLS-ready window, single replica at k*=0.50 with no EPP and no vLLM rate.
 		// λ_local = 0.50×1024000/4600 / ITL(0.50) ≈ 111.3/0.0425 ≈ 2618 tok/s

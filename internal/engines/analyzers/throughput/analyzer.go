@@ -273,9 +273,11 @@ func (a *ThroughputAnalyzer) Analyze(
 		}
 
 		demand, isEPP := computeDemand(variantMetrics)
-		// k*-based local demand: when EPP and vLLM rate are both absent, derive demand
-		// from observed KV utilization. Enables scale-up signals without EPP deployed.
-		if demand == 0 && !isEPP {
+		// k*-based local demand: when EPP and vLLM rate are both absent, or when
+		// EPP is present but yields zero usable demand (warm-up, no completions yet),
+		// derive demand from observed KV utilization so a busy replica is not
+		// mis-classified as idle and spuriously scaled down.
+		if demand == 0 {
 			demand = computeLocalDemand(variantMetrics, shape, model)
 		}
 
@@ -505,7 +507,10 @@ func (a *ThroughputAnalyzer) resolveITLModel(state *variantState, metrics []inte
 // more to λ_dec without requiring raw histogram sums.
 //
 // Returns (λ_dec, isEPP). isEPP is true when at least one replica reports ArrivalRate > 0.
-// Callers should suppress scale-down signals when isEPP is false.
+// When EPP is present but yields zero usable demand (warm-up: ArrivalRate > 0 but
+// AvgOutputTokens == 0), the function falls through to the vLLM proxy so the caller
+// can use computeLocalDemand when both paths yield zero. isEPP still reflects "EPP
+// present" so the anyEPP tracking in Analyze is unaffected.
 func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 	var lambdaDec float64
 	var isEPP bool
@@ -515,11 +520,11 @@ func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 			lambdaDec += m.ArrivalRate * m.AvgOutputTokens
 		}
 	}
-	if isEPP {
-		return lambdaDec, true
+	if lambdaDec > 0 {
+		return lambdaDec, isEPP // EPP present and gave usable demand
 	}
-
-	// Fallback: EPP not deployed — use vLLM-side request rate as a proxy for λ_req.
+	// EPP absent, OR EPP present but zero usable demand (warm-up, no completions yet):
+	// fall through to the vLLM request-rate proxy.
 	// Σ VLLMRequestRate_r × AvgOutputTokens_r mirrors the EPP formula structure and
 	// correctly weights each replica's OL by its own throughput.
 	var lambdaDecFallback float64
@@ -528,7 +533,7 @@ func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 			lambdaDecFallback += m.VLLMRequestRate * m.AvgOutputTokens
 		}
 	}
-	return lambdaDecFallback, false
+	return lambdaDecFallback, isEPP // isEPP still reflects "EPP present"
 }
 
 // computeLocalDemand estimates decode token demand from per-replica k* observations
