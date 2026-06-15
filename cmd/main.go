@@ -95,6 +95,25 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+// throughputAnalyzerEnabled reports whether any saturation config entry lists
+// the throughput analyzer with enabled != false. Startup-time gate: when no
+// entry enables throughput the analyzer is never registered, so it cannot
+// participate in scaling decisions and cannot veto scale-down.
+//
+// This is a stopgap until the per-cycle consumption gate (effectiveEnabled
+// opt-in fix) lands. Runtime enablement after controller start requires a
+// restart because RegisterAnalyzer is frozen after StartOptimizeLoop.
+func throughputAnalyzerEnabled(cfg *config.Config) bool {
+	for _, sc := range cfg.SaturationConfig() {
+		for _, aw := range sc.Analyzers {
+			if aw.Name == throughput.AnalyzerName && (aw.Enabled == nil || *aw.Enabled) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // nolint:gocyclo
 func main() {
 	// Command-line flags
@@ -462,9 +481,12 @@ func main() {
 			sourceRegistry,
 			cfg, // Pass unified Config to engine
 		)
-		registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
-		if err := engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer()); err != nil {
-			return err
+		if throughputAnalyzerEnabled(cfg) {
+			registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
+			if err := engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer()); err != nil {
+				return err
+			}
+			setupLog.Info("ThroughputAnalyzer registered (enabled in saturation config)")
 		}
 		go engine.StartOptimizeLoop(ctx)
 		return nil

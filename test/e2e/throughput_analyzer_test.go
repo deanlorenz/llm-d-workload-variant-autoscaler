@@ -208,6 +208,12 @@ var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throu
 			Expect(err).NotTo(HaveOccurred())
 		}
 
+		// NOTE: throughput registration is startup-time gated (throughputAnalyzerEnabled in
+		// cmd/main.go). Writing this config at runtime enables throughput in the configmap,
+		// but the controller was started with the default (saturation-only) config, so the
+		// ThroughputAnalyzer is NOT registered in this test run. The assertions below are
+		// satisfied by saturation alone. A full wiring check requires a controller restart
+		// after writing the both-enabled config; deferred as a follow-up.
 		By("Writing multi-analyzer config with both analyzers enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
 
@@ -307,6 +313,12 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 			Expect(err).NotTo(HaveOccurred())
 		}
 
+		// NOTE: throughput registration is startup-time gated (throughputAnalyzerEnabled in
+		// cmd/main.go). Writing this config at runtime enables throughput in the configmap,
+		// but the controller was started with the default (saturation-only) config, so the
+		// ThroughputAnalyzer is NOT registered in this test run. The assertions below are
+		// satisfied by saturation alone. A full wiring check requires a controller restart
+		// after writing the both-enabled config; deferred as a follow-up.
 		By("Writing multi-analyzer config with both analyzers enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputBothEnabledConfig)).To(Succeed())
 
@@ -411,6 +423,8 @@ var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"),
 			Expect(err).NotTo(HaveOccurred())
 		}
 
+		// NOTE: same startup-gate caveat as the smoke test — throughput is not registered
+		// in this run because the controller started with the default (saturation-only) config.
 		By("Writing TA-only config: saturation disabled, throughput enabled")
 		Expect(upsertSaturationConfigEntry(ctx, cmNamespace, cmName, cmKey, throughputOnlyConfig)).To(Succeed())
 
