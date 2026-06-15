@@ -1,219 +1,274 @@
-# collector-va-attribution — Separate VA attribution from the metric query
+# collector-va-attribution — Move VA attribution behind a seam, decouple from the query
 
-**Primary path:** suggested into PR #1260 directly — the snippets are posted on
-#1263 (`feat/pod-mapping-derivation`, tip `2cb75d84` as of 2026-06-11) for
-ev-shindin to fold in. If accepted there, no separate coder work is needed —
-but **this doc stays live as the review reference for the updated #1260**: the
-three steps below are the checklist for verifying the folded-in change (queries
-cleaned, `buildInstanceKey` attribution-free, override via labeled LIST, tests).
-
-**Fallback path:** if ev-shindin prefers to keep #1260 focused, A2 lands as its
-own PR on `main` **after #1260 merges**. In that case the coder's job is almost
-entirely mechanical — **copy the three code blocks from the #1263 comment** into
-the merged #1260 code, wire up the call-site edits, add the tests. No new design
-decisions; the snippets are the spec.
-
-Either way, the same content drives it: a review checklist on the primary path, a
-coder spec on the fallback.
-
-**Issue:** #1263 (carries the authoritative snippets)  
-**Depends on:** the podMap machinery from #1260 — on its branch (primary) or on
-`main` once merged (fallback).
+**Type:** 3 (task plan) · **Issue:** #1263 · **Branch:** `collector-va-attribution`
+(new, off latest `main` @ `526ce851`) · **PR:** new, base `main`
+**Independent of #1260 (closed) / #1267 (`feat/pod-locator`, open).** This PR must
+land and function on its own; #1267's locator later plugs in behind the seam this
+PR introduces, touching only the attribution package.
 
 ---
 
-## Principle
+## Goal
 
-Two orthogonal concerns are currently tangled in the metric query:
+Stop carrying `llm_d_ai_variant` in PromQL queries and stop reading it from the
+metric result. Instead:
 
-1. **Replica identity** — which scrape target a metric series belongs to.
-   Built from vLLM-native labels (`instance`, `pod`) only.
-2. **VA attribution** — which `VariantAutoscaling` owns that replica. A
-   collector-layer decision, resolved *after* the query from the podMap
-   (selector-derived) and/or the `llm-d.ai/variant` label.
+1. Per-replica queries carry **replica identity only** (`instance`, `pod`).
+2. `buildInstanceKey` builds the identity key and nothing else.
+3. VA attribution is resolved **once per pod**, after the query, through an
+   `Attributor` interface (the seam).
+4. The default `Attributor` reads the `llm-d.ai/variant` label **from the pod
+   object** (bounded labeled LIST per namespace via the uncached API reader) —
+   same label as today, different source. Coverage preserved; the
+   ServiceMonitor relabel rule is no longer required for attribution.
 
-The query should carry only concern (1). Attribution (2) is a separate step.
-The query form is then identical regardless of whether attribution comes from
-the podMap, a pod label, or both — which is the whole point.
-
-`buildInstanceKey` builds the replica-identity key and nothing else. It does
-not read `llm_d_ai_variant`.
-
-> **Selection vs. grouping (background).** Per-replica queries *select* by
-> `{namespace, model_name}` (returns all pods of that model in the namespace)
-> and *group* `by (instance, pod)` (one series per scrape target). `llm_d_ai_variant`
-> in the `by (...)` clause never filtered anything — it only carried the label
-> into the result so Go code could read it. Removing it changes nothing about
-> which pods are selected; it only stops smuggling attribution through the query.
+The seam is the isolation: #1267 (owner-walk locator) and any future mechanism
+become alternative `Attributor` implementations. Queries, the collector hot
+path, and all analyzers never change for attribution again.
 
 ---
 
-## Step 1 — registration: drop `llm_d_ai_variant` from per-replica `max by`
+## Baseline facts (latest main `526ce851`) — verify before starting
 
-### `internal/collector/registration/saturation.go` (6 queries)
+- 11 per-replica queries carry the label:
+  - `internal/collector/registration/saturation.go`: L34, L45, L68 (has extra
+    `num_gpu_blocks, block_size`), L79, L90, L102 — all `max by (instance, pod, llm_d_ai_variant…)`
+  - `internal/collector/registration/queueing_model.go`: L56, L69 — `max by (instance, pod, llm_d_ai_variant)`
+  - `internal/collector/registration/throughput_analyzer.go`: L109, L122, L136 —
+    `sum/max by (pod, llm_d_ai_variant)` **(note: no `instance`)**
+- `internal/collector/replica_metrics.go`:
+  - `buildInstanceKey` (≈L312) returns `(instanceKey, podName, vaName)`; reads the
+    label at ≈L319.
+  - 8 call sites use `buildInstanceKey`; the 3 throughput loops (≈L643, L664,
+    L685) key `podData` by **bare `podName`** — latent A1 key-mismatch.
+  - `podMetricData` has a `vaName` field; assembly reads `vaName := data.vaName`
+    (≈L724) and skips empty vaName (≈L754).
+- `CollectReplicaMetrics` signature (≈L136):
+  `(ctx, modelID, namespace, scaleTargets, variantAutoscalings, vaEventTracker, variantCosts)`.
+- `prepareModelData` (≈L1206) builds `scaleTargets`/`variantAutoscalings`, has a
+  `k8sClient client.Client`, and calls `CollectReplicaMetrics` (≈L1255).
+- `cmd/main.go` has `mgr.GetAPIReader()` available (already used ≈L378).
+- Constants: `VariantLabelKey = "llm-d.ai/variant"` (pod label),
+  `VariantLabelPrometheusKey = "llm_d_ai_variant"` (metric label).
 
-| Query | Before | After |
-|---|---|---|
-| `QueryKvCacheUsage` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-| `QueryQueueLength` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-| `QueryCacheConfigInfo` | `max by (instance, pod, llm_d_ai_variant, num_gpu_blocks, block_size)` | `max by (instance, pod, num_gpu_blocks, block_size)` |
-| `QueryAvgOutputTokens` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-| `QueryAvgInputTokens` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-| `QueryPrefixCacheHitRate` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-
-### `internal/collector/registration/queueing_model.go` (2 queries)
-
-| Query | Before | After |
-|---|---|---|
-| `QueryAvgTTFT` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-| `QueryAvgITL` | `max by (instance, pod, llm_d_ai_variant)` | `max by (instance, pod)` |
-
-Update the comment above each template: drop the
-`"llm_d_ai_variant (for direct pod-to-VA mapping)"` clause; note that VA
-attribution is resolved at the collector layer after the query, not carried
-in the metric labels.
-
-**Not touched:** the three model-level queries (`QuerySchedulerQueueSize`,
-`QuerySchedulerQueueBytes`, `QueryModelRequestCount`) — they intentionally
-aggregate across pods and carry no per-replica attribution. (Model-level
-scoping is correct for these: the EPP queue is model-level demand, distributed
-across all variants of the model; the only known gap is the upstream
-no-namespace-label issue tracked in #2309, out of scope here.)
-
-**Not touched:** throughput registration (`throughput_analyzer.go`) — its key
-fix is handled in PR #1250 (A1). After both land, all per-replica queries share
-the `max by (instance, pod)` form.
+> If any line number drifted, search by symbol — do not trust the numbers blindly.
 
 ---
 
-## Step 2 — `replica_metrics.go`: make `buildInstanceKey` attribution-free
+## Step 1 — New attribution package: `internal/collector/attribution`
 
-### 2a. `buildInstanceKey` returns `(instanceKey, podName)` only
-
-Remove the `vaName := labels[constants.VariantLabelPrometheusKey]` read and the
-third return value:
+Create `internal/collector/attribution/attribution.go`:
 
 ```go
-// Before:
-buildInstanceKey := func(labels map[string]string) (string, string, string)
-// After:
-buildInstanceKey := func(labels map[string]string) (string, string)
-```
+package attribution
 
-### 2b. Update every call site
-
-All processing loops destructure three values today
-(`instanceKey, podName, vaName := buildInstanceKey(...)` or `..., _ := ...`).
-Change to two (`instanceKey, podName := buildInstanceKey(...)`). Drop `vaName`
-from every `podMetricData{...}` initializer.
-
-### 2c. Remove `vaName` from `podMetricData`
-
-Delete the `vaName string` field. Attribution is no longer carried per metric
-series.
-
-### 2d. Single attribution step in the final assembly loop
-
-The final assembly loop (~line 724 on the #1260 branch) currently reads
-`vaName := data.vaName`. Replace with one attribution call per pod entry:
-
-```go
-vaName := attributeVA(namespace, data.podName, value-labels-if-retained, podMap)
-```
-
-Attribution precedence (preserves #1260 semantics), all resolved from the
-podMap (see Step 3 — the override is captured into the podMap, not read from
-the Prometheus result):
-1. `llm-d.ai/variant` override if present on the pod
-2. selector-derived VA otherwise
-
-The existing `if vaName == "" { IncPodMappingMiss(...); skip }` block and the
-`trackMetricFreshness(vaName, ...)` call stay where they are — they already sit
-in this loop and pick up the resolved value.
-
-### 2e. Remove the per-metric podMap fallback #1260 added inside `buildInstanceKey`
-
-#1260 added a `vaName == "" && podMap != nil` fallback at the first call site.
-After 2a–2d, attribution happens once in the assembly loop, so this inline
-fallback is dead — remove it to keep a single attribution point.
-
----
-
-## Step 3 — fold the `llm-d.ai/variant` override into the podMap
-
-Once the label is out of the query result, the override (for custom kinds /
-non-standard owner chains, and back-compat) must be read from the **K8s pod
-object**, not the Prometheus result.
-
-**Important:** `podvamap.Build` lists pods only via each VA's `scaleTargetRef`
-**selector**. A custom-kind pod that no selector matches is never listed —
-which is exactly the case the override exists for. So capturing the label off
-the existing per-VA LISTs is insufficient; it would only catch pods that already
-match a selector.
-
-`Build` therefore adds **one bounded labeled LIST per namespace**
-(`client.HasLabels{constants.VariantLabelKey}`) after the selector candidates
-resolve into `byPod`, and writes those results into `byPod` as overrides.
-The `Map` struct is unchanged — overrides land in the same `byPod` map.
-
-```go
-// after selector candidates resolve into byPod:
-seenNS := make(map[string]struct{})
-for _, va := range variantAutoscalings {
-    if va == nil { continue }
-    if _, done := seenNS[va.Namespace]; done { continue }
-    seenNS[va.Namespace] = struct{}{}
-    overridePods := &corev1.PodList{}
-    if err := reader.List(ctx, overridePods,
-        client.InNamespace(va.Namespace),
-        client.HasLabels{constants.VariantLabelKey},
-    ); err != nil {
-        logger.V(logging.DEBUG).Info("pod-VA derivation: failed to list override-labeled pods",
-            "namespace", va.Namespace, "error", err)
-        continue
-    }
-    for i := range overridePods.Items {
-        p := &overridePods.Items[i]
-        if name := p.Labels[constants.VariantLabelKey]; name != "" {
-            byPod[p.Namespace+"/"+p.Name] = name   // override wins
-        }
-    }
+// Attributor resolves a pod (namespace + name) to the VariantAutoscaling that
+// owns it. Implementations are built once per optimization cycle and queried
+// O(1) on the metrics assembly path.
+type Attributor interface {
+    VAForPod(namespace, podName string) (vaName string, ok bool)
 }
 ```
 
-Attribution precedence matches #1260's current label-wins semantics: **label
-override beats the selector-derived mapping**. This also drops the ServiceMonitor
-relabel-rule requirement for the override path (which the metric-label approach
-still needs). Cost: one labeled LIST per namespace (bounded), not zero.
+Default implementation — label read from the pod object:
 
----
+```go
+// labelAttributor resolves via the llm-d.ai/variant label stamped on the pod.
+type labelAttributor struct {
+    byPod map[string]string // "<ns>/<pod>" -> VA name
+}
 
-## Step 4 — tests
+func (a labelAttributor) VAForPod(ns, pod string) (string, bool) {
+    if a.byPod == nil {
+        return "", false
+    }
+    v, ok := a.byPod[ns+"/"+pod]
+    return v, ok
+}
 
-- Update `build_instance_key_test.go` and `replica_metrics_test.go` call sites
-  to the 2-value `buildInstanceKey` signature.
-- Add a test: pod with **no** `llm_d_ai_variant` in its metric labels, resolved
-  to a VA via a non-nil podMap → `ReplicaMetrics.VariantName` is set.
-- The existing "label absent → pod skipped" case changes meaning: absent label
-  is now the normal path, not a skip. Update the case and its comment.
-- Add a podMap test asserting the captured label override wins over the
-  selector-derived VA when the two differ (Step 3).
+// BuildLabelAttributor lists pods carrying the variant label — one bounded
+// labeled LIST per namespace via the uncached reader — and maps them to their
+// VA name. reader should be mgr.GetAPIReader() so no Pod informer is started.
+func BuildLabelAttributor(ctx context.Context, reader client.Reader, namespaces []string) Attributor {
+    logger := ctrl.LoggerFrom(ctx)
+    byPod := make(map[string]string)
+    for _, ns := range namespaces {
+        pods := &corev1.PodList{}
+        if err := reader.List(ctx, pods,
+            client.InNamespace(ns),
+            client.HasLabels{constants.VariantLabelKey},
+        ); err != nil {
+            logger.V(logging.DEBUG).Info("attribution: failed to list variant-labeled pods",
+                "namespace", ns, "error", err)
+            continue
+        }
+        for i := range pods.Items {
+            p := &pods.Items[i]
+            if v := p.Labels[constants.VariantLabelKey]; v != "" {
+                byPod[p.Namespace+"/"+p.Name] = v
+            }
+        }
+    }
+    return labelAttributor{byPod: byPod}
+}
+```
 
----
+Notes for the coder:
+- `client.HasLabels` is a real controller-runtime ListOption (selects objects
+  having the key, any value).
+- Keep the package free of any podMap/locator concept — those are future
+  implementations that will live alongside this one.
+
+## Step 2 — Drop `llm_d_ai_variant` from all 11 queries
+
+Mechanical edits (drop the label term; for the 3 throughput queries also **add
+`instance`** so they match the others):
+
+`saturation.go` — 6 queries: `max by (instance, pod, llm_d_ai_variant[, X]) → max by (instance, pod[, X])`
+(L68 keeps `num_gpu_blocks, block_size`).
+
+`queueing_model.go` — 2 queries: same drop.
+
+`throughput_analyzer.go` — 3 queries:
+`sum by (pod, llm_d_ai_variant) → sum by (instance, pod)`,
+`max by (pod, llm_d_ai_variant) → max by (instance, pod)`.
+
+Update the comment lines above each template that mention
+`llm_d_ai_variant`/"direct pod-to-VA mapping": note attribution is resolved at
+the collector layer after the query, not carried in the metric labels.
+
+Not touched: model-level queries (`scheduler_queue_*`, `model_request_count`) —
+they intentionally aggregate across pods and carry no per-replica attribution.
+
+## Step 3 — `replica_metrics.go`: identity-only key + single attribution
+
+3a. `buildInstanceKey` → `(instanceKey, podName)`; delete the
+`vaName := labels[constants.VariantLabelPrometheusKey]` line and the third return.
+
+3b. Update the 8 existing call sites to the 2-value form; drop `vaName` from
+every `podMetricData{…}` initializer.
+
+3c. The 3 throughput loops (≈L633–L690): replace the bare-`podName` keying with
+`buildInstanceKey`:
+```go
+instanceKey, podName := buildInstanceKey(value.Labels)
+if instanceKey == "" { continue }
+if podData[instanceKey] == nil { podData[instanceKey] = &podMetricData{podName: podName} }
+podData[instanceKey].generationTokenRate = value.Value   // / kvUsageInstant / vllmRequestRate
+```
+
+3d. Remove the `vaName` field from `podMetricData`.
+
+3e. Thread an `attribution.Attributor` through:
+- `collectReplicaMetrics(...)` gains a trailing `attributor attribution.Attributor` param.
+- `CollectReplicaMetrics(...)` gains the same param and passes it down.
+- In the assembly loop, replace `vaName := data.vaName` with:
+  ```go
+  vaName := ""
+  if attributor != nil {
+      if v, ok := attributor.VAForPod(namespace, data.podName); ok { vaName = v }
+  }
+  ```
+  Keep the existing empty-vaName skip + log unchanged. (No new metrics here —
+  the unavailable-vs-zero work is #1264; the miss counter is #1260/#1267 turf.)
+
+## Step 4 — Engine wiring + APIReader
+
+4a. `internal/engines/saturation/engine.go`: add an exported field
+```go
+// APIReader is an uncached reader (mgr.GetAPIReader()) used for the per-cycle
+// variant-label pod LIST in attribution, so it starts no Pod informer/cache.
+// Falls back to the cached client when nil (unit tests).
+APIReader client.Reader
+```
+
+4b. In `prepareModelData` (≈L1206), before the `CollectReplicaMetrics` call,
+build the attributor and pass it:
+```go
+var reader client.Reader = k8sClient
+if e.APIReader != nil { reader = e.APIReader }
+attributor := attribution.BuildLabelAttributor(ctx, reader, []string{namespace})
+…
+replicaMetrics, err := e.ReplicaMetricsCollector.CollectReplicaMetrics(
+    ctx, modelID, namespace, scaleTargets, variantAutoscalings, e.vaEventTracker, variantCosts, attributor)
+```
+(`prepareModelData` is per-model; the labeled LIST is per-namespace. Acceptable;
+if two models share a namespace this re-lists. Optional optimization noted below
+— do not implement now.)
+
+4c. `cmd/main.go`: set `engine.APIReader = mgr.GetAPIReader()` where the engine
+is constructed (mirror how the configmap reconciler already takes
+`mgr.GetAPIReader()`).
+
+## Step 5 — RBAC
+
+The labeled pod LIST needs `pods` `list` permission. Confirm the manager
+ClusterRole already grants it (`make manifests` should produce no diff). If a
+marker is missing, add `+kubebuilder:rbac:groups="",resources=pods,verbs=list`
+and regenerate. Record the result.
+
+## Step 6 — Tests
+
+- `attribution/attribution_test.go`: fake client with labeled + unlabeled pods;
+  assert `VAForPod` resolves labeled pods, returns `ok=false` for unlabeled, and
+  a nil/empty Attributor is safe.
+- `replica_metrics_test.go`: update call sites to the new `CollectReplicaMetrics`
+  signature (pass a built attributor or `nil`). The existing
+  "label absent → pod skipped" semantics now means "no metric label is normal;
+  attribution comes from the attributor" — update the case + comment.
+- Add a merge test: KV-cache result + generation-token-rate result for the same
+  pod (matching `instance`+`pod`) now land in **one** `ReplicaMetrics` entry with
+  both `KvCacheUsage > 0` and `GenerationTokenRate > 0` (was two entries, the
+  throughput one dropped). This is the A1 regression guard.
+- A test that a pod with no metric variant label but present in the attributor
+  gets `VariantName` set in the output.
+
+## Semantic-pivot cross-reference check
+
+`buildInstanceKey` changes its return arity and `podMetricData` loses a field;
+the metric label is no longer read in the collector. After implementing, run:
+```
+grep -rn "VariantLabelPrometheusKey" internal/ cmd/
+grep -rn "data.vaName\|\.vaName" internal/collector/
+grep -rn "llm_d_ai_variant" internal/collector/registration/
+```
+Update every stale hit (comments/docstrings included). The only remaining
+`VariantLabelPrometheusKey` use after this PR should be the constant definition
+itself (keep it — the relabel rule and metric label still exist for
+back-compat); confirm nothing in the collector still reads it.
 
 ## Pre-push checklist
 
-1. Confirm working on top of the #1260 branch (or main after #1260 merges).
+1. `git branch --show-current` → `collector-va-attribution`
 2. `gofmt -l ./internal/... ./pkg/... ./cmd/...` → empty
 3. `make test` → all pass
-4. `make lint` → clean
+4. `make lint` → clean (the new package + signature change must pass nakedret/unparam/gocritic)
 5. `go build ./...` → clean
-6. DCO on every commit: `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`
+6. `make manifests` → no diff (or RBAC marker added intentionally, Step 5)
+7. DCO on every commit: `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`
 
-## Out of scope
+## Developer-guide (Type 4) update
 
-- Throughput query key fix → PR #1250 (A1)
-- `*float64` nil-vs-zero cleanup → issue #1264
-- Scheduler-queue signal scoping → model-level scoping is correct (EPP queue is
-  model-level demand); only the upstream no-namespace-label gap (#2309) remains,
-  not ours to fix here
+Update `docs/developer-guide/` (the pod-scraping / metrics-collection doc, or
+add a short section): per-replica queries select by `{namespace, model_name}`
+and group by `(instance, pod)`; VA attribution is a separate collector step via
+the `Attributor` seam; the default reads `llm-d.ai/variant` from the pod object
+(ServiceMonitor relabel rule no longer required for attribution). Reflect code
+state only — no "pending #1267" forward references.
+
+## Out of scope (do not implement)
+
+- The owner-walk locator (#1267) and any podMap — they are future `Attributor`
+  implementations behind this seam.
+- Unavailable-vs-zero `*float64` semantics → #1264.
+- Per-pod miss metrics / status conditions.
+- Hoisting the attributor build to once-per-cycle across namespaces (optimization
+  noted in 4b) — leave the per-model labeled LIST.
+
+## Coordination note (for the planner, not the coder)
+
+This normalizes the 3 throughput queries on main and fixes their latent A1
+key-mismatch. TA3/#1250 carries its own A1 fix on its branch; when #1250 rebases
+onto a main containing this PR, that fix is already present — the rebase adapts
+(TA3 also drops the label and uses the attributor). Flag to the #1250 owner so
+they don't double-apply.
