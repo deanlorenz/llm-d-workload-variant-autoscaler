@@ -344,6 +344,9 @@ func (a *ThroughputAnalyzer) Analyze(
 	// Add to model-level demand and distribute across active non-prefill roles so
 	// per-role TotalDemand satisfies the linearity invariant.
 	var queueDemandByRole map[string]float64
+	// nDecodeVariants > 0 is guaranteed here: the loop above only increments it for
+	// variants that produced supply > 0 (itlSat > 0), so totalDecodeITLSat / nDecodeVariants
+	// is safe from division-by-zero.
 	if nDecodeVariants > 0 {
 		avgDecodeITLSat := totalDecodeITLSat / float64(nDecodeVariants)
 		queueDemand := estimateQueueDemand(input.SchedulerQueue, avgDecodeITLSat, DefaultQueueDrainFactor)
