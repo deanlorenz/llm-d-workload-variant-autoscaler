@@ -329,6 +329,48 @@ dropped-observation logs carry the reconcile-scoped fields.
 - `a.mu` held across the whole `Analyze` loop — **no action** (single-flight, no
   race; just a long critical section). Acknowledged, left as-is.
 
+### F5 — TA E2E tests must not fail when TA is unregistered; must pass when enabled (e2e)
+
+**Why:** the round-2 opt-in registration gate broke the `[full, throughput]`
+scale-up test (`throughput_analyzer_test.go:386`). That test asserts
+`DesiredOptimizedAlloc > baseline` — it requires the ThroughputAnalyzer to actually
+run — but it only writes the both-enabled config at *runtime*, and the gate
+registers TA only from the **startup** config (`RegisterAnalyzer` is frozen after
+`StartOptimizeLoop`). The controller boots on the default (saturation-only) config
+→ TA never registered → no scale-up signal → 300s timeout. This is the companion
+fix the shipped gate (`f11f5120`) requires to restore full-E2E green; it is **not
+droppable** if we care about full-E2E.
+
+**Contract (Dean):** a TA test must **Skip (not Fail)** when TA is not
+registered/disabled, and **pass** when TA is enabled.
+
+**Fix — for every TA-requiring suite** (`throughput_analyzer_test.go`: the
+both-enabled scale-up `[full]` test and the TA-only mode `[full]` suite; the
+wiring smoke test too, to make it meaningful):
+
+1. **`BeforeAll`:** write the throughput-enabled config to `saturationConfigMapName()`
+   / `defaultConfigKey`, then **restart the controller** so the gate re-evaluates at
+   startup: patch the `wva-controller-manager` Deployment (`cfg.WVANamespace`) pod
+   template with a `kubectl.kubernetes.io/restartedAt` annotation, wait for the
+   rollout to complete and pods Ready (label `control-plane=controller-manager`).
+   The restarted controller reads the both-enabled config → gate registers TA.
+2. **Skip-guard (honors the contract):** if TA enablement cannot be confirmed after
+   the restart (bounded wait), `Skip("ThroughputAnalyzer not registered — TA tests
+   require throughput enabled in the controller's startup config")` rather than let
+   the assertion fail. Pick a confirmation signal the harness already exposes
+   (rollout completed + controller Ready is the minimum; a stronger signal is fine
+   if cheap).
+3. **`AfterAll`:** restore the default (saturation-only) config **and restart the
+   controller back**, so sibling suites that require TA **off** (notably
+   `saturation_v2_test.go:280` scale-down) are not contaminated by a lingering
+   TA-enabled controller. Ordering matters — a TA-enabled controller left running
+   would re-introduce the scale-down veto in later specs.
+
+Remove the now-stale "deferred as a follow-up" comments (L215/320) since the
+restart is implemented here.
+
+**Note:** F5 only takes effect once pushed; it restarts the in-flight full-E2E.
+
 ### Semantic cross-reference greps (run after edits)
 
 - `grep -n "computeDemand(" internal/engines/analyzers/throughput/` → only the one caller; confirm the gate change.
@@ -346,6 +388,7 @@ F1 first so "keep F1, drop F2–F5" is a clean `git reset --hard <F1-sha>`.
 3. **F3** — `collector: skip unknown instances in throughput query loops` (+ test).
 4. **F4** — `engines/throughput: thread ctx into ITL/GPS helpers; Add returns drop bool`.
 5. **nits** — `engines/throughput: defensive B guard; document nDec>0 invariant`.
+6. **F5** — `test/e2e: enable TA via controller restart in throughput suites; skip when unregistered` (test/e2e only — disjoint from the above; **the full-E2E green fix**, companion to the shipped gate, not droppable if full-E2E matters).
 
 Keep the F1 dev-guide note inside the F1 commit (so dropping commits 2–5 doesn't
 strand a doc edit). If a later commit conflicts with F1's `analyzer.go` regions, adjust
