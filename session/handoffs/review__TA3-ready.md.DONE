@@ -1,0 +1,5 @@
+reason: code-review-before-push
+refs:
+  - TA3/ (worktree)
+  - planning/TA3.1-plan.md
+note: 5 review commits on main@04f95779; all gates green (make test, make lint 0, DCO 33/33)
