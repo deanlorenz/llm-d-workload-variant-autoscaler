@@ -93,6 +93,9 @@ func NewReplicaMetricsCollector(metricsSource source.MetricsSource, k8sClient cl
 	}
 }
 
+// recordUnattributedReadyPodsEvent emits a Warning/UnattributedReadyPods K8s event for va.
+// Deduplication: at most one event per VA per cycle; vaEventTracker records which VAs have
+// already received an event this cycle so repeated calls are no-ops for those VAs.
 func (c *ReplicaMetricsCollector) recordUnattributedReadyPodsEvent(
 	va *llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
 	readyCount int32,

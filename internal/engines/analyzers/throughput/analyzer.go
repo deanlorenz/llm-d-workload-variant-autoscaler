@@ -99,7 +99,7 @@ func (a *ThroughputAnalyzer) Observe(
 		state.lastObservedAt = now
 
 		if report.Has(SanityIssueNoReplicas) {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no replicas, skipping variant",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: no replicas, skipping variant",
 				"namespace", namespace,
 				"modelID", modelID,
 				"variant", variantName,
@@ -107,7 +107,7 @@ func (a *ThroughputAnalyzer) Observe(
 			continue
 		}
 		if !report.OK() {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: sanity issues detected, some pods excluded",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: sanity issues detected, some pods excluded",
 				"namespace", namespace,
 				"modelID", modelID,
 				"variant", variantName,
@@ -131,7 +131,7 @@ func (a *ThroughputAnalyzer) Observe(
 
 		shape, changed := state.shapeTracker.Observe(il, ol, hitRate)
 		if changed {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: workload shape changed, clearing observation window",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: workload shape changed, clearing observation window",
 				"namespace", namespace,
 				"modelID", modelID,
 				"variant", variantName,
@@ -254,7 +254,7 @@ func (a *ThroughputAnalyzer) Analyze(
 		healthyMetrics := filterHealthyForShape(variantMetrics)
 		model, ok := a.resolveITLModel(state, healthyMetrics, input.Namespace, input.ModelID, variantName)
 		if !ok {
-			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
+			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
 				"namespace", input.Namespace,
 				"modelID", input.ModelID,
 				"variant", variantName,
@@ -290,7 +290,7 @@ func (a *ThroughputAnalyzer) Analyze(
 			anyEPP = true
 		}
 		// Track ITL(k_sat) across non-prefill variants for queue demand estimation.
-		if state.role != "prefill" {
+		if state.role != interfaces.RolePrefill {
 			totalDecodeITLSat += itlSat
 			nDecodeVariants++
 		}
@@ -301,7 +301,7 @@ func (a *ThroughputAnalyzer) Analyze(
 			if state.consecutiveGPSMismatches >= DefaultGPSMismatchClearThreshold {
 				state.observationWindow.Clear()
 				state.consecutiveGPSMismatches = 0
-				ctrl.Log.Info("throughput analyzer: GPS mismatch persisted, clearing observation window for recalibration",
+				ctrl.LoggerFrom(ctx).Info("throughput analyzer: GPS mismatch persisted, clearing observation window for recalibration",
 					"namespace", input.Namespace,
 					"modelID", input.ModelID,
 					"variant", variantName,
@@ -764,7 +764,7 @@ func distributeQueueDemandByRole(queueDemand float64, vcs []interfaces.VariantCa
 		if role == "" {
 			role = interfaces.RoleBoth
 		}
-		if role != "prefill" {
+		if role != interfaces.RolePrefill {
 			roles[role] = struct{}{}
 		}
 	}
