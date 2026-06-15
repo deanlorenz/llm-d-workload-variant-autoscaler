@@ -376,6 +376,116 @@ anything". Item closed before PR-A opens.
 
 ---
 
+## Rebase (do before Item 4)
+
+Target: `upstream/main` (currently `main@526ce851`).
+
+```bash
+git fetch upstream
+git rebase upstream/main
+```
+
+Likely conflict surface: `cmd/main.go` only (TA3 / #1260-era changes). Saturation files are
+unlikely to conflict. After rebase: run full gate sequence (`gofmt`, `make test`, `make lint`,
+`go build`). Verify all 6 existing commits replay cleanly before adding the new commit.
+
+---
+
+## Item 4 — Review fix: delete `runRegisteredAnalyzers` and migrate tests
+
+**Trigger:** ev-shindin review comment on #1266 (received 2026-06-15). The fix in Commit 1
+added `effectiveEnabled` to `runAnalyzersAndScore` but left `runRegisteredAnalyzers` (the
+parallel loop at `engine_v2.go:208`) without the check. That function is dead — only called
+from 3 specs in `engine_register_test.go` — but its divergent disabled-semantics make it a
+latent bug if ever wired into a real path. Resolution: delete it; migrate the 3 specs.
+
+### Step 1 — Delete `runRegisteredAnalyzers` from `engine_v2.go`
+
+Remove lines 202–226 (the method comment + method body). `runRegisteredAnalyzer` (singular, free
+function, lines 228–) is still used by `runAnalyzersAndScore` — keep it.
+
+### Step 2 — Delete the `Describe("runRegisteredAnalyzers")` block from `engine_register_test.go`
+
+Remove the entire `Describe("runRegisteredAnalyzers", func() { ... })` block (lines 187–260).
+
+### Step 3 — Add replacement specs
+
+The 3 deleted specs covered three distinct behaviors. Migrate each as follows.
+
+**Behavior A — "Analyze called once per enabled non-saturation analyzer in registration order"**
+
+Add a new `It` spec inside the existing `Describe("runAnalyzersAndScore config-bridge")` block
+(or alongside the MA-F7 integration spec in `engine_v2_test.go`). The MA-F7 spec already
+constructs a minimal engine with `analyzersSnapshot` — extend it or add a sibling:
+
+```
+It("calls each enabled non-saturation analyzer exactly once in registration order", func() {
+    // Two spies registered in order: [saturation, "throughput", "slo"].
+    // Both enabled (no Analyzers config entry → defaults to true).
+    // Call runAnalyzersAndScore on the engine.
+    // Assert: throughput.callCount == 1, slo.callCount == 1.
+    // Assert: invocation order preserved (e.g. via an ordered call log on spyAnalyzer,
+    //   or simply verify both were called and rely on snapshot-order already tested by
+    //   the registration specs).
+    // Saturation callCount == 0 (called via runV2AnalysisOnly, not the loop).
+})
+```
+
+Note: `runAnalyzersAndScore` calls `runV2AnalysisOnly` first (real saturation analyzer path).
+Use the same engine-construction pattern as the MA-F7 spec (real `saturation_v2.SaturationAnalyzer`
+with zero-value inputs, or inject via the interface-field approach in Open question #1).
+
+**Behavior B — "logs and continues when a registered analyzer returns an error"**
+
+This behavior is owned by `runRegisteredAnalyzer` (the single-item helper), not the loop.
+Migrate to call `runRegisteredAnalyzer` directly:
+
+```
+Describe("runRegisteredAnalyzer", func() {
+    It("returns nil and does not panic when analyzer returns an error", func() {
+        spy := &spyAnalyzer{name: "throughput", err: errors.New("boom")}
+        entry := analyzerEntry{name: "throughput", analyzer: spy}
+        result := runRegisteredAnalyzer(testCtx, testLogger, entry, "model-1",
+            interfaces.AnalyzerInput{ModelID: "model-1"})
+        Expect(result).To(BeNil())
+        Expect(spy.callCount).To(Equal(1))
+    })
+
+    It("recovers from a panicking analyzer and returns nil", func() {
+        spy := &spyAnalyzer{name: "throughput", panicMsg: "boom"}
+        entry := analyzerEntry{name: "throughput", analyzer: spy}
+        var result *interfaces.AnalyzerResult
+        Expect(func() {
+            result = runRegisteredAnalyzer(testCtx, testLogger, entry, "model-1",
+                interfaces.AnalyzerInput{ModelID: "model-1"})
+        }).NotTo(Panic())
+        Expect(result).To(BeNil())
+    })
+})
+```
+
+Add this `Describe` block in `engine_register_test.go` in place of the deleted
+`Describe("runRegisteredAnalyzers")` block. `runRegisteredAnalyzer` is package-private but
+accessible from the same package in tests.
+
+**Behavior C — "saturation entry is skipped in the non-saturation loop"**
+
+Already covered by Behavior A (saturation.callCount == 0) and implicitly by the MA-F7 spec.
+No additional spec needed.
+
+### Commit for Item 4
+
+**Commit 7:** `engines/saturation: delete dead runRegisteredAnalyzers; migrate tests to helper`
+
+Files:
+- `internal/engines/saturation/engine_v2.go` — delete `runRegisteredAnalyzers` method (lines 202–226)
+- `internal/engines/saturation/engine_register_test.go` — delete `Describe("runRegisteredAnalyzers")` block; add `Describe("runRegisteredAnalyzer")` block with Behaviors B and C
+- `internal/engines/saturation/engine_v2_test.go` — add Behavior A spec (ordering/invocation)
+
+Run full gates after this commit before writing the review trigger.
+
+---
+
 ## Commit structure
 
 **Commit 1:** `engines/saturation: skip disabled analyzers in runAnalyzersAndScore`
@@ -443,15 +553,17 @@ Run in order from the `multi-analyzer-addendum` worktree:
 
 | Item | Status |
 |---|---|
-| Worktree created | [ ] |
-| MA-F7 fix + unit tests (engine_v2_population_test.go) | [ ] |
-| MA-F7 integration test (engine_v2_test.go) | [ ] |
-| MA-H-1 config-bridge specs | [ ] |
-| MA-OPT-4 non-uniform Score spec (greedy_score_optimizer_test.go) | [ ] |
-| MA-OPT-2 fork URL fix | [ ] |
-| MA-OPT-1 dev guide expansion | [ ] |
-| Doc addendum: Architecture + data flow diagram + internals | [ ] |
-| All gates green (gofmt, make test, make lint, go build) | [ ] |
+| Worktree created | [x] |
+| MA-F7 fix + unit tests (engine_v2_population_test.go) | [x] |
+| MA-F7 integration test (engine_v2_test.go) | [x] |
+| MA-H-1 config-bridge specs | [x] |
+| MA-OPT-4 non-uniform Score spec (greedy_score_optimizer_test.go) | [x] |
+| MA-OPT-2 fork URL fix | [x] |
+| MA-OPT-1 dev guide expansion | [x] |
+| Doc addendum: Architecture + data flow diagram + internals | [x] |
+| Rebase onto upstream/main@526ce851 | [ ] |
+| Item 4: delete `runRegisteredAnalyzers` + migrate 3 specs (Commit 7) | [ ] |
+| All gates green post-rebase + Commit 7 | [ ] |
 | DCO verified on all commits | [ ] |
 | Review trigger written | [ ] |
 | Push-ready handoff to planner | [ ] |
