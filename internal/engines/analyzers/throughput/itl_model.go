@@ -52,6 +52,11 @@ func FitITLModel(obs []ITLObservation) (ITLModel, bool) {
 	if A <= 0 {
 		return ITLModel{}, false
 	}
+	// Guard: ensure ITL at saturation is positive. A noisy OLS can yield negative
+	// B (valid A>0), making ITLAt(DefaultKSat) near-zero and inflating supply.
+	if A*DefaultKSat+B <= 0 {
+		return ITLModel{}, false
+	}
 
 	return ITLModel{A: A, B: B}, true
 }

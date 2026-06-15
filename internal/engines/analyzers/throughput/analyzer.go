@@ -246,7 +246,13 @@ func (a *ThroughputAnalyzer) Analyze(
 		// metrics from Observe() do not currently block demand computation here.
 		// Gating demand on the sanity report is deferred to the per-analyzer status-return
 		// PR; it requires the engine contract to accept an AnalyzerStatus opt-out signal.
-		model, ok := a.resolveITLModel(state, variantMetrics, input.Namespace, input.ModelID, variantName)
+
+		// Filter to healthy replicas for ITL model fitting and GPS verification.
+		// Stale replicas (cold-start, missing fields) bias the tier-2 OLS slope A
+		// upward → systematic under-provisioning. Supply counting (computeVariantSupply,
+		// computeDemand) uses the unfiltered variantMetrics to include booting replicas.
+		healthyMetrics := filterHealthyForShape(variantMetrics)
+		model, ok := a.resolveITLModel(state, healthyMetrics, input.Namespace, input.ModelID, variantName)
 		if !ok {
 			ctrl.Log.V(logging.DEBUG).Info("throughput analyzer: no ITL model available, skipping variant",
 				"namespace", input.Namespace,
@@ -289,7 +295,7 @@ func (a *ThroughputAnalyzer) Analyze(
 			nDecodeVariants++
 		}
 
-		if checkVariantGPSMismatch(variantMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
+		if checkVariantGPSMismatch(healthyMetrics, shape, model, input.Namespace, input.ModelID, variantName) {
 			anyGPSMismatch = true
 			state.consecutiveGPSMismatches++
 			if state.consecutiveGPSMismatches >= DefaultGPSMismatchClearThreshold {
