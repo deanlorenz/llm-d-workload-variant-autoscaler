@@ -1,11 +1,197 @@
 # TA3.1 — Complete PR #1250 + Post-Review Follow-Up (PR-B)
 
-> **Status: ACTIVE** — Bug A + Bug B fixed (`ce39267e`). Rebase onto
-> `main@04f95779` pending (3-file conflict + fold-in of `UnattributedReadyPods`
-> event from #1275 — see Bug C below). D1/D2/T1/T2 already in PR; PR-B STANDBY.
+> **Status: ACTIVE** — Bug A/B/C done + rebased + pushed (`b0284253`). **Round-2
+> review fixes pending** (smoke `saturation_v2_test.go:280` failing — throughput
+> veto; see "Review-driven fixes (round 2)" below). D1/D2/T1/T2 already in PR;
+> PR-B STANDBY.
 >
 > Triage doc: [`planning/PR1250-review.md`](PR1250-review.md)
 > Rebase resolution: [`planning/PR1267-impact-and-decisions.md`](PR1267-impact-and-decisions.md)
+
+---
+
+## Review-driven fixes (round 2) — Coder Task
+
+A code review of #1250 surfaced 5 should-fix items + nits. The headline is a
+**real CI failure**: the smoke test `saturation_v2_test.go:280` ("V2 should
+recommend scale-down …") fails because the ThroughputAnalyzer is registered
+unconditionally and, post-#1246, its result is consumed in the optimizer's
+cross-analyzer scale-down aggregation. With no usable throughput data in the
+smoke env it contributes `RoleSpare ≤ 0`; `safeRemovalReplicasForRole`
+(`internal/engines/pipeline/analyzer_helpers.go`) takes the **min** across
+analyzers and returns 0 if any contributor has `RoleSpare ≤ 0` → the saturation
+scale-down is vetoed → `no-change` at utilization 0.333.
+
+Scope decision (Dean, 2026-06-16): **fix all of items 1–5 + nits in this pass.**
+
+### Approach & rationale — registration gate (item 5, the CI fix)
+
+**Decision: make the ThroughputAnalyzer opt-in by gating its *registration* on
+config.** In `cmd/main.go`, only call `RegisterThroughputAnalyzerQueries` +
+`engine.RegisterAnalyzer(throughput…)` when the saturation config enables the
+throughput analyzer. The shipped default config lists only
+`analyzers: [{name: saturation}]`, so by default throughput is never registered
+→ never in `analyzersSnapshot` → the consumption loop never sees it → no veto.
+Behaves "as if throughput did not exist" by default. **No dependency on #1266**
+(its `effectiveEnabled` gate is not in TA3's base, and even merged it defaults
+absent→enabled, so it would not skip an unlisted-but-registered analyzer).
+
+*Why a registration (startup) gate and not a consumption gate:* the consumption
+gate is the correct long-term home (`effectiveEnabled` opt-in fix, tracked in
+[`PR1266-fixup-effectiveEnabled.md`](PR1266-fixup-effectiveEnabled.md)) — it
+honors runtime configmap toggles. The registration gate is a self-contained
+stopgap that unblocks #1250 now without touching the engine/optimizer.
+
+*Known limitation (document in code + dev-guide):* registration is frozen after
+`StartOptimizeLoop`, so the gate is **startup-time** — enabling throughput via a
+runtime configmap edit requires a controller restart. When the consumption-gate
+opt-in fix lands, **remove this registration gate** so live toggling works. The
+gate is explicitly a stopgap.
+
+### Item 5 — registration gate (`cmd/main.go` ~L465)
+
+Add a helper and wrap the two registration calls:
+
+```go
+// throughputAnalyzerEnabled reports whether any saturation config entry lists
+// the throughput analyzer with enabled != false. Startup-time gate: an
+// unconfigured deployment never registers (and therefore never consumes) the
+// throughput analyzer, so it cannot influence scaling. Runtime enablement via
+// configmap requires a controller restart (registration is frozen after
+// StartOptimizeLoop). The per-cycle consumption gate is the long-term home and
+// supersedes this stopgap; see the effectiveEnabled opt-in follow-up.
+func throughputAnalyzerEnabled(cfg <match existing cfg type>) bool {
+	for _, sc := range cfg.SaturationConfig() { // default + any per-model/namespace entries
+		for _, aw := range sc.Analyzers {
+			if aw.Name == throughput.AnalyzerName && (aw.Enabled == nil || *aw.Enabled) {
+				return true
+			}
+		}
+	}
+	return false
+}
+```
+
+```go
+if throughputAnalyzerEnabled(cfg) {
+	registration.RegisterThroughputAnalyzerQueries(sourceRegistry)
+	if err := engine.RegisterAnalyzer(throughput.AnalyzerName, throughput.NewThroughputAnalyzer()); err != nil {
+		return err
+	}
+}
+```
+
+- Match the existing `cfg` type in `cmd/main.go` (`cfg.SaturationConfig()` returns
+  `map[string]config.SaturationScalingConfig`).
+- Iterating **all** entries (not just `"default"`) means a per-model/namespace
+  override that enables throughput at startup also registers it.
+
+**E2E wiring test (`test/e2e/throughput_analyzer_test.go`):** it writes
+`throughputBothEnabledConfig` in `BeforeAll` *at runtime*, but the controller is
+already running with the default (saturation-only) config — so with the gate,
+throughput won't register. The test's assertions are generic (MetricsAvailable +
+DesiredOptimizedAlloc, satisfied by saturation alone), so it stays green but
+stops actually exercising throughput. **Make it a true wiring check:** after
+writing the both-enabled config, trigger a controller rollout restart
+(`kubectl rollout restart deploy/<controller> -n <ns>` equivalent via the e2e
+client) and wait for the new pod Ready before asserting, so the gate registers
+throughput at the new start. If a restart is impractical in the smoke harness,
+fall back to: keep the test green via generic assertions, add a code comment that
+it no longer exercises throughput wiring under the opt-in gate, and note the gap
+in the handoff for a follow-up. Coder picks based on harness feasibility and
+reports which path was taken.
+
+### Item 1 — tier-2 OLS uses unfiltered metrics (`analyzer.go:249, :292`)
+
+`Observe` filters to healthy replicas (`filterHealthyForShape`, L122) but
+`Analyze` passes raw all-replica `variantMetrics` into `resolveITLModel` (L249)
+and `checkVariantGPSMismatch` (L292). Stale replicas with a frozen high `AvgITL`
+bias tier-2 OLS slope A upward → systematic under-provisioning.
+
+Fix: in the `Analyze` per-variant loop, compute once
+`healthyMetrics := filterHealthyForShape(variantMetrics)` and pass `healthyMetrics`
+to **both** `resolveITLModel` and `checkVariantGPSMismatch`. **Keep the unfiltered
+`variantMetrics`** for supply-side replica counting (booting replicas should count
+toward supply) — identify those uses in the loop and leave them on `variantMetrics`.
+
+### Item 2 — `FitITLModel` lacks ITL-at-saturation guard (`itl_model.go` ~L50)
+
+A noisy OLS can yield negative intercept B with valid A>0, making `ITLAt(DefaultKSat)`
+near-zero/negative and inflating supply `nSat/itlSat`. After the existing `if A <= 0`
+guard add:
+
+```go
+if A*DefaultKSat + B <= 0 {
+	return ITLModel{}, false
+}
+```
+
+Tier-2 (constrained OLS in `resolveITLModel`) pins B ≥ `DefaultBaselineITLSec`
+(0.006) and requires A>0, so `A·kSat+B > 0` always — no guard needed there. Only
+`FitITLModel` (tier-1) needs it.
+
+### Item 3 — remove dead `itl_knowledge_store.go` (+ its test)
+
+`itlKnowledgeStore` is declared and unit-tested but never wired into
+`ThroughputAnalyzer` (verified: no non-test references). Remove both
+`internal/engines/analyzers/throughput/itl_knowledge_store.go` and
+`internal/engines/analyzers/throughput/itl_knowledge_store_test.go`. Check
+`constants.go` for any constant used **only** by the store and remove if orphaned.
+`go build ./...` + `make test` must stay green.
+
+### Item 4 — remove dead `has*` sentinels (`replica_metrics.go:364/366/368, :706/725/744`)
+
+`hasGenTokenRate` / `hasKvInstant` / `hasVLLMRate` are written but never read.
+They were added (Bug A) as the "internal half" of #1264, but #1264's public half
+(`*float64` fields in `interfaces.ReplicaMetrics`) is deferred, so there is no
+consumer and gating the field copy would be a no-op. **Remove** the three struct
+fields and their three assignment lines. #1264 reintroduces them together with the
+consumer when it lands. (Supersedes the Bug A Fix-2 note above that added them.)
+
+### Nits (fold in)
+
+- **`RolePrefill` constant.** Add `RolePrefill = "prefill"` in
+  `internal/interfaces/saturation_analyzer.go` next to `RoleBoth`; use it at
+  `analyzer.go:287` and `:761` in place of the `"prefill"` string literal.
+- **Doc comment** on `recordUnattributedReadyPodsEvent` (`replica_metrics.go:96`)
+  — explain the one-event-per-VA-per-cycle dedup via `vaEventTracker`.
+- **`ctrl.LoggerFrom(ctx)` over `ctrl.Log`** in `Observe`/`Analyze` bodies (keeps
+  reconcile-scoped fields). For helpers without `ctx` (`resolveITLModel`,
+  `checkVariantGPSMismatch`), thread the logger from the caller only if cheap;
+  otherwise leave and note it. Coder judgment.
+
+**NOT folded — deferred:** the nit "capture `Observe`'s returned `SanityReport`
+map in `Analyze`" is coupled to gating demand on the sanity report, which is the
+deferred [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261)
+work. Capturing it now with no consumer would be an unused variable (lint fail).
+Leave the `TODO(#1261)` at `analyzer.go:247` as-is.
+
+### Semantic cross-reference greps (run after edits, update every hit)
+
+- `grep -rn "hasGenTokenRate\|hasKvInstant\|hasVLLMRate" internal/` → must be empty after item 4.
+- `grep -rn "itlKnowledgeStore\|ITLKnowledgeStore\|NewITLKnowledgeStore" internal/` → must be empty after item 3.
+- `grep -rn '"prefill"' internal/engines/analyzers/throughput/` → only doc-comment/string-doc occurrences may remain; code literals at :287/:761 become `interfaces.RolePrefill`.
+
+### Suggested commit structure
+
+1. `cmd: register throughput analyzer only when enabled in config` — item 5 + dev-guide note (throughput is opt-in) + e2e wiring-test adjustment.
+2. `engines/throughput: filter stale replicas from ITL fit; guard ITL-at-saturation` — items 1 + 2.
+3. `engines/throughput, collector: remove dead itl_knowledge_store and has* sentinels` — items 3 + 4.
+4. `engines/throughput: RolePrefill const; doc comment; reconcile-scoped logger` — nits.
+
+### Dev-guide
+
+Update `docs/developer-guide/throughput-analyzer.md`: add a short "Enablement"
+note — the analyzer is **opt-in**, registered only when the saturation config
+lists `throughput` (enabled), and that runtime enablement currently requires a
+controller restart (startup-time gate; stopgap pending the per-cycle consumption
+gate). Reflect actual code state only.
+
+### Gates + push
+
+Standard pre-push (CONVENTIONS): `gofmt` clean, `make test` pass, `make lint`
+clean, `go build ./...` clean, DCO on every commit. Then internal review
+(`review__TA3-ready.md` trigger) before requesting the push from Dean.
 
 ---
 

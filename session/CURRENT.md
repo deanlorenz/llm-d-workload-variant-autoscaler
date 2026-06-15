@@ -53,11 +53,12 @@
 
 ## Blocked on
 
-- **PR #1250** (`TA3` → `main`) — tip `b0284253`; 28 commits; pushed 2026-06-16. Awaiting CI + ev-shindin re-review.
+- **PR #1250** (`TA3` → `main`) — tip `b0284253`. **Smoke RED** (`saturation_v2_test.go:280` scale-down) — root cause: throughput analyzer registered unconditionally + consumed in optimizer scale-down min-aggregation (post-#1246) → no-data `RoleSpare≤0` vetoes saturation scale-down. Round-2 review-fixes task ready for coder (gate registration on config + items 1–5 + nits). Plan: [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Review-driven fixes (round 2).
 
 ## Next steps
 
-- **TA3 (now):** Await CI + ev-shindin re-review of #1250 (pushed `b0284253` 2026-06-16). After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR.
+- **TA3 (now):** Coder to apply round-2 review fixes (smoke fix: gate throughput registration on config; + items 1–5 + nits). Plan: [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Review-driven fixes (round 2). Trigger written (`TA3__review-fixes-r2.md`). After green: internal review → push. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR.
+- **Deferred (TA3 follow-up, post-gate):** harden throughput analyzer before it is ever enabled — review items 1/2 are folded now, but the SanityReport-capture/demand-gating nit stays with [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). Registration gate is a stopgap to be **removed** when the `effectiveEnabled` opt-in consumption gate lands ([`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md)).
 - **#1266 fixup (now):** `effectiveEnabled` opt-in fix — absent entry should return `false`. Single commit, base `main`. Plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 - **Post-#1246-merge cleanup:** archive `engine-queue-fix` branch (PROC-3; use `git boidem`); ~~drop `backup/multi-analyzer-optimizer-pre-rebase`~~ DONE (archived `ae456aa0` 2026-06-15); close PR #1113 + remove `engine-multi-analyzer` worktree (PROC-2/5, post-#1266 merge); remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
