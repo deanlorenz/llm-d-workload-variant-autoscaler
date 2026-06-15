@@ -36,6 +36,7 @@ import (
 	llmdVariantAutoscalingV1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
 	actuator "github.com/llm-d/llm-d-workload-variant-autoscaler/internal/actuator"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/attribution"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/registration"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/config"
@@ -132,6 +133,11 @@ type Engine struct {
 
 	// ReplicaMetricsCollector is the collector for replica metrics using the source infrastructure
 	ReplicaMetricsCollector *collector.ReplicaMetricsCollector
+
+	// APIReader is an uncached reader (mgr.GetAPIReader()) used for the per-cycle
+	// variant-label pod LIST in attribution, so it starts no Pod informer/cache.
+	// Falls back to the cached client when nil (unit tests).
+	APIReader client.Reader
 
 	// ScaleToZeroEnforcer applies scale-to-zero and minimum replica enforcement
 	ScaleToZeroEnforcer *pipeline.Enforcer
@@ -1252,7 +1258,29 @@ func (e *Engine) prepareModelData(
 	logger.V(logging.DEBUG).Info("Using source infrastructure for replica metrics",
 		"modelID", modelID,
 		"namespace", namespace)
-	replicaMetrics, err := e.ReplicaMetricsCollector.CollectReplicaMetrics(ctx, modelID, namespace, scaleTargets, variantAutoscalings, e.vaEventTracker, variantCosts)
+
+	// Build the per-cycle VA attributor. The default reads the llm-d.ai/variant
+	// label from the pod object via the uncached APIReader (no Pod informer), so
+	// VA attribution is decoupled from the per-replica metric labels.
+	// prepareModelData is per-model; the labeled LIST is per-namespace, so two
+	// models sharing a namespace re-list (acceptable).
+	var reader client.Reader = k8sClient
+	if e.APIReader != nil {
+		reader = e.APIReader
+	}
+	attributor, err := attribution.BuildLabelAttributor(ctx, reader, []string{namespace})
+	if err != nil {
+		// Attribution is degraded this cycle: pods that cannot be resolved are
+		// skipped downstream, so no scaling decisions are made for them. Surface
+		// once per cycle here rather than once per skipped pod.
+		logger.Error(err, "VA attribution degraded: failed to list variant-labeled pods; affected pods will be skipped this cycle",
+			"namespace", namespace)
+	}
+	// Proceed even on error: BuildLabelAttributor returns a usable (possibly
+	// empty or partial) attributor; the downstream empty-vaName skip handles
+	// unresolved pods.
+
+	replicaMetrics, err := e.ReplicaMetricsCollector.CollectReplicaMetrics(ctx, modelID, namespace, scaleTargets, variantAutoscalings, e.vaEventTracker, variantCosts, attributor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect Saturation metrics for model %s: %w", modelID, err)
 	}

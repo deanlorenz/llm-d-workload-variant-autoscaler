@@ -245,12 +245,13 @@ This periodic reconciliation is why many Update and Delete events can be safely 
 
 ### `llm-d.ai/variant` Label on the Scale Target
 
-WVA identifies which pods belong to a given `VariantAutoscaling` resource by reading the `llm-d.ai/variant` label from Prometheus metrics. Two things must be true for this to work:
+WVA identifies which pods belong to a given `VariantAutoscaling` resource by reading the `llm-d.ai/variant` label **directly from the pod objects**. Once per optimization cycle WVA lists the variant-labeled pods in the namespace and maps each pod to its `VariantAutoscaling` by the label value. Per-replica metrics are collected keyed by replica identity (`instance`, `pod`) and attributed to a VA in this separate step — attribution is not carried in the metric labels.
+
+For this to work:
 
 1. The `llm-d.ai/variant` label must be present on the **pod template** of the scale target (Deployment or LeaderWorkerSet), with a value equal to the name of the corresponding `VariantAutoscaling` resource.
-2. The `ServiceMonitor` or `PodMonitor` that Prometheus uses to scrape those pods must include a target relabeling rule that propagates the pod label into the scraped metrics as `llm_d_ai_variant`.
 
-**Both are your responsibility.** WVA does not configure either automatically.
+**This is your responsibility.** WVA does not configure it automatically. The `ServiceMonitor`/`PodMonitor` relabeling rule that propagates the label into the metric series (described below) is **no longer required for attribution**; it is optional and only useful if you want to filter your own metric queries or dashboards by variant.
 
 #### 1. Set the pod template label
 
@@ -289,9 +290,11 @@ spec:
           llm-d.ai/variant: llama-70b-autoscaler   # must match the VariantAutoscaling name
 ```
 
-#### 2. Patch the ServiceMonitor or PodMonitor to propagate the label
+#### 2. (Optional) Propagate the label into metric series
 
-The `llm-d.ai/variant` pod label must flow through Prometheus target relabeling into the scraped metric series as `llm_d_ai_variant`. Add the following relabeling rule to the `endpoints[].relabelings` section of your `ServiceMonitor`, or to the `podMetricsEndpoints[].relabelings` section of your `PodMonitor`:
+> This step is **not required for WVA attribution** — WVA reads the `llm-d.ai/variant` label from the pod object, not from the metric series. Apply it only if you want the `llm_d_ai_variant` label on the scraped metric series for your own PromQL queries or dashboards.
+
+To make the `llm-d.ai/variant` pod label flow through Prometheus target relabeling into the scraped metric series as `llm_d_ai_variant`, add the following relabeling rule to the `endpoints[].relabelings` section of your `ServiceMonitor`, or to the `podMetricsEndpoints[].relabelings` section of your `PodMonitor`:
 
 ```yaml
 # ServiceMonitor patch
@@ -315,9 +318,7 @@ spec:
 
 > **Important**: This rule must live under `relabelings` (target relabeling), **not** `metricRelabelings` (metric relabeling). The `__meta_kubernetes_pod_label_*` labels are only available during target relabeling and are stripped before metric relabeling runs.
 
-WVA uses the `llm_d_ai_variant` metric label to associate per-pod metrics with the correct `VariantAutoscaling` resource.
-
-If the pod label or the relabeling rule is absent, WVA will not collect metrics for the affected pods and scaling decisions for that variant will not be made.
+If the `llm-d.ai/variant` pod label is absent (or carries the wrong value), WVA cannot attribute the affected pods to a `VariantAutoscaling` and scaling decisions for that variant will not be made.
 
 ## Best Practices
 
@@ -363,12 +364,16 @@ kubectl logs -n workload-variant-autoscaler-system deployment/controller-manager
 
 **Symptom**: WVA is running and the VA exists, but no scaling decisions are produced for a specific variant (e.g., `wva_desired_replicas` has no series for that variant).
 
-**Likely causes**:
-- The `llm-d.ai/variant` pod label is missing or has the wrong value on the scale target's pod template.
-- The ServiceMonitor or PodMonitor that scrapes those pods is missing the relabeling rule that propagates `llm-d.ai/variant` → `llm_d_ai_variant`.
+**Likely cause**:
+- The `llm-d.ai/variant` pod label is missing or has the wrong value on the scale target's pod template (it must equal the `VariantAutoscaling` resource name). WVA attributes pods to a VA by reading this label from the pod object, so without it no metrics are attributed to the variant.
+
+**Quick signal**: WVA emits a `Warning` event with reason `UnattributedReadyPods` on the VA when the scale target has Ready pods but none are attributed. Run `kubectl describe va <name>` to surface it directly.
 
 **Diagnosis**:
 ```bash
+# Check the VA events for UnattributedReadyPods
+kubectl describe va <va-name> -n <namespace> | grep -A3 UnattributedReadyPods
+
 # Verify the label is present on live pods
 kubectl get pods -n <namespace> -l llm-d.ai/variant=<va-name>
 
@@ -380,35 +385,18 @@ kubectl get deployment <name> -n <namespace> \
 kubectl get lws <name> -n <namespace> \
   -o jsonpath='{.spec.leaderWorkerTemplate.workerTemplate.metadata.labels.llm-d\.ai/variant}'
 
-# Confirm the label flows through to Prometheus metrics
-# (replace <va-name> with the VariantAutoscaling resource name)
+# Confirm the per-replica vLLM metrics are scraped for those pods
+# (attribution is by pod label, so the metric series need not carry llm_d_ai_variant)
 curl -G 'http://<prometheus>/api/v1/query' \
-  --data-urlencode 'query=vllm:num_requests_running{llm_d_ai_variant="<va-name>"}'
-
-# If the query returns no results, check the ServiceMonitor for the relabeling rule
-kubectl get servicemonitor <name> -n <monitoring-namespace> -o yaml | grep -A5 relabeling
+  --data-urlencode 'query=vllm:num_requests_running{namespace="<namespace>"}'
 ```
 
-**Solution 1 — missing pod label**: Add the label to the pod template and roll out the workload.
+**Solution — missing pod label**: Add the label to the pod template and roll out the workload.
 
 ```bash
 kubectl patch deployment <name> -n <namespace> \
   --type=merge \
   -p '{"spec":{"template":{"metadata":{"labels":{"llm-d.ai/variant":"<va-name>"}}}}}'
-```
-
-**Solution 2 — missing relabeling rule**: Patch the ServiceMonitor (or PodMonitor) to add the rule that propagates the pod label into Prometheus metrics.
-
-```bash
-# For a ServiceMonitor — patch the first endpoint's relabelings
-kubectl patch servicemonitor <name> -n <monitoring-namespace> \
-  --type=json \
-  -p '[{"op":"add","path":"/spec/endpoints/0/relabelings/-","value":{"sourceLabels":["__meta_kubernetes_pod_label_llm_d_ai_variant"],"targetLabel":"llm_d_ai_variant","action":"replace"}}]'
-
-# For a PodMonitor — patch the first podMetricsEndpoint's relabelings
-kubectl patch podmonitor <name> -n <monitoring-namespace> \
-  --type=json \
-  -p '[{"op":"add","path":"/spec/podMetricsEndpoints/0/relabelings/-","value":{"sourceLabels":["__meta_kubernetes_pod_label_llm_d_ai_variant"],"targetLabel":"llm_d_ai_variant","action":"replace"}}]'
 ```
 
 ### Metrics Not Available

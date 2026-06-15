@@ -19,12 +19,14 @@ package collector
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,9 +34,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	llmdVariantAutoscalingV1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/registration"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/constants"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/metrics"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils/scaletarget"
 )
 
@@ -186,7 +190,7 @@ func TestCollectReplicaMetrics_ErrorRecordsEvent(t *testing.T) {
 	collector := NewReplicaMetricsCollector(mockSource, nil, fakeRecorder)
 
 	// First call with error: no event (first observation, unknown previous state)
-	metrics, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	metrics, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.Error(t, err, "Should return error when refresh fails")
 	require.Nil(t, metrics, "Should return nil metrics on error")
 
@@ -198,7 +202,7 @@ func TestCollectReplicaMetrics_ErrorRecordsEvent(t *testing.T) {
 	}
 
 	// Second call: metrics still fail, should NOT emit event (no state transition)
-	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.Error(t, err, "Should still return error")
 
 	select {
@@ -244,7 +248,7 @@ func TestCollectReplicaMetrics_NoMetricsRecordsEvent(t *testing.T) {
 	collector := NewReplicaMetricsCollector(mockSource, nil, fakeRecorder)
 
 	// First call: no metrics, should NOT emit event (first observation, unknown previous state)
-	metrics, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	metrics, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err, "Should not return error when no metrics available")
 	require.Empty(t, metrics, "Should return empty metrics slice")
 
@@ -256,7 +260,7 @@ func TestCollectReplicaMetrics_NoMetricsRecordsEvent(t *testing.T) {
 	}
 
 	// Second call: still no metrics, should NOT emit event (no state transition)
-	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err, "Should not return error")
 
 	select {
@@ -267,7 +271,7 @@ func TestCollectReplicaMetrics_NoMetricsRecordsEvent(t *testing.T) {
 	}
 
 	// Third call: still no metrics, should NOT emit event (no state transition)
-	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err, "Should not return error")
 
 	select {
@@ -319,7 +323,7 @@ func TestCollectReplicaMetrics_EdgeTriggeredEvents(t *testing.T) {
 	collector := NewReplicaMetricsCollector(mockSource, nil, fakeRecorder)
 
 	// First call: metrics unavailable, should NOT emit event (first observation, unknown previous state)
-	_, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err := collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err)
 
 	select {
@@ -330,7 +334,7 @@ func TestCollectReplicaMetrics_EdgeTriggeredEvents(t *testing.T) {
 	}
 
 	// Second call: metrics still unavailable, should NOT emit event (no state transition)
-	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err)
 
 	select {
@@ -341,7 +345,7 @@ func TestCollectReplicaMetrics_EdgeTriggeredEvents(t *testing.T) {
 	}
 
 	// Third call: still unavailable, should NOT emit event
-	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts)
+	_, err = collector.CollectReplicaMetrics(ctx, "test-model", "default", scaleTargets, variantAutoscalings, nil, variantCosts, nil)
 	require.NoError(t, err)
 
 	select {
@@ -388,6 +392,7 @@ func TestCollectReplicaMetrics_MetricsObservation(t *testing.T) {
 		make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
 		nil,
 		make(map[string]float64),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("CollectReplicaMetrics failed: %v", err)
@@ -499,6 +504,7 @@ func TestCollectReplicaMetrics_ErrorMetrics(t *testing.T) {
 		make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
 		nil,
 		make(map[string]float64),
+		nil,
 	)
 	if err == nil {
 		t.Fatal("Expected error but got nil")
@@ -558,4 +564,249 @@ func TestCollectReplicaMetrics_ErrorMetrics(t *testing.T) {
 			t.Errorf("Expected error metric for query_type=%s but was not found", queryType)
 		}
 	}
+}
+
+// TestCollectReplicaMetrics_ThroughputKeyMerge is the regression guard for the
+// latent key-mismatch where the throughput-analyzer loops keyed podData by the
+// bare pod name while every other query keyed by the instance key (pod:port).
+// A KV-cache sample and a generation-token-rate sample for the same replica
+// (same instance + pod labels) must now merge into a single ReplicaMetrics
+// entry carrying both KvCacheUsage and GenerationTokenRate.
+func TestCollectReplicaMetrics_ThroughputKeyMerge(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	if err := metrics.InitMetrics(registry); err != nil {
+		t.Fatalf("InitMetrics: %v", err)
+	}
+
+	// Same replica identity on both samples → same instance key (pod-merge:8000).
+	identity := map[string]string{
+		"pod":      "pod-merge",
+		"instance": "10.0.0.7:8000",
+	}
+
+	attributor, k8sClient := attributorWithPods(t, labeledPod("pod-merge", "merge-va"))
+
+	mockSource := &mockMetricsSource{
+		refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+			return map[string]*source.MetricResult{
+				registration.QueryKvCacheUsage: {
+					Values: []source.MetricValue{
+						{Labels: identity, Value: 0.42, Timestamp: time.Now()},
+					},
+				},
+				registration.QueryGenerationTokenRate: {
+					Values: []source.MetricValue{
+						{Labels: identity, Value: 123.0, Timestamp: time.Now()},
+					},
+				},
+			}, nil
+		},
+	}
+
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient, nil)
+	results, err := collector.CollectReplicaMetrics(
+		context.Background(),
+		"test-model",
+		attribTestNS,
+		make(map[string]scaletarget.ScaleTargetAccessor),
+		make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
+		nil,
+		make(map[string]float64),
+		attributor,
+	)
+	if err != nil {
+		t.Fatalf("CollectReplicaMetrics: %v", err)
+	}
+
+	require.Len(t, results, 1, "KV and generation-token-rate samples for the same replica must merge into one entry")
+	got := results[0]
+	assert.Equal(t, "merge-va", got.VariantName)
+	assert.Greater(t, got.KvCacheUsage, 0.0, "KvCacheUsage should be populated from the KV sample")
+	assert.Equal(t, 123.0, got.GenerationTokenRate, "GenerationTokenRate should be populated from the throughput sample on the merged entry")
+}
+
+// deploymentWithReady builds a minimal Deployment accessor with the given
+// ReadyReplicas count — sufficient for GetStatusReadyReplicas() in tests.
+func deploymentWithReady(name string, ready int32) scaletarget.ScaleTargetAccessor {
+	return scaletarget.NewDeploymentAccessor(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: attribTestNS},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: ready},
+	})
+}
+
+// vaWithDeployment builds a minimal VariantAutoscaling pointing at the named
+// Deployment in attribTestNS.
+func vaWithDeployment(vaName, deployName string) *llmdVariantAutoscalingV1alpha1.VariantAutoscaling {
+	return &llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+		ObjectMeta: metav1.ObjectMeta{Name: vaName, Namespace: attribTestNS},
+		Spec: llmdVariantAutoscalingV1alpha1.VariantAutoscalingSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "Deployment", Name: deployName},
+			ModelID:        "test-model",
+		},
+	}
+}
+
+// TestCollectReplicaMetrics_UnattributedReadyPods verifies the R2 warning path:
+// when a VA has Ready pods but none are attributed to it this cycle (while
+// another VA did get attributed replicas), a K8s Warning Event with reason
+// UnattributedReadyPods is emitted for the unattributed VA and not for the
+// attributed one.
+func TestCollectReplicaMetrics_UnattributedReadyPods(t *testing.T) {
+	const (
+		ns          = attribTestNS
+		vaAName     = "va-a"
+		vaBName     = "va-b"
+		deployAName = "deploy-a"
+		deployBName = "deploy-b"
+	)
+
+	registry := prometheus.NewRegistry()
+	require.NoError(t, metrics.InitMetrics(registry))
+
+	// VA-A has a ready pod that IS attributed (pod-a labeled with va-a).
+	// VA-B has a ready pod that is NOT attributed (no pod carries va-b label).
+	vaA := vaWithDeployment(vaAName, deployAName)
+	vaB := vaWithDeployment(vaBName, deployBName)
+
+	variantAutoscalings := map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+		utils.GetNamespacedKey(ns, vaAName): vaA,
+		utils.GetNamespacedKey(ns, vaBName): vaB,
+	}
+	scaleTargets := map[string]scaletarget.ScaleTargetAccessor{
+		utils.GetNamespacedKey(ns, deployAName): deploymentWithReady(deployAName, 1),
+		utils.GetNamespacedKey(ns, deployBName): deploymentWithReady(deployBName, 1),
+	}
+
+	// Source returns a KV-cache sample attributed to VA-A only.
+	attributor, k8sClient := attributorWithPods(t, labeledPod("pod-a", vaAName))
+	mockSource := &mockMetricsSource{
+		refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+			return map[string]*source.MetricResult{
+				registration.QueryKvCacheUsage: {
+					Values: []source.MetricValue{
+						{
+							Labels:    map[string]string{"pod": "pod-a", "instance": "10.0.0.1:8000"},
+							Value:     0.5,
+							Timestamp: time.Now(),
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	fakeRecorder := record.NewFakeRecorder(10)
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient, fakeRecorder)
+
+	results, err := collector.CollectReplicaMetrics(
+		context.Background(), "test-model", ns,
+		scaleTargets, variantAutoscalings, make(map[string]bool),
+		make(map[string]float64), attributor,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, results, "expected at least one attributed replica")
+
+	// Drain the event channel and look for UnattributedReadyPods events.
+	var gotEvents []string
+	for {
+		select {
+		case e := <-fakeRecorder.Events:
+			gotEvents = append(gotEvents, e)
+		default:
+			goto done
+		}
+	}
+done:
+
+	var unattribEvents []string
+	for _, e := range gotEvents {
+		if strings.Contains(e, constants.K8SEventUnattributedReadyPods) {
+			unattribEvents = append(unattribEvents, e)
+		}
+	}
+	require.Len(t, unattribEvents, 1, "expected exactly one UnattributedReadyPods event (for VA-B)")
+	assert.Contains(t, unattribEvents[0], vaBName, "event should name VA-B")
+	for _, e := range gotEvents {
+		if strings.Contains(e, constants.K8SEventUnattributedReadyPods) {
+			assert.NotContains(t, e, vaAName, "no UnattributedReadyPods event expected for attributed VA-A")
+		}
+	}
+}
+
+// TestCollectReplicaMetrics_UnattributedReadyPods_Negatives covers the two
+// gate conditions that suppress the event.
+func TestCollectReplicaMetrics_UnattributedReadyPods_Negatives(t *testing.T) {
+	const (
+		ns          = attribTestNS
+		vaBName     = "va-b"
+		deployBName = "deploy-b"
+	)
+
+	vaB := vaWithDeployment(vaBName, deployBName)
+	variantAutoscalings := map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+		utils.GetNamespacedKey(ns, vaBName): vaB,
+	}
+
+	t.Run("ready==0, no event", func(t *testing.T) {
+		registry := prometheus.NewRegistry()
+		require.NoError(t, metrics.InitMetrics(registry))
+
+		// VA-A attributed so len(replicaMetrics)>0, but VA-B has ready=0.
+		vaA := vaWithDeployment("va-a", "deploy-a")
+		vas := map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling{
+			utils.GetNamespacedKey(ns, "va-a"):  vaA,
+			utils.GetNamespacedKey(ns, vaBName): vaB,
+		}
+		sts := map[string]scaletarget.ScaleTargetAccessor{
+			utils.GetNamespacedKey(ns, "deploy-a"):  deploymentWithReady("deploy-a", 1),
+			utils.GetNamespacedKey(ns, deployBName): deploymentWithReady(deployBName, 0), // ready=0
+		}
+		attributor, k8sClient := attributorWithPods(t, labeledPod("pod-a", "va-a"))
+		mockSource := &mockMetricsSource{
+			refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+				return map[string]*source.MetricResult{
+					registration.QueryKvCacheUsage: {Values: []source.MetricValue{
+						{Labels: map[string]string{"pod": "pod-a", "instance": "10.0.0.1:8000"}, Value: 0.5, Timestamp: time.Now()},
+					}},
+				}, nil
+			},
+		}
+		fakeRecorder := record.NewFakeRecorder(10)
+		col := NewReplicaMetricsCollector(mockSource, k8sClient, fakeRecorder)
+		_, err := col.CollectReplicaMetrics(context.Background(), "test-model", ns,
+			sts, vas, make(map[string]bool), make(map[string]float64), attributor)
+		require.NoError(t, err)
+		select {
+		case e := <-fakeRecorder.Events:
+			assert.NotContains(t, e, constants.K8SEventUnattributedReadyPods,
+				"ready=0 must not emit UnattributedReadyPods")
+		default:
+		}
+	})
+
+	t.Run("model-wide no metrics, no event", func(t *testing.T) {
+		registry := prometheus.NewRegistry()
+		require.NoError(t, metrics.InitMetrics(registry))
+
+		sts := map[string]scaletarget.ScaleTargetAccessor{
+			utils.GetNamespacedKey(ns, deployBName): deploymentWithReady(deployBName, 2),
+		}
+		attributor, k8sClient := attributorWithPods(t) // no pods → no attributions
+		mockSource := &mockMetricsSource{
+			refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+				return make(map[string]*source.MetricResult), nil // empty → len==0
+			},
+		}
+		fakeRecorder := record.NewFakeRecorder(10)
+		col := NewReplicaMetricsCollector(mockSource, k8sClient, fakeRecorder)
+		_, err := col.CollectReplicaMetrics(context.Background(), "test-model", ns,
+			sts, variantAutoscalings, make(map[string]bool), make(map[string]float64), attributor)
+		require.NoError(t, err)
+		select {
+		case e := <-fakeRecorder.Events:
+			assert.NotContains(t, e, constants.K8SEventUnattributedReadyPods,
+				"model-wide empty metrics must not emit UnattributedReadyPods")
+		default:
+		}
+	})
 }

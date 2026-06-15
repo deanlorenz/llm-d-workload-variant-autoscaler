@@ -455,6 +455,9 @@ func main() {
 			sourceRegistry,
 			cfg, // Pass unified Config to engine
 		)
+		// Uncached reader for the per-cycle variant-label pod LIST used by VA
+		// attribution, so no Pod informer/cache is started for it.
+		engine.APIReader = mgr.GetAPIReader()
 		go engine.StartOptimizeLoop(ctx)
 		return nil
 	}))

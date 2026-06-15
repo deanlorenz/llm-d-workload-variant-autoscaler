@@ -22,95 +22,130 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	llmdVariantAutoscalingV1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/attribution"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/constants"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/metrics"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils/scaletarget"
 )
 
-// buildInstanceKeyTestCase drives a single call through CollectReplicaMetrics with
-// a source that returns exactly one KV-cache sample, then checks that the resulting
-// ReplicaMetrics carries the expected vaName (or none when the label is absent).
-type buildInstanceKeyTestCase struct {
-	name        string
-	labels      map[string]string
-	wantVAName  string
-	wantSkipped bool // true when buildInstanceKey returns ("","","") → no entry produced
+const attribTestNS = "test-ns"
+
+// labeledPod builds a pod carrying the llm-d.ai/variant label — the source the
+// default Attributor reads VA attribution from.
+func labeledPod(name, vaName string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: attribTestNS,
+			Name:      name,
+			Labels:    map[string]string{constants.VariantLabelKey: vaName},
+		},
+	}
 }
 
-var buildInstanceKeyTestCases = []buildInstanceKeyTestCase{
+// attributorWithPods builds a fake client seeded with the given pods and the
+// default label Attributor over attribTestNS. The same client is returned so
+// callers can hand it to NewReplicaMetricsCollector.
+func attributorWithPods(t *testing.T, pods ...*corev1.Pod) (attribution.Attributor, client.Client) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := llmdVariantAutoscalingV1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme (VA): %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme (corev1): %v", err)
+	}
+	builder := fake.NewClientBuilder().WithScheme(scheme)
+	for _, p := range pods {
+		builder = builder.WithObjects(p)
+	}
+	c := builder.Build()
+	a, err := attribution.BuildLabelAttributor(context.Background(), c, []string{attribTestNS})
+	if err != nil {
+		t.Fatalf("BuildLabelAttributor: %v", err)
+	}
+	return a, c
+}
+
+// attribTestCase drives a single KV-cache sample (replica identity only — the
+// metric carries no variant label) through CollectReplicaMetrics together with
+// an Attributor built from the seeded pods, then checks the resulting
+// ReplicaMetrics carries the expected VariantName (or that the pod is skipped
+// when attribution fails).
+type attribTestCase struct {
+	name        string
+	labels      map[string]string // identity labels on the metric sample
+	pods        []*corev1.Pod     // pods seeding the label attributor
+	wantVAName  string
+	wantSkipped bool
+}
+
+var attribTestCases = []attribTestCase{
 	{
-		name: "pod label present – vaName propagated",
+		name: "pod label present, pod attributed – VariantName from attributor",
 		labels: map[string]string{
-			"pod":                               "pod-abc",
-			"instance":                          "10.0.0.1:8000",
-			constants.VariantLabelPrometheusKey: "my-va",
+			"pod":      "pod-abc",
+			"instance": "10.0.0.1:8000",
 		},
+		pods:       []*corev1.Pod{labeledPod("pod-abc", "my-va")},
 		wantVAName: "my-va",
 	},
 	{
-		name: "pod_name fallback – vaName propagated",
+		name: "pod_name fallback, pod attributed – VariantName from attributor",
 		labels: map[string]string{
-			"pod_name":                          "pod-xyz",
-			"instance":                          "10.0.0.2:8000",
-			constants.VariantLabelPrometheusKey: "other-va",
+			"pod_name": "pod-xyz",
+			"instance": "10.0.0.2:8000",
 		},
+		pods:       []*corev1.Pod{labeledPod("pod-xyz", "other-va")},
 		wantVAName: "other-va",
 	},
 	{
-		// Pods without llm_d_ai_variant are skipped at line 669 of replica_metrics.go
-		// ("Skipping pod that doesn't match any scale target"), so no ReplicaMetrics is produced.
-		name: "llm_d_ai_variant label absent – pod skipped, no result",
+		// The metric resolves to a replica identity, but no pod with the variant
+		// label backs it, so attribution yields nothing and the pod is skipped.
+		name: "pod identity present but not attributed – pod skipped",
 		labels: map[string]string{
-			"pod":      "pod-no-variant",
+			"pod":      "pod-unmapped",
 			"instance": "10.0.0.3:8000",
 		},
+		pods:        nil,
 		wantSkipped: true,
 	},
 	{
-		// Same: empty string is treated the same as missing.
-		name: "llm_d_ai_variant label empty string – pod skipped, no result",
+		name: "no pod identity labels – entry skipped before attribution",
 		labels: map[string]string{
-			"pod":                               "pod-empty-variant",
-			"instance":                          "10.0.0.4:8000",
-			constants.VariantLabelPrometheusKey: "",
+			"foo": "bar",
 		},
+		pods:        []*corev1.Pod{labeledPod("pod-abc", "my-va")},
 		wantSkipped: true,
 	},
 	{
-		name: "no pod identity labels – entry skipped entirely",
+		// instance-only metrics carry no pod name, so there is no pod identity to
+		// attribute against — the pod is skipped even though a labeled pod exists.
+		name: "instance-only (no pod name) – not attributable, skipped",
 		labels: map[string]string{
-			constants.VariantLabelPrometheusKey: "irrelevant",
+			"instance": "10.0.0.5:8000",
 		},
+		pods:        []*corev1.Pod{labeledPod("pod-abc", "my-va")},
 		wantSkipped: true,
-	},
-	{
-		name: "instance-only (no pod name) – instance used as key, vaName propagated",
-		labels: map[string]string{
-			"instance":                          "10.0.0.5:8000",
-			constants.VariantLabelPrometheusKey: "instance-va",
-		},
-		wantVAName: "instance-va",
 	},
 }
 
-func TestBuildInstanceKey_VANameExtraction(t *testing.T) {
-	for _, tc := range buildInstanceKeyTestCases {
+func TestCollectReplicaMetrics_Attribution(t *testing.T) {
+	for _, tc := range attribTestCases {
 		t.Run(tc.name, func(t *testing.T) {
 			registry := prometheus.NewRegistry()
 			if err := metrics.InitMetrics(registry); err != nil {
 				t.Fatalf("InitMetrics: %v", err)
 			}
 
-			scheme := runtime.NewScheme()
-			if err := llmdVariantAutoscalingV1alpha1.AddToScheme(scheme); err != nil {
-				t.Fatalf("AddToScheme: %v", err)
-			}
-			k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			attributor, k8sClient := attributorWithPods(t, tc.pods...)
 
 			mockSource := &mockMetricsSource{
 				refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
@@ -132,11 +167,12 @@ func TestBuildInstanceKey_VANameExtraction(t *testing.T) {
 			results, err := collector.CollectReplicaMetrics(
 				context.Background(),
 				"test-model",
-				"test-ns",
+				attribTestNS,
 				make(map[string]scaletarget.ScaleTargetAccessor),
 				make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
 				nil,
 				make(map[string]float64),
+				attributor,
 			)
 			if err != nil {
 				t.Fatalf("CollectReplicaMetrics: %v", err)
