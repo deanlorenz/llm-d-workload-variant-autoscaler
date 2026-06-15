@@ -319,6 +319,96 @@ func computeCurrentGPUUsage(requests []pipeline.ModelScalingRequest) map[string]
 	return usage
 }
 
+// logDecisionSummary emits one "saturation cycle summary" INFO line per model,
+// combining per-variant capacity data from the saturation analyzer result with
+// the optimizer's per-variant decisions.
+func logDecisionSummary(
+	ctx context.Context,
+	modelRequests []pipeline.ModelScalingRequest,
+	decisions []interfaces.VariantDecision,
+) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	type decKey struct{ ns, model, variant string }
+	decMap := make(map[decKey]interfaces.VariantDecision, len(decisions))
+	for _, d := range decisions {
+		decMap[decKey{d.Namespace, d.ModelID, d.VariantName}] = d
+	}
+
+	for _, req := range modelRequests {
+		var satResult *interfaces.AnalyzerResult
+		for _, nr := range req.AnalyzerResults {
+			if nr.Name == interfaces.SaturationAnalyzerName {
+				satResult = nr.Result
+				break
+			}
+		}
+		if satResult == nil {
+			continue
+		}
+
+		type analyzerSignal struct {
+			Name string  `json:"name"`
+			RC   float64 `json:"rc"`
+			SC   float64 `json:"sc"`
+		}
+		signals := make([]analyzerSignal, 0, len(req.AnalyzerResults))
+		for _, nr := range req.AnalyzerResults {
+			if nr.Result == nil {
+				continue
+			}
+			signals = append(signals, analyzerSignal{
+				Name: nr.Name,
+				RC:   nr.Result.RequiredCapacity,
+				SC:   nr.Result.SpareCapacity,
+			})
+		}
+
+		type variantSummary struct {
+			Name         string  `json:"name"`
+			K1           int64   `json:"k1"`
+			K2           int64   `json:"k2"`
+			K2Source     string  `json:"k2Source"`
+			Cost         float64 `json:"cost"`
+			PRC          float64 `json:"prc"`
+			Eff          float64 `json:"eff"`
+			CurrReplicas int     `json:"currReplicas"`
+			TgtReplicas  int     `json:"tgtReplicas"`
+			Action       string  `json:"action"`
+		}
+
+		summaries := make([]variantSummary, 0, len(satResult.VariantCapacities))
+		for _, vc := range satResult.VariantCapacities {
+			d := decMap[decKey{req.Namespace, req.ModelID, vc.VariantName}]
+			var eff float64
+			if vc.PerReplicaCapacity > 0 {
+				eff = vc.Cost / vc.PerReplicaCapacity
+			}
+			summaries = append(summaries, variantSummary{
+				Name:         vc.VariantName,
+				K1:           vc.MedianK1,
+				K2:           vc.MedianK2,
+				K2Source:     vc.K2SourceLabel,
+				Cost:         vc.Cost,
+				PRC:          vc.PerReplicaCapacity,
+				Eff:          eff,
+				CurrReplicas: d.CurrentReplicas,
+				TgtReplicas:  d.TargetReplicas,
+				Action:       string(d.Action),
+			})
+		}
+
+		logger.Info("saturation cycle summary",
+			"model", req.Namespace+"/"+req.ModelID,
+			"totalSupply", satResult.TotalSupply,
+			"totalDemand", satResult.TotalDemand,
+			"utilization", satResult.Utilization,
+			"analyzerSignals", signals,
+			"variants", summaries,
+		)
+	}
+}
+
 // collectV2ModelRequest performs V2 analysis for a single model and returns
 // a ModelScalingRequest for the optimizer, or nil if analysis should be skipped.
 func (e *Engine) collectV2ModelRequest(

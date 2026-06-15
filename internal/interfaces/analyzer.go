@@ -137,6 +137,12 @@ type VariantCapacity struct {
 	// For saturation V2: median(effectiveCapacity) in tokens across ready replicas.
 	PerReplicaCapacity float64
 
+	// Per-variant capacity detail set by the saturation V2 analyzer.
+	// Zero for all other analyzers.
+	MedianK1      int64  // median memory-bound capacity per replica (tokens)
+	MedianK2      int64  // median compute-bound capacity per replica (tokens)
+	K2SourceLabel string // how k2 was computed: "P1-obs","P2-hist","P3-deriv","P4-k1"
+
 	// TotalCapacity is ReplicaCount × PerReplicaCapacity.
 	TotalCapacity float64
 

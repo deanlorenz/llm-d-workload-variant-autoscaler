@@ -832,6 +832,7 @@ func (e *Engine) optimizeV2(
 		}
 	}
 	allDecisions := e.optimizer.Optimize(ctx, requests, constraints)
+	logDecisionSummary(ctx, requests, allDecisions)
 
 	logger.Info("V2 optimizer produced decisions",
 		"optimizer", e.optimizer.Name(),
