@@ -199,32 +199,6 @@ func effectiveEnabled(analyzerName string, cfg config.SaturationScalingConfig) b
 	return true
 }
 
-// runRegisteredAnalyzers invokes Analyze on every registered non-saturation
-// analyzer in registration order, reading from the frozen analyzersSnapshot
-// built by StartOptimizeLoop. For each result the universal threshold post-step
-// is applied using per-analyzer config overrides where set (falling back to the
-// model-level globals). Results are discarded on this branch — combine logic
-// lands in follow-up PRs. Saturation is skipped; it runs via runV2AnalysisOnly.
-func (e *Engine) runRegisteredAnalyzers(
-	ctx context.Context,
-	logger logr.Logger,
-	modelID string,
-	input interfaces.AnalyzerInput,
-	cfg config.SaturationScalingConfig,
-) {
-	for _, entry := range e.analyzersSnapshot {
-		if entry.name == interfaces.SaturationAnalyzerName {
-			continue
-		}
-		result := runRegisteredAnalyzer(ctx, logger, entry, modelID, input)
-		if result != nil {
-			up, down := resolveThresholds(entry.name, cfg)
-			applyUniversalThreshold(result, up, down)
-		}
-		// result discarded: optimizer receives only saturation on this branch
-	}
-}
-
 // runRegisteredAnalyzer invokes a single non-saturation analyzer's Analyze
 // method, isolating the call from the rest of the cycle. Errors are logged
 // and nil is returned; panics are recovered and logged. Returns the result

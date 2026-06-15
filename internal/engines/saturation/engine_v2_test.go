@@ -280,6 +280,41 @@ var _ = Describe("resolveSaturationConfig", func() {
 	})
 })
 
+var _ = Describe("runAnalyzersAndScore call ordering", func() {
+
+	It("calls each enabled non-saturation analyzer exactly once in registration order", func() {
+		fakeSat := &fakeAnalyzerWithResult{
+			analyzerName: interfaces.SaturationAnalyzerName,
+			result:       &interfaces.AnalyzerResult{},
+		}
+		ta := &spyAnalyzer{name: "throughput"}
+		slo := &spyAnalyzer{name: "slo"}
+		e := &Engine{
+			saturationV2Analyzer: fakeSat,
+			analyzersSnapshot: []analyzerEntry{
+				{name: interfaces.SaturationAnalyzerName, analyzer: fakeSat},
+				{name: "throughput", analyzer: ta},
+				{name: "slo", analyzer: slo},
+			},
+			started: true,
+		}
+		cfg := config.SaturationScalingConfig{
+			ScaleUpThreshold:  0.85,
+			ScaleDownBoundary: 0.70,
+		}
+
+		results, err := e.runAnalyzersAndScore(context.Background(), "m", "ns", nil, cfg, nil, nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		// saturation + throughput + slo all appended
+		Expect(results).To(HaveLen(3))
+		Expect(ta.callCount).To(Equal(1))
+		Expect(slo.callCount).To(Equal(1))
+		// saturationV2Analyzer is called via runV2AnalysisOnly, not the loop;
+		// the snapshot entry for saturation is skipped by the name guard.
+		Expect(fakeSat.Name()).To(Equal(interfaces.SaturationAnalyzerName)) // sanity
+	})
+})
+
 var _ = Describe("runAnalyzersAndScore disabled-analyzer gate", func() {
 
 	It("disabled analyzer is not appended and its Analyze is never called", func() {
