@@ -743,3 +743,58 @@ func TestCollectReplicaMetrics_UnattributedReadyPodsEvent(t *testing.T) {
 		// Expected: no second event
 	}
 }
+
+// TestCollectReplicaMetrics_ThroughputOrphanSkipped verifies that a throughput
+// query result for an instance that has no KV-cache entry (scrape skew or
+// throughput-only pod) does not create an orphan podData entry and does not
+// appear in the assembled ReplicaMetrics slice.
+func TestCollectReplicaMetrics_ThroughputOrphanSkipped(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	require.NoError(t, metrics.InitMetrics(registry))
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, llmdVariantAutoscalingV1alpha1.AddToScheme(scheme))
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	// KV-cache: only pod-known at 10.0.0.1:8000.
+	kvLabels := map[string]string{
+		"pod":                               "pod-known",
+		"instance":                          "10.0.0.1:8000",
+		constants.VariantLabelPrometheusKey: "va-1",
+	}
+	// Throughput: pod-orphan at 10.0.0.2:8000 — NOT in the KV query results.
+	orphanLabels := map[string]string{
+		"pod":                               "pod-orphan",
+		"instance":                          "10.0.0.2:8000",
+		constants.VariantLabelPrometheusKey: "va-1",
+	}
+	ts := time.Now()
+
+	mockSource := &mockMetricsSource{
+		refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+			return map[string]*source.MetricResult{
+				"kv_cache_usage": {
+					Values: []source.MetricValue{{Labels: kvLabels, Value: 0.5, Timestamp: ts}},
+				},
+				"generation_token_rate": {
+					Values: []source.MetricValue{{Labels: orphanLabels, Value: 1000.0, Timestamp: ts}},
+				},
+			}, nil
+		},
+	}
+
+	collector := NewReplicaMetricsCollector(mockSource, k8sClient, nil, nil)
+	results, err := collector.CollectReplicaMetrics(
+		context.Background(), "test-model", "test-ns",
+		make(map[string]scaletarget.ScaleTargetAccessor),
+		make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
+		nil,
+		make(map[string]float64),
+	)
+	require.NoError(t, err)
+
+	// Only pod-known should be present; pod-orphan must be skipped.
+	require.Len(t, results, 1, "orphan throughput-only pod must not produce a ReplicaMetrics entry")
+	assert.Equal(t, "pod-known", results[0].PodName)
+	assert.Equal(t, float64(0), results[0].GenerationTokenRate, "orphan entry must not contaminate pod-known")
+}

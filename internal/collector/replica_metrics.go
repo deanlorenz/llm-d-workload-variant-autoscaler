@@ -699,7 +699,7 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 					continue
 				}
 				if podData[instanceKey] == nil {
-					podData[instanceKey] = &podMetricData{}
+					continue // skip pods the KV/queue queries didn't see (scrape skew)
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
 					podData[instanceKey].generationTokenRate = value.Value
@@ -717,7 +717,7 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 					continue
 				}
 				if podData[instanceKey] == nil {
-					podData[instanceKey] = &podMetricData{}
+					continue // skip pods the KV/queue queries didn't see (scrape skew)
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 && value.Value <= 1 {
 					podData[instanceKey].kvUsageInstant = value.Value
@@ -735,7 +735,7 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 					continue
 				}
 				if podData[instanceKey] == nil {
-					podData[instanceKey] = &podMetricData{}
+					continue // skip pods the KV/queue queries didn't see (scrape skew)
 				}
 				if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
 					podData[instanceKey].vllmRequestRate = value.Value
