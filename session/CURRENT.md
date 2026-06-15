@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-16 (post-push)
+**Last updated:** 2026-06-16
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -11,7 +11,7 @@
 **Active (full abstracts):**
 
 - **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into #1250 rebase or standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
-- **2026-06-12 — PR #1266 opened** (`multi-analyzer-addendum`, tip `0eeb659c`). Addendum to #1246: disabled-analyzer veto bug fix (`effectiveEnabled` helper — `Enabled:false` was parsed but not checked at runtime, causing zero-SpareCapacity veto of scale-down), config-bridge + non-uniform Score tests, full rewrite of `docs/developer-guide/multi-analyzer-pipeline.md` (architecture diagram, data model, optimizer internals). Reviewer: ev-shindin. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md).
+- **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite + `runRegisteredAnalyzers` dead-code removal. Follow-up: `effectiveEnabled` opt-in fix (absent entry → false) — plan at [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 - **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
 - **2026-06-16 — TA3 rebased onto `main@04f95779` + pushed** (`b0284253`, 28 commits). Bug A (throughput key-mismatch, method form), Bug B (comment items), Bug C (UnattributedReadyPods event fold-in from #1275). All gates green. Awaiting CI + ev-shindin re-review. Review: [`planning/PR1250-review.md`](../planning/PR1250-review.md).
 - **2026-06-11 — PR #1250 Bug A + Bug B fixed.** Bug A: throughput metrics always-zero (key-mismatch in `replica_metrics.go` + missing `instance`/`llm_d_ai_variant` in 3 queries). Bug B: 3 comment items in `analyzer.go`. Test `TestCollectReplicaMetrics_ThroughputKeyMerge` added. [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) filed.
@@ -46,7 +46,7 @@
 | (upstream) role-aware scale-down | #1237 | **MERGED** 2026-06-08 (`badc48be` on main) | `badc48be` |
 | multi-analyzer-optimizer | #1246 | **MERGED** 2026-06-10 (`09e1c386` on main). ev-shindin approved; 2 follow-up items in Issues to Open. | `ad1a8e1e` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
-| multi-analyzer-addendum | #1266 | **PR #1266 OPEN** (base `main`, reviewer ev-shindin) 2026-06-12; 6 commits, all CI green. Addendum to #1246. | `0eeb659c` |
+| multi-analyzer-addendum | #1266 | **MERGED** 2026-06-15 (`6d25b134` on main). | `d861b09f` |
 | collector-va-attribution | — | **CLOSED** — superseded by #1267 (`c55906a4`). #1263 closed. Archive branch via `git boidem collector-va-attribution`. See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md). | `526ce851` |
 
 ---
@@ -58,7 +58,7 @@
 ## Next steps
 
 - **TA3 (now):** Await CI + ev-shindin re-review of #1250 (pushed `b0284253` 2026-06-16). After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR.
-- **multi-analyzer-addendum (now):** Await ev-shindin review of [#1266](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1266).
+- **#1266 fixup (now):** `effectiveEnabled` opt-in fix — absent entry should return `false`. Single commit, base `main`. Plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 - **Post-#1246-merge cleanup:** archive `engine-queue-fix` branch (PROC-3; use `git boidem`); ~~drop `backup/multi-analyzer-optimizer-pre-rebase`~~ DONE (archived `ae456aa0` 2026-06-15); close PR #1113 + remove `engine-multi-analyzer` worktree (PROC-2/5, post-#1266 merge); remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
