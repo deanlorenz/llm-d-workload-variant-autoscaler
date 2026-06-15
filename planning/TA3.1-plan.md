@@ -1,17 +1,19 @@
 # TA3.1 — Complete PR #1250 + Post-Review Follow-Up (PR-B)
 
-> **Status: ACTIVE** — ev-shindin COMMENTED 2026-06-11 on PR #1250. Two
-> bugs must be fixed before rebase + push. D1/D2/T1/T2 are already in the
-> PR; PR-B is STANDBY unless ev-shindin requests rework after merge.
+> **Status: ACTIVE** — Bug A + Bug B fixed (`ce39267e`). Rebase onto
+> `main@04f95779` pending (3-file conflict + fold-in of `UnattributedReadyPods`
+> event from #1275 — see Bug C below). D1/D2/T1/T2 already in PR; PR-B STANDBY.
 >
 > Triage doc: [`planning/PR1250-review.md`](PR1250-review.md)
+> Rebase resolution: [`planning/PR1267-impact-and-decisions.md`](PR1267-impact-and-decisions.md)
 
 ---
 
 ## Complete #1250 — Coder Task
 
-Two bugs discovered during ev-shindin's review. Both must be fixed, then
-rebased onto current main and pushed. No external dependency.
+Two bugs from ev-shindin's review are fixed (`ce39267e`). The remaining
+task is: rebase onto `main@04f95779` resolving 3-file conflict, fold in
+`UnattributedReadyPods` event (Bug C below), gates, push.
 
 ### Bug A — throughput metrics always zero (key mismatch)
 
@@ -116,13 +118,100 @@ In `internal/engines/analyzers/throughput/analyzer.go`:
 - **Line 243** — update the TODO comment to note sanity-gate deferral and
   link [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261).
 
+### Bug C — UnattributedReadyPods event (fold-in from #1275)
+
+The only non-superseded piece from the closed `collector-va-attribution` (#1275)
+branch is a per-VA K8s Warning event fired when a scale target has Ready pods
+but none were attributed this cycle. Fold into the same rebase commit since it
+lives in the same file/layer (`replica_metrics.go`). Source: squashed commit
+`6c0c6d7d` on `origin/collector-va-attribution`.
+
+**File 1 — `internal/constants/constants.go`**
+
+Add the constant alongside the existing `K8SEvent*` block:
+```go
+K8SEventUnattributedReadyPods = "UnattributedReadyPods"
+```
+
+**File 2 — `internal/collector/replica_metrics.go`**
+
+In `CollectReplicaMetrics` (the public wrapper), insert the attribution check
+**after** the metrics-unavailability event loop and **before** `if err != nil {
+return nil, err }`. Add a `logger` var if not already present in scope:
+
+```go
+// Warn when a VA has Ready pods but none are attributed to it this cycle.
+// Only runs when the model produced at least one attributed replica — model-wide
+// emptiness is the availability path above; the scrape-lag gate keeps quiet there.
+if err == nil && len(replicaMetrics) > 0 {
+    attributed := make(map[string]int, len(variantAutoscalings))
+    for i := range replicaMetrics {
+        attributed[replicaMetrics[i].VariantName]++
+    }
+    for _, va := range variantAutoscalings {
+        if attributed[va.Name] > 0 {
+            continue
+        }
+        stKey := utils.GetNamespacedKey(va.Namespace, va.GetScaleTargetName())
+        st, ok := scaleTargets[stKey]
+        if !ok || st == nil {
+            continue
+        }
+        if ready := st.GetStatusReadyReplicas(); ready > 0 {
+            ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("VA has ready pods but none attributed",
+                "va", va.Name, "namespace", va.Namespace, "readyReplicas", ready)
+            c.recordUnattributedReadyPodsEvent(va, ready, vaEventTracker)
+        }
+    }
+}
+```
+
+Add the helper method (anywhere in the file, near `recordMetricsUnavailableEvent`):
+
+```go
+func (c *ReplicaMetricsCollector) recordUnattributedReadyPodsEvent(
+    va *llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
+    readyCount int32,
+    vaEventTracker map[string]bool,
+) {
+    if c.recorder == nil {
+        return
+    }
+    key := utils.GetNamespacedKey(va.Namespace, va.Name)
+    if vaEventTracker != nil {
+        if _, ok := vaEventTracker[key]; ok { // one event per VA per cycle
+            return
+        }
+    }
+    c.recorder.Event(va, corev1.EventTypeWarning, constants.K8SEventUnattributedReadyPods,
+        fmt.Sprintf("%s has %d ready pod(s) but none attributed; "+
+            "verify the llm-d.ai/variant pod label on the scale target equals %q",
+            va.Name, readyCount, va.Name))
+    if vaEventTracker != nil {
+        vaEventTracker[key] = true
+    }
+}
+```
+
+**File 3 — `internal/collector/replica_metrics_test.go`**
+
+Add a test `TestCollectReplicaMetrics_UnattributedReadyPodsEvent` that:
+- Provides Prometheus results for one pod/instance but with a `vaName` that does NOT match any VA name in `variantAutoscalings`
+- Provides a scale target with `GetStatusReadyReplicas() > 0`
+- Confirms a `Warning/UnattributedReadyPods` event is emitted by the recorder
+- Confirms a second call does NOT re-emit (deduped via `vaEventTracker`)
+
 ### Commit structure
 
 **Commit 1** — `collector: fix throughput query labels and processing key`
+*(already on branch — replay/keep during rebase)*
 - `internal/collector/registration/throughput_analyzer.go` — Fix 1 above
-- `internal/collector/replica_metrics.go` — Fix 2 above
+- `internal/collector/replica_metrics.go` — Fix 2 above (Bug A) + Bug C fold-in
+
+Note: during the rebase, squash Bug C into Commit 1 (same file, same layer).
 
 **Commit 2** — `engines/analyzers/throughput: single-flight note; link #1261 for deferred gates`
+*(already on branch — replay/keep during rebase)*
 - `internal/engines/analyzers/throughput/analyzer.go` — Bug B items above
 
 ### Verification
@@ -140,8 +229,8 @@ side; add or confirm a test that exercises the throughput merge path.
 
 | Issue | Relation to this PR | Action |
 |---|---|---|
-| [#1260](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1260) — pod→VA derivation | Enables dropping `llm_d_ai_variant` from query `by()` | After #1260 merges: rebase TA3 again, drop label, push |
-| [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) — remove label from all groupbys | Explicitly tracks the `llm_d_ai_variant` removal for all queries | Separate follow-up PR post-#1260 |
+| ~~#1260 — pod→VA derivation~~ | Merged as #1267 (`c55906a4`) | #1267 retained the label as fast path + added owner-walk; label stays in `by()` for now. |
+| ~~#1263 — remove label from all groupbys~~ | **CLOSED** — superseded by #1267 | #1267 made label optional (fast path + shadow pods); forced removal would regress shadow-pod attribution. No follow-up needed. |
 | [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264) — nil vs zero in `ReplicaMetrics` | #1250 is a prerequisite; #1264 builds on top | `*float64` interface change for the 3 fields + sanity-check update — separate PR after #1250 merges |
 
 The `has*` flags added in Fix 2 are the internal half of #1264's minimum fix
@@ -149,17 +238,24 @@ and reduce the delta when #1264 work begins.
 
 ### Rebase + push (after commits above)
 
+New base is `main@04f95779` (upstream/main, includes #1267/#1270/#1271).
+Conflict resolution is specified in [`planning/PR1267-impact-and-decisions.md`](PR1267-impact-and-decisions.md) § "How TA3's A1 fix must be replayed."
+
 1. `git branch --show-current` → must be `TA3`
-2. `git status` → no uncommitted changes
-3. `git rebase upstream/main` (current main is `ad1a8e1e` + #1237/`badc48be` merged; tip is `09e1c386`)
-4. Resolve `cmd/main.go` if conflict (TA3 adds `RegisterThroughputAnalyzerQueries` + `RegisterAnalyzer`; main may differ in surrounding wiring)
-5. `gofmt -l ./internal/... ./pkg/... ./cmd/...` → empty
-6. `make test` → all pass
-7. `make lint` → clean
-8. `go build ./...` → clean
-9. DCO: `git log upstream/main..HEAD --format="%b" | grep Signed-off-by` → one per commit (26 total after the 2 new commits)
-10. Push: present commit range + force-with-lease rationale to Dean, wait for approval
-11. Update PR description with #1261 link + scale-down risk note: draft text for Dean, wait for approval before `gh pr edit`
+2. `git status` → no uncommitted changes; `git fetch upstream`
+3. `git rebase upstream/main`
+4. **Three conflict files** — resolve as follows:
+   - `internal/collector/replica_metrics.go`: change the 3 throughput loop call sites from `buildInstanceKey(value.Labels)` → `c.buildInstanceKey(ctx, namespace, value.Labels)` (the closure was removed by #1267; it is now a method). Keep `has*` flags. Add Bug C block in `CollectReplicaMetrics` wrapper + `recordUnattributedReadyPodsEvent` helper.
+   - `internal/collector/replica_metrics_test.go`: add 4th `nil` arg to `NewReplicaMetricsCollector` in `TestCollectReplicaMetrics_ThroughputKeyMerge` (and add `TestCollectReplicaMetrics_UnattributedReadyPodsEvent`).
+   - `cmd/main.go`: keep all upstream locator wiring + keep TA3's `registration` and `throughput` imports + `RegisterThroughputAnalyzerQueries` + `RegisterAnalyzer` calls.
+5. Also add `K8SEventUnattributedReadyPods` constant to `internal/constants/constants.go` (new addition, no conflict).
+6. `gofmt -l ./internal/... ./pkg/... ./cmd/...` → empty
+7. `make test` → all pass
+8. `make lint` → clean
+9. `go build ./...` → clean
+10. DCO: `git log upstream/main..HEAD --format="%b" | grep Signed-off-by` → one per commit (27 commits after rebase)
+11. Push: present commit range + force-with-lease rationale to Dean, wait for approval
+12. Update PR description with #1261 link + scale-down risk note: draft text for Dean, wait for approval before `gh pr edit`
 
 ---
 

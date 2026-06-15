@@ -1,0 +1,5 @@
+reason: re-read plan
+refs:
+  - planning/PR1267-impact-and-decisions.md
+  - planning/PR1275-closure-capture.md
+note: New base upstream/main has #1267 (locator) + #1270 + #1271. #1267 turned buildInstanceKey into a method with locator fallback and KEPT the label; TA3's A1 fix must replay onto that method form. #1275 dropped — its UnattributedReadyPods event is a candidate to fold into the #1250 rebase (the impact note has specifics).

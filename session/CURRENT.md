@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-15
+**Last updated:** 2026-06-16
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,17 +10,17 @@
 
 **Active (full abstracts):**
 
-- **2026-06-12 — #1263 re-planned + branch created** (`collector-va-attribution` off `main@526ce851`, pushed to origin; no commits yet). #1260 **CLOSED**, replaced by **#1267** (lionelvillard `feat/pod-locator` — ownerReference-walk locator resolving pod→managed HPA/ScaledObject, wired as fallback but **keeps `llm_d_ai_variant` as the query fast-path**). #1263 is now a standalone PR on `main`, **independent of #1267's schedule**: attribution moves behind an `Attributor` seam resolved once per pod *after* the query; the default reads `llm-d.ai/variant` from the **pod object** (bounded labeled LIST per namespace via `mgr.GetAPIReader()`), not the metric. All **11** per-replica queries normalized to `max/sum by (instance, pod)` (6 saturation + 2 queueing + **3 throughput**) — subsumes the throughput A1 key-mismatch latent on main. #1267 (and any future mechanism) become alternative `Attributor` impls behind the seam, touching only the attribution package. Coder plan [`planning/collector-va-attribution-plan.md`](../planning/collector-va-attribution-plan.md) ready; **coder not yet started**. Verified analyzers/engine key only off `ReplicaMetrics.VariantName`, never the metric label.
+- **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into #1250 rebase or standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
 - **2026-06-12 — PR #1266 opened** (`multi-analyzer-addendum`, tip `0eeb659c`). Addendum to #1246: disabled-analyzer veto bug fix (`effectiveEnabled` helper — `Enabled:false` was parsed but not checked at runtime, causing zero-SpareCapacity veto of scale-down), config-bridge + non-uniform Score tests, full rewrite of `docs/developer-guide/multi-analyzer-pipeline.md` (architecture diagram, data model, optimizer internals). Reviewer: ev-shindin. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md).
 - **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
-- **2026-06-15 — TA3 rebased onto `main@526ce851`** (coordinator/gpurebalance, saturation sanitize, e2e dashboard); tip `ce39267e`; 27 commits; all gates green locally. Awaiting Dean push (force-with-lease) to trigger CI retest, then ev-shindin re-review. Follow-up comment (Option A key-mismatch explanation) posted 2026-06-11. Review: [`planning/PR1250-review.md`](../planning/PR1250-review.md).
+- **2026-06-15 — TA3 rebased onto `main@526ce851`** (coordinator/gpurebalance, saturation sanitize, e2e dashboard); tip `ce39267e`; 27 commits; all gates green locally. main has since moved +3 commits (#1267 locator, #1270 VA-deprecation, #1271 V2-default) — **rebase onto `main@04f95779` needed before push** (3-file conflict; resolution in [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md)). Review: [`planning/PR1250-review.md`](../planning/PR1250-review.md).
 - **2026-06-11 — PR #1250 Bug A + Bug B fixed.** Bug A: throughput metrics always-zero (key-mismatch in `replica_metrics.go` + missing `instance`/`llm_d_ai_variant` in 3 queries). Bug B: 3 comment items in `analyzer.go`. Test `TestCollectReplicaMetrics_ThroughputKeyMerge` added. [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) filed.
 
 **Tail (compressed — recover via the ID/ref):**
 
 - 2026-06-12 — #1260 reviewed (review id `4479726743`; #1260 now **CLOSED → #1267**). Filed [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) (VA-attribution/query separation — see head) + [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264) (nil-vs-zero in `ReplicaMetrics`, **still a valid follow-up**). Multi-EPP P/D future note in [`planning/TA-demand.md`](../planning/TA-demand.md) § Scheduler queue contribution (entry-queue drives both roles, add decode queue to decode only; W_max recalc). EPP scheduler-queue scoping = **not an issue** (model-level correct; only upstream no-namespace gap #2309).
 - 2026-06-09 — #1245 (ScalingPolicy CRD) reviewed; comment posted ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)); DRAFT review → [`planning/PR1245-review.md`](../planning/PR1245-review.md).
-- 2026-06-11 — TA3 re-rebase impact verified: conflict surface = `cmd/main.go` only; TA3 queries already correct for post-#1260 world. → [`planning/PR1250-review.md`](../planning/PR1250-review.md) § Discussion.
+- 2026-06-11 — TA3 rebase onto `526ce851`: conflict surface = `cmd/main.go` only. Rebase onto `04f95779` (new main): 3-file conflict (`replica_metrics.go`, `replica_metrics_test.go`, `cmd/main.go`) — see [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md).
 - 2026-06-15 — Backlog scored (`open-items-roadmap.md`; multi-analyzer + TA + D52 areas done); PR-A renamed `multi-analyzer-addendum`; PR-B (`TA3.1`) standby (D1/D2/T1/T2 already in #1250). PROC-4 done (`backup/multi-analyzer-optimizer-pre-rebase` archived → `ae456aa0`).
 - 2026-06-09 — #1246 rebased onto `main@badc48be` + lint-fix, pushed `ad1a8e1e`; all CI green; approved + merged 2026-06-10 (`09e1c386`). Phase 4 review FINAL: [`planning/multi-analyzer-optimizer-review.md`](../planning/multi-analyzer-optimizer-review.md).
 - 2026-06-08 — #1246 opened (base `main`, ev-shindin), tip `ee8bd815`; completes the 3-PR split.
@@ -47,17 +47,17 @@
 | multi-analyzer-optimizer | #1246 | **MERGED** 2026-06-10 (`09e1c386` on main). ev-shindin approved; 2 follow-up items in Issues to Open. | `ad1a8e1e` |
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 | multi-analyzer-addendum | #1266 | **PR #1266 OPEN** (base `main`, reviewer ev-shindin) 2026-06-12; 6 commits, all CI green. Addendum to #1246. | `0eeb659c` |
-| collector-va-attribution | — | **Branch created** off `main@526ce851`, pushed to origin (tracking). Implements [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) — `Attributor` seam, drop `llm_d_ai_variant` from 11 queries. Coder plan ready ([`planning/collector-va-attribution-plan.md`](../planning/collector-va-attribution-plan.md)); coder not yet started. No PR yet. | `526ce851` |
+| collector-va-attribution | — | **CLOSED** — superseded by #1267 (`c55906a4`). #1263 closed. Archive branch via `git boidem collector-va-attribution`. See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md). | `526ce851` |
 
 ---
 
 ## Blocked on
 
-- **PR #1250** (`TA3` → `main`) — rebased onto `main@526ce851` (tip `ce39267e`); 27 commits; gates green. Awaiting Dean push (force-with-lease) to origin/TA3, then CI retest, then ev-shindin re-review. Follow-up comment posted 2026-06-11.
+- **PR #1250** (`TA3` → `main`) — tip `ce39267e`; 27 commits. **Needs rebase onto `main@04f95779`** (3-file conflict: `replica_metrics.go`, `replica_metrics_test.go`, `cmd/main.go`; see [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md)). Then: push force-with-lease → CI → ev-shindin re-review.
 
 ## Next steps
 
-- **TA3 (now):** Push #1250 (force-with-lease to origin/TA3, tip `ce39267e`). Then await CI + ev-shindin re-review. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR (commit `3c838547` currently in #1250, extract post-merge).
+- **TA3 (now):** Rebase #1250 onto `main@04f95779` (3-file conflict; resolve per [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md)) + fold `UnattributedReadyPods` event from #1275 into the rebase commit (same file/layer). Full task in [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Rebase + push. Then push force-with-lease → CI + ev-shindin re-review. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR (commit `3c838547` currently in #1250, extract post-merge).
 - **multi-analyzer-addendum (now):** Await ev-shindin review of [#1266](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1266).
 - **Post-#1246-merge cleanup:** archive `engine-queue-fix` branch (PROC-3; use `git boidem`); ~~drop `backup/multi-analyzer-optimizer-pre-rebase`~~ DONE (archived `ae456aa0` 2026-06-15); close PR #1113 + remove `engine-multi-analyzer` worktree (PROC-2/5, post-#1266 merge); remove `multi-analyzer-optimizer` worktree at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
@@ -82,7 +82,7 @@ PR-4 + PR-5 code-complete on TA3 (`5e316104`, on `multi-analyzer-optimizer@4bfac
 
 **Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) (PR-B — STANDBY; D1/D2/T1/T2 in #1250), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
-**Next steps for TA3:** Fix Bug A (key-mismatch: `throughput_analyzer.go` + `replica_metrics.go`) + Bug B (comment items in `analyzer.go`). Rebase onto current main. No #1260 dependency. Full task in [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Complete #1250. Then: discuss E2E Step 2f; triage the 3 pre-existing smoke failures.
+**Next steps for TA3:** Bug A + Bug B fixed (`ce39267e`). **Rebase onto `main@04f95779` pending** — 3-file conflict + fold-in of `UnattributedReadyPods` event (Bug C). Full task in [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Rebase + push.
 
 ---
 
@@ -111,7 +111,7 @@ The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-
 Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md) § Future direction:
 
 - Per-analyzer status-return state (`AnalyzerStatus`: SuppressSC/SuppressRC/Fail; restores TA EPP-queue + GPS gating; subsumes F9) → **F3** — **FILED as [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261)** (framed as analyzer interface extension: accept-for-SC/RC/all + sanity helper mechanism; motivated by TA3 #1250 review)
-- Remove `llm_d_ai_variant` from all PromQL groupbys — **FILED as [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263)**; **active standalone PR-to-be on branch `collector-va-attribution`** (off `main@526ce851`, independent of #1260/#1267). `Attributor` seam moves VA attribution fully to the collector layer; unblocks InferencePool-selector scoping #1072. Coder plan: [`planning/collector-va-attribution-plan.md`](../planning/collector-va-attribution-plan.md). Coder not yet started.
+- ~~Remove `llm_d_ai_variant` from all PromQL groupbys~~ — **FILED as [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263); CLOSED** — superseded by #1267 (label retained as fast path + shadow-pod resolution; owner-walk handles Deployment/LWS). See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md).
 - Distinguish unavailable metric from genuine zero in `ReplicaMetrics` (`*float64` nil semantics for 3 throughput fields + sanity update) — **FILED as [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264)** (prerequisite: #1250 Bug A fix; follow-up after #1250 merges)
 - Per-analyzer observability metrics + decision-enrichment hook (generalize `enrichDecisionsWithKvTokenData`) → **F4**
 - ~~Engine model-level RC/SC for disaggregated models~~ → **F5** CLOSED (resolved by #1246 `initRoleState`)
