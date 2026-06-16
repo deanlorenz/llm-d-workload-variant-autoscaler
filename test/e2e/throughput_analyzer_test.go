@@ -63,6 +63,15 @@ analyzers:
 `
 )
 
+// throughputScaleUpFakeMetricsJSON drives a deterministic V2 saturation scale-up.
+// kv-cache-usage is a simulator gauge (tick-driven, unlike rate-based histograms/counters),
+// so a static value is stable. With the simulator's kv-cache-size=1 × block-size=8 (kvMax=8)
+// and throughputBothEnabledConfig (kvCacheThreshold=0.80 → perReplicaCapacity≈6.4,
+// scaleUpThreshold=0.85), RequiredCapacity > 0 requires kv·8/0.85 > 6.4, i.e. kv > 0.68;
+// 0.9 clears it with margin. running/waiting are cosmetic for V2 (queue demand uses the
+// rate-based AvgInputTokens, which is 0 under static fakes).
+const throughputScaleUpFakeMetricsJSON = `{"kv-cache-usage":0.9,"running-requests":5,"waiting-requests":20}`
+
 // throughputSustainedLoadScript is an inline shell script for a Kubernetes Job that
 // continuously sends /v1/completions requests until the Job's activeDeadlineSeconds is reached.
 // Uses /v1/completions (not /v1/chat/completions) because the llm-d simulator only tracks
@@ -314,9 +323,16 @@ var _ = Describe("ThroughputAnalyzer wiring health check", Label("smoke", "throu
 	})
 })
 
-// ─── Scenario 2: Tier-2 Calibration → Positive Scale-Up Signal (full/throughput) ─
+// ─── Scenario 2: Multi-Analyzer Engine Scale-Up (full/throughput) ─────────────
+//
+// Validates the multi-analyzer engine end-to-end: with BOTH analyzers registered,
+// the engine produces a scale-up decision that propagates to VA status. Scale-up is
+// driven by the SATURATION analyzer via a faked kv-cache-usage gauge — the throughput
+// analyzer's inputs are rates of counters/histograms that static --fake-metrics cannot
+// drive (zero rate), so throughput cannot be exercised here. Its own scale-up math is
+// covered by the unit tests in internal/engines/analyzers/throughput/analyzer_test.go.
 
-var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput"), Ordered, func() {
+var _ = Describe("Multi-analyzer engine scale-up (saturation-driven, throughput co-registered)", Label("full", "throughput"), Ordered, func() {
 	const (
 		poolName              = "throughput-scaleup-pool"
 		modelSvcName          = "throughput-scaleup-ms"
@@ -358,9 +374,15 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 			Skip("ThroughputAnalyzer not registered — WVA controller restart failed or timed out: " + err.Error())
 		}
 
-		By("Creating model service for throughput scale-up test")
+		if !cfg.UseSimulator {
+			Skip("This scenario needs the simulator runtime: set USE_SIMULATOR=true. " +
+				"It uses llm-d-inference-sim's --fake-metrics flag, which real vLLM rejects.")
+		}
+
+		By("Creating model service with faked saturation metrics for scale-up")
 		_ = fixtures.DeleteModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName)
-		Expect(fixtures.CreateModelService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, poolName, modelID, vaName, cfg.UseSimulator, 2)).To(Succeed())
+		Expect(fixtures.CreateModelServiceWithExtraArgs(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, poolName, modelID, vaName,
+			cfg.UseSimulator, 2, []string{"--fake-metrics", throughputScaleUpFakeMetricsJSON})).To(Succeed())
 		Expect(fixtures.EnsureService(ctx, k8sClient, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment, 8000)).To(Succeed())
 		Expect(fixtures.EnsureServiceMonitor(ctx, crClient, cfg.MonitoringNS, cfg.LLMDNamespace, modelSvcName, modelDecodeDeployment)).To(Succeed())
 
@@ -377,15 +399,11 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 			modelDecodeDeployment, modelID, cfg.AcceleratorType, cfg.ControllerInstance,
 		)).To(Succeed())
 
-		By("Waiting for initial VA infra signal before starting load")
+		By("Waiting for initial VA infra signal")
 		waitForSaturationInfraSignal(ctx, cfg.LLMDNamespace, vaName)
-
-		By("Starting sustained load to drive kv-cache saturation and ITL observations")
-		targetURL := fmt.Sprintf("http://%s:8000/v1/completions", serviceName)
-		deadlineSec := int64(cfg.EventuallyExtendedSec + 300)
-		job := buildThroughputSustainedLoadJob(cfg.LLMDNamespace, loadJobName, targetURL, modelID, 2, deadlineSec)
-		_, err = k8sClient.BatchV1().Jobs(cfg.LLMDNamespace).Create(ctx, job, metav1.CreateOptions{})
-		Expect(err).NotTo(HaveOccurred(), "failed creating sustained load job")
+		// No load job: --fake-metrics replaces simulator runtime emission entirely, so
+		// service traffic has no effect on the values the engine reads. Scale-up is
+		// driven solely by the faked kv-cache-usage gauge.
 	})
 
 	AfterAll(func() {
@@ -410,19 +428,26 @@ var _ = Describe("ThroughputAnalyzer scale-up signal", Label("full", "throughput
 		_ = k8sClient.AppsV1().Deployments(cfg.LLMDNamespace).Delete(ctx, modelDecodeDeployment, metav1.DeleteOptions{})
 	})
 
-	It("recommends scale-up under sustained load with both analyzers enabled", func() {
-		By("Capturing baseline desired replicas")
-		var baseline int32
+	It("scales up above MinReplicas with both analyzers enabled", func() {
+		// Faked kv-cache-usage=0.9 > scaleUpThreshold=0.85 makes the saturation analyzer
+		// deterministically recommend scale-up above MinReplicas=1. Asserting against the
+		// known MinReplicas floor (rather than a captured baseline) avoids racing the
+		// eager fake-metrics scale-up.
+		By("Waiting for DesiredOptimizedAlloc to exceed MinReplicas under faked saturation")
 		Eventually(func(g Gomega) {
 			va := &variantautoscalingv1alpha1.VariantAutoscaling{}
 			g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: cfg.LLMDNamespace}, va)).To(Succeed())
-			g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil())
-			baseline = *va.Status.DesiredOptimizedAlloc.NumReplicas
-			GinkgoWriter.Printf("  Scale-up baseline (%s): desired=%d\n", vaName, baseline)
-		}, time.Duration(cfg.EventuallyLongSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
 
-		By("Waiting for positive scale-up recommendation above baseline")
-		waitForPositiveDesiredAllocationAboveBaseline(ctx, cfg.LLMDNamespace, vaName, baseline)
+			metricsCond := variantautoscalingv1alpha1.GetCondition(va, variantautoscalingv1alpha1.TypeMetricsAvailable)
+			g.Expect(metricsCond).NotTo(BeNil(), "MetricsAvailable condition should be present")
+			g.Expect(metricsCond.Status).To(Equal(metav1.ConditionTrue), "MetricsAvailable should be true")
+			g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil())
+
+			desired := *va.Status.DesiredOptimizedAlloc.NumReplicas
+			GinkgoWriter.Printf("  Scale-up (%s): desired=%d\n", vaName, desired)
+			g.Expect(desired).To(BeNumerically(">", int32(1)),
+				"faked kv-cache-usage=0.9 > scaleUpThreshold=0.85 should drive scale-up above MinReplicas=1")
+		}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
 	})
 })
 
@@ -563,36 +588,6 @@ var _ = Describe("ThroughputAnalyzer TA-only mode", Label("full", "throughput"),
 })
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
-
-// waitForPositiveDesiredAllocationAboveBaseline waits until DesiredOptimizedAlloc.NumReplicas > baseline.
-func waitForPositiveDesiredAllocationAboveBaseline(ctx context.Context, namespace, vaName string, baseline int32) {
-	GinkgoHelper()
-	Eventually(func(g Gomega) {
-		va := &variantautoscalingv1alpha1.VariantAutoscaling{}
-		g.Expect(crClient.Get(ctx, client.ObjectKey{Name: vaName, Namespace: namespace}, va)).To(Succeed())
-
-		metricsCond := variantautoscalingv1alpha1.GetCondition(va, variantautoscalingv1alpha1.TypeMetricsAvailable)
-		if metricsCond != nil {
-			GinkgoWriter.Printf("  Scale-up progress (%s): MetricsAvailable=%s reason=%s\n",
-				vaName, metricsCond.Status, metricsCond.Reason)
-		}
-
-		desired := int32(-1)
-		if va.Status.DesiredOptimizedAlloc.NumReplicas != nil {
-			desired = *va.Status.DesiredOptimizedAlloc.NumReplicas
-			GinkgoWriter.Printf("  Scale-up progress (%s): DesiredOptimizedAlloc replicas=%d baseline=%d accelerator=%q\n",
-				vaName, desired, baseline, va.Status.DesiredOptimizedAlloc.Accelerator)
-		} else {
-			GinkgoWriter.Printf("  Scale-up progress (%s): DesiredOptimizedAlloc replicas=<nil> baseline=%d\n", vaName, baseline)
-		}
-
-		g.Expect(metricsCond).NotTo(BeNil())
-		g.Expect(metricsCond.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(va.Status.DesiredOptimizedAlloc.NumReplicas).NotTo(BeNil())
-		g.Expect(desired).To(BeNumerically(">", baseline),
-			"DesiredOptimizedAlloc should exceed baseline=%d under sustained load", baseline)
-	}, time.Duration(cfg.EventuallyExtendedSec)*time.Second, time.Duration(cfg.PollIntervalSec)*time.Second).Should(Succeed())
-}
 
 // restoreSaturationConfigMap restores the saturation ConfigMap to its pre-test state.
 // If the configmap existed before the test, it is recreated from the snapshot.
