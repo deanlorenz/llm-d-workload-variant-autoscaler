@@ -49,6 +49,11 @@ func FitITLModel(obs []ITLObservation) (ITLModel, bool) {
 	A := (n*sumKITL - sumK*sumITL) / denom
 	B := (sumITL - A*sumK) / n
 
+	// Defensive guard: NaN/+Inf A both slip past the A <= 0 check below, and a non-zero
+	// sumK can leave B finite so the B guard would not catch them. Symmetric with the B guard.
+	if math.IsNaN(A) || math.IsInf(A, 0) {
+		return ITLModel{}, false
+	}
 	if A <= 0 {
 		return ITLModel{}, false
 	}

@@ -271,7 +271,7 @@ func (a *ThroughputAnalyzer) Analyze(
 			continue
 		}
 
-		supply, perReplicaSupply := computeVariantSupply(variantMetrics, shape, itlSat)
+		supply, perReplicaSupply, nKV := computeVariantSupply(variantMetrics, shape, itlSat)
 		if supply == 0 {
 			continue
 		}
@@ -318,19 +318,25 @@ func (a *ThroughputAnalyzer) Analyze(
 			state.consecutiveGPSMismatches = 0
 		}
 
-		// len(variantMetrics) intentionally includes replicas with KV=0 (still booting).
-		// Counting them in anticipated supply suppresses RC while a scale-out is in progress,
-		// consistent with saturation_v2. perReplicaSupply is the mean over replicas that
-		// already reported capacity; new replicas are assumed to reach the same level.
+		// ReplicaCount is the count of KV-capable replicas (nKV), and TotalCapacity is the
+		// measured supply over exactly those replicas — so TotalSupply (which the engine uses
+		// for SpareCapacity) is not inflated by still-booting KV=0 replicas. Not-ready replicas
+		// are already reflected in PendingReplicas (currentReplicas − readyReplicas); they count
+		// toward TotalAnticipatedSupply and so still suppress RequiredCapacity during scale-out.
+		// This mirrors saturation_v2 (ReplicaCount = readyCount, PendingReplicas separate) and
+		// avoids double-counting booting replicas in both ReplicaCount and PendingReplicas.
+		// TotalCapacity is the product ReplicaCount × PerReplicaCapacity (the VariantCapacity
+		// contract, and what aggregation.SumTotalSupply recomputes); equals supply for nKV ≥ 1.
+		totalCapacity := float64(nKV) * perReplicaSupply
 		variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
 			VariantName:        variantName,
 			Role:               state.role,
-			ReplicaCount:       len(variantMetrics),
+			ReplicaCount:       nKV,
 			PendingReplicas:    pending,
 			PerReplicaCapacity: perReplicaSupply,
-			TotalCapacity:      float64(len(variantMetrics)) * perReplicaSupply,
+			TotalCapacity:      totalCapacity,
 			TotalDemand:        demand,
-			Utilization:        safeDivide(demand, float64(len(variantMetrics))*perReplicaSupply),
+			Utilization:        safeDivide(demand, totalCapacity),
 		})
 	}
 
@@ -523,8 +529,10 @@ func computeDemand(metrics []interfaces.ReplicaMetrics) (float64, bool) {
 	var isEPP bool
 	for _, m := range metrics {
 		if m.ArrivalRate > 0 {
-			isEPP = true
-			lambdaDec += m.ArrivalRate * m.AvgOutputTokens
+			isEPP = true // EPP present, even if AvgOutputTokens is not yet observed (warm-up)
+			if m.AvgOutputTokens > 0 {
+				lambdaDec += m.ArrivalRate * m.AvgOutputTokens
+			}
 		}
 	}
 	if lambdaDec > 0 {
@@ -590,11 +598,11 @@ func estimateQueueDemand(sq *interfaces.SchedulerQueueMetrics, itlSat, drainFact
 // computeVariantSupply computes the aggregate μ_dec_sat supply for a variant.
 //
 // Per replica: N_dec_sat = DefaultKSat × KV_max / KVreq; μ_dec_sat = N_dec_sat / itlSat.
-// Returns (totalSupply Σμ_dec_sat, perReplicaSupply mean(μ_dec_sat)).
-// Both are zero when no replica has KV capacity data.
-func computeVariantSupply(metrics []interfaces.ReplicaMetrics, shape WorkloadShape, itlSat float64) (total, perReplica float64) {
+// Returns (totalSupply Σμ_dec_sat, perReplicaSupply mean(μ_dec_sat), nKV count of
+// KV-capable replicas). All are zero when no replica has KV capacity data.
+func computeVariantSupply(metrics []interfaces.ReplicaMetrics, shape WorkloadShape, itlSat float64) (total, perReplica float64, nKV int) {
 	var sum float64
-	var n float64
+	var n int
 	for _, m := range metrics {
 		if m.TotalKvCapacityTokens <= 0 {
 			continue
@@ -605,9 +613,9 @@ func computeVariantSupply(metrics []interfaces.ReplicaMetrics, shape WorkloadSha
 		n++
 	}
 	if n == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
-	return sum, sum / n
+	return sum, sum / float64(n), n
 }
 
 // groupByVariant partitions a slice of ReplicaMetrics by VariantName.

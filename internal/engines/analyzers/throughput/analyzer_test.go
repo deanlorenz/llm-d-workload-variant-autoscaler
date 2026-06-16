@@ -365,6 +365,45 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.Utilization).To(BeNumerically(">", 0))
 		})
 
+		It("excludes booting (KV=0) replicas from ReplicaCount and TotalSupply", func() {
+			buildReadyWindow()
+
+			// One ready, KV-capable replica plus one still-booting replica that reports no
+			// KV capacity yet. The booting replica must not inflate TotalSupply (which the
+			// engine uses for SpareCapacity); only KV-capable replicas count toward supply.
+			ready := baseReplica(5)
+			ready.PodName = "ready"
+			booting := baseReplica(0)
+			booting.PodName = "booting"
+			booting.TotalKvCapacityTokens = 0
+			booting.KvCacheUsage = 0
+			booting.KvUsageInstant = 0
+
+			input := interfaces.AnalyzerInput{
+				ModelID:        modelID,
+				Namespace:      namespace,
+				ReplicaMetrics: []interfaces.ReplicaMetrics{ready, booting},
+				// The booting pod is a not-ready replica (currentReplicas − readyReplicas = 1).
+				VariantStates: []interfaces.VariantReplicaState{
+					{VariantName: "v1", CurrentReplicas: 2, PendingReplicas: 1},
+				},
+			}
+			result, err := analyzer.Analyze(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.VariantCapacities).To(HaveLen(1))
+
+			vc := result.VariantCapacities[0]
+			Expect(vc.ReplicaCount).To(Equal(1), "only the KV-capable replica counts toward ReplicaCount")
+			Expect(vc.PendingReplicas).To(Equal(1), "the not-ready booting replica is tracked as pending")
+			Expect(vc.TotalCapacity).To(BeNumerically("~", vc.PerReplicaCapacity, vc.PerReplicaCapacity*1e-6),
+				"TotalCapacity is the measured supply over KV-capable replicas only")
+			// TotalSupply (drives SpareCapacity) counts only the KV-capable replica — not inflated.
+			Expect(result.TotalSupply).To(BeNumerically("~", muSat, muSat*0.10))
+			// TotalAnticipatedSupply (drives RequiredCapacity) still counts the booting replica
+			// via PendingReplicas, so scale-out remains suppressed (no double-counting).
+			Expect(result.TotalAnticipatedSupply).To(BeNumerically("~", 2*vc.PerReplicaCapacity, vc.PerReplicaCapacity*0.01))
+		})
+
 		It("exposes ITLModel and supply/demand in VariantState after Analyze", func() {
 			buildReadyWindow()
 
