@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-16
+**Last updated:** 2026-06-17
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,15 +10,14 @@
 
 **Active (full abstracts):**
 
-- **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into #1250 rebase or standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
-- **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite + `runRegisteredAnalyzers` dead-code removal. Follow-up: `effectiveEnabled` opt-in fix (absent entry → false) — plan at [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
-- **2026-06-10 — Optimizer #1246 MERGED** (`09e1c386` onto main, tip `ad1a8e1e`). ev-shindin approved 2026-06-09 with 2 noted items: (1) local `max` shadows Go builtin in `analyzer_helpers.go` `roleBottleneckReplicas`/`roleAggRemaining` — linter may flag (follow-up filed in Issues to Open); (2) `prcForVariant` O(V) scan in hot loop — non-blocking. Squash request (17→1) came with approval; merged as 17 commits. **Multi-analyzer mission complete** (#1225/#1228/#1246 all on main). SchedulerQueue wiring landed.
-- **2026-06-16 — #1250 round-3 review fixes pushed** (`8fcaaaed`, 39 commits, fast-forward). F1 (EPP warm-up `(0,true)` → spurious scale-down: `computeDemand` falls through to vLLM/local, caller gate `demand==0`), F2 (`TotalCapacity` contract, cosmetic), F3 (skip-unknown in 3 throughput loops), F4 (ctx into ITL/GPS helpers; `Add` returns drop bool), F5 (TA e2e suites restart controller to enable TA + Skip-when-unregistered; AfterAll restore→restart since registration is sticky — the full-E2E green fix), nits. Internal review PASS, gates green. Six independently-droppable commits; F1 standalone keeper. Plan: [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) § Review-driven fixes (round 3).
-- **2026-06-16 — #1250 round-2 review fixes pushed** (`f11f5120`, 33 commits). Smoke `saturation_v2_test.go:280` root cause = throughput analyzer registered unconditionally + consumed in optimizer scale-down min-aggregation (post-#1246) → no-data `RoleSpare≤0` vetoes saturation scale-down. Fix: opt-in **registration gate** (`throughputAnalyzerEnabled` in `cmd/main.go`) — default config never registers TA → behaves as if absent. Plus OLS healthy-filter + ITL-sat guard + dead-code removal + nits + dev-guide. Internal review PASS, all gates green. Deferred runtime gate: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md) (removes the stopgap). Earlier: rebased onto `main@04f95779` + Bug A/B/C (`b0284253`).
-- **2026-06-11 — PR #1250 Bug A + Bug B fixed.** Bug A: throughput metrics always-zero (key-mismatch in `replica_metrics.go` + missing `instance`/`llm_d_ai_variant` in 3 queries). Bug B: 3 comment items in `analyzer.go`. Test `TestCollectReplicaMetrics_ThroughputKeyMerge` added. [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261) filed.
+- **2026-06-15 — #1250 (TA3) MERGED** (`efca1b4c` onto main). ThroughputAnalyzer: ITL model, scaling signal, engine wiring. TA3 mission complete. ndots fix landed with merge (no standalone PR needed). Post-merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); file E2E throughput wiring test gap issue; remove `throughputAnalyzerEnabled` registration-gate stopgap when `effectiveEnabled` opt-in fix lands ([`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md)). Also landed same day: `#1276` (`wva_pod_mapping_miss_total` metric, `5ddca4f9`) and `#1284` (HPA/ScaledObject label propagation, `c06b916c`) from upstream contributors.
+- **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
+- **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite. Note: `runRegisteredAnalyzers` dead-code was NOT removed in this PR — it remains in `engine_v2.go`; follow-up plan at [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4. `effectiveEnabled` opt-in fix (absent entry → false): [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-06-15 — #1250 MERGED `efca1b4c`; F1–F5 review fixes (round-3 `8fcaaaed`); registration-gate smoke fix (round-2 `f11f5120`); Bug A/B throughput metrics (`b0284253`); full-E2E green
+- 2026-06-10 — #1246 MERGED `09e1c386`; multi-analyzer mission complete (#1225/#1228/#1246); SchedulerQueue wiring
 - 2026-06-12 — #1260 reviewed (review id `4479726743`; #1260 now **CLOSED → #1267**). Filed [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) (VA-attribution/query separation — see head) + [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264) (nil-vs-zero in `ReplicaMetrics`, **still a valid follow-up**). Multi-EPP P/D future note in [`planning/TA-demand.md`](../planning/TA-demand.md) § Scheduler queue contribution (entry-queue drives both roles, add decode queue to decode only; W_max recalc). EPP scheduler-queue scoping = **not an issue** (model-level correct; only upstream no-namespace gap #2309).
 - 2026-06-09 — #1245 (ScalingPolicy CRD) reviewed; comment posted ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)); DRAFT review → [`planning/PR1245-review.md`](../planning/PR1245-review.md).
 - 2026-06-11 — TA3 rebase onto `526ce851`: conflict surface = `cmd/main.go` only. Rebase onto `04f95779` (new main): 3-file conflict (`replica_metrics.go`, `replica_metrics_test.go`, `cmd/main.go`) — see [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md).
@@ -40,8 +39,8 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | #1250 | **PR #1250 OPEN** (base `main`, assignee ev-shindin); 39 commits. Round-3 review fixes pushed `8fcaaaed` 2026-06-16 (F1 EPP warm-up scale-down fix; F2 TotalCapacity contract; F3 skip-unknown throughput loops; F4 ctx into helpers; F5 e2e restart-to-enable TA + skip-when-unregistered → full-E2E green fix; nits). Internal review PASS; all gates green. **Awaiting CI + ev-shindin re-review.** SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `8fcaaaed` |
-| engine-multi-analyzer | #1113 | **Superseded** by the 3-PR split; Dean to close post-coordination with ev-shindin. Worktree retained. | `fc403f75` |
+| TA3                   | #1250 | **MERGED** 2026-06-15 (`efca1b4c` on main). SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `efca1b4c` |
+| engine-multi-analyzer | #1113 | **CLOSED** 2026-06-17 (superseded by 3-PR split). Branch archived `archive/engine-multi-analyzer`; worktree removed. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
 | (upstream) role-aware scale-down | #1237 | **MERGED** 2026-06-08 (`badc48be` on main) | `badc48be` |
@@ -54,14 +53,15 @@
 
 ## Blocked on
 
-- **PR #1250** (`TA3` → `main`) — tip `8fcaaaed`; 39 commits; round-3 fixes pushed 2026-06-16 (F1–F5 + nits; F5 = full-E2E green fix). Awaiting CI (full E2E restarted by this push) + ev-shindin re-review.
+None currently.
 
 ## Next steps
 
-- **TA3 (now):** Round-3 fixes pushed (`8fcaaaed`, all 6 commits, fast-forward); internal review PASS, gates green. Await CI (full E2E re-running — F5 should turn it green) + ev-shindin re-review. **Minor follow-up:** scale-up suite AfterAll restart is best-effort (`_ =`) not Expect, and no defensive BeforeAll-restart on the TA-off `saturation_v2` suite — nondeterministic contamination risk only if a restart times out; consider tightening. After merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); ndots standalone PR.
-- **Deferred (TA3 follow-up, post-gate):** harden throughput analyzer before it is ever enabled — review items 1/2 are folded now, but the SanityReport-capture/demand-gating nit stays with [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). Registration gate is a stopgap to be **removed** when the `effectiveEnabled` opt-in consumption gate lands ([`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md)).
-- **#1266 fixup (now):** `effectiveEnabled` opt-in fix — absent entry should return `false`. Single commit, base `main`. Plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
-- **Post-#1246-merge cleanup:** archive `engine-queue-fix` branch (PROC-3; use `git boidem`); ~~drop `backup/multi-analyzer-optimizer-pre-rebase`~~ DONE (archived `ae456aa0` 2026-06-15); close PR #1113 + remove `engine-multi-analyzer` worktree (PROC-2/5, post-#1266 merge); remove `multi-analyzer-optimizer` worktree at discretion.
+- **#1266 effectiveEnabled fixup (now):** `effectiveEnabled` opt-in fix — absent entry should return `false`; removes `throughputAnalyzerEnabled` registration-gate stopgap. Single commit, base `main`. Plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
+- **runRegisteredAnalyzers deletion (now):** dead-code not removed in #1266 despite earlier CURRENT entry — `engine_v2.go` still has the function. Standalone PR or fold into effectiveEnabled fixup. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
+- **TA3 post-merge:** discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); file E2E throughput wiring test gap issue (no-op under opt-in gate, `82611630`).
+- **Issues to file (post-merge):** both #1250 and #1266 now merged — file Q1+Q2 items from `planning/open-items-roadmap.md`.
+- **Cleanup:** archive `engine-queue-fix` branch (PROC-3; `git boidem`); archive `multi-analyzer-addendum`, `multi-analyzer-{optimizer,registration,threshold}` worktrees at discretion; ~~#1113 close + engine-multi-analyzer worktree~~ DONE (2026-06-17).
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
 ---
@@ -78,13 +78,11 @@
 
 ---
 
-## TA3 (ThroughputAnalyzer) — PR-5 code complete; awaiting re-rebase + Dean review
+## TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-15
 
-PR-4 + PR-5 code-complete on TA3 (`5e316104`, on `multi-analyzer-optimizer@4bfac2fa`). All gates green per coder. Review **FINAL** ([`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md)). E2E Steps 1a/1b/2a-2e PASSED on kind `kind-wva-gpu-cluster`; Step 2f pending discussion; 3 pre-existing smoke failures (`smoke_test.go:339, :542, :1724`) to triage. Rebase onto `main@badc48be` done; PR #1250 open. Review follow-ups tracked in [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md) (§3.1, §6.1).
+**PR #1250 MERGED** onto main at `efca1b4c`. TA3 mission complete. E2E Steps 1a/1b/2a-2e PASSED; Step 2f pending discussion; 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`) to triage post-merge.
 
-**Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR4-plan.md`](../planning/TA-PR4-plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) (PR-B — STANDBY; D1/D2/T1/T2 in #1250), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
-
-**Next steps for TA3:** Pushed `b0284253` (2026-06-16). Awaiting CI + ev-shindin re-review. After merge: E2E Step 2f, triage smoke failures, ndots PR.
+**Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
 
 ---
 
@@ -98,7 +96,7 @@ Three branches, one mission. See [`planning/multi-analyzer-design.md`](../planni
 | Item 2 — Universal threshold post-step + aggregation helpers | `multi-analyzer-threshold` / [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228) **MERGED** | [`multi-analyzer-threshold-plan.md`](../planning/multi-analyzer-threshold-plan.md) |
 | Item 1 — Per-analyzer slice → optimizers (delete combine) | `multi-analyzer-optimizer` / [#1246](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1246) **MERGED** 2026-06-10 | [`multi-analyzer-optimizer-plan.md`](../planning/multi-analyzer-optimizer-plan.md) |
 
-The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-PR split. PR #1113 stays open until Dean closes it post-coordination with ev-shindin.
+The old `engine-multi-analyzer` branch and PR #1113 are **superseded** by the 3-PR split. PR #1113 **CLOSED** 2026-06-17; branch archived `archive/engine-multi-analyzer`; worktree removed.
 
 ---
 
@@ -130,8 +128,9 @@ Infra / misc (no design-doc home; file as separate issues):
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable (Makefile bug).
-- **ndots fix standalone PR** — TA3 commit `0614d9d` (`test/e2e/fixtures/workload_builder.go`) needs its own PR before/with TA3 merge.
+- ~~**ndots fix standalone PR**~~ — landed with #1250 merge (`efca1b4c`). No action needed.
 - **E2E throughput wiring test is a no-op under the opt-in gate** — `test/e2e/throughput_analyzer_test.go` ("ThroughputAnalyzer wiring health check") now passes via saturation alone because the controller starts on the default (saturation-only) config and registration is frozen post-start. Follow-up: restart the controller after writing the both-enabled config (true wiring check), or rename/rescope the test. Coder documented the gap in-code (`82611630`). **Not yet filed.**
+- **`runRegisteredAnalyzers` deletion** — dead-code in `engine_v2.go`; not removed in #1266. Standalone cleanup PR. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
 - **Optimizer `max`-shadowing cleanup** — `analyzer_helpers.go`: `roleBottleneckReplicas` (~L132) and `roleAggRemaining` (~L151) declare local `max` shadowing the Go builtin; flagged by ev-shindin in #1246 review. Minor cleanup; file post-merge.
 
 ---
@@ -143,4 +142,4 @@ Infra / misc (no design-doc home; file as separate issues):
 | reviewer | `scratch/PR1092-short-draft.md` | READY | PR #1092 (VA CRD removal proposal) — short review comment draft ready; counter-proposal pending integration before Dean posts |
 | reviewer | `planning/benchmark-wva-vs-keda-plan.md` | DRAFT | WVA-vs-KEDA benchmark plan — two scenarios (cost-optimal ramp + starvation prevention); awaiting Dean review before coder implementation |
 | Dean (self) | `planning/PR1113-review.md` | DRAFT (design SETTLED) | PR #1113 fix design — settled on the 3-PR split. Re-validated 2026-05-29 against main `589646d7`. Pending Dean's final approval before reviewer discussion |
-| planner | `planning/open-items-roadmap.md` | **SCORED** (2026-06-15) | All areas scored (multi-analyzer, TA, D52/EV52). Committed `c71db32d`. See roadmap for Q1/Q2 priority list and dep graph. Next: file Q1+Q2 items as GitHub issues after #1266 merges. |
+| planner | `planning/open-items-roadmap.md` | **SCORED** (2026-06-15) | All areas scored (multi-analyzer, TA, D52/EV52). Committed `c71db32d`. See roadmap for Q1/Q2 priority list and dep graph. **Both #1250 and #1266 now merged — file Q1+Q2 items as GitHub issues.** |

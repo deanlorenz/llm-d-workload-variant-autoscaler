@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/collector-va-attribution-plan.md
+note: Plan gained a "Revision R1 — error & log handling" section; Steps 1, 3e, 4b, 6 and Out-of-scope updated. No PR opened yet.

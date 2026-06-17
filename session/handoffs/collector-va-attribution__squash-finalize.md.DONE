@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/collector-va-attribution-plan.md
+note: Plan gained a "Finalization — squash to one commit before the PR" section after the Pre-push checklist (collapse the R1/R2 fixups; coder does the local squash+amend+gates, force-push stays Dean's).

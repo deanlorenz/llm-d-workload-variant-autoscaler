@@ -1,0 +1,5 @@
+reason: code-review-before-push
+refs:
+  - collector-va-attribution/ (worktree)
+  - planning/collector-va-attribution-plan.md
+note: 1 commit (7157c7d2) on main@526ce851; all gates green (gofmt/test/lint/build/manifests)

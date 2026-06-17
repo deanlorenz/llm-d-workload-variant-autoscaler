@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/collector-va-attribution-plan.md
+note: Plan gained a "Revision R2" section + new Step 7 (unattributed-ready-pods warning); Step 6 tests / dev-guide / out-of-scope extended. R1 already landed in fixup 85bd65de.
