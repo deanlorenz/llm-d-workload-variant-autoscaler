@@ -16,22 +16,22 @@ Do not read past the TOC unless fetching a specific section.
 
 - [Problem](#problem) L36:48
 - [Solution Overview](#solution-overview) L49:64
-- [Type 1 — Repeating Action Rules](#type-1-repeating-action-rules) L65:126
-  - [Directory structure](#directory-structure) L67:82
-  - [INDEX.md format](#indexmd-format) L83:96
-  - [How it works](#how-it-works) L97:103
-  - [Rule file format](#rule-file-format) L104:126
-- [Type 2 — One-Off Sub-Task Detail](#type-2-one-off-sub-task-detail) L127:220
-  - [Document structure](#document-structure) L129:140
-  - [Region 1 — Reading Protocol](#region-1-reading-protocol) L141:153
-  - [Region 2 — TOC](#region-2-toc) L154:173
-  - [Region 3 — Content sections](#region-3-content-sections) L174:199
-  - [Type 1 citations in the TOC](#type-1-citations-in-the-toc) L200:209
-  - [Fetching a section](#fetching-a-section) L210:220
-- [TOC Refresh Script](#toc-refresh-script) L221:236
-- [Integration: CLAUDE.md Changes](#integration-claudemd-changes) L237:257
-- [Still To Design](#still-to-design) L258:277
-- [Next Session](#next-session) L278:286
+- [Type 1 — Repeating Action Rules](#type-1--repeating-action-rules) L65:132
+  - [Directory structure](#directory-structure) L67:84
+  - [INDEX.md format](#indexmd-format) L85:100
+  - [How it works](#how-it-works) L101:109
+  - [Rule file format](#rule-file-format) L110:132
+- [Type 2 — One-Off Sub-Task Detail](#type-2--one-off-sub-task-detail) L133:234
+  - [Document structure](#document-structure) L135:148
+  - [Region 1 — Reading Protocol](#region-1--reading-protocol) L149:163
+  - [Region 2 — TOC](#region-2--toc) L164:185
+  - [Region 3 — Content sections](#region-3--content-sections) L186:211
+  - [Type 1 citations in the TOC](#type-1-citations-in-the-toc) L212:223
+  - [Fetching a section](#fetching-a-section) L224:234
+- [TOC Refresh Script](#toc-refresh-script) L235:252
+- [Integration: CLAUDE.md Changes](#integration-claudemd-changes) L253:273
+- [Still To Design](#still-to-design) L274:293
+- [Next Session](#next-session) L294:302
 
 ## Problem
 
@@ -80,6 +80,8 @@ plans/rules/
 Flat directory. Naming convention: `<trigger>-<topic>.md`. Full path is always cited in the
 plan step, so no discovery burden on the coder.
 
+[↑ TOC](#toc)
+
 ### INDEX.md format
 
 Modeled exactly on MEMORY.md — one line per rule, full path + one-line description:
@@ -94,12 +96,16 @@ Modeled exactly on MEMORY.md — one line per rule, full path + one-line descrip
 - [dev-doc-update](rules/dev-doc-update.md) — name the exact sections before coding, not "update the dev guide"
 ```
 
+[↑ TOC](#toc)
+
 ### How it works
 
 1. `@rules/INDEX.md` is added to `plans/CLAUDE.md` — always in context for planner sessions.
 2. Planner spots an action type → finds the rule in INDEX → cites the full path in the plan step:
    `"Before this step, read rules/code-deletion.md."`
 3. Coder reads the cited file at that step. Rule is fresh in context.
+
+[↑ TOC](#toc)
 
 ### Rule file format
 
@@ -138,6 +144,8 @@ Every plan document has three regions, in this order:
 ...
 ```
 
+[↑ TOC](#toc)
+
 ### Region 1 — Reading Protocol
 
 Boilerplate that appears verbatim at the top of every plan document:
@@ -150,6 +158,8 @@ Fetch each step with: `Read <this-file> offset:<start-line> limit:<line-count>`
 where line-count = end-line − start-line + 1.
 Do not read past the TOC unless fetching a specific step.
 ```
+
+[↑ TOC](#toc)
 
 ### Region 2 — TOC
 
@@ -170,6 +180,8 @@ Line range is inclusive. To fetch Step A (including sub-steps): `offset:42 limit
 To fetch only Step A.1: `offset:68 limit:12`.
 
 The TOC is the only place line numbers live — keep it accurate via the toc-refresh script.
+
+[↑ TOC](#toc)
 
 ### Region 3 — Content sections
 
@@ -195,7 +207,7 @@ Standard markdown headers. Any nesting depth is fine. Each section ends with a b
 ## Step B — Implement
 ```
 
-Back-to-TOC links are added manually by the planner. The toc-refresh script does not insert them.
+Back-to-TOC links are added automatically by `toc-refresh.sh`. The planner may add them manually during authoring; the script will not duplicate them.
 
 ### Type 1 citations in the TOC
 
@@ -206,6 +218,8 @@ planning level without burying them in section prose:
 - [Step A.3 — Remove old handler](#step-a3--remove-old-handler) L110:125
   *(before: read [rules/code-deletion.md](rules/code-deletion.md))*
 ```
+
+[↑ TOC](#toc)
 
 ### Fetching a section
 
@@ -220,15 +234,17 @@ The Read tool uses 1-based line numbers for offset.
 
 ## TOC Refresh Script
 
-`plans/scripts/toc-refresh.sh` — rewrites the `## TOC` block with current line ranges and
-markdown links. Run before every handover from planner to coder.
+`plans/scripts/toc-refresh.sh` — does three things in one invocation:
+1. Adds missing `[↑ TOC](#toc)` links at the end of each section
+2. Regenerates the `## TOC` block with GitHub-style anchors and `L<start>:<end>` ranges
+3. Runs step 2 twice internally to stabilize line numbers (transparent to the caller)
 
 Convention:
 - Planner runs it as the last step before writing the trigger to the coder.
 - If a plan doc is edited mid-session (step added, section moved), run it again.
-- The script is idempotent — safe to run multiple times.
+- Idempotent — safe to run multiple times.
 
-See the script itself for usage and anchor-generation rules.
+See the script itself for anchor-generation rules and back-to-TOC placement logic.
 
 [↑ TOC](#toc)
 
