@@ -132,6 +132,29 @@ gaps, NTH items, and confirmed-correct items. Scoped to a branch or design doc. 
 docs are ready for consumption by the plan agent. Never write to a `*-review.md` file unless
 you are acting as the review agent.
 
+### Plan document authoring (Type 3 task plans)
+
+New task plan documents follow the micro-rules structure (see `planning/micro-rules-design.md`):
+
+1. **Reading Protocol block** — 3-line boilerplate at the top telling agents to only read the TOC,
+   then fetch sections on demand. Copy verbatim from the design doc.
+2. **TOC block** — markdown links with `L<start>:<end>` line ranges, one entry per section.
+3. **Content sections** — fetched on demand via `Read <file> offset:<n> limit:<m>` (limit = end−start+1).
+4. **Rule file citations** — when a step involves a repeating-rule action (code deletion, pre-push,
+   rebase, dev-doc update), add a citation in the TOC entry or step prose:
+   `*(before: read [rules/code-deletion.md](rules/rules-deletion.md))*`
+
+**Before handing any plan doc to a coder**, run:
+
+```bash
+bash plans/scripts/toc-refresh.sh <plan-file.md>
+```
+
+This adds missing `[↑ TOC](#toc)` links and regenerates line ranges in the TOC. Idempotent — run
+again after any structural edit (section added, moved, or removed).
+
+The available rule files are listed in `plans/rules/INDEX.md` (added to CLAUDE.md; always in context).
+
 ### Agent roles and document ownership
 
 Three distinct agent roles write to three non-overlapping doc domains:
