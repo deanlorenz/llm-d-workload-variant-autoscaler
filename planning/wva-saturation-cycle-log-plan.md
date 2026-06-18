@@ -1,341 +1,361 @@
 # WVA Saturation Cycle Summary Log — Task Plan
 
-**Branch:** new branch off `main` (e.g. `wva-saturation-cycle-log`)
+**Branch:** `wva-saturation-cycle-log` (rewrite from `upstream/main`; do NOT rebase the old 2-commit stack — start fresh)
 **Type:** Type 3 task plan
-**Scope:** Logging only. No behavioral change. No interface change that affects callers.
-**Status:** Ready for implementation
+**Scope:** Logging only. No behavioral change. Generic interface extension (one new field).
+**Status:** Ready for implementation (R1 — redesigned 2026-06-19)
+
+---
+
+## Prerequisites — read before touching any code
+
+The engine uses **controller-runtime logr/zap**, not stdlib `slog`.
+- `ctrl.LoggerFrom(ctx)` returns the logger.
+- Emit structured fields as `logger.Info(msg, key1, val1, key2, val2, ...)`.
+- Do NOT import or use `log/slog`.
+- `go.uber.org/zap/zaptest/observer` is the correct tool for capturing log
+  output in unit tests.
 
 ---
 
 ## What this PR adds
 
-One structured `logger.Info("saturation cycle summary", ...)` line per model per
-reconcile cycle, emitted after the optimizer has produced decisions. Single log
-entry; all per-variant fields in one place. Permanent instrument — keep schema
-stable.
+Two structured INFO log lines per reconcile cycle per model:
+
+1. **`"analyzer-result"`** — one per analyzer that ran, emitted in the engine
+   immediately after `runAnalyzersAndScore` returns (post-threshold values).
+2. **`"scaling-decision"`** — one per model, emitted after the optimizer
+   produces decisions.
+
+One generic field added to the shared interface: `CapacityLabel string` on
+`VariantCapacity`. Every analyzer can set it to a free-text string describing
+how it computed the variant's capacity; saturation V2 sets it to one of
+`"P1-obs"`, `"P2-hist"`, `"P3-k2"`, `"P4-k1"`.
 
 **Nothing else.** No new metrics, no config changes, no behavioral logic.
+Log B (optimizer-internal reasoning log) is deferred to a follow-up — it
+requires understanding optimizer internals for a schema that works across
+all optimizers.
 
 ---
 
-## Log line spec
+## Log line specs
 
-Message: `"saturation cycle summary"` (fixed string — grep target for benchmark tooling).
+**Logging library:** controller-runtime logr/zap — `logger.Info(msg, keysAndValues...)`.
 
-**Model-level fields:**
+### Log A — `"analyzer-result"`
+
+Emitted once per named analyzer result in `runAnalyzersAndScore`, before
+returning. Fields:
 
 | Key | Type | Source |
 |---|---|---|
-| `model` | string | `"namespace/modelID"` |
-| `totalSupply` | float64 | `AnalyzerResult.TotalSupply` (saturation) |
-| `totalDemand` | float64 | `AnalyzerResult.TotalDemand` (saturation) |
-| `utilization` | float64 | `AnalyzerResult.Utilization` (saturation) |
-| `analyzerSignals` | []object | one entry per analyzer that ran (see below) |
+| `modelID` | string | `modelID` parameter |
+| `namespace` | string | `namespace` parameter |
+| `analyzer` | string | `NamedAnalyzerResult.Name` |
+| `supply` | float64 | `AnalyzerResult.TotalSupply` |
+| `demand` | float64 | `AnalyzerResult.TotalDemand` |
+| `util` | float64 | `AnalyzerResult.Utilization` |
+| `rc` | float64 | `AnalyzerResult.RequiredCapacity` (post-threshold) |
+| `sc` | float64 | `AnalyzerResult.SpareCapacity` (post-threshold) |
+| `variants` | []variantEntry | one per `VariantCapacity` in the result |
 
-**Per-analyzer signals** (`analyzerSignals` key):
-
-| Field | Type | Source |
-|---|---|---|
-| `name` | string | `NamedAnalyzerResult.Name` (e.g. `"saturation"`, `"throughput"`) |
-| `rc` | float64 | `AnalyzerResult.RequiredCapacity` after universal threshold step |
-| `sc` | float64 | `AnalyzerResult.SpareCapacity` after universal threshold step |
-
-This lets readers see whether TA's RC was positive when sat_v2's RC was zero
-("TA leads sat_v2" case) without needing to parse debug logs.
-
-**Per-variant slice** (`variants` key, one entry per variant):
+`variantEntry` fields:
 
 | Field | Type | Source |
 |---|---|---|
 | `name` | string | `VariantCapacity.VariantName` |
-| `k1` | int64 | `VariantCapacity.MedianK1` (new) |
-| `k2` | int64 | `VariantCapacity.MedianK2` (new) |
-| `k2Source` | string | `VariantCapacity.K2SourceLabel` (new): `"P1-obs"`, `"P2-hist"`, `"P3-deriv"`, `"P4-k1"` |
-| `cost` | float64 | `VariantCapacity.Cost` |
 | `prc` | float64 | `VariantCapacity.PerReplicaCapacity` |
-| `eff` | float64 | `cost / prc` (computed inline) |
-| `currReplicas` | int | `VariantDecision.CurrentReplicas` |
-| `tgtReplicas` | int | `VariantDecision.TargetReplicas` |
+| `cost` | float64 | `VariantCapacity.Cost` |
+| `label` | string | `VariantCapacity.CapacityLabel` (new; `""` if unset) |
+
+Every analyzer emits this line. If an analyzer does not compute per-variant
+capacity, `variants` is an empty slice. Do NOT compute any derived values
+(e.g. `eff = cost/prc`) in the logger.
+
+**Format example:**
+```
+{"level":"info","msg":"analyzer-result","modelID":"m","namespace":"ns",
+ "analyzer":"saturation","supply":658534,"demand":1041047,"util":1.58,
+ "rc":0,"sc":50000,
+ "variants":[
+   {"name":"primary","prc":1152000,"cost":10,"label":"P3-k2"},
+   {"name":"v2","prc":403391,"cost":5,"label":"P1-obs"}
+ ]}
+
+{"level":"info","msg":"analyzer-result","modelID":"m","namespace":"ns",
+ "analyzer":"throughput","supply":0,"demand":0,"util":0,
+ "rc":15000,"sc":0,"variants":[]}
+```
+
+### Log C — `"scaling-decision"`
+
+Emitted once per model after the optimizer returns. Fields:
+
+| Key | Type | Source |
+|---|---|---|
+| `modelID` | string | `ModelScalingRequest.ModelID` |
+| `namespace` | string | `ModelScalingRequest.Namespace` |
+| `decisions` | []decisionEntry | one per variant decision for this model |
+
+`decisionEntry` fields:
+
+| Field | Type | Source |
+|---|---|---|
+| `name` | string | `VariantDecision.VariantName` |
+| `curr` | int | `VariantDecision.CurrentReplicas` |
+| `tgt` | int | `VariantDecision.TargetReplicas` |
 | `action` | string | `VariantDecision.Action` |
 
-**Logging library:** controller-runtime logr/zap — match the existing
-`logger.Info(msg, keysAndValues...)` style used throughout the engine.
-Do NOT use stdlib `slog`.
-
-**Format example** (zap JSON output, single line):
+**Format example:**
 ```
-{"level":"info","msg":"saturation cycle summary","model":"ns/m",
-"totalSupply":658534,"totalDemand":1041047,"utilization":1.58,
-"analyzerSignals":[
-  {"name":"saturation","rc":0,"sc":50000},
-  {"name":"throughput","rc":15000,"sc":0}
-],
-"variants":[
-  {"name":"primary","k1":751820,"k2":1152000,"k2Source":"P3-deriv","cost":10,
-   "prc":1152000,"eff":8.68e-06,"currReplicas":1,"tgtReplicas":2,"action":"ScaleUp"},
-  {"name":"v2","k1":329574,"k2":403391,"k2Source":"P1-obs","cost":5,
-   "prc":403391,"eff":1.24e-05,"currReplicas":1,"tgtReplicas":1,"action":"NoChange"}
-]}
+{"level":"info","msg":"scaling-decision","modelID":"m","namespace":"ns",
+ "decisions":[
+   {"name":"primary","curr":1,"tgt":2,"action":"ScaleUp"},
+   {"name":"v2","curr":1,"tgt":1,"action":"NoChange"}
+ ]}
 ```
 
 ---
 
 ## Code changes — step by step
 
-All code is on `main`. Verify current line numbers yourself; function names
-are stable.
+Start from a clean worktree at `upstream/main`. Do NOT try to layer these
+changes on the old 2-commit stack; rewrite from scratch.
 
 ### Step 1 — `internal/engines/analyzers/saturation_v2/types.go`
 
 Add one field to `ReplicaCapacity` (package-private struct):
 
 ```go
-K2Priority int // 1=observed, 2=history, 3=derived, 4=fallback
+K2Priority int // how k2 was computed: 1=observed, 2=history, 3=derived, 4=fallback
 ```
 
-Place it alongside `MemoryBoundCapacity` / `ComputeBoundCapacity`.
+Place it after `ComputeBoundCapacity`.
 
 ### Step 2 — `internal/engines/analyzers/saturation_v2/analyzer.go`
 
 **2a.** Change `computeK2` return type from `int64` to `(int64, int)`.
 Return `(k2value, priority)` at each of the four exit points:
 
-| Exit point | k2 | priority |
-|---|---|---|
-| Priority 1 — observed | `tokensInUse` | 1 |
-| Priority 2 — historical | `int64(histAvg)` | 2 |
-| Priority 3 — derived | `k2Derived` | 3 |
-| Priority 4 — fallback | `k1` | 4 |
+| Exit point | priority |
+|---|---|
+| Priority 1 — observed (`tokensInUse`) | 1 |
+| Priority 2 — historical (`int64(histAvg)`) | 2 |
+| Priority 3 — derived (`k2Derived`) | 3 |
+| Priority 4 — fallback (`k1`) | 4 |
 
-**2b.** In `computeReplicaCapacity` (the one call site of `computeK2`),
-capture both return values:
+**2b.** In `computeReplicaCapacity`, capture both return values and store
+`K2Priority` in the returned struct:
 
 ```go
 k2, k2Priority := a.computeK2(...)
-```
-
-Store `k2Priority` in the returned `ReplicaCapacity`:
-
-```go
 return &ReplicaCapacity{
     ...
     ComputeBoundCapacity: k2,
-    K2Priority:           k2Priority,   // ADD
+    K2Priority:          k2Priority,
     ...
 }
 ```
 
-**2c.** In `aggregateByVariant`, after building `replicas []ReplicaCapacity` for
-the variant, compute and set the three new `VariantCapacity` fields before
-appending the `vc`:
+**2c.** In `computeReplicaCapacityFallback` (the path that sets both
+`MemoryBoundCapacity` and `ComputeBoundCapacity` to the same fallback value),
+add `K2Priority: 4`. Without this, fallback replicas have priority 0 and the
+label function returns `""` instead of `"P4-k1"`.
+
+**2d.** In `aggregateByVariant`, after building `replicas []ReplicaCapacity`
+for the variant, set `CapacityLabel` before appending `vc`:
 
 ```go
-vc.MedianK1      = median64(k1Slice(replicas))      // median of MemoryBoundCapacity
-vc.MedianK2      = median64(k2Slice(replicas))      // median of ComputeBoundCapacity
-vc.K2SourceLabel = k2SourceLabel(replicas)          // from the representative replica
+vc.CapacityLabel = k2SourceLabel(replicas)
 ```
 
-Helper `k2SourceLabel(replicas []ReplicaCapacity) string`: find the replica
-whose `EffectiveCapacity` equals `median(EffectiveCapacity)` (i.e., the same
-replica that determined `PerReplicaCapacity`); return its K2Priority mapped
-through `map[int]string{1:"P1-obs",2:"P2-hist",3:"P3-deriv",4:"P4-k1"}`.
-On tie, take the first match. If `replicas` is empty, return `""`.
+**2e.** Add/keep the `k2SourceLabel` helper. It returns the K2Priority label
+of the replica whose `EffectiveCapacity` is the median (the same replica that
+determined `PerReplicaCapacity`). Use a sort+copy approach to handle even
+replica counts correctly — do NOT equality-match against a computed median
+average:
 
-Note: `median` is already implemented in the package — reuse it instead of
-reimplementing.
+```go
+func k2SourceLabel(replicas []ReplicaCapacity) string {
+    if len(replicas) == 0 {
+        return ""
+    }
+    sorted := make([]ReplicaCapacity, len(replicas))
+    copy(sorted, replicas)
+    sort.Slice(sorted, func(i, j int) bool {
+        return sorted[i].EffectiveCapacity < sorted[j].EffectiveCapacity
+    })
+    medIdx := (len(sorted) - 1) / 2
+    labels := map[int]string{1: "P1-obs", 2: "P2-hist", 3: "P3-k2", 4: "P4-k1"}
+    if label, ok := labels[sorted[medIdx].K2Priority]; ok {
+        return label
+    }
+    return ""
+}
+```
+
+Note: the label for P3 is `"P3-k2"` (not `"P3-deriv"` as in the old plan).
+
+**Do NOT add** `k1Slice`, `k2Slice`, `MedianK1`, `MedianK2`, or any other
+sat-specific fields. `CapacityLabel` on `VariantCapacity` is the only
+outward-facing addition.
 
 ### Step 3 — `internal/interfaces/analyzer.go`
 
-Add three fields to `VariantCapacity`. Place them after `PerReplicaCapacity`:
+Add exactly **one** field to `VariantCapacity`, after `PerReplicaCapacity`:
 
 ```go
-// Per-variant capacity detail set by the saturation V2 analyzer.
-// Zero for all other analyzers.
-MedianK1      int64  // median memory-bound capacity per replica (tokens)
-MedianK2      int64  // median compute-bound capacity per replica (tokens)
-K2SourceLabel string // how k2 was computed: "P1-obs","P2-hist","P3-deriv","P4-k1"
+// CapacityLabel is a free-text label set by the analyzer to describe how
+// the variant's per-replica capacity was computed. Empty for analyzers that
+// do not set it. Saturation V2 uses "P1-obs", "P2-hist", "P3-k2", "P4-k1".
+CapacityLabel string
 ```
 
-No existing callers read these fields, so adding them is backward compatible.
+Do NOT add `MedianK1`, `MedianK2`, `K2SourceLabel`, or `SaturationVariantCapacity`.
+Do NOT add `SaturationVariantCapacities` to `AnalyzerResult`.
 
 ### Step 4 — `internal/engines/saturation/engine_v2.go`
 
-Add a new package-level helper (not a method; does not need the engine):
+Add two package-level helpers. Replace the old `logDecisionSummary` entirely.
+
+**Helper A — `logAnalyzerResult`:**
 
 ```go
-// logDecisionSummary emits one "saturation cycle summary" INFO line per model,
-// combining per-variant capacity data from the saturation analyzer result with
-// the optimizer's per-variant decisions.
-func logDecisionSummary(
+// logAnalyzerResult emits one INFO "analyzer-result" line for a single named
+// analyzer result. Called for every analyzer that ran in a model's reconcile
+// cycle, after the universal threshold post-step has been applied.
+func logAnalyzerResult(ctx context.Context, modelID, namespace string, nr pipeline.NamedAnalyzerResult) {
+    if nr.Result == nil {
+        return
+    }
+    logger := ctrl.LoggerFrom(ctx)
+
+    type variantEntry struct {
+        Name  string  `json:"name"`
+        PRC   float64 `json:"prc"`
+        Cost  float64 `json:"cost"`
+        Label string  `json:"label,omitempty"`
+    }
+    variants := make([]variantEntry, 0, len(nr.Result.VariantCapacities))
+    for _, vc := range nr.Result.VariantCapacities {
+        variants = append(variants, variantEntry{
+            Name:  vc.VariantName,
+            PRC:   vc.PerReplicaCapacity,
+            Cost:  vc.Cost,
+            Label: vc.CapacityLabel,
+        })
+    }
+
+    logger.Info("analyzer-result",
+        "modelID", modelID,
+        "namespace", namespace,
+        "analyzer", nr.Name,
+        "supply", nr.Result.TotalSupply,
+        "demand", nr.Result.TotalDemand,
+        "util", nr.Result.Utilization,
+        "rc", nr.Result.RequiredCapacity,
+        "sc", nr.Result.SpareCapacity,
+        "variants", variants,
+    )
+}
+```
+
+**Helper B — `logScalingDecisions`:**
+
+```go
+// logScalingDecisions emits one INFO "scaling-decision" line per model after
+// the optimizer has produced per-variant decisions.
+func logScalingDecisions(
     ctx context.Context,
     modelRequests []pipeline.ModelScalingRequest,
     decisions []interfaces.VariantDecision,
 ) {
     logger := ctrl.LoggerFrom(ctx)
 
-    // Index decisions by "namespace/modelID/variantName" for O(1) lookup.
-    type decKey struct{ ns, model, variant string }
-    decMap := make(map[decKey]interfaces.VariantDecision, len(decisions))
+    type modelKey struct{ ns, modelID string }
+    type decisionEntry struct {
+        Name   string `json:"name"`
+        Curr   int    `json:"curr"`
+        Tgt    int    `json:"tgt"`
+        Action string `json:"action"`
+    }
+
+    grouped := make(map[modelKey][]decisionEntry, len(modelRequests))
     for _, d := range decisions {
-        decMap[decKey{d.Namespace, d.ModelID, d.VariantName}] = d
+        k := modelKey{d.Namespace, d.ModelID}
+        grouped[k] = append(grouped[k], decisionEntry{
+            Name:   d.VariantName,
+            Curr:   d.CurrentReplicas,
+            Tgt:    d.TargetReplicas,
+            Action: string(d.Action),
+        })
     }
 
     for _, req := range modelRequests {
-        // Find the saturation analyzer result (always first, but search defensively).
-        var satResult *interfaces.AnalyzerResult
-        for _, nr := range req.AnalyzerResults {
-            if nr.Name == interfaces.SaturationAnalyzerName {
-                satResult = nr.Result
-                break
-            }
-        }
-        if satResult == nil {
+        k := modelKey{req.Namespace, req.ModelID}
+        entries := grouped[k]
+        if len(entries) == 0 {
             continue
         }
-
-        // Per-analyzer RC/SC signals — lets readers see whether TA's RC was
-        // positive even when sat_v2's RC was zero ("TA leads sat_v2" case).
-        type analyzerSignal struct {
-            Name string  `json:"name"`
-            RC   float64 `json:"rc"`
-            SC   float64 `json:"sc"`
-        }
-        signals := make([]analyzerSignal, 0, len(req.AnalyzerResults))
-        for _, nr := range req.AnalyzerResults {
-            if nr.Result == nil {
-                continue
-            }
-            signals = append(signals, analyzerSignal{
-                Name: nr.Name,
-                RC:   nr.Result.RequiredCapacity,
-                SC:   nr.Result.SpareCapacity,
-            })
-        }
-
-        type variantSummary struct {
-            Name         string  `json:"name"`
-            K1           int64   `json:"k1"`
-            K2           int64   `json:"k2"`
-            K2Source     string  `json:"k2Source"`
-            Cost         float64 `json:"cost"`
-            PRC          float64 `json:"prc"`
-            Eff          float64 `json:"eff"`
-            CurrReplicas int     `json:"currReplicas"`
-            TgtReplicas  int     `json:"tgtReplicas"`
-            Action       string  `json:"action"`
-        }
-
-        summaries := make([]variantSummary, 0, len(satResult.VariantCapacities))
-        for _, vc := range satResult.VariantCapacities {
-            d := decMap[decKey{req.Namespace, req.ModelID, vc.VariantName}]
-            var eff float64
-            if vc.PerReplicaCapacity > 0 {
-                eff = vc.Cost / vc.PerReplicaCapacity
-            }
-            summaries = append(summaries, variantSummary{
-                Name:         vc.VariantName,
-                K1:           vc.MedianK1,
-                K2:           vc.MedianK2,
-                K2Source:     vc.K2SourceLabel,
-                Cost:         vc.Cost,
-                PRC:          vc.PerReplicaCapacity,
-                Eff:          eff,
-                CurrReplicas: d.CurrentReplicas,
-                TgtReplicas:  d.TargetReplicas,
-                Action:       string(d.Action),
-            })
-        }
-
-        logger.Info("saturation cycle summary",
-            "model", req.Namespace+"/"+req.ModelID,
-            "totalSupply", satResult.TotalSupply,
-            "totalDemand", satResult.TotalDemand,
-            "utilization", satResult.Utilization,
-            "analyzerSignals", signals,
-            "variants", summaries,
+        logger.Info("scaling-decision",
+            "modelID", req.ModelID,
+            "namespace", req.Namespace,
+            "decisions", entries,
         )
     }
 }
 ```
 
-### Step 5 — `internal/engines/saturation/engine.go`
+### Step 5 — `internal/engines/saturation/engine_v2.go` (`runAnalyzersAndScore`)
 
-Call `logDecisionSummary` immediately after `optimizeV2` returns, before
-`applySaturationDecisions`. Find the `case interfaces.SaturationAnalyzerName:` branch:
+In `runAnalyzersAndScore`, immediately before `return namedResults, nil`, add:
+
+```go
+for _, nr := range namedResults {
+    logAnalyzerResult(ctx, modelID, namespace, nr)
+}
+return namedResults, nil
+```
+
+No other changes to `runAnalyzersAndScore`.
+
+### Step 6 — `internal/engines/saturation/engine.go`
+
+Replace the `logDecisionSummary` call with `logScalingDecisions`:
 
 ```go
 case interfaces.SaturationAnalyzerName:
     allDecisions = e.optimizeV2(ctx, modelGroups, currentAllocations)
-    logDecisionSummary(ctx, modelGroups, allDecisions)   // ADD THIS LINE
+    logScalingDecisions(ctx, modelGroups, allDecisions)  // replaces logDecisionSummary
 ```
 
 No other changes to `engine.go`.
 
-### Step 6 — Unit test
+### Step 7 — Unit tests (`engine_v2_log_test.go`)
 
-Add to `internal/engines/saturation/engine_v2_test.go` (or a new
-`engine_v2_log_test.go` in the same package).
+Use `go.uber.org/zap/zaptest/observer` + `go.uber.org/zapr` to capture logs.
+Add tests in `internal/engines/saturation/engine_v2_log_test.go` (new file,
+same package `saturation`).
 
-Use `go.uber.org/zap/zaptest/observer` to capture log output:
+**Required tests:**
 
-```go
-func TestLogDecisionSummary_EmitsRequiredFields(t *testing.T) {
-    core, logs := observer.New(zap.InfoLevel)
-    logger := zapr.NewLogger(zap.New(core))
-    ctx := logr.NewContext(context.Background(), logger)
+1. `TestLogAnalyzerResult_EmitsRequiredFields` — one analyzer result with one
+   variant; assert `"analyzer-result"` line emitted with keys `modelID`,
+   `namespace`, `analyzer`, `supply`, `demand`, `util`, `rc`, `sc`, `variants`;
+   assert variant entry has `name`, `prc`, `cost`, `label`.
 
-    // Build a minimal ModelScalingRequest with one variant.
-    req := pipeline.ModelScalingRequest{
-        ModelID:   "mymodel",
-        Namespace: "ns",
-        AnalyzerResults: []pipeline.NamedAnalyzerResult{{
-            Name: interfaces.SaturationAnalyzerName,
-            Result: &interfaces.AnalyzerResult{
-                TotalSupply:  100000,
-                TotalDemand:  80000,
-                Utilization:  0.8,
-                VariantCapacities: []interfaces.VariantCapacity{{
-                    VariantName:        "primary",
-                    Cost:               10,
-                    PerReplicaCapacity: 50000,
-                    MedianK1:           60000,
-                    MedianK2:           50000,
-                    K2SourceLabel:      "P2-hist",
-                    ReplicaCount:       1,
-                }},
-            },
-        }},
-    }
-    decisions := []interfaces.VariantDecision{{
-        ModelID:         "mymodel",
-        Namespace:       "ns",
-        VariantName:     "primary",
-        CurrentReplicas: 1,
-        TargetReplicas:  2,
-        Action:          interfaces.ActionScaleUp,
-    }}
+2. `TestLogAnalyzerResult_NilResultSkipped` — pass a `NamedAnalyzerResult`
+   with `Result == nil`; assert no log line emitted.
 
-    logDecisionSummary(ctx, []pipeline.ModelScalingRequest{req}, decisions)
+3. `TestLogAnalyzerResult_EmptyVariants` — result with zero `VariantCapacities`;
+   assert `"analyzer-result"` line emitted with `variants == []` (not nil).
 
-    require.Equal(t, 1, logs.Len(), "expected one log line")
-    entry := logs.All()[0]
-    require.Equal(t, "saturation cycle summary", entry.Message)
+4. `TestLogScalingDecisions_EmitsPerModel` — two models, three decisions total
+   (2+1); assert two `"scaling-decision"` lines, correct `decisions` grouping.
 
-    fields := entry.ContextMap()
-    assert.Equal(t, "ns/mymodel", fields["model"])
-    assert.NotNil(t, fields["variants"])
-    // Spot-check one variant field via the rendered output.
-    variants := entry.Context // zap fields
-    _ = variants
-    // Assert all required top-level keys are present.
-    for _, key := range []string{"model","totalSupply","totalDemand","utilization","analyzerSignals","variants"} {
-        assert.Contains(t, fields, key, "missing key %q", key)
-    }
-}
-```
-
-Adjust imports to match what the project already uses. The key assertion is
-that the line is emitted and contains all required keys.
+5. `TestLogScalingDecisions_NoDecisionsSkipsModel` — a model in `modelRequests`
+   with no corresponding decision; assert no log line for that model.
 
 ---
 
@@ -344,31 +364,58 @@ that the line is emitted and contains all required keys.
 | File | Change |
 |---|---|
 | `internal/engines/analyzers/saturation_v2/types.go` | Add `K2Priority int` to `ReplicaCapacity` |
-| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; populate `K2Priority`, `MedianK1`, `MedianK2`, `K2SourceLabel` |
-| `internal/interfaces/analyzer.go` | Add `MedianK1`, `MedianK2`, `K2SourceLabel` to `VariantCapacity` |
-| `internal/engines/saturation/engine_v2.go` | Add `logDecisionSummary` helper |
-| `internal/engines/saturation/engine.go` | Call `logDecisionSummary` after `optimizeV2` |
-| `internal/engines/saturation/engine_v2_test.go` (or new) | Unit test for `logDecisionSummary` |
+| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; set `K2Priority` in both capacity paths; set `vc.CapacityLabel` in `aggregateByVariant`; add/keep `k2SourceLabel` |
+| `internal/interfaces/analyzer.go` | Add `CapacityLabel string` to `VariantCapacity` only |
+| `internal/engines/saturation/engine_v2.go` | Replace `logDecisionSummary` with `logAnalyzerResult` + `logScalingDecisions`; add log loop in `runAnalyzersAndScore` |
+| `internal/engines/saturation/engine.go` | Replace `logDecisionSummary` call with `logScalingDecisions` |
+| `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests |
+
+---
+
+## Rewrite strategy
+
+**Do NOT rebase the old 2-commit stack** (`e92e26ba`, `01bfe940`). The design
+has changed completely. Procedure:
+
+1. Create a fresh worktree from `upstream/main` (tip `02d06eb2` as of 2026-06-19):
+   ```
+   git -C repo fetch upstream
+   git -C repo worktree add ../wva-log-rewrite upstream/main
+   ```
+   (Use a temporary worktree name like `wva-log-rewrite`; rename or push to
+   `origin/wva-saturation-cycle-log` when done.)
+
+2. Implement Steps 1–7 above.
+
+3. Run all gates (pre-push checklist).
+
+4. Write a `plan__wva-log-rewrite-ready.md` handoff. Dean will force-push to
+   `origin/wva-saturation-cycle-log` to update PR #1277 (coders never push).
 
 ---
 
 ## Pre-push checklist
 
-Run in order from the repo root (in the new branch worktree):
+Run in order from the worktree root:
 
-1. `gofmt -l ./internal/...` — must be empty
+1. `gofmt -l ./internal/... ./pkg/... ./cmd/...` — must be empty
 2. `make test` — all pass
 3. `make lint` — clean
 4. `go build ./...` — clean
-5. Every commit must carry `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`
+5. Every commit: `Signed-off-by: Dean H Lorenz <dean@il.ibm.com>`
 
 ---
 
 ## What NOT to do
 
 - Do not change any scaling logic.
-- Do not add Prometheus metrics (that is a separate follow-up).
+- Do not add Prometheus metrics (separate follow-up).
 - Do not remove or modify the existing `"V2 saturation analysis completed"` or
   `"Applied saturation decision"` log lines.
 - Do not add config flags or feature gates.
-- Do not add comments that reference plans-branch documents (`F3`, `A10`, etc.).
+- Do not add comments that reference plans-branch documents.
+- Do not add `MedianK1`, `MedianK2`, `K2SourceLabel`, `SaturationVariantCapacity`,
+  or `SaturationVariantCapacities` — these belonged to the old design.
+- Do not use `K2Priority` outside the `saturation_v2` package.
+- Do not compute derived values (`eff`, etc.) inside the log helpers.
+- Do not add optimizer-internal logging (Log B deferred).
