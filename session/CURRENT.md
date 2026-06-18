@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-17
+**Last updated:** 2026-06-18
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,13 +10,14 @@
 
 **Active (full abstracts):**
 
-- **2026-06-15 — #1250 (TA3) MERGED** (`efca1b4c` onto main). ThroughputAnalyzer: ITL model, scaling signal, engine wiring. TA3 mission complete. ndots fix landed with merge (no standalone PR needed). Post-merge: discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); file E2E throughput wiring test gap issue; remove `throughputAnalyzerEnabled` registration-gate stopgap when `effectiveEnabled` opt-in fix lands ([`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md)). Also landed same day: `#1276` (`wva_pod_mapping_miss_total` metric, `5ddca4f9`) and `#1284` (HPA/ScaledObject label propagation, `c06b916c`) from upstream contributors.
+- **2026-06-17 — TA post-merge deep review + forward plan.** Independent code review of all #1250 code completed ([`planning/PR1250-deep-review.md`](../planning/PR1250-deep-review.md), Status: DRAFT). Found 3 systemic issues: (1) no single canonical collector instance key — scheduler loop keys on wrong port label, so `ArrivalRate` silently never merges into KV data (config-masked today, latent correctness bug); (2) split-contract test rot — ~20 unit assertions are `Expect(RC)==0` (unconditionally true), headline scale tests are tautological; (3) "off by default" lives in YAML content not code — gate defaults `nil→true`, runtime edit silently ignored. Two post-merge fixes by ev-shindin (`34c9be9b` booting-replica supply, `b2f1d7ef` e2e fake-metrics) supersede some findings; remaining 25 internal issues organized in [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) with P0/P1/P2/P3 priority + PR groupings. Dev guide has 3 stale items (I-21 PromQL, I-22 removed file, I-23 ReplicaCount); user guide is missing (I-24).
 - **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
 - **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite. Note: `runRegisteredAnalyzers` dead-code was NOT removed in this PR — it remains in `engine_v2.go`; follow-up plan at [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4. `effectiveEnabled` opt-in fix (absent entry → false): [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
-- 2026-06-15 — #1250 MERGED `efca1b4c`; F1–F5 review fixes (round-3 `8fcaaaed`); registration-gate smoke fix (round-2 `f11f5120`); Bug A/B throughput metrics (`b0284253`); full-E2E green
+- 2026-06-16 — #1250 MERGED `efca1b4c` (squash). Post-merge testing fixes: `34c9be9b` (booting-replica TotalSupply inflation; NaN/Inf-A guard) + `b2f1d7ef` (e2e scale-up → fake-metrics/saturation-driven; TA scale-up now covered by unit tests only). Deep review → forward plan → [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md)
+- 2026-06-15 — #1250 round-3 pushed `8fcaaaed` (F1–F5); round-2 `f11f5120`; Bug A/B `b0284253`
 - 2026-06-10 — #1246 MERGED `09e1c386`; multi-analyzer mission complete (#1225/#1228/#1246); SchedulerQueue wiring
 - 2026-06-12 — #1260 reviewed (review id `4479726743`; #1260 now **CLOSED → #1267**). Filed [#1263](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1263) (VA-attribution/query separation — see head) + [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264) (nil-vs-zero in `ReplicaMetrics`, **still a valid follow-up**). Multi-EPP P/D future note in [`planning/TA-demand.md`](../planning/TA-demand.md) § Scheduler queue contribution (entry-queue drives both roles, add decode queue to decode only; W_max recalc). EPP scheduler-queue scoping = **not an issue** (model-level correct; only upstream no-namespace gap #2309).
 - 2026-06-09 — #1245 (ScalingPolicy CRD) reviewed; comment posted ([issuecomment-4662740902](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1245#issuecomment-4662740902)); DRAFT review → [`planning/PR1245-review.md`](../planning/PR1245-review.md).
@@ -39,7 +40,7 @@
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | TA1                   | #1051 | **MERGED** 2026-05-12; remove worktree ~2026-05-26                | `c405e8d` |
 | TA2                   | #1052 | **MERGED** 2026-05-19; remove worktree ~2026-06-02                | `a8aac2b7` |
-| TA3                   | #1250 | **MERGED** 2026-06-15 (`efca1b4c` on main). SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). | `efca1b4c` |
+| TA3                   | #1250 | **MERGED** 2026-06-16 (`efca1b4c` on main). SC-gate + sanity deferred → [#1261](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1261). Post-merge fixes: `34c9be9b`, `b2f1d7ef`. Forward work: [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md). | `efca1b4c` |
 | engine-multi-analyzer | #1113 | **CLOSED** 2026-06-17 (superseded by 3-PR split). Branch archived `archive/engine-multi-analyzer`; worktree removed. | `fc403f75` |
 | multi-analyzer-registration | #1225 | **MERGED** 2026-06-07 (`f664a470` on main) | `5c73ea5f` |
 | multi-analyzer-threshold | #1228 | **MERGED** 2026-06-08 (`d9e4ae1f` on main) | `d9e4ae1f` |
@@ -57,11 +58,15 @@ None currently.
 
 ## Next steps
 
-- **#1266 effectiveEnabled fixup (now):** `effectiveEnabled` opt-in fix — absent entry should return `false`; removes `throughputAnalyzerEnabled` registration-gate stopgap. Single commit, base `main`. Plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
-- **runRegisteredAnalyzers deletion (now):** dead-code not removed in #1266 despite earlier CURRENT entry — `engine_v2.go` still has the function. Standalone PR or fold into effectiveEnabled fixup. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
-- **TA3 post-merge:** discuss E2E Step 2f; triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); file E2E throughput wiring test gap issue (no-op under opt-in gate, `82611630`).
-- **Issues to file (post-merge):** both #1250 and #1266 now merged — file Q1+Q2 items from `planning/open-items-roadmap.md`.
-- **Cleanup:** archive `engine-queue-fix` branch (PROC-3; `git boidem`); archive `multi-analyzer-addendum`, `multi-analyzer-{optimizer,registration,threshold}` worktrees at discretion; ~~#1113 close + engine-multi-analyzer worktree~~ DONE (2026-06-17).
+- **TA forward plan — immediate P0 items (now):**
+  - **I-21/I-22/I-23** — fix dev guide: stale PromQL examples (`by (pod)` → `by (instance, pod, llm_d_ai_variant)`), remove `itl_knowledge_store.go` from package structure, add `nKV`/booting-replica note. Single PR, doc-only. Plan: [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) § I-21–23.
+  - **I-5** — gate observability: log "TA not registered" on the disabled path; K8s Event when runtime configmap edit is silently ignored. Fold I-12 (gate unit tests + default-config test) into same PR. See forward plan § I-5, I-12.
+  - **Discuss priorities:** review forward plan with Dean before coding any P1 items (collector key unification I-1 is the highest-risk correctness item; test-rot I-11 unlocks future reviewability).
+- **#1266 effectiveEnabled fixup:** removes the "restart required" stopgap; plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md). Supersedes I-16 in forward plan.
+- **runRegisteredAnalyzers deletion:** dead-code in `engine_v2.go`; plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
+- **Issues to file:** Q1+Q2 from `planning/open-items-roadmap.md`; TA forward plan internal issues I-1 through I-25 (file as GitHub issues at Dean's direction — do not file without confirmation).
+- **TA3 post-merge:** triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); Step 2f E2E discussion.
+- **Cleanup:** archive `engine-queue-fix` branch (PROC-3; `git boidem`); archive `multi-analyzer-{addendum,optimizer,registration,threshold}` worktrees at discretion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
 
 ---
@@ -78,11 +83,15 @@ None currently.
 
 ---
 
-## TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-15
+## TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-16
 
-**PR #1250 MERGED** onto main at `efca1b4c`. TA3 mission complete. E2E Steps 1a/1b/2a-2e PASSED; Step 2f pending discussion; 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`) to triage post-merge.
+**PR #1250 MERGED** onto main `efca1b4c` (squash). Two post-merge fixes by ev-shindin: `34c9be9b` (booting-replica TotalSupply; NaN/Inf-A guard) + `b2f1d7ef` (e2e fake-metrics). TA3 implementation mission complete. 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`) to triage; Step 2f E2E pending discussion.
 
-**Plan docs:** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA-PR5-plan.md`](../planning/TA-PR5-plan.md), [`planning/TA-PR5-review.md`](../planning/TA-PR5-review.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md), [`planning/TA-e2e-plan.md`](../planning/TA-e2e-plan.md), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 reference).
+**Forward work:** [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) — 25 internal issues (P0→P3): correctness bugs, silent error detection, test quality, architectural follow-ups, dev guide + user guide gaps.
+
+**Dev guide gaps (P0, file as immediate PR):** stale PromQL groupby labels in 3 query examples (I-21); `itl_knowledge_store.go` still in package structure though removed (I-22); `nKV`/booting-replica supply note missing (I-23). See forward plan §§ I-21–23.
+
+**Plan docs (historical):** [`planning/TA-Plan.md`](../planning/TA-Plan.md), [`planning/TA3.1-plan.md`](../planning/TA3.1-plan.md) (HISTORICAL — all tasks landed; reconciliation table added 2026-06-17), [`planning/PR1250-deep-review.md`](../planning/PR1250-deep-review.md) (DRAFT code review with post-merge addendum), [`docs/developer-guide/throughput-analyzer.md`](docs/developer-guide/throughput-analyzer.md) (Type 4 — 3 stale items above).
 
 ---
 
@@ -115,7 +124,7 @@ Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../plann
 - Distinguish unavailable metric from genuine zero in `ReplicaMetrics` (`*float64` nil semantics for 3 throughput fields + sanity update) — **FILED as [#1264](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1264)** (prerequisite: #1250 Bug A fix; follow-up after #1250 merges)
 - Per-analyzer observability metrics + decision-enrichment hook (generalize `enrichDecisionsWithKvTokenData`) → **F4**
 - ~~Engine model-level RC/SC for disaggregated models~~ → **F5** CLOSED (resolved by #1246 `initRoleState`)
-- Replica-count accounting consistency (TA `len(variantMetrics)` vs sat_v2 `readyCount`) → **F8**
+- ~~Replica-count accounting consistency (TA `len(variantMetrics)` vs sat_v2 `readyCount`)~~ → **F8** — **RESOLVED** by `34c9be9b` (`ReplicaCount = nKV`, mirrors sat_v2)
 - Fold queueing-model into the V2 multi-analyzer engine (Option A; + 4 pre-existing QM oversights) → **F10**
 - Per-role RC/SC canonical end-to-end (drop optimizer synthesis; resolves F5) → **F12**
 - Cost picker integer-rounding suboptimality → **F13**
@@ -123,13 +132,13 @@ Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../plann
 
 Infra / misc (no design-doc home; file as separate issues):
 
-- **Bob review 1.3** — ArrivalRate staleness check in `computeDemand` (observability PR).
-- **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); observability PR after PR-5.
+- **TA forward plan** — 25 internal issues (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md). Includes: collector key unification (I-1, P0 latent bug), gate observability (I-5, P0), SchedulerQueue wiring (I-9, P1), test rot (I-11, P1), gate unit tests (I-12, P1), dev guide (I-21–23, P0), user guide (I-24, P1), effectiveEnabled (I-16→`planning/PR1266-fixup-effectiveEnabled.md`), per-analyzer status return (I-17→#1261), tier-3 knowledge store (I-18), μ_RPS (I-19), prefill/TTFT (I-20).
+- **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); see forward plan I-8.
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
 - **Makefile IMG always set** — `deploy-e2e-infra` registry-image path unreachable (Makefile bug).
 - ~~**ndots fix standalone PR**~~ — landed with #1250 merge (`efca1b4c`). No action needed.
-- **E2E throughput wiring test is a no-op under the opt-in gate** — `test/e2e/throughput_analyzer_test.go` ("ThroughputAnalyzer wiring health check") now passes via saturation alone because the controller starts on the default (saturation-only) config and registration is frozen post-start. Follow-up: restart the controller after writing the both-enabled config (true wiring check), or rename/rescope the test. Coder documented the gap in-code (`82611630`). **Not yet filed.**
+- ~~**E2E throughput wiring test is a no-op under the opt-in gate**~~ — `b2f1d7ef` converted to fake-metrics/saturation-driven; coverage honesty comment added. Gap acknowledged; TA-isolated scale-up signal has no e2e coverage (by design — covered by unit tests). See forward plan I-14 (e2e robustness) and I-11 (test rot).
 - **`runRegisteredAnalyzers` deletion** — dead-code in `engine_v2.go`; not removed in #1266. Standalone cleanup PR. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
 - **Optimizer `max`-shadowing cleanup** — `analyzer_helpers.go`: `roleBottleneckReplicas` (~L132) and `roleAggRemaining` (~L151) declare local `max` shadowing the Go builtin; flagged by ev-shindin in #1246 review. Minor cleanup; file post-merge.
 

@@ -1,12 +1,47 @@
 # TA3.1 — Complete PR #1250 + Post-Review Follow-Up (PR-B)
 
-> **Status: ACTIVE** — Bug A/B/C done + rebased + pushed (`b0284253`). **Round-2
-> review fixes pending** (smoke `saturation_v2_test.go:280` failing — throughput
-> veto; see "Review-driven fixes (round 2)" below). D1/D2/T1/T2 already in PR;
-> PR-B STANDBY.
+> **Status: HISTORICAL (implementation record).** Every coder task in this doc is
+> landed on `origin/TA3` and pushed: rebase + Bug A/B/C (`b0284253`), round-2 fixes
+> (`f11f5120`), round-3 F1–F5 + nits (`8fcaaaed`). D1/D2/T1/T2 shipped inside #1250;
+> a separate PR-B was never needed. Awaiting CI + ev-shindin re-review of #1250.
+> **This is no longer a forward task list — do not resume any task from it.**
+>
+> **A post-implementation deep code review (2026-06-17) supersedes this plan for the
+> consolidated-fix backlog:** [`planning/PR1250-deep-review.md`](PR1250-deep-review.md).
+> It reviewed the *entire* shipped TA3 code independent of this plan and found quality
+> debt the round-by-round process did not catch. Where its findings contradict or
+> qualify claims made in this plan, the review wins — see the **Reconciliation** table
+> immediately below. The next TA3 work (after #1250 merges) is the review's 7 fix
+> bundles, not anything in this doc.
 >
 > Triage doc: [`planning/PR1250-review.md`](PR1250-review.md)
 > Rebase resolution: [`planning/PR1267-impact-and-decisions.md`](PR1267-impact-and-decisions.md)
+
+---
+
+## Reconciliation — deep review (2026-06-17) vs this plan
+
+The deep review ([`PR1250-deep-review.md`](PR1250-deep-review.md)) confirmed the plan's
+*intent* was mostly sound but caught places where the as-shipped code diverged, where a
+"fix" was inert, or where a plan assumption was invalidated by a later round. Read this
+before trusting any "fixed"/"safe" claim in the body below.
+
+| Plan claim (section) | Review finding | Verdict |
+|---|---|---|
+| **R2 Item 1** "filter stale replicas from ITL fit; keep unfiltered `variantMetrics` for supply/demand" | Supply *and* demand still run on unfiltered metrics, so an out-of-range/NaN k\* reaches `computeLocalDemand`/`computeVariantSupply` → inflated/NaN demand (A-B1). The plan deliberately left that path unfiltered and didn't consider invalid k\*. | **Incomplete** — config-masked today (collector guards k\*), latent. |
+| **R2 Item 2 / R3 nit** "Tier-2 pins B ≥ `DefaultBaselineITLSec` so `A·kSat+B>0` always — no guard needed there" | Round-3's `lastFittedB` pinning can make B **negative** (a valid Tier-1 B can be <0), so Tier-2 *can* yield `A·kSat+B≤0`. The plan's "no guard needed in Tier-2" reasoning was invalidated by the later `lastFittedB` change (A-B2). | **Contradicted** — add the same guard to Tier-2. |
+| **R2 Item 4** "remove dead `has*` sentinels; #1264 reintroduces with consumer" | Removing them leaves "absent vs genuine 0" conflated for the 3 throughput fields; an absent k\* enters the OLS fit as a real zero (C-D1). Defensible (no consumer) but the review elevates it. | **Confirmed gap** — own bundle (aligns #1264). |
+| **R3 F2** "`TotalCapacity` is cosmetic; fix for self-consistency" | Confirmed inert — `SumTotalSupply` never reads `vc.TotalCapacity` (A-S1). Review recommends *dropping the field* rather than maintaining a doc-accurate-but-unused value. | **Agrees** — but go further (delete field). |
+| **R3 F3** "skip unknown instances in throughput loops — safe, scrape skew" | The skip is gated on the wrong signal: throughput queries are `model_name`-filtered so they can't return foreign pods; the only way to hit the skip is **key skew** (the scheduler-loop / instance-key defect) or a partial KV failure — so F3 *masks* a real bug, and its justifying comment (copied from cache-config) is factually wrong (C-B3/C-S1). | **Contradicted** — F3 hides C-B1/C-B2; log the anomaly instead. |
+| **Complete-#1250 Bug A** "all other loops use `buildInstanceKey`; throughput was the odd one out — key-merge fixed" | The **scheduler-dispatch loop** was never covered: it keys on a *different* port label with *reversed* `pod`/`pod_name` precedence (C-B1/C-N5). The "key-merge fix" was incomplete; there is no single canonical instance key. | **Incomplete** — biggest correctness item (bundle 1). |
+| **R3 F5** "AfterAll restart is mandatory (registration sticky)" | The plan was *right*, but the shipped code used best-effort `_ =` in 2 of 3 suites (E-e3); also `Skip()`-on-restart-failure can hide the regression the suite exists to catch (E-e1), and the readiness poll lacks an `ObservedGeneration` gate (E-e4). | **Divergent implementation** — code didn't follow the plan. |
+| **Out-of-scope** "`anyEPP`/`anyGPSMismatch` placeholders — leave as-is, do not remove" | Review recommends deleting the dead aggregates + `isEPP` plumbing (git remembers them for #1261) to shrink the "looks load-bearing but isn't" surface that misled reviewers (A-D2). | **Disagreement for Dean** — defer-vs-delete. |
+| **D1 doc rewrite + T1/T2** "TA leaves RC/SC zero; engine post-step writes them; preserve SC==0 fixtures" | This split contract is the **root cause of the test rot**: ~20 unit assertions are `Expect(RC).To(Equal(0.0))` (always true) and the 5 preserved GPS `It`s assert nothing (A-D1/E-B1/E-D1/E-D2). The plan treated these as correct; the review flags them as no-op coverage. | **Re-framed** — needs engine-integration test; delete the `==0.0` asserts. |
+
+**Net:** the review's 7 consolidated bundles are the real backlog. Bundle 1 (canonical
+instance key) is the only one with a latent *correctness* bug (config-masked today);
+bundles 2–3 (kill test rot, gate hardening) address the churn that produced this plan's
+many rounds. None blocks the current #1250 merge.
 
 ---
 
