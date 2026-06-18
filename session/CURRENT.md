@@ -132,7 +132,9 @@ Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../plann
 
 Infra / misc (no design-doc home; file as separate issues):
 
-- **TA forward plan** — 25 internal issues (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md). Includes: collector key unification (I-1, P0 latent bug), gate observability (I-5, P0), SchedulerQueue wiring (I-9, P1), test rot (I-11, P1), gate unit tests (I-12, P1), dev guide (I-21–23, P0), user guide (I-24, P1), effectiveEnabled (I-16→`planning/PR1266-fixup-effectiveEnabled.md`), per-analyzer status return (I-17→#1261), tier-3 knowledge store (I-18), μ_RPS (I-19), prefill/TTFT (I-20).
+- **TA forward plan** — 25 internal issues + 5 deferred features (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md).
+  - **Deferred features (Group 0)** — code removed during #1250 dev cycle whose design intent is preserved: D-1 ITL knowledge store (historical A,B per variant, warm-up skip), D-2 GPS-mismatch SC gate, D-3 EPP-absent SC gate, D-4 FreshnessStatus staleness gate (dead end-to-end), D-5 `has*` throughput sentinels (nil-vs-zero for 3 fields). None are deprecated — all return in later PRs (D-2/D-3 via #1261, D-4 via I-6, D-5 via #1264, D-1 via I-18).
+  - Key issues: collector key unification (I-1, P0 latent bug), gate observability (I-5, P0), dev guide fixes (I-21–23, P0), per-analyzer status return (I-17→#1261), effectiveEnabled (I-16→`planning/PR1266-fixup-effectiveEnabled.md`).
 - **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); see forward plan I-8.
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).

@@ -299,6 +299,27 @@ actual code state of the branch it is on. Do not include PR-schedule references 
 or forward-looking implementation details. Use "not yet implemented" for features that are
 genuinely absent from the current branch.
 
+**Type 3 plans must name specific dev-guide sections, not just say "update the dev guide."**
+Any Type 3 task plan that touches files with a dev-guide counterpart must enumerate, per
+commit, exactly which sections of which `docs/developer-guide/` files need to change — and
+*what* changes (add, modify, remove). "Update the dev guide" without specifics is not
+actionable for a coder and leads to stale docs after merge. If the planner is unsure which
+sections are affected, that is a signal to re-read the current Type 4 doc before finalising
+the plan. A coder that cannot find the dev-guide section in the plan must write a handoff
+noting the gap rather than skipping the doc update.
+
+**Document every deletion — deprecated or deferred.**
+When a task plan removes a file, function, struct, or significant block of code, the plan
+must classify the removal:
+- **Deprecated** — functionality intentionally removed; no future work planned. State why.
+- **Deferred** — functionality removed because it is not yet fully ready (no consumer,
+  engine contract not in place, etc.) but the design intent is worth preserving. State what
+  it did, why it was removed, and where the future version should land (issue or plan item).
+
+The coder writes the classification in the handoff; the planner captures deferred items in
+the relevant Type 1 or Type 3 doc and in `CURRENT.md` Issues to Open. Nothing is silently
+deleted — a future session must be able to recover the intent from the plan docs alone.
+
 **Pre-push checklist (run in order before every `git push` or PR submission).**
 1. **Check current branch** — `git branch --show-current`. Confirm you are on the intended branch before any commit, amend, or rebase.
 2. **gofmt** — `gofmt -l ./internal/... ./pkg/... ./cmd/...`. No output means clean.

@@ -5,6 +5,7 @@
 `upstream/main`.
 
 This document is the single backlog for all TA follow-up work. It covers:
+- **Removed/deferred features** — code deleted from merged PRs whose design intent must be preserved
 - Correctness bugs
 - Silent error detection / observability gaps
 - Test quality (unit + e2e)
@@ -14,6 +15,177 @@ This document is the single backlog for all TA follow-up work. It covers:
 **Source:** `planning/PR1250-deep-review.md` (the independent post-implementation code review),
 plus the dev guide accuracy audit of `docs/developer-guide/throughput-analyzer.md`.
 Review tags in brackets (e.g. [C-B1]) trace to that doc.
+
+---
+
+## Group 0 — Removed / deferred features
+
+> These are code and behaviors that were **deleted during the PR-1250 development cycle**
+> but whose design intent must not be lost. Each entry records: what existed, why it was
+> removed, and what the future version should do. Entries are classified **DEFERRED** (will
+> return in a later PR) or, for completeness, **DEPRECATED** (intentionally gone).
+>
+> This section was created because the process failed: none of these deletions were
+> documented at the time. The convention has been updated (`CONVENTIONS.md` + `CODER-CONVENTIONS.md §4b`)
+> so future PRs classify every deletion in the coder handoff.
+
+---
+
+### D-1 · ITL knowledge store (`itl_knowledge_store.go`) — **DEFERRED** [P3]
+
+**What was removed:** A package-level struct `itlKnowledgeStore` in
+`internal/engines/analyzers/throughput/itl_knowledge_store.go`. It was designed to persist
+the most recent successful Tier-1 OLS fit `(A, B)` per variant key
+(`namespace|modelID|variantName`) across session boundaries — i.e., survive leader failover
+and controller restarts, not just shape-change window resets.
+
+**Why removed:** The struct was created but never wired into `ThroughputAnalyzer.Analyze()`.
+The current `Analyze()` loop only processes variants that have active replica metrics in the
+current cycle; zero-replica variants are invisible. Wiring tier-3 requires a second loop pass
+over "variants with state but no current metrics" — a loop restructure that was out of scope
+for #1250. The unwired file added dead code to the package and was removed to keep the tree
+clean.
+
+**Design intent for the future version:**
+The warm-up gap is real: after leader failover or a controller restart, the analyzer runs in
+tier-2 (constrained OLS with `DefaultBaselineITLSec = 0.006` — an H100 hardware constant)
+for potentially 10–30 minutes before tier-1 OLS re-accumulates enough (k\*, ITL) pairs. On
+non-H100 hardware or after a significant load change, tier-2 produces inaccurate supply
+estimates during this gap.
+
+The knowledge store solves this by remembering the last good `(A, B)` per variant. On startup
+or after a failover, if no in-memory `hasFittedB`/tier-1 fit exists, the analyzer looks up the
+stored model and uses it as tier-2's pinned B — or even as a direct tier-3 supply estimate
+before any replicas report metrics (for the scale-from-zero case).
+
+**Storage options (to evaluate when implementing):**
+1. A per-VA annotation or ConfigMap written by the controller after each successful tier-1 fit.
+2. A leader-lease annotation piggyback.
+3. A lightweight `wva-ta-knowledge` ConfigMap per namespace, keyed by `modelID/variantName`.
+Option 1 is simplest and integrates with the existing event recorder infrastructure.
+
+**Relationship to `lastFittedB`:** `lastFittedB` (already implemented) persists `B` across
+*shape changes within a session*. The knowledge store extends that to persist *both A and B*
+across *session boundaries* (restarts, failover). The implementation should build on
+`lastFittedB` semantics and store `(A, lastFittedB)` together.
+
+**Future home:** Extend I-18 (tier-3 wiring) below. File a GitHub issue when ready to design.
+The issue should reference the `TA-supply.md` §2 empirical motivation (B ≈ hardware constant;
+A encodes workload shape × hardware) and the TA-Plan.md Phase 3 tier-3 entry.
+
+---
+
+### D-2 · GPS-mismatch SpareCapacity suppression gate — **DEFERRED** [P2]
+
+**What was removed:** In the `Analyze()` loop, `anyGPSMismatch` was accumulated (one bool per
+variant: did any replica's observed GPS deviate >15% from the ITL-model prediction?). When
+`anyGPSMismatch == true`, `SpareCapacity` was set to 0 (no scale-down). This prevented the
+analyzer from driving scale-down when its own ITL model was flagged as unreliable.
+
+**Why removed:** The engine contract changed in PR-5 (the multi-analyzer unification). Under
+the new contract, TA leaves `RequiredCapacity` and `SpareCapacity` at zero; the engine's
+universal threshold post-step fills both unconditionally from `TotalSupply` and `TotalDemand`.
+TA has no way to suppress SC *after* the post-step. The `anyGPSMismatch` accumulator became
+dead code (`_ = anyGPSMismatch`). The SC-suppression behavior was tracked in issue #1261.
+
+**Design intent for the future version:**
+When #1261 (`AnalyzerStatus` per-analyzer signal) lands, TA should return
+`AnalyzerStatus{SuppressSpareCapacity: true}` whenever `anyGPSMismatch` is true. The engine's
+post-step reads this flag and clamps SC to zero for that analyzer's contribution. This restores
+the original safety property: if the ITL model is suspect, don't scale down.
+
+The `consecutiveGPSMismatches` / `DefaultGPSMismatchClearThreshold` window-clear logic
+(already implemented and working) is the right gate — it is not affected by this removal and
+can be extended to also set `SuppressSpareCapacity` in the returned status.
+
+**Future home:** I-17 (`#1261` per-analyzer status return) + extend `checkVariantGPSMismatch`
+to return the mismatch bool to `Analyze()`, which accumulates it into the status. The
+`anyGPSMismatch` variable and its accumulation loop are the natural skeleton; they can be
+un-commented once the interface exists.
+
+---
+
+### D-3 · EPP-absent SpareCapacity suppression gate — **DEFERRED** [P2]
+
+**What was removed:** When no replica had `ArrivalRate > 0` (i.e., EPP is not deployed),
+`SpareCapacity` was set to 0. The reasoning: EPP provides the most reliable demand signal
+(`ArrivalRate` = actual scheduler dispatch rate). Without EPP, demand is estimated from
+vLLM counters or k\*-based local demand — both less reliable, especially for scale-down
+decisions. The EPP-absent gate prevented a possibly-over-confident scale-down.
+
+**Why removed:** Same engine-contract change as D-2. `anyEPP = computeDemand(...)` is now
+dead code (`_ = anyEPP`).
+
+**Design intent for the future version:**
+Return `AnalyzerStatus{SuppressSpareCapacity: true}` when `!anyEPP` from `#1261`. This is a
+simpler flag than GPS (boolean per model, not per variant). The existing `isEPP` return from
+`computeDemand` and the `anyEPP` accumulator are the skeleton; un-comment once the interface
+exists.
+
+**Note:** The EPP-absent gate is more conservative than the GPS gate. In a deployment that
+never has EPP (vLLM-only, no EPP sidecar), this would permanently suppress all TA scale-down.
+The future design should allow an operator to opt out (e.g., `suppressScaleDownWithoutEPP:
+false` in the TA config). Design this carefully.
+
+**Future home:** I-17 (same #1261 PR as D-2).
+
+---
+
+### D-4 · `FreshnessStatus` staleness gate in sanity.go — **DEFERRED** [P2]
+
+**What was removed:** `checkReplicaMetrics()` in `sanity.go` includes:
+```go
+if m.Metadata != nil && m.Metadata.FreshnessStatus == "stale" {
+    issues = append(issues, SanityIssueStaleMetrics)
+}
+```
+The intent: a replica whose Prometheus scrape is behind (stale timestamp) should not
+contribute `(k*, ITL)` observations to the OLS window — stale k\* or ITL would bias the fit.
+
+**Why "removed" (more precisely: never wired):** The collector (`replica_metrics.go`)
+unconditionally emits `FreshnessStatus: "fresh"` and `Age: 0` on every assembled
+`ReplicaMetrics` regardless of actual per-field timestamps. The `trackMetricFreshness` logic
+in the collector computes real staleness into a local map, but never writes it back to the
+struct. So `FreshnessStatus == "stale"` is always false — the sanity gate is dead code.
+
+**Design intent for the future version:**
+Wire the collector's per-field freshness computation into the assembled `ReplicaMetrics.Metadata`
+before returning. Specifically: after calling `trackMetricFreshness`, determine the worst-case
+staleness across the throughput-relevant fields (`KvUsageInstant`, `AvgITL`,
+`GenerationTokenRate`), and set `FreshnessStatus = "stale"` if any exceeds the configured
+staleness threshold. Once this is done, `SanityIssueStaleMetrics` becomes live and stale
+replicas are correctly excluded from calibration.
+
+The `trackMetricFreshness` function (lines ~373–408 in `replica_metrics.go`) is the right
+place to compute this; it already tracks per-metric timestamps.
+
+**Future home:** I-6 (freshness wiring) in this plan. File alongside #1264.
+
+---
+
+### D-5 · `has*` throughput sentinels (`hasGenTokenRate`, `hasKvInstant`, `hasVLLMRate`) — **DEFERRED** [P2]
+
+**What was removed:** Three boolean fields on `podMetricData` (the collector-internal struct):
+`hasGenTokenRate`, `hasKvInstant`, `hasVLLMRate`. Added in the Bug-A fix (commit ~`b0284253`)
+as the "internal half" of issue #1264's nil-vs-zero distinction: they distinguished "this pod
+returned a value for this query" from "this pod's value was genuinely zero."
+
+**Why removed:** Round-2 plan item 4 removed them because there was no consumer (the
+`interfaces.ReplicaMetrics` fields for these three were `float64`, not `*float64`). Setting a
+sentinel with no reader is dead code; the plan said "remove now, #1264 reintroduces them with
+the consumer."
+
+**Design intent for the future version:**
+When #1264 lands, change the three throughput fields in `interfaces.ReplicaMetrics` from
+`float64` to `*float64` (nil = metric absent; non-nil = value, including genuine zero). The
+collector-internal `has*` sentinels then become unnecessary — nil vs non-nil on the struct
+field serves the same purpose more idiomatically. Alternatively, keep `float64` fields and
+introduce `hasKvUsageInstant bool` etc. on `ReplicaMetrics` directly. Either way, the
+analyzer must then:
+- Skip `nil`/absent k\* from `ObservationWindow.Add` (no bias toward zero)
+- Skip `nil`/absent k\* from `computeVariantSupply` and `computeLocalDemand`
+
+**Future home:** I-7 (nil-vs-zero, #1264) in this plan.
 
 ---
 
@@ -311,10 +483,13 @@ edits take effect without a restart). Plan: `planning/PR1266-fixup-effectiveEnab
 ### I-17 · Per-analyzer status return (#1261) [P2]
 
 **What:** `AnalyzerResult` has no way to signal "suppress SpareCapacity" or "suppress
-RequiredCapacity" to the engine. This blocks:
-- Restoring the GPS-mismatch SC suppression gate (currently the dead `anyGPSMismatch` placeholder)
-- Demand-gating on the sanity report (the `TODO(#1261)` in `analyzer.go:249`)
-- EPP-absent SC suppression (the old pre-PR-5 behavior)
+RequiredCapacity" to the engine. This blocks restoring three deferred behaviors:
+- **GPS-mismatch SC gate** (D-2): `anyGPSMismatch → SuppressSpareCapacity`
+- **EPP-absent SC gate** (D-3): `!anyEPP → SuppressSpareCapacity`
+- **Demand-gating on sanity report** (the `TODO(#1261)` in `analyzer.go:249`)
+
+The `anyGPSMismatch` and `anyEPP` dead accumulators (`_ = anyGPSMismatch; _ = anyEPP`) are
+the preserved skeleton for this work — do NOT delete them until #1261 lands.
 
 Filed as GitHub issue #1261. Requires extending the `interfaces.Analyzer` contract.
 
@@ -322,15 +497,21 @@ Filed as GitHub issue #1261. Requires extending the `interfaces.Analyzer` contra
 
 ---
 
-### I-18 · Tier-3 knowledge store (zero-replica fallback) [P2]
+### I-18 · Tier-3 knowledge store (zero-replica fallback / warm-up skip) [P2→P3]
 
-**What:** `itl_knowledge_store.go` was removed in the merge. Tier-3 (scale-from-zero using the
-last successful Tier-1 fit) is explicitly unimplemented. The `Analyze()` loop only iterates
-variants with active replica metrics; zero-replica variants are invisible.
+**What:** `itl_knowledge_store.go` was removed in the merge. Full design intent and the
+original concept are preserved in **D-1** (Group 0) above — read that first. Summary: persist
+the last successful Tier-1 OLS `(A, B)` per variant across controller restarts and leader
+failover, not just within a session. Enables tier-3: when no replicas are present (scale-to-
+zero or post-failover), bootstrap supply estimation from stored coefficients.
 
-**Scope:** Requires restructuring `Analyze()` to iterate variants with state but no current
-metrics (a separate pass), and persisting the last successful `ITLModel{A,B}` per variant
-through scale-to-zero events.
+**Implementation scope:**
+1. Loop restructure: `Analyze()` needs a second pass over variants with state but no current
+   metrics (currently invisible).
+2. Persistence: store `(A, B)` in a K8s ConfigMap or VA annotation after each successful
+   Tier-1 fit; read at startup.
+3. Wire `lastFittedB` extension: today `lastFittedB` survives shape changes in-session; extend
+   to survive restarts via the persistence mechanism.
 
 **TA-Plan reference:** Phase 3 / `PR-4: Design Alternatives → Tier-3 knowledge store wiring`.
 

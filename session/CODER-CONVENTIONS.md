@@ -193,6 +193,31 @@ doc (e.g., `multi-analyzer-coder-rules.md`).
 
 ---
 
+## 4b. Document every deletion — deprecated or deferred
+
+When your task removes a file, function, struct, or significant code block, classify the
+removal in your handoff to the planner. Use one of two labels:
+
+**DEPRECATED** — the functionality is intentionally gone; no future work planned.
+Example: `// DEPRECATED: itlKnowledgeStore — removed; functionality superseded by lastFittedB (in-session only)`
+
+**DEFERRED** — the code is not ready yet (no consumer, engine contract not in place,
+scope creep) but the *design intent* is worth preserving. Include in the handoff:
+1. What the code did (one paragraph — enough to re-implement from scratch)
+2. Why it was removed now
+3. Where the future version should land (GitHub issue ref, plan-doc item, or "file issue")
+
+The planner captures DEFERRED items in the relevant Type 1/Type 3 doc and in
+`CURRENT.md` Issues to Open. Nothing is silently deleted — a future session must be
+able to recover the design intent from plan docs alone.
+
+This rule applies equally to partial removals: removing a gate (e.g. an `if anyGPSMismatch`
+block) that was wired to produce real behavior counts as a deletion of that behavior and
+must be classified. "The code still compiles and the tests pass" is not the bar — the bar
+is "will a future developer know this feature existed and why it was removed?"
+
+---
+
 ## 4a. No plans-branch references in code-side artifacts
 
 Code comments, doc-strings, function names, identifiers, dev-guide
