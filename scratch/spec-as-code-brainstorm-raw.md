@@ -2900,5 +2900,59 @@ before launching a single reverse coder.
 
 In my experience, task decomposition quality is the highest-leverage part of the entire system. If the task boundaries are good, the reverse coders become almost interchangeable. If the task boundaries are bad, even excellent agents will produce noisy specs.
 
+=========================================================================
+ROUND 2 — reaction to the sample/pilot specs (2026-06-19)
+=========================================================================
+
+[ChatGPT]
+
+That's a very good sign. If orchestration works and content quality is good,
+you've already validated the hard part. Format/schema is comparatively easy to fix.
+
+Suspected failure modes:
+
+1. Agents are writing prose, not structured spec.
+   Instead of `## Inputs / - QueueDepth / - RunningPods` you get
+   "The autoscaler receives queue depth metrics and information about running pods...".
+   Most common failure mode — LLMs drift toward narrative documentation.
+   Fix: tighten schema enforcement. Change agent instructions from "Required sections"
+   to "Output must conform exactly to this schema. No additional headings. No prose
+   outside sections." Make Markdown behave like a typed AST. Example:
+     # Component
+     ## Metadata
+     - Name: / - Domain:
+     ## Responsibility
+     - ...
+     ## Inputs
+     - Name: / Type: / Source:
+     ## Outputs
+     - Name: / Type: / Destination:
+
+2. Too much repeated hierarchy — body repeats path-derived metadata
+   (Domain:/Component:) already implied by spec/domains/.../component.md.
+   Fix: forbid path-derived metadata in the body.
+
+3. Workers invent schema variants — "Failure Modes" vs "Failures" vs "Error Handling".
+   Kills automation. Fix: canonical schema + validator. Add a Schema Validation Agent
+   before review:  revcoder -> schema validator -> review. Validator checks headings exactly.
+
+4. Markdown too free-form (the big one). ChatGPT proposes a hybrid: YAML blocks inside
+   Markdown (markdown for hierarchy/rendering, fenced ```yaml blocks for machine-readable
+   structure).
+
+ChatGPT's guess: "Pure Markdown is too weak as a schema language." Proposed sweet spot:
+   canonical source = structured YAML-ish blocks inside Markdown; primary UI = GitHub-
+   rendered Markdown; derived views = Mermaid / reports.
+
+Asks: show one example of (1) what a generated spec currently looks like and (2) what you
+wish it looked like instead.
+
+[Dean]
+
+I disagree with the conclusion. Markdown IS the right format because it is supported by
+GitHub and renders text, tables, charts, workflows, .... The schema needs to be much
+tighter. E.g., APIs should look more like Swagger + reasoning on semantics + responsibilities.
+[capture this round with the rest of the discussion.]
+
 
 

@@ -36,8 +36,11 @@ is prose proposal → spec → code.
    orchestration session.)
 2. **Markdown only.** Renders natively in GitHub; reviewable via PRs; no external tooling to
    browse. Backstage/YAML-catalog tools rejected for this reason (must live in GH with the repo).
-3. **Constrained markdown ≈ "YAML disguised as Markdown."** Structure it so it maps cleanly
-   to/from YAML; strict section syntax especially for contracts and components.
+3. **Constrained markdown is the canonical source — make the schema much tighter.** Markdown
+   stays the source of truth (GH renders text, tables, mermaid, workflows). The fix for
+   "specs read like prose" is **not** to switch to YAML-blocks-as-source — it's to constrain the
+   markdown hard: canonical headings only, **no prose outside sections**, no path-derived metadata
+   in the body, treat the document as a **typed AST**. See §8.
 4. **Folder hierarchy carries structure.** `spec/domains/<domain>/components/<component>/…` — don't
    repeat domain/component names inside the files.
 5. **Spec = source of truth; code = evidence.** **Attach spec → code** (the spec names its
@@ -109,3 +112,40 @@ Discovery complete (4 domains, 19 components, 9 workflows, 12 contracts); a 3-ta
 (contract + component + workflow) ran via confined sonnet sub-agents and its findings were verified
 accurate against code. **Bulk run is PAUSED** pending the format decision; the 3 pilot specs (in the
 current prose template) are **provisional** and will be re-cast once the format above is settled.
+
+## 8. Schema-tightening round (2026-06-19)
+
+> **Brainstorm ongoing — no final conclusion yet.** The points below are diagnosis + working
+> positions to resume from, not settled decisions.
+
+Reviewing the pilot specs surfaced *why* they read like design docs. Diagnosis and working
+positions (full exchange in [`scratch/spec-as-code-brainstorm-raw.md`](../scratch/spec-as-code-brainstorm-raw.md),
+"ROUND 2"):
+
+**Observed failure modes** (current extractor templates produce these):
+1. **Prose, not structure** — agents drift to narrative ("The autoscaler receives queue
+   depth metrics…") instead of typed lists (`## Inputs` → `- Name: / Type: / Source:`). Most common LLM failure.
+2. **Repeated hierarchy** — body restates path-derived metadata (`Domain:`, `Component:`)
+   already implied by `spec/domains/<d>/components/<c>/component.md`.
+3. **Invented schema variants** — "Failure Modes" vs "Failures" vs "Error Handling" across
+   workers; breaks automation.
+4. **Markdown too free-form** — sections under-specified, so quality varies per worker.
+
+**Working position (Dean) — markdown stays; the schema gets much tighter (to revisit):**
+- **Keep markdown.** It is the right format *because* GitHub renders it (text, tables, mermaid,
+  workflows). Reject ChatGPT's "pure Markdown is too weak → make YAML-blocks-in-MD the canonical
+  source" conclusion. The problem is loose schema, not the medium.
+- **Treat the spec as a typed AST.** Agent instruction shifts from "Required sections" to
+  *"Output must conform exactly to this schema. No additional headings. No prose outside sections."*
+  Canonical headings, fixed field shapes (`Name:/Type:/Source:`), one canonical name per concept.
+- **Forbid path-derived metadata** in the body (the folder path already carries it).
+- **Contracts/APIs model on Swagger/OpenAPI shape** — structured endpoint/field definitions —
+  **plus** explicit *semantic reasoning* and *responsibilities* (the "why"/guarantees that
+  OpenAPI alone doesn't carry). This is the concrete target for the strict contract schema.
+- **Add a schema-validation step** before review: `revcoder → schema validator → review`. The
+  validator checks headings/fields exactly (compatible with the md-first, AI-authored model —
+  it's enforcement, not a new language). Overlaps the deferred Consistency Agent.
+
+**Net (working):** §6 item 1 (the per-artifact section schema) is the blocker, and the *emerging*
+bar to refine next session is: *strict, typed-AST-like markdown; Swagger-style contracts + semantics
++ responsibilities; no prose outside sections; validated.* Not finalized.
