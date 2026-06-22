@@ -1360,3 +1360,30 @@ var _ = Describe("SaturationScalingConfig ApplyDefaults before Validate", func()
 		Expect(cfg.Priority).To(BeNumerically(">", 0))
 	})
 })
+
+var _ = Describe("aggregateByVariant capacity Reason", func() {
+	It("sets Reason to P0-store when no live replicas but a capacity store record exists", func() {
+		store := NewCapacityKnowledgeStore()
+		store.Update("ns", "m", "v1", CapacityRecord{
+			AcceleratorName:   "A100",
+			EffectiveCapacity: 50000,
+			LearnedFrom:       learnedFromLive,
+		})
+		a := NewSaturationAnalyzer(store)
+
+		input := interfaces.AnalyzerInput{
+			ModelID:   "m",
+			Namespace: "ns",
+			// No ReplicaMetrics — store path will fire.
+			ReplicaMetrics: nil,
+			VariantStates: []interfaces.VariantReplicaState{
+				{VariantName: "v1", CurrentReplicas: 0, PendingReplicas: 0},
+			},
+			Config: &config.SaturationScalingConfig{KvCacheThreshold: 0.9, KvSpareTrigger: 0.2, QueueLengthThreshold: 5},
+		}
+		result, err := a.Analyze(context.Background(), input)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.VariantCapacities).To(HaveLen(1))
+		Expect(result.VariantCapacities[0].Reason).To(Equal("P0-store"))
+	})
+})

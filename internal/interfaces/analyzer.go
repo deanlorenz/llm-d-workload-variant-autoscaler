@@ -137,10 +137,10 @@ type VariantCapacity struct {
 	// For saturation V2: median(effectiveCapacity) in tokens across ready replicas.
 	PerReplicaCapacity float64
 
-	// CapacityLabel is a free-text label set by the analyzer to describe how
-	// the variant's per-replica capacity was computed. Empty for analyzers that
+	// Reason is a free-text string set by the analyzer to describe how the
+	// variant's per-replica capacity was computed. Empty for analyzers that
 	// do not set it. Saturation V2 uses "P1-obs", "P2-hist", "P3-k2", "P4-k1".
-	CapacityLabel string
+	Reason string
 
 	// TotalCapacity is ReplicaCount × PerReplicaCapacity.
 	TotalCapacity float64

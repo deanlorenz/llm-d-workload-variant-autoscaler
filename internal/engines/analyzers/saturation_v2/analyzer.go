@@ -363,6 +363,7 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			readyCount = 0
 		}
 
+		var capacityLabel string
 		if len(replicas) > 0 {
 			// Use median effective capacity from ready pods
 			capacities := make([]int64, 0, len(replicas))
@@ -374,13 +375,16 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			if accelerator == "" {
 				accelerator = replicas[0].AcceleratorName
 			}
+			capacityLabel = k2SourceLabel(replicas)
 		} else if rec := a.capacityStore.Get(namespace, modelID, vs.VariantName); rec != nil && rec.EffectiveCapacity > 0 {
 			// No ready replicas — use stored capacity, enhanced with k2 derivation
 			// for deployment-derived records when workload data is available.
 			perReplicaCapacity = a.estimateStoredCapacity(rec, modelID, kvCacheThreshold, modelAvgInput, modelAvgOutput)
+			capacityLabel = "P0-store"
 		} else if rec := a.lookupCompatibleCapacity(namespace, modelID, vs.VariantName, accelerator, vs.GPUsPerReplica); rec != nil {
 			// No own record — try cross-variant estimation from a compatible variant
 			perReplicaCapacity = float64(rec.EffectiveCapacity)
+			capacityLabel = "P0-store"
 		}
 
 		totalCapacity := float64(readyCount) * perReplicaCapacity
@@ -390,7 +394,7 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			utilization = totalDemand / totalCapacity
 		}
 
-		vc := interfaces.VariantCapacity{
+		result = append(result, interfaces.VariantCapacity{
 			VariantName:        vs.VariantName,
 			AcceleratorName:    accelerator,
 			Cost:               cost,
@@ -401,9 +405,8 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			TotalCapacity:      totalCapacity,
 			TotalDemand:        totalDemand,
 			Utilization:        utilization,
-			CapacityLabel:      k2SourceLabel(replicas),
-		}
-		result = append(result, vc)
+			Reason:             capacityLabel,
+		})
 	}
 
 	return result

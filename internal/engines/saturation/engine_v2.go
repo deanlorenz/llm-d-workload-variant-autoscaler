@@ -365,18 +365,16 @@ func logAnalyzerResult(ctx context.Context, modelID, namespace string, nr pipeli
 	logger := ctrl.LoggerFrom(ctx)
 
 	type variantEntry struct {
-		Name  string  `json:"name"`
-		PRC   float64 `json:"prc"`
-		Cost  float64 `json:"cost"`
-		Label string  `json:"label,omitempty"`
+		Name   string  `json:"name"`
+		PRC    float64 `json:"prc"`
+		Reason string  `json:"reason,omitempty"`
 	}
 	variants := make([]variantEntry, 0, len(nr.Result.VariantCapacities))
 	for _, vc := range nr.Result.VariantCapacities {
 		variants = append(variants, variantEntry{
-			Name:  vc.VariantName,
-			PRC:   vc.PerReplicaCapacity,
-			Cost:  vc.Cost,
-			Label: vc.CapacityLabel,
+			Name:   vc.VariantName,
+			PRC:    vc.PerReplicaCapacity,
+			Reason: vc.Reason,
 		})
 	}
 

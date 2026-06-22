@@ -2,6 +2,7 @@ package saturation
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -39,7 +40,7 @@ func TestLogAnalyzerResult_EmitsRequiredFields(t *testing.T) {
 					VariantName:        "primary",
 					PerReplicaCapacity: 50000,
 					Cost:               10,
-					CapacityLabel:      "P2-hist",
+					Reason:             "P2-hist",
 				},
 			},
 		},
@@ -58,6 +59,14 @@ func TestLogAnalyzerResult_EmitsRequiredFields(t *testing.T) {
 	assert.Equal(t, "mymodel", fields["modelID"])
 	assert.Equal(t, "ns", fields["namespace"])
 	assert.Equal(t, "saturation", fields["analyzer"])
+
+	// Verify variants entries contain "label" but not "cost".
+	b, err := json.Marshal(fields["variants"])
+	require.NoError(t, err)
+	variantsJSON := string(b)
+	assert.Contains(t, variantsJSON, `"reason"`, "variants entry must include reason field")
+	assert.Contains(t, variantsJSON, "P2-hist", "label value must be present")
+	assert.NotContains(t, variantsJSON, `"cost"`, "cost must not appear in variants entry")
 }
 
 func TestLogAnalyzerResult_NilResultSkipped(t *testing.T) {
