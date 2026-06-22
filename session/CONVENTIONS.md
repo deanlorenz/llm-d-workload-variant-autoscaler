@@ -203,12 +203,27 @@ updates CWD, reloads memory files and CLAUDE.md, and appears as an explicit tool
 so Dean can approve or deny it. Never use bare `cd` or `-C` flags as a substitute for a context
 switch. `ExitWorktree(action: "keep")` returns to the previous worktree.
 
-**`cd` to a sibling worktree is always forbidden — for any agent, any purpose.**
-This rule applies to all agents (plan-agent, coder, reviewer) without exception. Even for a
-read-only query, never `cd` into a sibling worktree in a Bash call. Use `git -C
-<absolute-path-to-sibling>` for read-only git queries from your own worktree. The distinction
-matters because `cd` changes session CWD and persists across subsequent tool calls, silently
-moving writes to the wrong tree. `git -C` leaves CWD untouched.
+**`cd` to a sibling worktree is forbidden — with one narrow exception.**
+This rule applies to all agents (plan-agent, coder, reviewer). Even for a read-only query, never
+`cd` into a sibling worktree in a Bash call. Use `git -C <absolute-path-to-sibling>` for
+read-only git queries from your own worktree. The distinction matters because `cd` changes session
+CWD and persists across subsequent tool calls, silently moving writes to the wrong tree.
+`git -C` leaves CWD untouched.
+
+*Exception — plan-agent subagent spawning (plans worktree only):* `EnterWorktree` does not work
+inside subagents spawned from `plans/` (structural limitation: the tool validates that CWD is
+inside the bare repo root, but `plans/` is a sibling, not a child). The approved workaround is:
+`cd <absolute-path-to-target-worktree>` in one Bash call, immediately followed by the `Agent(...)`
+call — no other Bash calls between them. The subagent inherits the shell CWD. After the Agent
+call returns, treat the session CWD as dirtied and restore it with an explicit `cd plans/` or use
+absolute paths for any subsequent Bash calls. Coders may never use this pattern from their own
+worktrees.
+
+The subagent brief for this pattern must state:
+- which worktree it is starting in and why
+- that its first action must be `pwd` + `git branch --show-current` to verify CWD
+- its task scope (reads unrestricted; writes only within that worktree unless the task is
+  explicitly a planner handoff)
 
 Prerequisite: `EnterWorktree` requires the session to already be inside a git repository (any
 worktree). If the session starts in the container directory, `cd` into any worktree first.
