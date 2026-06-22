@@ -27,7 +27,7 @@ Two structured INFO log lines per reconcile cycle per model:
 2. **`"scaling-decision"`** — one per model, emitted after the optimizer
    produces decisions.
 
-One generic field added to the shared interface: `CapacityLabel string` on
+One generic field added to the shared interface: `Reason string` on
 `VariantCapacity`. Every analyzer can set it to a free-text string describing
 how it computed the variant's capacity; saturation V2 sets it to one of
 `"P1-obs"`, `"P2-hist"`, `"P3-k2"`, `"P4-k1"`.
@@ -66,8 +66,7 @@ returning. Fields:
 |---|---|---|
 | `name` | string | `VariantCapacity.VariantName` |
 | `prc` | float64 | `VariantCapacity.PerReplicaCapacity` |
-| `cost` | float64 | `VariantCapacity.Cost` |
-| `label` | string | `VariantCapacity.CapacityLabel` (new; `""` if unset) |
+| `reason` | string | `VariantCapacity.Reason` (new; omitted if empty) |
 
 Every analyzer emits this line. If an analyzer does not compute per-variant
 capacity, `variants` is an empty slice. Do NOT compute any derived values
@@ -79,8 +78,8 @@ capacity, `variants` is an empty slice. Do NOT compute any derived values
  "analyzer":"saturation","supply":658534,"demand":1041047,"util":1.58,
  "rc":0,"sc":50000,
  "variants":[
-   {"name":"primary","prc":1152000,"cost":10,"label":"P3-k2"},
-   {"name":"v2","prc":403391,"cost":5,"label":"P1-obs"}
+   {"name":"primary","prc":1152000,"reason":"P3-k2"},
+   {"name":"v2","prc":403391,"reason":"P1-obs"}
  ]}
 
 {"level":"info","msg":"analyzer-result","modelID":"m","namespace":"ns",
@@ -164,10 +163,10 @@ add `K2Priority: 4`. Without this, fallback replicas have priority 0 and the
 label function returns `""` instead of `"P4-k1"`.
 
 **2d.** In `aggregateByVariant`, after building `replicas []ReplicaCapacity`
-for the variant, set `CapacityLabel` before appending `vc`:
+for the variant, set `Reason` before appending `vc`:
 
 ```go
-vc.CapacityLabel = k2SourceLabel(replicas)
+vc.Reason = k2SourceLabel(replicas)
 ```
 
 **2e.** Add/keep the `k2SourceLabel` helper. It returns the K2Priority label
@@ -188,8 +187,8 @@ func k2SourceLabel(replicas []ReplicaCapacity) string {
     })
     medIdx := (len(sorted) - 1) / 2
     labels := map[int]string{1: "P1-obs", 2: "P2-hist", 3: "P3-k2", 4: "P4-k1"}
-    if label, ok := labels[sorted[medIdx].K2Priority]; ok {
-        return label
+    if reason, ok := labels[sorted[medIdx].K2Priority]; ok {
+        return reason
     }
     return ""
 }
@@ -198,18 +197,17 @@ func k2SourceLabel(replicas []ReplicaCapacity) string {
 Note: the label for P3 is `"P3-k2"` (not `"P3-deriv"` as in the old plan).
 
 **Do NOT add** `k1Slice`, `k2Slice`, `MedianK1`, `MedianK2`, or any other
-sat-specific fields. `CapacityLabel` on `VariantCapacity` is the only
-outward-facing addition.
+sat-specific fields. `Reason` on `VariantCapacity` is the only outward-facing addition.
 
 ### Step 3 — `internal/interfaces/analyzer.go`
 
 Add exactly **one** field to `VariantCapacity`, after `PerReplicaCapacity`:
 
 ```go
-// CapacityLabel is a free-text label set by the analyzer to describe how
-// the variant's per-replica capacity was computed. Empty for analyzers that
+// Reason is a free-text string set by the analyzer to describe how the
+// variant's per-replica capacity was computed. Empty for analyzers that
 // do not set it. Saturation V2 uses "P1-obs", "P2-hist", "P3-k2", "P4-k1".
-CapacityLabel string
+Reason string
 ```
 
 Do NOT add `MedianK1`, `MedianK2`, `K2SourceLabel`, or `SaturationVariantCapacity`.
@@ -232,18 +230,16 @@ func logAnalyzerResult(ctx context.Context, modelID, namespace string, nr pipeli
     logger := ctrl.LoggerFrom(ctx)
 
     type variantEntry struct {
-        Name  string  `json:"name"`
-        PRC   float64 `json:"prc"`
-        Cost  float64 `json:"cost"`
-        Label string  `json:"label,omitempty"`
+        Name   string  `json:"name"`
+        PRC    float64 `json:"prc"`
+        Reason string  `json:"reason,omitempty"`
     }
     variants := make([]variantEntry, 0, len(nr.Result.VariantCapacities))
     for _, vc := range nr.Result.VariantCapacities {
         variants = append(variants, variantEntry{
-            Name:  vc.VariantName,
-            PRC:   vc.PerReplicaCapacity,
-            Cost:  vc.Cost,
-            Label: vc.CapacityLabel,
+            Name:   vc.VariantName,
+            PRC:    vc.PerReplicaCapacity,
+            Reason: vc.Reason,
         })
     }
 
@@ -343,7 +339,7 @@ same package `saturation`).
 1. `TestLogAnalyzerResult_EmitsRequiredFields` — one analyzer result with one
    variant; assert `"analyzer-result"` line emitted with keys `modelID`,
    `namespace`, `analyzer`, `supply`, `demand`, `util`, `rc`, `sc`, `variants`;
-   assert variant entry has `name`, `prc`, `label` (no `cost`).
+   assert variant entry has `name`, `prc`, `reason` (no `cost`).
 
 2. `TestLogAnalyzerResult_NilResultSkipped` — pass a `NamedAnalyzerResult`
    with `Result == nil`; assert no log line emitted.
@@ -364,11 +360,11 @@ same package `saturation`).
 | File | Change |
 |---|---|
 | `internal/engines/analyzers/saturation_v2/types.go` | Add `K2Priority int` to `ReplicaCapacity` |
-| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; set `K2Priority` in both capacity paths; set `vc.CapacityLabel` in `aggregateByVariant`; add/keep `k2SourceLabel`; **R2: add `"P0-store"` label for store-path variants** |
-| `internal/interfaces/analyzer.go` | Add `CapacityLabel string` to `VariantCapacity` only |
+| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; set `K2Priority` in both capacity paths; set `vc.Reason` in `aggregateByVariant`; add/keep `k2SourceLabel`; **R2: add `"P0-store"` label for store-path variants** |
+| `internal/interfaces/analyzer.go` | Add `Reason string` to `VariantCapacity` only |
 | `internal/engines/saturation/engine_v2.go` | Replace `logDecisionSummary` with `logAnalyzerResult` + `logScalingDecisions`; add log loop in `runAnalyzersAndScore`; **R2: drop `cost` from `variantEntry`** |
 | `internal/engines/saturation/engine.go` | Replace `logDecisionSummary` call with `logScalingDecisions` |
-| `internal/engines/analyzers/throughput/analyzer.go` | **R2: `resolveITLModel` returns tier label; `VariantCapacity` gets `CapacityLabel`** |
+| `internal/engines/analyzers/throughput/analyzer.go` | **R2: `resolveITLModel` returns tier label; `VariantCapacity` gets `Reason`** |
 | `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests; **R2: remove `cost` assertions, update label assertions** |
 
 ---
@@ -383,26 +379,26 @@ single additional commit on top of `69ba4d8b`.
 
 File: `internal/engines/saturation/engine_v2.go`, function `logAnalyzerResult`.
 
-**8a.** Remove `Cost float64 \`json:"cost"\`` from the `variantEntry` struct:
+**8a.** Remove `Cost` from the `variantEntry` struct and rename `Label` → `Reason`:
 
 ```go
 // BEFORE
 type variantEntry struct {
-    Name  string  `json:"name"`
-    PRC   float64 `json:"prc"`
-    Cost  float64 `json:"cost"`
-    Label string  `json:"label,omitempty"`
+    Name   string  `json:"name"`
+    PRC    float64 `json:"prc"`
+    Cost   float64 `json:"cost"`
+    Label  string  `json:"label,omitempty"`
 }
 
 // AFTER
 type variantEntry struct {
-    Name  string  `json:"name"`
-    PRC   float64 `json:"prc"`
-    Label string  `json:"label,omitempty"`
+    Name   string  `json:"name"`
+    PRC    float64 `json:"prc"`
+    Reason string  `json:"reason,omitempty"`
 }
 ```
 
-**8b.** Remove `Cost: vc.Cost,` from the struct literal in the for loop:
+**8b.** Update the struct literal in the for loop:
 
 ```go
 // BEFORE
@@ -415,9 +411,9 @@ variants = append(variants, variantEntry{
 
 // AFTER
 variants = append(variants, variantEntry{
-    Name:  vc.VariantName,
-    PRC:   vc.PerReplicaCapacity,
-    Label: vc.CapacityLabel,
+    Name:   vc.VariantName,
+    PRC:    vc.PerReplicaCapacity,
+    Reason: vc.Reason,
 })
 ```
 
@@ -429,74 +425,74 @@ Also remove `"cost"` from the required-keys list if present.
 
 File: `internal/engines/analyzers/saturation_v2/analyzer.go`, function `aggregateByVariant`.
 
-The current code sets `CapacityLabel: k2SourceLabel(replicas)` on every
+The current code sets `Reason: k2SourceLabel(replicas)` on every
 variant unconditionally. `k2SourceLabel([])` returns `""` when there are no
 live replicas — but the capacity store is then used to derive `PerReplicaCapacity`.
 Operators cannot tell store-derived from missing data.
 
-**9a.** Introduce a `capacityLabel` local variable and set it in each branch
+**9a.** Introduce a `reason` local variable and set it in each branch
 of the `if len(replicas) > 0 / else if capacityStore ... / else if lookupCompatible ...`
 block:
 
 ```go
-var capacityLabel string
+var reason string
 if len(replicas) > 0 {
     // existing: compute perReplicaCapacity from median
     ...
-    capacityLabel = k2SourceLabel(replicas)
+    reason = k2SourceLabel(replicas)
 } else if rec := a.capacityStore.Get(namespace, modelID, vs.VariantName); rec != nil && rec.EffectiveCapacity > 0 {
     // existing: derive from stored record
     perReplicaCapacity = a.estimateStoredCapacity(rec, modelID, kvCacheThreshold, modelAvgInput, modelAvgOutput)
-    capacityLabel = "P0-store"
+    reason = "P0-store"
 } else if rec := a.lookupCompatibleCapacity(namespace, modelID, vs.VariantName, accelerator, vs.GPUsPerReplica); rec != nil {
     // existing: cross-variant estimation
     perReplicaCapacity = float64(rec.EffectiveCapacity)
-    capacityLabel = "P0-store"
+    reason = "P0-store"
 }
 ```
 
 **9b.** In the `vc` struct literal further down, replace `k2SourceLabel(replicas)`
-with `capacityLabel`:
+with `reason`:
 
 ```go
 // BEFORE
 vc := interfaces.VariantCapacity{
     ...
-    CapacityLabel: k2SourceLabel(replicas),
+    Reason: k2SourceLabel(replicas),
 }
 
 // AFTER
 vc := interfaces.VariantCapacity{
     ...
-    CapacityLabel: capacityLabel,
+    Reason: reason,
 }
 ```
 
 **9c.** Add a test in `saturation_v2/analyzer_test.go` (or a new
 `saturation_v2/capacity_label_test.go`) verifying that when no replica
 metrics are present but a capacity store record exists, the returned
-`VariantCapacity.CapacityLabel` equals `"P0-store"`.
+`VariantCapacity.Reason` equals `"P0-store"`.
 
 ### Step 10 — Throughput analyzer tier labels (`throughput/analyzer.go`)
 
 File: `internal/engines/analyzers/throughput/analyzer.go`.
 
 **10a.** Change `resolveITLModel` signature from `(ITLModel, bool)` to
-`(ITLModel, string, bool)`. The string is the tier label.
+`(ITLModel, string, bool)`. The string is the tier reason.
 
-Return the label at each exit point:
+Return the reason at each exit point:
 
 ```go
 // Tier 1 — OLS fit succeeds
 return model, "T1-ols", true
 
 // Tier 2 — constrained OLS succeeds
-// Determine label before returning:
-label := "T2-default"
+// Determine reason before returning:
+reason := "T2-default"
 if state.hasFittedB {
-    label = "T2-pinned"
+    reason = "T2-pinned"
 }
-return ITLModel{A: A, B: baselineB}, label, true
+return ITLModel{A: A, B: baselineB}, reason, true
 
 // Failure
 return ITLModel{}, "", false
@@ -509,10 +505,10 @@ return ITLModel{}, "", false
 model, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
 
 // AFTER
-model, capacityLabel, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
+model, reason, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
 ```
 
-**10c.** Add `CapacityLabel: capacityLabel` to the `interfaces.VariantCapacity`
+**10c.** Add `Reason: reason` to the `interfaces.VariantCapacity`
 struct literal where the TA builds its per-variant results (the `append` call
 around line 331):
 
@@ -526,12 +522,12 @@ variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
     TotalCapacity:      totalCapacity,
     TotalDemand:        demand,
     Utilization:        safeDivide(demand, totalCapacity),
-    CapacityLabel:      capacityLabel,   // ADD
+    Reason:      reason,   // ADD
 })
 ```
 
 **10d.** Add tests in `throughput/analyzer_test.go` asserting that:
-- A variant resolved via Tier 1 returns `CapacityLabel == "T1-ols"`.
+- A variant resolved via Tier 1 returns `Reason == "T1-ols"`.
 - A variant resolved via Tier 2 with a prior fit returns `"T2-pinned"`.
 - A variant resolved via Tier 2 cold-start returns `"T2-default"`.
 
@@ -539,7 +535,7 @@ variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
 
 - Run all gates: `gofmt -l internal/`, `make test`, `make lint`, `go build ./...`
 - One commit for all three changes, DCO sign-off required:
-  `git commit -s -m "engine: fix CapacityLabel gaps — drop cost from log, add store/TA tier labels"`
+  `git commit -s -m "engine: fix variant reason field — drop cost from log, add store/TA tier reasons"`
 - Write `plan__wva-log-label-fixes-done.md` handoff.
 - Do NOT push.
 
