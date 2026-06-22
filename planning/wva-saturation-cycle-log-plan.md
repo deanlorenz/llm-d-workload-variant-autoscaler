@@ -1,9 +1,9 @@
 # WVA Saturation Cycle Summary Log — Task Plan
 
-**Branch:** `wva-saturation-cycle-log` (rewrite from `upstream/main`; do NOT rebase the old 2-commit stack — start fresh)
+**Branch:** `wva-saturation-cycle-log-r1` in worktree `wva-log-rewrite`
 **Type:** Type 3 task plan
 **Scope:** Logging only. No behavioral change. Generic interface extension (one new field).
-**Status:** Ready for implementation (R1 — redesigned 2026-06-19)
+**Status:** R2 — label fixups (2026-06-22); Steps 1–7 already implemented at `69ba4d8b`
 
 ---
 
@@ -343,7 +343,7 @@ same package `saturation`).
 1. `TestLogAnalyzerResult_EmitsRequiredFields` — one analyzer result with one
    variant; assert `"analyzer-result"` line emitted with keys `modelID`,
    `namespace`, `analyzer`, `supply`, `demand`, `util`, `rc`, `sc`, `variants`;
-   assert variant entry has `name`, `prc`, `cost`, `label`.
+   assert variant entry has `name`, `prc`, `label` (no `cost`).
 
 2. `TestLogAnalyzerResult_NilResultSkipped` — pass a `NamedAnalyzerResult`
    with `Result == nil`; assert no log line emitted.
@@ -364,11 +364,184 @@ same package `saturation`).
 | File | Change |
 |---|---|
 | `internal/engines/analyzers/saturation_v2/types.go` | Add `K2Priority int` to `ReplicaCapacity` |
-| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; set `K2Priority` in both capacity paths; set `vc.CapacityLabel` in `aggregateByVariant`; add/keep `k2SourceLabel` |
+| `internal/engines/analyzers/saturation_v2/analyzer.go` | `computeK2` returns `(int64, int)`; set `K2Priority` in both capacity paths; set `vc.CapacityLabel` in `aggregateByVariant`; add/keep `k2SourceLabel`; **R2: add `"P0-store"` label for store-path variants** |
 | `internal/interfaces/analyzer.go` | Add `CapacityLabel string` to `VariantCapacity` only |
-| `internal/engines/saturation/engine_v2.go` | Replace `logDecisionSummary` with `logAnalyzerResult` + `logScalingDecisions`; add log loop in `runAnalyzersAndScore` |
+| `internal/engines/saturation/engine_v2.go` | Replace `logDecisionSummary` with `logAnalyzerResult` + `logScalingDecisions`; add log loop in `runAnalyzersAndScore`; **R2: drop `cost` from `variantEntry`** |
 | `internal/engines/saturation/engine.go` | Replace `logDecisionSummary` call with `logScalingDecisions` |
-| `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests |
+| `internal/engines/analyzers/throughput/analyzer.go` | **R2: `resolveITLModel` returns tier label; `VariantCapacity` gets `CapacityLabel`** |
+| `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests; **R2: remove `cost` assertions, update label assertions** |
+
+---
+
+## R2 amendments — label fixups (implement after Steps 1–7 are in place)
+
+Steps 1–7 are already implemented on the branch at `69ba4d8b`. These three
+additional steps correct label gaps found during review. Implement as a
+single additional commit on top of `69ba4d8b`.
+
+### Step 8 — Drop `cost` from `variantEntry` (`engine_v2.go`)
+
+File: `internal/engines/saturation/engine_v2.go`, function `logAnalyzerResult`.
+
+**8a.** Remove `Cost float64 \`json:"cost"\`` from the `variantEntry` struct:
+
+```go
+// BEFORE
+type variantEntry struct {
+    Name  string  `json:"name"`
+    PRC   float64 `json:"prc"`
+    Cost  float64 `json:"cost"`
+    Label string  `json:"label,omitempty"`
+}
+
+// AFTER
+type variantEntry struct {
+    Name  string  `json:"name"`
+    PRC   float64 `json:"prc"`
+    Label string  `json:"label,omitempty"`
+}
+```
+
+**8b.** Remove `Cost: vc.Cost,` from the struct literal in the for loop:
+
+```go
+// BEFORE
+variants = append(variants, variantEntry{
+    Name:  vc.VariantName,
+    PRC:   vc.PerReplicaCapacity,
+    Cost:  vc.Cost,
+    Label: vc.CapacityLabel,
+})
+
+// AFTER
+variants = append(variants, variantEntry{
+    Name:  vc.VariantName,
+    PRC:   vc.PerReplicaCapacity,
+    Label: vc.CapacityLabel,
+})
+```
+
+**8c.** In `engine_v2_log_test.go`, remove any assertion on `cost` from
+`TestLogAnalyzerResult_EmitsRequiredFields` and any fixture that sets `Cost`.
+Also remove `"cost"` from the required-keys list if present.
+
+### Step 9 — Sat_v2 store-path label `"P0-store"` (`saturation_v2/analyzer.go`)
+
+File: `internal/engines/analyzers/saturation_v2/analyzer.go`, function `aggregateByVariant`.
+
+The current code sets `CapacityLabel: k2SourceLabel(replicas)` on every
+variant unconditionally. `k2SourceLabel([])` returns `""` when there are no
+live replicas — but the capacity store is then used to derive `PerReplicaCapacity`.
+Operators cannot tell store-derived from missing data.
+
+**9a.** Introduce a `capacityLabel` local variable and set it in each branch
+of the `if len(replicas) > 0 / else if capacityStore ... / else if lookupCompatible ...`
+block:
+
+```go
+var capacityLabel string
+if len(replicas) > 0 {
+    // existing: compute perReplicaCapacity from median
+    ...
+    capacityLabel = k2SourceLabel(replicas)
+} else if rec := a.capacityStore.Get(namespace, modelID, vs.VariantName); rec != nil && rec.EffectiveCapacity > 0 {
+    // existing: derive from stored record
+    perReplicaCapacity = a.estimateStoredCapacity(rec, modelID, kvCacheThreshold, modelAvgInput, modelAvgOutput)
+    capacityLabel = "P0-store"
+} else if rec := a.lookupCompatibleCapacity(namespace, modelID, vs.VariantName, accelerator, vs.GPUsPerReplica); rec != nil {
+    // existing: cross-variant estimation
+    perReplicaCapacity = float64(rec.EffectiveCapacity)
+    capacityLabel = "P0-store"
+}
+```
+
+**9b.** In the `vc` struct literal further down, replace `k2SourceLabel(replicas)`
+with `capacityLabel`:
+
+```go
+// BEFORE
+vc := interfaces.VariantCapacity{
+    ...
+    CapacityLabel: k2SourceLabel(replicas),
+}
+
+// AFTER
+vc := interfaces.VariantCapacity{
+    ...
+    CapacityLabel: capacityLabel,
+}
+```
+
+**9c.** Add a test in `saturation_v2/analyzer_test.go` (or a new
+`saturation_v2/capacity_label_test.go`) verifying that when no replica
+metrics are present but a capacity store record exists, the returned
+`VariantCapacity.CapacityLabel` equals `"P0-store"`.
+
+### Step 10 — Throughput analyzer tier labels (`throughput/analyzer.go`)
+
+File: `internal/engines/analyzers/throughput/analyzer.go`.
+
+**10a.** Change `resolveITLModel` signature from `(ITLModel, bool)` to
+`(ITLModel, string, bool)`. The string is the tier label.
+
+Return the label at each exit point:
+
+```go
+// Tier 1 — OLS fit succeeds
+return model, "T1-ols", true
+
+// Tier 2 — constrained OLS succeeds
+// Determine label before returning:
+label := "T2-default"
+if state.hasFittedB {
+    label = "T2-pinned"
+}
+return ITLModel{A: A, B: baselineB}, label, true
+
+// Failure
+return ITLModel{}, "", false
+```
+
+**10b.** Update the call site in `Analyze()` to capture all three return values:
+
+```go
+// BEFORE
+model, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
+
+// AFTER
+model, capacityLabel, ok := a.resolveITLModel(ctx, state, healthyMetrics, input.Namespace, input.ModelID, variantName)
+```
+
+**10c.** Add `CapacityLabel: capacityLabel` to the `interfaces.VariantCapacity`
+struct literal where the TA builds its per-variant results (the `append` call
+around line 331):
+
+```go
+variantCapacities = append(variantCapacities, interfaces.VariantCapacity{
+    VariantName:        variantName,
+    Role:               state.role,
+    ReplicaCount:       nKV,
+    PendingReplicas:    pending,
+    PerReplicaCapacity: perReplicaSupply,
+    TotalCapacity:      totalCapacity,
+    TotalDemand:        demand,
+    Utilization:        safeDivide(demand, totalCapacity),
+    CapacityLabel:      capacityLabel,   // ADD
+})
+```
+
+**10d.** Add tests in `throughput/analyzer_test.go` asserting that:
+- A variant resolved via Tier 1 returns `CapacityLabel == "T1-ols"`.
+- A variant resolved via Tier 2 with a prior fit returns `"T2-pinned"`.
+- A variant resolved via Tier 2 cold-start returns `"T2-default"`.
+
+### After all R2 steps
+
+- Run all gates: `gofmt -l internal/`, `make test`, `make lint`, `go build ./...`
+- One commit for all three changes, DCO sign-off required:
+  `git commit -s -m "engine: fix CapacityLabel gaps — drop cost from log, add store/TA tier labels"`
+- Write `plan__wva-log-label-fixes-done.md` handoff.
+- Do NOT push.
 
 ---
 
@@ -417,5 +590,7 @@ Run in order from the worktree root:
 - Do not add `MedianK1`, `MedianK2`, `K2SourceLabel`, `SaturationVariantCapacity`,
   or `SaturationVariantCapacities` — these belonged to the old design.
 - Do not use `K2Priority` outside the `saturation_v2` package.
-- Do not compute derived values (`eff`, etc.) inside the log helpers.
+- Do not compute derived values (`eff`, `cost/prc`, etc.) inside the log helpers.
+- Do not add `cost` to `variantEntry` — cost is variant metadata logged separately.
 - Do not add optimizer-internal logging (Log B deferred).
+- Do not touch the QM analyzer path (known gap, separate work).
