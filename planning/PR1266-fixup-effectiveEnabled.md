@@ -1,5 +1,7 @@
 # PR #1266 fixup — `effectiveEnabled` opt-in semantics
 
+> ⚠️ **STOPGAP — do not implement as written.** This plan fixes only the absent-entry opt-in default. A more thorough fix is deferred: dynamic enable/disable of all analyzers via runtime config changes, removal of the `throughputAnalyzerEnabled` gate in `cmd/main.go`, and a decision on hot-reload of analyzer registrations. Discuss the full design before coding. See memory `analyzer-dynamic-registration`.
+
 **Type:** 3 (task plan) · **Parent:** #1266 (multi-analyzer-addendum)
 **Branch:** new, off `main` after #1266 merges · **Size:** 2-line fix + 1 test update
 
