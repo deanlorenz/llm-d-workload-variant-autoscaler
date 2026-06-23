@@ -51,17 +51,47 @@ return ""
 return "unknown"
 ```
 
+### Fix 3 — `resolveITLModel` failure return (`throughput/analyzer.go` line 513)
+
+The function currently returns `(ITLModel{}, "", false)` when both tiers fail.
+The caller does `continue` so this label never reaches a `VariantCapacity` append
+today — but the empty string is a weak contract. Since the failure is always at
+Tier 2 (Tier 1 either failed or wasn't ready, Tier 2 failed), label it explicitly:
+
+```go
+// BEFORE
+return ITLModel{}, "", false
+
+// AFTER
+return ITLModel{}, "T2-failed", false
+```
+
 ### Tests
 
 - Add a test asserting that a `VariantCapacity` produced by Branch 4 (zero
   replicas, no store, no compatible record) has `Reason == "unknown"`.
 - Add a test asserting `k2SourceLabel([]ReplicaCapacity{{K2Priority: 0}})` →
   `"unknown"` (verifies the fallback fires for unmapped priorities).
+- Add a test asserting `resolveITLModel` returns `"T2-failed"` when all
+  replicas are idle (all `KvUsageInstant == 0`).
+
+### Fix 4 — Update `docs/developer-guide/cycle-log.md` TA reason table
+
+Add `T2-failed` to the throughput analyzer reason values table:
+
+```
+| `T2-failed`  | Both tiers failed — all replicas idle or no usable ITL signal; variant skipped this cycle |
+```
+
+Note: `T2-failed` is returned by `resolveITLModel` on failure, but the caller
+currently skips the variant (`continue`) so this label never appears on an
+appended `VariantCapacity`. Document it anyway so operators know the value is
+possible if code paths change, and to make `resolveITLModel`'s contract explicit.
 
 ### Commit
 
 ```
-git commit -s -m "sat_v2: guard empty Reason — unknown fallback for Branch 4 and k2SourceLabel"
+git commit -s -m "sat_v2/throughput: eliminate empty Reason — unknown fallback, T2-failed on tier exhaustion"
 ```
 
 ### After
