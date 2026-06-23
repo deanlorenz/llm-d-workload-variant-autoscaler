@@ -41,7 +41,7 @@ optimizer actually receives.
 | `modelID` | WVA model ID (unique within a namespace) |
 | `namespace` | Kubernetes namespace |
 | `analyzer` | Analyzer name, e.g. `"saturation"`, `"throughput"` |
-| `supply` | Total anticipated token supply across ready replicas |
+| `supply` | Total token supply across ready replicas (readyCount × perReplicaCapacity) |
 | `demand` | Total observed token demand |
 | `util` | `demand / supply`; > 1.0 means the model is over capacity |
 | `rc` | Required capacity signal (post-threshold): > 0 triggers scale-up |

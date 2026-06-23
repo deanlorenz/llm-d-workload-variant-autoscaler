@@ -380,5 +380,4 @@ Both optimizers are stateless and selected per-cycle from the engine's
 The engine emits two structured INFO log lines per reconcile cycle per model —
 one per analyzer (after the threshold post-step) and one after the optimizer
 returns. See [cycle-log.md](cycle-log.md) for field schemas, grep patterns,
-and an explanation of the `CapacityLabel` values set by the saturation V2
-analyzer.
+and an explanation of the `reason` values set by each analyzer.
