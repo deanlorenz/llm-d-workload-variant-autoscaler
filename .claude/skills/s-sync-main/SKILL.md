@@ -21,9 +21,9 @@ cd /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/Main
 
 ---
 
-## Step 2 — Launch background claude subprocess
+## Step 2 — Run claude subprocess (blocking)
 
-Run the following as a **background Bash call** (`run_in_background: true`):
+Run the following as a normal Bash call (not background):
 
 ```bash
 claude -p "Run each as a separate Bash call in order: (1) git branch --show-current (2) git fetch upstream (3) git merge --ff-only upstream/main — if this fails stop and report, do not run step 4 (4) git push origin main. Report what was fetched (new commits or already up to date) and whether the push succeeded." --allowed-tools "Bash(git branch --show-current),Bash(git fetch upstream),Bash(git merge --ff-only upstream/main),Bash(git push origin main)" --no-session-persistence
@@ -33,4 +33,4 @@ claude -p "Run each as a separate Bash call in order: (1) git branch --show-curr
 
 ## Step 3 — Report
 
-Tell Dean the sync is running in the background.
+Report the output from Step 2 to Dean.
