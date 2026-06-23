@@ -219,6 +219,18 @@ call returns, treat the session CWD as dirtied and restore it with an explicit `
 absolute paths for any subsequent Bash calls. Coders may never use this pattern from their own
 worktrees.
 
+The subagent inherits the shell CWD but **not** the session's project settings. Settings
+for a spawned Agent are always loaded from the session's startup project (plans/), not from
+the bash CWD at Agent call time. If a task needs permissions scoped to the target worktree,
+use `claude -p --allowed-tools` as a Bash subprocess instead of the Agent tool:
+
+```bash
+cd <worktree> && claude -p "<task>" --allowed-tools "<tool1>,<tool2>" --no-session-persistence
+```
+
+This subprocess starts fresh with the target worktree's CWD and its own settings, and
+`--allowed-tools` passes the exact permissions inline — no settings file required.
+
 The subagent brief for this pattern must state:
 - which worktree it is starting in and why
 - that its first action must be `pwd` + `git branch --show-current` to verify CWD
