@@ -24,6 +24,24 @@ Two things happened since R2:
 **Step 11** — Fix stale comment in `engine_v2_log_test.go:63`:
   Change `"label"` → `"reason"` in the comment text.
 
+**Step 11b** — Guard against empty `Reason` in `saturation_v2/analyzer.go`
+  `aggregateByVariant`.
+
+  After computing `capacityLabel` via the three-branch block, add a fallback
+  before building `vc` so an unmapped `K2Priority` never silently drops the
+  field from the log (`json:"reason,omitempty"` makes empty string invisible):
+
+  ```go
+  if capacityLabel == "" {
+      capacityLabel = "unknown"
+  }
+  ```
+
+  The TA is safe by construction (only appends variants when `resolveITLModel`
+  returns `ok=true`, which always produces a non-empty label), but sat_v2 can
+  reach `k2SourceLabel` with K2Priority outside {1,2,3,4} in edge cases.
+  `"unknown"` is explicit and operator-visible.
+
 **Step 12** — Add to `internal/engines/pipeline/optimizer_interfaces.go`,
   `NamedAnalyzerResult` struct (after `Spare`):
   ```go
@@ -50,12 +68,51 @@ Two things happened since R2:
   - Add `"scaleUpThreshold"` and `"scaleDownBoundary"` to the required-keys list.
 
 **Step 16** — Update `docs/developer-guide/cycle-log.md`:
-  - Add `scaleUpThreshold` and `scaleDownBoundary` to the `analyzer-result`
-    field table (after `sc`).
-  - Update the JSON format example to include those fields.
-  - Rename `## Capacity label values (\`label\` field)` → `## Reason values (\`reason\` field)`.
-  - Replace `label` with `reason` throughout that section.
-  - Remove any remaining `cost` references from tables or examples.
+
+  **16a.** In the `analyzer-result` field table, add after `sc`:
+  ```
+  | `scaleUpThreshold`  | float64 | resolved threshold used to compute `rc` |
+  | `scaleDownBoundary` | float64 | resolved boundary used to compute `sc` |
+  ```
+  Remove the `cost` row if still present.
+
+  **16b.** Update the JSON format example to include `scaleUpThreshold` and
+  `scaleDownBoundary`, and show `reason` (not `label` or `cost`).
+
+  **16c.** Rename the section `## Capacity label values (\`label\` field)` →
+  `## Reason values (\`reason\` field)` and replace `label` with `reason`
+  throughout that section.
+
+  **16d.** Expand the reason-values section to cover BOTH analyzers.
+  Replace the current sat_v2-only table with two subsections:
+
+  ```markdown
+  ### Saturation V2 analyzer
+
+  | Reason | Meaning |
+  |---|---|
+  | `P1-obs` | k2 from **observed** tokens-in-use (queue was saturated — live signal) |
+  | `P2-hist` | k2 from **historical** rolling average across saturated cycles |
+  | `P3-k2`  | k2 **derived** from deployment parameters (vLLM model args, formula-based) |
+  | `P4-k1`  | k2 unavailable — **fell back** to k1 (memory-bound capacity only) |
+  | `P0-store` | Capacity sourced from the **capacity store** (no live replicas this cycle) |
+  | `unknown` | K2 priority could not be mapped — inspect debug logs |
+
+  ### Throughput analyzer
+
+  | Reason | Meaning |
+  |---|---|
+  | `T1-ols` | ITL model fitted by **OLS from live observations** in the current window |
+  | `T2-pinned` | Constrained OLS with slope **B pinned from the last successful T1 fit** (window not yet ready or fit failed) |
+  | `T2-default` | Constrained OLS with **default baseline B** — cold start, no prior fit available |
+  ```
+
+  Add a note after the tables:
+  ```
+  Absent `reason` field: the analyzer produced a capacity estimate via a
+  path not covered by the labels above. This should not occur in normal
+  operation — if seen, check debug logs for the affected variant.
+  ```
 
 Commit: `git commit -s -m "engine: add scaleUpThreshold/scaleDownBoundary to analyzer-result log; update cycle-log doc"`
 

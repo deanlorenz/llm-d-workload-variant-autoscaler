@@ -366,10 +366,18 @@ R2 is implemented at `c8712fc8`. These steps add thresholds to the
 completed"` log (moved to `runAnalyzersAndScore` by upstream #1306), and
 rebase onto current `upstream/main`. All in one commit.
 
-### Step 11 — Fix stale test comment (`engine_v2_log_test.go`)
+### Step 11 — Fix stale test comment + empty-reason guard
 
-Line 63 contains the comment `// Verify variants entries contain "label" but not "cost".`
-Change it to `// Verify variants entries contain "reason" but not "cost".`
+**11a.** `engine_v2_log_test.go:63` — change `"label"` → `"reason"` in comment.
+
+**11b.** `saturation_v2/analyzer.go`, `aggregateByVariant` — add after computing `capacityLabel`:
+```go
+if capacityLabel == "" {
+    capacityLabel = "unknown"
+}
+```
+Prevents silent omission (`omitempty`) when `K2Priority` falls outside {1,2,3,4}.
+TA is safe by construction; this guards sat_v2 edge cases.
 
 ### Step 12 — Add threshold fields to `NamedAnalyzerResult`
 
