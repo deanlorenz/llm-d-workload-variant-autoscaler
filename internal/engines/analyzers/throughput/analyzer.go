@@ -510,7 +510,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 			return ITLModel{A: A, B: baselineB}, tier2Label, true
 		}
 	}
-	return ITLModel{}, "", false
+	return ITLModel{}, "T2-failed", false
 }
 
 // computeDemand aggregates λ_dec (decode token demand in tokens/sec) across replicas.

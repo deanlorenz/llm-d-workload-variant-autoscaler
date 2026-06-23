@@ -385,6 +385,8 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			// No own record — try cross-variant estimation from a compatible variant
 			perReplicaCapacity = float64(rec.EffectiveCapacity)
 			capacityLabel = "P0-store"
+		} else {
+			capacityLabel = "no-data"
 		}
 
 		totalCapacity := float64(readyCount) * perReplicaCapacity
@@ -662,7 +664,7 @@ func k2SourceLabel(replicas []ReplicaCapacity) string {
 	if label, ok := labels[sorted[medIdx].K2Priority]; ok {
 		return label
 	}
-	return ""
+	return "error"
 }
 
 // median returns the median value from a sorted slice of int64 values.

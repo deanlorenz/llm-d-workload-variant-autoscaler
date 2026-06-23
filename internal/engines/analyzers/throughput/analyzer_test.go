@@ -528,6 +528,29 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.VariantCapacities).To(HaveLen(1))
 			Expect(result.VariantCapacities[0].Reason).To(Equal("T2-pinned"))
 		})
+
+		It("resolveITLModel returns T2-failed when all replicas are idle (KvUsageInstant == 0)", func() {
+			// Single Observe with idle metrics to create variant state, then Analyze
+			// with idle replicas so both tiers fail — tier-2 needs KvUsageInstant > 0.
+			idleMetrics := interfaces.ReplicaMetrics{
+				VariantName: "v1", KvUsageInstant: 0, KvCacheUsage: 0,
+				AvgITL: 0.006, AvgInputTokens: 5000, AvgOutputTokens: 200,
+				PrefixCacheHitRate: 0.1, TotalKvCapacityTokens: 1024000,
+			}
+			analyzer.Observe(ctx, time.Now(), modelID, namespace, []interfaces.ReplicaMetrics{idleMetrics})
+
+			_, reason, ok := analyzer.resolveITLModel(ctx,
+				func() *variantState {
+					analyzer.mu.Lock()
+					defer analyzer.mu.Unlock()
+					return analyzer.variantStates[variantKey(namespace, modelID, "v1")]
+				}(),
+				[]interfaces.ReplicaMetrics{idleMetrics},
+				namespace, modelID, "v1",
+			)
+			Expect(ok).To(BeFalse())
+			Expect(reason).To(Equal("T2-failed"))
+		})
 	})
 
 	Describe("Analyze — idle replicas produce no signal", func() {

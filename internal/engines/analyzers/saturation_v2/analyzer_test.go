@@ -1386,4 +1386,34 @@ var _ = Describe("aggregateByVariant capacity Reason", func() {
 		Expect(result.VariantCapacities).To(HaveLen(1))
 		Expect(result.VariantCapacities[0].Reason).To(Equal("P0-store"))
 	})
+
+	It("sets Reason to no-data when variant has zero replicas and no store or compatible record", func() {
+		store := NewCapacityKnowledgeStore()
+		a := NewSaturationAnalyzer(store)
+
+		input := interfaces.AnalyzerInput{
+			ModelID:        "m",
+			Namespace:      "ns",
+			ReplicaMetrics: nil,
+			VariantStates: []interfaces.VariantReplicaState{
+				{VariantName: "v1", CurrentReplicas: 0, PendingReplicas: 0},
+			},
+			Config: &config.SaturationScalingConfig{KvCacheThreshold: 0.9, KvSpareTrigger: 0.2, QueueLengthThreshold: 5},
+		}
+		result, err := a.Analyze(context.Background(), input)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.VariantCapacities).To(HaveLen(1))
+		Expect(result.VariantCapacities[0].Reason).To(Equal("no-data"))
+	})
+})
+
+var _ = Describe("k2SourceLabel", func() {
+	It("returns error when K2Priority is not in the known set", func() {
+		replicas := []ReplicaCapacity{{K2Priority: 0, EffectiveCapacity: 100}}
+		Expect(k2SourceLabel(replicas)).To(Equal("error"))
+	})
+
+	It("returns empty string when replicas slice is empty", func() {
+		Expect(k2SourceLabel(nil)).To(Equal(""))
+	})
 })

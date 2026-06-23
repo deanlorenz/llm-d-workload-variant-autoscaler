@@ -98,6 +98,8 @@ the saturation V2 analyzer sets one of these values:
 | `P2-hist` | k2 came from the **historical** rolling average |
 | `P3-k2` | k2 was **derived** from deployment parameters (vLLM model args) |
 | `P4-k1` | k2 was unavailable; **fell back** to k1 (memory-bound capacity) |
+| `no-data` | no ready replicas, no stored record, no compatible variant — capacity is 0 this cycle (normal for newly deployed variants) |
+| `error` | K2 priority not in known set — indicates an unlabelled code path; should not occur in normal operation |
 
 The `P1-obs`–`P4-k1` values reflect the representative replica for the variant
 — specifically the replica whose effective capacity equals the lower median
@@ -106,9 +108,16 @@ reason means live inference data is available and the capacity estimate is
 high-confidence; a `P4-k1` reason means no compute-bound signal was available
 for any replica and the estimate is conservative.
 
-The throughput analyzer sets `T1-ols`, `T2-pinned`, or `T2-default` to
-indicate which fitting tier produced the capacity estimate. Other analyzers may
-set their own reason values or leave `reason` empty.
+The throughput analyzer sets one of these values:
+
+| Reason | Meaning |
+|---|---|
+| `T1-ols` | capacity from Tier-1 OLS fit (observation window ready) |
+| `T2-pinned` | capacity from Tier-2 constrained OLS with a prior fitted B |
+| `T2-default` | capacity from Tier-2 constrained OLS with the default baseline B (cold start) |
+| `T2-failed` | both tiers failed — all replicas idle or no usable ITL signal; variant skipped this cycle |
+
+Other analyzers may set their own reason values or leave `reason` empty.
 
 ---
 
