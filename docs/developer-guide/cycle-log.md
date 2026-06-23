@@ -27,9 +27,11 @@ optimizer actually receives.
   "util": 1.58,
   "rc": 0,
   "sc": 50000,
+  "scaleUpThreshold": 1.1,
+  "scaleDownBoundary": 0.7,
   "variants": [
-    {"name": "primary", "prc": 1152000, "cost": 10, "label": "P3-k2"},
-    {"name": "v2",      "prc":  403391, "cost":  5, "label": "P1-obs"}
+    {"name": "primary", "prc": 1152000, "reason": "P3-k2"},
+    {"name": "v2",      "prc":  403391, "reason": "P1-obs"}
   ]
 }
 ```
@@ -44,10 +46,11 @@ optimizer actually receives.
 | `util` | `demand / supply`; > 1.0 means the model is over capacity |
 | `rc` | Required capacity signal (post-threshold): > 0 triggers scale-up |
 | `sc` | Spare capacity signal (post-threshold): > 0 permits scale-down |
+| `scaleUpThreshold` | Scale-up threshold resolved for this analyzer (from config) |
+| `scaleDownBoundary` | Scale-down boundary resolved for this analyzer (from config) |
 | `variants[].name` | Variant name |
 | `variants[].prc` | Per-replica capacity in analyzer units (tokens for saturation) |
-| `variants[].cost` | Relative cost weight used by the optimizer |
-| `variants[].label` | How the variant's capacity was computed (see below) |
+| `variants[].reason` | How the variant's capacity was computed (see below) |
 
 If an analyzer does not compute per-variant capacity, `variants` is an empty
 array. Multiple `analyzer-result` lines appear when more than one analyzer is
@@ -82,29 +85,30 @@ replica targets.
 
 ---
 
-## Capacity label values (`label` field)
+## Reason values (`reason` field)
 
-The `label` field in `analyzer-result` variants is set by each analyzer to
+The `reason` field in `analyzer-result` variants is set by each analyzer to
 describe how it computed the variant's per-replica capacity. It is free text;
-the saturation V2 analyzer sets one of four values based on its k2 priority
-chain:
+the saturation V2 analyzer sets one of these values:
 
-| Label | Meaning |
+| Reason | Meaning |
 |---|---|
+| `P0-store` | capacity came from the **capacity store** (no live replicas) |
 | `P1-obs` | k2 came from **observed** tokens-in-use (queue was saturated) |
 | `P2-hist` | k2 came from the **historical** rolling average |
 | `P3-k2` | k2 was **derived** from deployment parameters (vLLM model args) |
 | `P4-k1` | k2 was unavailable; **fell back** to k1 (memory-bound capacity) |
 
-The label reflects the representative replica for the variant — specifically
-the replica whose effective capacity equals the lower median across all ready
-replicas (the same replica that determined `prc`). A `P1-obs` label means live
-inference data is available and the capacity estimate is high-confidence; a
-`P4-k1` label means no compute-bound signal was available for any replica and
-the estimate is conservative.
+The `P1-obs`–`P4-k1` values reflect the representative replica for the variant
+— specifically the replica whose effective capacity equals the lower median
+across all ready replicas (the same replica that determined `prc`). A `P1-obs`
+reason means live inference data is available and the capacity estimate is
+high-confidence; a `P4-k1` reason means no compute-bound signal was available
+for any replica and the estimate is conservative.
 
-Other analyzers (e.g. the throughput analyzer) may set their own label values
-or leave `label` empty.
+The throughput analyzer sets `T1-ols`, `T2-pinned`, or `T2-default` to
+indicate which fitting tier produced the capacity estimate. Other analyzers may
+set their own reason values or leave `reason` empty.
 
 ---
 
@@ -146,6 +150,3 @@ correlating them.
 
 These lines are emitted at INFO level and appear in the default controller
 log output. No feature flag or configuration change is required.
-
-The existing `"V2 saturation analysis completed"` and
-`"Applied saturation decision"` lines remain unchanged.

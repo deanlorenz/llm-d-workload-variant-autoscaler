@@ -28,7 +28,9 @@ func TestLogAnalyzerResult_EmitsRequiredFields(t *testing.T) {
 	ctx, logs := zapObserverCtx(t)
 
 	nr := pipeline.NamedAnalyzerResult{
-		Name: "saturation",
+		Name:              "saturation",
+		ScaleUpThreshold:  1.2,
+		ScaleDownBoundary: 0.7,
 		Result: &interfaces.AnalyzerResult{
 			TotalSupply:      100000,
 			TotalDemand:      80000,
@@ -53,14 +55,14 @@ func TestLogAnalyzerResult_EmitsRequiredFields(t *testing.T) {
 	assert.Equal(t, "analyzer-result", entry.Message)
 
 	fields := entry.ContextMap()
-	for _, key := range []string{"modelID", "namespace", "analyzer", "supply", "demand", "util", "rc", "sc", "variants"} {
+	for _, key := range []string{"modelID", "namespace", "analyzer", "supply", "demand", "util", "rc", "sc", "scaleUpThreshold", "scaleDownBoundary", "variants"} {
 		assert.Contains(t, fields, key, "missing field %q", key)
 	}
 	assert.Equal(t, "mymodel", fields["modelID"])
 	assert.Equal(t, "ns", fields["namespace"])
 	assert.Equal(t, "saturation", fields["analyzer"])
 
-	// Verify variants entries contain "label" but not "cost".
+	// Verify variants entries contain "reason" but not "cost".
 	b, err := json.Marshal(fields["variants"])
 	require.NoError(t, err)
 	variantsJSON := string(b)

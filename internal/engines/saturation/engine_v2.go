@@ -124,11 +124,13 @@ func (e *Engine) runAnalyzersAndScore(
 	// Collect per-analyzer results. Saturation is first; each non-saturation
 	// analyzer is run, calibrated with its resolved thresholds, and appended.
 	namedResults := []pipeline.NamedAnalyzerResult{{
-		Name:      interfaces.SaturationAnalyzerName,
-		Result:    baseResult,
-		Score:     scoreForAnalyzer(interfaces.SaturationAnalyzerName, config),
-		Remaining: baseResult.RequiredCapacity,
-		Spare:     baseResult.SpareCapacity,
+		Name:              interfaces.SaturationAnalyzerName,
+		Result:            baseResult,
+		Score:             scoreForAnalyzer(interfaces.SaturationAnalyzerName, config),
+		Remaining:         baseResult.RequiredCapacity,
+		Spare:             baseResult.SpareCapacity,
+		ScaleUpThreshold:  satUp,
+		ScaleDownBoundary: satDown,
 	}}
 	for _, entry := range e.analyzersSnapshot {
 		if entry.name == interfaces.SaturationAnalyzerName {
@@ -144,11 +146,13 @@ func (e *Engine) runAnalyzersAndScore(
 		up, down := resolveThresholds(entry.name, config)
 		applyUniversalThreshold(result, up, down)
 		namedResults = append(namedResults, pipeline.NamedAnalyzerResult{
-			Name:      entry.name,
-			Result:    result,
-			Score:     scoreForAnalyzer(entry.name, config),
-			Remaining: result.RequiredCapacity,
-			Spare:     result.SpareCapacity,
+			Name:              entry.name,
+			Result:            result,
+			Score:             scoreForAnalyzer(entry.name, config),
+			Remaining:         result.RequiredCapacity,
+			Spare:             result.SpareCapacity,
+			ScaleUpThreshold:  up,
+			ScaleDownBoundary: down,
 		})
 	}
 	for _, nr := range namedResults {
@@ -387,6 +391,8 @@ func logAnalyzerResult(ctx context.Context, modelID, namespace string, nr pipeli
 		"util", nr.Result.Utilization,
 		"rc", nr.Result.RequiredCapacity,
 		"sc", nr.Result.SpareCapacity,
+		"scaleUpThreshold", nr.ScaleUpThreshold,
+		"scaleDownBoundary", nr.ScaleDownBoundary,
 		"variants", variants,
 	)
 }
