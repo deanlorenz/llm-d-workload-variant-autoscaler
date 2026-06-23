@@ -38,6 +38,31 @@ bob --chat-mode=coder  # ✗ Wrong location
 3. If not, **STOP** and inform the user:
 4. Run `git status` — note ALL modified, staged, and untracked files. This is your full work scope regardless of how the session was triggered. **Never declare work done while `git status` shows uncommitted changes that belong to your branch.** A trigger names what to re-read; it does not limit your scope to its stated topic.
 
+**Re-verify before any edit (session resume or handoff processing):**
+
+When resuming a paused session or starting work on a new handoff/trigger,
+run `pwd` + `git branch --show-current` again before the first file edit.
+Shell CWD can drift between sessions. Confirm the branch name matches your
+assigned worktree before touching any file.
+
+**Re-verify before every `git commit`:**
+
+Run `pwd` + `git branch --show-current` immediately before every commit
+command. A commit issued from the wrong CWD silently lands on the wrong
+branch with no error. This check costs two seconds and prevents silent
+cross-branch contamination.
+
+```bash
+# Mandatory pattern before every commit:
+pwd && git branch --show-current
+git add <files>
+git commit -s -m "..."
+```
+
+These two gates are non-negotiable. Skip neither, even for trivial one-line
+fixes. If either check shows the wrong location, stop and surface it via
+your status file before proceeding.
+
 ```
 ERROR: Coder session started in wrong location.
 
