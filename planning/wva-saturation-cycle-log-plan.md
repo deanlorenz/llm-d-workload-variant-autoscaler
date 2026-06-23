@@ -3,7 +3,7 @@
 **Branch:** `wva-saturation-cycle-log-r1` in worktree `wva-log-rewrite`
 **Type:** Type 3 task plan
 **Scope:** Logging only. No behavioral change. Generic interface extension (one new field).
-**Status:** R2 — label fixups (2026-06-22); Steps 1–7 already implemented at `69ba4d8b`
+**Status:** R3 — add thresholds, remove old log line, rebase (2026-06-23); R2 implemented at `c8712fc8`
 
 ---
 
@@ -58,6 +58,8 @@ returning. Fields:
 | `util` | float64 | `AnalyzerResult.Utilization` |
 | `rc` | float64 | `AnalyzerResult.RequiredCapacity` (post-threshold) |
 | `sc` | float64 | `AnalyzerResult.SpareCapacity` (post-threshold) |
+| `scaleUpThreshold` | float64 | resolved scale-up threshold used to compute RC |
+| `scaleDownBoundary` | float64 | resolved scale-down boundary used to compute SC |
 | `variants` | []variantEntry | one per `VariantCapacity` in the result |
 
 `variantEntry` fields:
@@ -76,7 +78,7 @@ capacity, `variants` is an empty slice. Do NOT compute any derived values
 ```
 {"level":"info","msg":"analyzer-result","modelID":"m","namespace":"ns",
  "analyzer":"saturation","supply":658534,"demand":1041047,"util":1.58,
- "rc":0,"sc":50000,
+ "rc":0,"sc":50000,"scaleUpThreshold":1.2,"scaleDownBoundary":0.7,
  "variants":[
    {"name":"primary","prc":1152000,"reason":"P3-k2"},
    {"name":"v2","prc":403391,"reason":"P1-obs"}
@@ -355,6 +357,161 @@ same package `saturation`).
 
 ---
 
+---
+
+## R3 amendments — thresholds + remove old log line + rebase (implement on top of R2)
+
+R2 is implemented at `c8712fc8`. These steps add thresholds to the
+`analyzer-result` line, remove the now-superseded `"V2 saturation analysis
+completed"` log (moved to `runAnalyzersAndScore` by upstream #1306), and
+rebase onto current `upstream/main`. All in one commit.
+
+### Step 11 — Fix stale test comment (`engine_v2_log_test.go`)
+
+Line 63 contains the comment `// Verify variants entries contain "label" but not "cost".`
+Change it to `// Verify variants entries contain "reason" but not "cost".`
+
+### Step 12 — Add threshold fields to `NamedAnalyzerResult`
+
+File: `internal/engines/pipeline/optimizer_interfaces.go`
+
+Add two fields after `Spare`:
+
+```go
+ScaleUpThreshold  float64 // resolved scale-up threshold used to compute RC
+ScaleDownBoundary float64 // resolved scale-down boundary used to compute SC
+```
+
+### Step 13 — Populate thresholds and remove old log line (`engine_v2.go`)
+
+File: `internal/engines/saturation/engine_v2.go`, function `runAnalyzersAndScore`.
+
+**13a.** In the saturation `NamedAnalyzerResult` literal, add the two new fields:
+
+```go
+namedResults := []pipeline.NamedAnalyzerResult{{
+    Name:             interfaces.SaturationAnalyzerName,
+    Result:           baseResult,
+    Score:            scoreForAnalyzer(interfaces.SaturationAnalyzerName, config),
+    Remaining:        baseResult.RequiredCapacity,
+    Spare:            baseResult.SpareCapacity,
+    ScaleUpThreshold: satUp,    // ADD
+    ScaleDownBoundary: satDown, // ADD
+}}
+```
+
+**13b.** In the loop over registered analyzers, populate thresholds on each entry:
+
+```go
+up, down := resolveThresholds(entry.name, config)
+applyUniversalThreshold(result, up, down)
+namedResults = append(namedResults, pipeline.NamedAnalyzerResult{
+    Name:             entry.name,
+    Result:           result,
+    Score:            scoreForAnalyzer(entry.name, config),
+    Remaining:        result.RequiredCapacity,
+    Spare:            result.SpareCapacity,
+    ScaleUpThreshold: up,    // ADD
+    ScaleDownBoundary: down, // ADD
+})
+```
+
+**13c. After rebasing**, `runAnalyzersAndScore` will contain a new block added by
+upstream #1306:
+```go
+logger.Info("V2 saturation analysis completed",
+    "modelID", modelID,
+    "totalSupply", baseResult.TotalSupply,
+    ...
+    "scaleUpThreshold", satUp,
+    "scaleDownBoundary", satDown)
+```
+**Delete this block.** The `logAnalyzerResult` loop below it supersedes it —
+`analyzer-result` for saturation now includes supply, demand, util, rc, sc,
+scaleUpThreshold, scaleDownBoundary, and variants.
+
+### Step 14 — Add thresholds to `logAnalyzerResult` (`engine_v2.go`)
+
+In `logAnalyzerResult`, add the two new fields to the `logger.Info` call:
+
+```go
+logger.Info("analyzer-result",
+    "modelID", modelID,
+    "namespace", namespace,
+    "analyzer", nr.Name,
+    "supply", nr.Result.TotalSupply,
+    "demand", nr.Result.TotalDemand,
+    "util", nr.Result.Utilization,
+    "rc", nr.Result.RequiredCapacity,
+    "sc", nr.Result.SpareCapacity,
+    "scaleUpThreshold", nr.ScaleUpThreshold,   // ADD
+    "scaleDownBoundary", nr.ScaleDownBoundary, // ADD
+    "variants", variants,
+)
+```
+
+### Step 15 — Update `logAnalyzerResult` tests
+
+In `engine_v2_log_test.go`:
+- Set `ScaleUpThreshold` and `ScaleDownBoundary` on the `NamedAnalyzerResult`
+  fixture in `TestLogAnalyzerResult_EmitsRequiredFields`.
+- Add `"scaleUpThreshold"` and `"scaleDownBoundary"` to the required-keys
+  assertion list.
+
+### Step 16 — Update `docs/developer-guide/cycle-log.md`
+
+The doc still refers to `cost` and `label`. Update it to match the current
+implementation:
+
+**16a.** In the `analyzer-result` field table, replace:
+```
+| `reason` | string | `VariantCapacity.Reason` (new; omitted if empty) |
+```
+(The `cost` row should already be gone — remove it if still present.)
+
+Add after the `sc` row:
+```
+| `scaleUpThreshold`  | float64 | resolved threshold used to compute `rc` |
+| `scaleDownBoundary` | float64 | resolved boundary used to compute `sc` |
+```
+
+**16b.** In the JSON format example, change the saturation entry to:
+```json
+{"level":"info","msg":"analyzer-result","modelID":"m","namespace":"ns",
+ "analyzer":"saturation","supply":658534,"demand":1041047,"util":1.58,
+ "rc":0,"sc":50000,"scaleUpThreshold":1.2,"scaleDownBoundary":0.7,
+ "variants":[
+   {"name":"primary","prc":1152000,"reason":"P3-k2"},
+   {"name":"v2","prc":403391,"reason":"P1-obs"}
+ ]}
+```
+
+**16c.** Rename the section `## Capacity label values (\`label\` field)` to
+`## Reason values (\`reason\` field)` and replace all references to `label`
+with `reason` in that section.
+
+### Step 17 — Rebase onto `upstream/main`
+
+```bash
+git fetch upstream
+git rebase upstream/main
+```
+
+The expected conflict is in `internal/engines/saturation/engine_v2.go`:
+- Upstream #1306 added a `logger.Info("V2 saturation analysis completed", ...)` block
+  in `runAnalyzersAndScore` after `applyUniversalThreshold`.
+- Our branch adds the `ScaleUpThreshold`/`ScaleDownBoundary` fields and the
+  `logAnalyzerResult` loop in the same function.
+- Resolution: keep our changes, delete the `"V2 saturation analysis completed"`
+  block (Step 13c).
+
+After rebase, run all gates: `gofmt -l internal/`, `make test`, `make lint`,
+`go build ./...` — all must be clean.
+
+One commit for Steps 11–16 before the rebase. After the rebase:
+- Write `plans/session/handoffs/plan__wva-log-r3-done.md`
+- Do NOT push — Dean pushes after review.
+
 ## Files changed
 
 | File | Change |
@@ -365,7 +522,9 @@ same package `saturation`).
 | `internal/engines/saturation/engine_v2.go` | Replace `logDecisionSummary` with `logAnalyzerResult` + `logScalingDecisions`; add log loop in `runAnalyzersAndScore`; **R2: drop `cost` from `variantEntry`** |
 | `internal/engines/saturation/engine.go` | Replace `logDecisionSummary` call with `logScalingDecisions` |
 | `internal/engines/analyzers/throughput/analyzer.go` | **R2: `resolveITLModel` returns tier label; `VariantCapacity` gets `Reason`** |
-| `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests; **R2: remove `cost` assertions, update label assertions** |
+| `internal/engines/pipeline/optimizer_interfaces.go` | **R3: add `ScaleUpThreshold`/`ScaleDownBoundary` to `NamedAnalyzerResult`** |
+| `internal/engines/saturation/engine_v2_log_test.go` (new) | 5 unit tests; **R2: remove `cost` assertions, update label assertions; R3: add threshold assertions** |
+| `docs/developer-guide/cycle-log.md` (new) | **R3: fix `cost`/`label` → `reason`, add threshold fields** |
 
 ---
 
