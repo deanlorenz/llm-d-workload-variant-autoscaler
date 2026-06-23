@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-18
+**Last updated:** 2026-06-23
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -15,6 +15,8 @@
 - **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite. Note: `runRegisteredAnalyzers` dead-code was NOT removed in this PR — it remains in `engine_v2.go`; follow-up plan at [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4. `effectiveEnabled` opt-in fix (absent entry → false): [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 
 **Tail (compressed — recover via the ID/ref):**
+
+- 2026-06-23 — #1318 OPEN (`9743e3e9`). Structured per-cycle log lines: `analyzer-result` (per analyzer, post-threshold, with supply/demand/util/rc/sc/thresholds/variants+reason) + `scaling-decision` (per model, post-optimizer). Adds `Reason string` to `VariantCapacity`; `ScaleUpThreshold`/`ScaleDownBoundary` to `NamedAnalyzerResult`. Sat_v2 reasons: P0-store/P1-obs/P2-hist/P3-k2/P4-k1/no-data/error. TA reasons: T1-ols/T2-pinned/T2-default/T2-failed. Logging issue #1317 (Log C optimizer reasoning deferred). #1277 closed (superseded).
 
 - 2026-06-16 — #1250 MERGED `efca1b4c` (squash). Post-merge testing fixes: `34c9be9b` (booting-replica TotalSupply inflation; NaN/Inf-A guard) + `b2f1d7ef` (e2e scale-up → fake-metrics/saturation-driven; TA scale-up now covered by unit tests only). Deep review → forward plan → [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md)
 - 2026-06-15 — #1250 round-3 pushed `8fcaaaed` (F1–F5); round-2 `f11f5120`; Bug A/B `b0284253`
@@ -49,6 +51,8 @@
 | engine-queue-fix      | —     | **Absorbed** into multi-analyzer-optimizer commit 7 (`3fe287fe`). Branch + worktree can be closed/removed. | `01ed7d8` |
 | multi-analyzer-addendum | #1266 | **MERGED** 2026-06-15 (`6d25b134` on main). | `d861b09f` |
 | collector-va-attribution | — | **CLOSED** — superseded by #1267 (`c55906a4`). #1263 closed. Archive branch via `git boidem collector-va-attribution`. See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md). | `526ce851` |
+| wva-saturation-cycle-log | #1277 | **CLOSED** 2026-06-23 — superseded by #1318. | `01bfe940` |
+| wva-saturation-cycle-log-r1 | #1318 | **OPEN** — structured per-cycle log lines (analyzer-result, scaling-decision). Assigned ev-shindin. Branch in `wva-log-rewrite` worktree; tip `9743e3e9`. Plan: [`planning/wva-saturation-cycle-log-plan.md`](../planning/wva-saturation-cycle-log-plan.md). | `9743e3e9` |
 
 ---
 

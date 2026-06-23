@@ -1,0 +1,64 @@
+from: planner
+session: wva-saturation-cycle-log label fixes
+
+Three small changes to the logging PR (wva-log-rewrite worktree,
+branch wva-saturation-cycle-log-r1). All changes are in files already
+touched by the branch.
+
+## Change 1 — Drop `cost` from per-variant log entry
+
+In `internal/engines/saturation/engine_v2.go`, `logAnalyzerResult`:
+
+Remove `Cost float64 \`json:"cost"\`` from the `variantEntry` struct and
+remove `Cost: vc.Cost,` from the struct literal. Cost is VA-spec metadata
+that belongs to a separate concern; it should not appear per-analyzer.
+
+Result: `variants` entries become `{name, prc, label}` only.
+
+## Change 2 — Sat_v2 capacity-store path gets label "P0-store"
+
+In `internal/engines/analyzers/saturation_v2/analyzer.go`, `aggregateByVariant`:
+
+When `len(replicas) == 0`, `PerReplicaCapacity` is sourced from
+`a.capacityStore.Get(...)`. The current code leaves `CapacityLabel` empty
+for this path. Set it to `"P0-store"` so operators can distinguish
+store-derived capacity from live-observation-derived capacity.
+
+Find the block where `len(replicas) == 0` is handled (the capacity store
+fallback) and add:
+```go
+vc.CapacityLabel = "P0-store"
+```
+before appending `vc` to the result.
+
+## Change 3 — Throughput analyzer sets CapacityLabel per tier
+
+In `internal/engines/analyzers/throughput/analyzer.go`:
+
+`resolveITLModel` (around line 463) has three tiers. Thread the tier label
+back to where `VariantCapacity` is built in `Analyze()`. The three labels:
+
+| Tier | Condition | Label |
+|---|---|---|
+| T1 | OLS fit from live observations (`observationWindow.Ready()` + `FitITLModel` succeeds) | `"T1-ols"` |
+| T2 pinned | Constrained OLS with `lastFittedB` from prior fit | `"T2-pinned"` |
+| T2 default | Constrained OLS with default B (cold start) | `"T2-default"` |
+
+Read the TA code carefully to find the exact branching. The label must
+reflect which path produced the `PerReplicaCapacity` value for the variant.
+
+## After all three changes
+
+- Update `engine_v2_log_test.go`: remove `Cost` assertions, add assertion
+  that `label` field is present in variant entries.
+- Update any TA tests that assert on `CapacityLabel` (or add one asserting
+  the three tier labels are set correctly).
+- Run all gates: `gofmt`, `make test`, `make lint`, `go build`.
+- One commit covering all three changes.
+- Write `plan__wva-log-label-fixes-done.md` handoff when gates are green.
+  Dean will push.
+
+## Do not
+- Add cost back anywhere.
+- Touch the QM analyzer (known gap, separate work).
+- Change any scaling logic.
