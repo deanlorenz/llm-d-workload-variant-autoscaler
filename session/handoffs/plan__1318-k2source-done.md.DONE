@@ -1,0 +1,19 @@
+from: wva-saturation-cycle-log-r1
+session: 1318-k2source-fix
+
+## What changed
+One commit on wva-saturation-cycle-log-r1: named constants for analyzer reason strings.
+Commit: 6b6f4295
+Files:
+  internal/engines/analyzers/saturation_v2/types.go
+  internal/engines/analyzers/saturation_v2/analyzer.go
+  internal/engines/analyzers/saturation_v2/analyzer_test.go
+  internal/engines/analyzers/throughput/constants.go
+  internal/engines/analyzers/throughput/analyzer.go
+  internal/engines/analyzers/throughput/analyzer_test.go
+All gates pass (gofmt, go build, make test, make lint).
+
+## Update CURRENT.md
+PR #1318 tip: 6b6f4295
+Add note: ev-shindin non-blocking comment addressed (k2Source, satReason*, itlReason* constants).
+State: in review — ready to merge.
