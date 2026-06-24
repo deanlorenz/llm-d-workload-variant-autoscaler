@@ -53,6 +53,7 @@
 | collector-va-attribution | — | **CLOSED** — superseded by #1267 (`c55906a4`). #1263 closed. Archive branch via `git boidem collector-va-attribution`. See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md). | `526ce851` |
 | wva-saturation-cycle-log | #1277 | **CLOSED** 2026-06-23 — superseded by #1318. | `01bfe940` |
 | wva-saturation-cycle-log-r1 | #1318 | **OPEN** — structured per-cycle log lines (analyzer-result, scaling-decision). Assigned ev-shindin. Branch in `wva-log-rewrite` worktree; tip `9743e3e9`. Plan: [`planning/wva-saturation-cycle-log-plan.md`](../planning/wva-saturation-cycle-log-plan.md). | `9743e3e9` |
+| wva-analyzer-lifecycle | — | **PLAN READY** — config-driven analyzer activation; ManagedAnalyzer lifecycle interface; remove frozen snapshot + startup gate; fix effectiveEnabled. Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 
 ---
 
@@ -66,7 +67,8 @@ None currently.
   - **I-21/I-22/I-23** — fix dev guide: stale PromQL examples (`by (pod)` → `by (instance, pod, llm_d_ai_variant)`), remove `itl_knowledge_store.go` from package structure, add `nKV`/booting-replica note. Single PR, doc-only. Plan: [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) § I-21–23.
   - **I-5** — gate observability: log "TA not registered" on the disabled path; K8s Event when runtime configmap edit is silently ignored. Fold I-12 (gate unit tests + default-config test) into same PR. See forward plan § I-5, I-12.
   - **Discuss priorities:** review forward plan with Dean before coding any P1 items (collector key unification I-1 is the highest-risk correctness item; test-rot I-11 unlocks future reviewability).
-- **#1266 effectiveEnabled fixup:** removes the "restart required" stopgap; plan: [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md). Supersedes I-16 in forward plan.
+- **wva-analyzer-lifecycle (PLAN READY):** config-driven analyzer registration, ManagedAnalyzer lifecycle (Activate/Deactivate/Reactivate), live-set refactor, effectiveEnabled fix, remove startup gate. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the `PR1266-fixup-effectiveEnabled.md` stopgap (that plan is now moot — the full fix is in Commit 3g of the lifecycle plan). Pending implementation kick-off.
+- ~~**#1266 effectiveEnabled fixup:**~~ **SUPERSEDED** by wva-analyzer-lifecycle plan (see above). Do not implement `planning/PR1266-fixup-effectiveEnabled.md`.
 - **runRegisteredAnalyzers deletion:** dead-code in `engine_v2.go`; plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
 - **Issues to file:** Q1+Q2 from `planning/open-items-roadmap.md`; TA forward plan internal issues I-1 through I-25 (file as GitHub issues at Dean's direction — do not file without confirmation).
 - **TA3 post-merge:** triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); Step 2f E2E discussion.
