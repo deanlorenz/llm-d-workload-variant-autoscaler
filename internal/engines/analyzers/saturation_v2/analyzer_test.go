@@ -1384,7 +1384,7 @@ var _ = Describe("aggregateByVariant capacity Reason", func() {
 		result, err := a.Analyze(context.Background(), input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.VariantCapacities).To(HaveLen(1))
-		Expect(result.VariantCapacities[0].Reason).To(Equal("P0-store"))
+		Expect(result.VariantCapacities[0].Reason).To(Equal(satReasonP0Store))
 	})
 
 	It("sets Reason to no-data when variant has zero replicas and no store or compatible record", func() {
@@ -1403,7 +1403,7 @@ var _ = Describe("aggregateByVariant capacity Reason", func() {
 		result, err := a.Analyze(context.Background(), input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.VariantCapacities).To(HaveLen(1))
-		Expect(result.VariantCapacities[0].Reason).To(Equal("no-data"))
+		Expect(result.VariantCapacities[0].Reason).To(Equal(satReasonNoData))
 	})
 })
 

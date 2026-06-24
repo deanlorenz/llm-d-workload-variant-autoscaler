@@ -472,7 +472,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 			)
 			state.lastFittedB = model.B
 			state.hasFittedB = true
-			return model, "T1-ols", true
+			return model, itlReasonT1OLS, true
 		}
 		ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: tier-1 OLS fit failed, trying tier-2",
 			"namespace", namespace, "modelID", modelID, "variant", variantName,
@@ -486,10 +486,10 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 	// when replicas have spread k* values — it is the same least-squares criterion
 	// as tier-1 OLS but with B pinned instead of fitted.
 	baselineB := DefaultBaselineITLSec
-	tier2Label := "T2-default"
+	tier2Label := itlReasonT2Default
 	if state.hasFittedB {
 		baselineB = state.lastFittedB
-		tier2Label = "T2-pinned"
+		tier2Label = itlReasonT2Pinned
 	}
 	var numerator, sumK2 float64
 	var n float64
@@ -510,7 +510,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 			return ITLModel{A: A, B: baselineB}, tier2Label, true
 		}
 	}
-	return ITLModel{}, "T2-failed", false
+	return ITLModel{}, itlReasonT2Failed, false
 }
 
 // computeDemand aggregates λ_dec (decode token demand in tokens/sec) across replicas.

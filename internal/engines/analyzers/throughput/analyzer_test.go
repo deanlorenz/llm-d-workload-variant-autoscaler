@@ -433,7 +433,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			result, err := analyzer.Analyze(ctx, input)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.VariantCapacities).To(HaveLen(1))
-			Expect(result.VariantCapacities[0].Reason).To(Equal("T1-ols"))
+			Expect(result.VariantCapacities[0].Reason).To(Equal(itlReasonT1OLS))
 		})
 	})
 
@@ -490,7 +490,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.VariantCapacities).To(HaveLen(1))
-			Expect(result.VariantCapacities[0].Reason).To(Equal("T2-default"))
+			Expect(result.VariantCapacities[0].Reason).To(Equal(itlReasonT2Default))
 		})
 
 		It("sets Reason to T2-pinned when a prior tier-1 fit has set lastFittedB", func() {
@@ -526,7 +526,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.VariantCapacities).To(HaveLen(1))
-			Expect(result.VariantCapacities[0].Reason).To(Equal("T2-pinned"))
+			Expect(result.VariantCapacities[0].Reason).To(Equal(itlReasonT2Pinned))
 		})
 
 		It("resolveITLModel returns T2-failed when all replicas are idle (KvUsageInstant == 0)", func() {
@@ -549,7 +549,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				namespace, modelID, "v1",
 			)
 			Expect(ok).To(BeFalse())
-			Expect(reason).To(Equal("T2-failed"))
+			Expect(reason).To(Equal(itlReasonT2Failed))
 		})
 	})
 

@@ -260,7 +260,7 @@ func (a *SaturationAnalyzer) computeReplicaCapacityFallback(
 		TotalKvCapacityTokens: effectiveCapacity, // synthetic: store-derived
 		MemoryBoundCapacity:   effectiveCapacity,
 		ComputeBoundCapacity:  effectiveCapacity,
-		K2Priority:            4,
+		K2Priority:            k2SrcFallback,
 		EffectiveCapacity:     effectiveCapacity,
 		IsSaturated:           isSaturated,
 		ReplicaDemand:         replicaDemand,
@@ -281,7 +281,7 @@ func (a *SaturationAnalyzer) computeK2(
 	queueThreshold float64,
 	vllmParams *VLLMEngineParams,
 	k1 int64,
-) (int64, int) {
+) (int64, k2Source) {
 	outputBucket := classifyOutputLength(avgOutput)
 	historyKey := fmt.Sprintf("%s|%s|%d|%s", modelID, accelerator, gpuCount, outputBucket)
 
@@ -296,7 +296,7 @@ func (a *SaturationAnalyzer) computeK2(
 		}
 		ra.Add(float64(k2Observed))
 		a.mu.Unlock()
-		return k2Observed, 1
+		return k2Observed, k2SrcObserved
 	}
 
 	// Priority 2: Historical — lock must cover Average() since Add() mutates
@@ -308,16 +308,16 @@ func (a *SaturationAnalyzer) computeK2(
 	}
 	a.mu.Unlock()
 	if histAvg > 0 {
-		return int64(histAvg), 2
+		return int64(histAvg), k2SrcHistorical
 	}
 
 	// Priority 3: Derived from deployment args
 	if k2Derived := estimateCapacityFromParams(vllmParams, avgInput, avgOutput); k2Derived > 0 {
-		return k2Derived, 3
+		return k2Derived, k2SrcDerived
 	}
 
 	// Priority 4: Fallback to k1
-	return k1, 4
+	return k1, k2SrcFallback
 }
 
 // aggregateByVariant groups replica capacities by variant and computes
@@ -380,13 +380,13 @@ func (a *SaturationAnalyzer) aggregateByVariant(
 			// No ready replicas — use stored capacity, enhanced with k2 derivation
 			// for deployment-derived records when workload data is available.
 			perReplicaCapacity = a.estimateStoredCapacity(rec, modelID, kvCacheThreshold, modelAvgInput, modelAvgOutput)
-			capacityLabel = "P0-store"
+			capacityLabel = satReasonP0Store
 		} else if rec := a.lookupCompatibleCapacity(namespace, modelID, vs.VariantName, accelerator, vs.GPUsPerReplica); rec != nil {
 			// No own record — try cross-variant estimation from a compatible variant
 			perReplicaCapacity = float64(rec.EffectiveCapacity)
-			capacityLabel = "P0-store"
+			capacityLabel = satReasonP0Store
 		} else {
-			capacityLabel = "no-data"
+			capacityLabel = satReasonNoData
 		}
 
 		totalCapacity := float64(readyCount) * perReplicaCapacity
@@ -660,8 +660,7 @@ func k2SourceLabel(replicas []ReplicaCapacity) string {
 		return sorted[i].EffectiveCapacity < sorted[j].EffectiveCapacity
 	})
 	medIdx := (len(sorted) - 1) / 2
-	labels := map[int]string{1: "P1-obs", 2: "P2-hist", 3: "P3-k2", 4: "P4-k1"}
-	if label, ok := labels[sorted[medIdx].K2Priority]; ok {
+	if label, ok := k2Labels[sorted[medIdx].K2Priority]; ok {
 		return label
 	}
 	return "error"
