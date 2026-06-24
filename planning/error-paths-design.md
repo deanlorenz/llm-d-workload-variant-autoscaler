@@ -1,6 +1,6 @@
 # Error Paths Design — WVA Analyzers
 
-**Status:** DRAFT (2026-06-24)
+**Status:** DRAFT — pending review; do not use for implementation planning
 **Supersedes:** GitHub issue #1261 — that issue is too narrow; this doc covers the full
 design and will be used to file a replacement top-level feature issue with sub-issues.
 **Related:** `planning/multi-analyzer-design.md` § Future direction F3 (original proposal,
