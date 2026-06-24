@@ -344,6 +344,11 @@ The plan-agent processes pending handoffs via `/sync-current` when Dean
 asks. Your handoff is then renamed to `<file>.md.DONE` and `git rm`-ed
 in the sync commit.
 
+**Receiving a handoff from the planner** (e.g. a trigger addressed to your branch):
+rename it to `<file>.md.WIP` before you start acting on it, and to `<file>.md.DONE`
+when done. Never begin processing without marking `.WIP` first — it signals to the
+planner that the file is being consumed and must not be edited.
+
 ### 5.3 Triggers to siblings — only when needed
 
 If your work changes something a sibling coder needs to react to (your
@@ -358,6 +363,9 @@ Triggers carry **no instructions**. The body has only `reason`, `refs`
 (docs the sibling should re-read), and an optional one-line `note`. See
 §9.3 and CONVENTIONS for the exact format. The sibling re-reads the
 referenced docs and lets their own plan decide how to react.
+
+**Receiving a trigger** addressed to your branch: rename to `.WIP` before processing,
+`.DONE` when done. Same rule as for handoffs — mark before you act.
 
 **Do not edit CURRENT.md directly.** Coder writes are limited to your
 worktree, `plans/session/handoffs/`, and

@@ -124,6 +124,10 @@ agents via handoff files.
 - **Ref integrity.** CURRENT.md is updated *last*. When a referenced doc changes (especially
   design-doc `Fnn`/`Ann` anchors, which renumber), re-validate CURRENT.md's refs into it and
   fix any that no longer resolve.
+- **Editing lock.** Before starting a direct CURRENT.md edit session, create
+  `session/handoffs/current__editing.md.WIP` as a sentinel. Another planner instance
+  seeing this file creates a `plan__*.md` handoff instead of editing directly. Rename the
+  sentinel to `current__editing.md.DONE` after committing.
 
 **Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
@@ -310,7 +314,7 @@ coder to do something different, the planner edits the plan doc and rings the be
 Coder→coder triggers can only point at the sender's status file or a doc — they cannot
 direct work; only the recipient's own plan defines scope.
 
-After processing, the recipient renames the trigger to `<file>.md.DONE`.
+When the recipient starts processing, rename to `<file>.md.WIP`. When done, rename to `<file>.md.DONE`.
 
 *File naming — flat directory, prefix encodes routing:*
 ```
@@ -323,12 +327,21 @@ session/handoffs/
 `<recipient>__<topic>.md`. Filter by `ls session/handoffs/<recipient>__*.md`.
 Recipient tokens: `plan` (planner), short branch nicknames for coders.
 
-*State machine via mv (not rm).* Files transition `<file>.md` → `<file>.md.DONE` via a
-single `mv`. The .DONE files are removed by the planner via `git rm` in the
-`/sync-current` commit, or accumulate harmlessly until cleanup. Coders and the planner
-may write and rename files under `plans/session/handoffs/` and `plans/session/status/`
-from any worktree — this is the only sanctioned exception to "no edits outside your
-worktree."
+*State machine — three states, recipient owns all transitions.*
+
+```
+<file>.md      — open: sender A wrote it, B has not started
+<file>.md.WIP  — B is processing: A must not edit
+<file>.md.DONE — B finished
+```
+
+B marks `.WIP` immediately on start, `.DONE` when done. A never edits the file after
+sending. If A needs to add something while B's file is `.WIP`, A creates a new sibling
+handoff. All transitions are `mv` (not `rm`); `.DONE` files are removed by the planner
+via `git rm` in the `/sync-current` commit, or accumulate harmlessly until cleanup.
+Coders and the planner may write and rename files under `plans/session/handoffs/` and
+`plans/session/status/` from any worktree — this is the only sanctioned exception to
+"no edits outside your worktree."
 
 *Starting a new session without an existing CURRENT entry:* write a `plan__<topic>.md`
 handoff that includes everything needed to create the section — session name, task,
