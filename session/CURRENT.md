@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-06-24
+**Last updated:** 2026-06-25
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -16,7 +16,7 @@
 
 **Tail (compressed — recover via the ID/ref):**
 
-- 2026-06-24 — #1318 tip `6b6f4295` (pre-merge fix: named reason constants — k2Source, satReason*, itlReason*; ev-shindin non-blocking comment addressed). APPROVED, all CI green, ready to merge. Structured per-cycle log lines: `analyzer-result` + `scaling-decision`. Logging issue #1317 (Log C optimizer reasoning deferred). #1277 closed (superseded).
+- 2026-06-25 — #1318 MERGED `bd357196` onto main. Structured per-cycle log lines: `analyzer-result` + `scaling-decision`; `Reason string` on `VariantCapacity`; named reason constants (k2Source, satReason*, itlReason*). Log C optimizer reasoning deferred (#1317). #1277 closed (superseded).
 
 - 2026-06-16 — #1250 MERGED `efca1b4c` (squash). Post-merge testing fixes: `34c9be9b` (booting-replica TotalSupply inflation; NaN/Inf-A guard) + `b2f1d7ef` (e2e scale-up → fake-metrics/saturation-driven; TA scale-up now covered by unit tests only). Deep review → forward plan → [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md)
 - 2026-06-15 — #1250 round-3 pushed `8fcaaaed` (F1–F5); round-2 `f11f5120`; Bug A/B `b0284253`
@@ -52,7 +52,7 @@
 | multi-analyzer-addendum | #1266 | **MERGED** 2026-06-15 (`6d25b134` on main). | `d861b09f` |
 | collector-va-attribution | — | **CLOSED** — superseded by #1267 (`c55906a4`). #1263 closed. Archive branch via `git boidem collector-va-attribution`. See [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md). | `526ce851` |
 | wva-saturation-cycle-log | #1277 | **CLOSED** 2026-06-23 — superseded by #1318. | `01bfe940` |
-| wva-saturation-cycle-log-r1 | #1318 | **OPEN** — structured per-cycle log lines (analyzer-result, scaling-decision). APPROVED ev-shindin; all CI green; ready to merge. Pre-merge fix `6b6f4295` (named reason constants). Plan: [`planning/wva-saturation-cycle-log-plan.md`](../planning/wva-saturation-cycle-log-plan.md). | `6b6f4295` |
+| wva-saturation-cycle-log-r1 | #1318 | **MERGED** 2026-06-25 (`bd357196` on main). Structured per-cycle log lines + named reason constants. | `6b6f4295` |
 | wva-analyzer-lifecycle | — | **PLAN READY** — config-driven analyzer activation; ManagedAnalyzer lifecycle interface; remove frozen snapshot + startup gate; fix effectiveEnabled. Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 
 ---
