@@ -117,7 +117,9 @@ The outcome is correct. Two things worth documenting: (1) a quota-constrained mo
 
 ---
 
-Nice PR — solid implementation and good test coverage. All the notes below are documentation gaps or future-enhancement suggestions; the implementation itself looks correct.
+Solid implementation and good test coverage. Notes below are documentation gaps and future-enhancement suggestions only.
+
+Missing user guide coverage: the feature is documented in `docs/developer-guide/quota-limiter.md` but `docs/user-guide/` and `docs/developer-guide/configuration.md` (where new flags belong) aren't updated. At minimum `configuration.md` and the user guide should reference the new doc.
 
 ---
 
