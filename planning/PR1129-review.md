@@ -4,8 +4,9 @@
 **PR:** [#1129](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1129)
 **Author:** ev-shindin
 **Filed:** 2026-05-13 | **Base:** main | **State:** open, no reviews yet
-**Scale:** 23 files, +2481/−20 lines, 11 commits
-**Reviewed:** 2026-06-15
+**Scale (rev 2):** 31 files, +3763/−40 lines, 1 squashed commit (`2db0e361`)
+**Last updated:** 2026-06-21
+**Reviewed:** 2026-06-25
 
 ---
 
@@ -16,79 +17,97 @@ Adds a quota limiter as a startup-selectable alternative to physical GPU invento
 - `inventory` (default) — today's path; `TypeInventory` + GPU operator
 - `quota --quota-config-file=/path/to/yaml` — pure operator-declared caps; **no Node API access**
 
-New pieces: `QuotaInventory` (implements `Inventory`), `NamespaceAwareInventory` interface extension, `CompositeLimiter` (sequences entries), `NoOpLimiter` (test zero-value), `limiter_factory.go` (startup dispatch), config plumbing, `shouldCollectClusterInventory` gate in the saturation engine.
+Rev 2 (squash) significantly expanded the scope beyond rev 1: the V2 optimizer path (GreedyByScore) now enforces namespace quotas with full V1/V2 parity.
 
-Architecture is clean. The `NewEngine` signature gains `gpuLimiter` (all three test callers updated). 69 new Ginkgo specs. Closes issue #1002.
+New pieces: `QuotaInventory` (implements `Inventory` + `NamespaceAwareInventory`), `CompositeLimiter`, `NoOpLimiter`, `limiter_factory.go`, `ResourceConstraints.NamespacePools`, `ComputeConstraints` signature extension, `effectiveAvailable` in `GreedyByScoreOptimizer`, `computeCurrentGPUUsageByNamespace` + `gpuConstraintProviders` in `engine_v2.go`, config plumbing, `shouldCollectClusterInventory` gate. Closes issue #1002.
 
 ---
 
-## Findings
+## Status of rev-1 findings
 
-### B1 — `clampPoolLimit` makes `Limit=0` ambiguous in `GetResourcePools` output
+| Finding | Status |
+|---------|--------|
+| B1 — `clampPoolLimit` makes `Limit=0` ambiguous | **FIXED** |
+| B2 — namespace quota silently skipped on V2 path | **FIXED** |
+| N1 — `CompositeLimiter` comment mixes up `CurrentReplicas`/`TargetReplicas` | not addressed |
+| N2 — `Remaining()` over-reports for default-key consumers | not addressed |
+| N3 — `"PR-1"` in code comment | not addressed |
+| N4 — CompositeLimiter error-path comment slightly misleading | not addressed |
 
-**File:** `internal/engines/pipeline/quota_inventory.go` — `clampPoolLimit` + `GetResourcePools`
+---
 
-`clampPoolLimit(-1)` returns 0, relying on an implicit convention that `ResourcePool{Limit:0}` means "no constraint." But `Limit=0` also means "deny all" (a quota entry of 0). Any downstream code reading `GetResourcePools()` output cannot distinguish unlimited from zero-quota without going back to the original config. The allocator itself checks the original config value (so TryAllocate is correct), but the pool representation loses the distinction for observers.
+## How B1 and B2 were fixed
 
-**Suggested fix:** Add a separate `Unlimited bool` field to `ResourcePool`, or use a sentinel (e.g., `Limit=-1`) that is distinct from zero. At minimum, document the convention explicitly on `ResourcePool.Limit` and in the developer guide.
+### B1 fix — `GetResourcePools` now omits unlimited entries; `Limit<0` sentinel for namespace pools
 
-### B2 — Namespace-scope quota silently skipped on the V2 optimizer path
+`GetResourcePools()` (cluster scope) and `aggregateNamespacePools` both skip entries where `limit == QuotaUnlimited`, so an absent pool unambiguously means "no cap" and `Limit=0` unambiguously means "deny." `GetNamespaceResourcePools()` uses `Limit < 0` as an explicit "unlimited" sentinel in per-namespace pools (distinguishing it from "type not listed" which is a deny). `ResourcePool.Available()` carries a warning comment for callers that may see the sentinel. `mergeConstraints` skips negative-Limit pools. The convention is now correct and documented.
 
-**File:** `internal/engines/pipeline/default_limiter.go` — `ComputeConstraints` + added comment
+### B2 fix — V2 path now fully parity with V1
 
-The comment acknowledges: *"namespace-aware constraints are not yet exposed via this method because the optimizer's ResourceConstraints shape is per-type."* If quota mode + namespace scope is deployed and the V2 optimizer path is active, namespace caps are silently unenforced. Whether this is currently reachable depends on which analyzer paths invoke `ComputeConstraints` vs `Limit()`.
+`ComputeConstraints` signature extended to `(ctx, usageByType, usageByNamespace)`. `ResourceConstraints` gains `NamespacePools map[string]map[string]ResourcePool`. When the inventory is `NamespaceAwareInventory`, `ComputeConstraints` calls `GetNamespaceResourcePools(activeNamespaces)` and populates `NamespacePools`; it also re-derives `Pools` from `aggregateNamespacePools` over the active set (so the cluster-level budget is consistent with what the optimizer partitions). `GreedyByScoreOptimizer.allocateForModel` calls `effectiveAvailable(available, nsBudget)` to build a per-model effective budget that enforces the closed-allowlist contract: a type not listed by the namespace is absent from `effAvail` and denied. `gpuConstraintProviders` extracts providers from `CompositeLimiter` constituents so multi-entry quota configs are all consulted.
 
-**Suggested action:** File a follow-up issue (or add to #1003). Clarify in the developer guide or `ComputeConstraints` godoc whether namespace-scoped quota + V2 path is a supported combination today.
+---
 
-### N1 — `CompositeLimiter` comment mixes up `CurrentReplicas` and `TargetReplicas`
+## Remaining findings
 
-**File:** `internal/engines/pipeline/composite_limiter.go` — `Limit` comment
+### N1 — `CompositeLimiter.Limit` comment still mixes up `CurrentReplicas` and `TargetReplicas`
+
+**File:** `internal/engines/pipeline/composite_limiter.go` — `Limit` method comment
 
 > "the decisions slice is the source of usage truth (see DefaultLimiter.calculateUsedGPUs), so each constituent sees the already-capped TargetReplicas from earlier constituents."
 
-`calculateUsedGPUs` uses `CurrentReplicas`, not `TargetReplicas`. What makes most-restrictive-wins work is that `TryAllocate` receives the already-mutated `TargetReplicas`. Behavior is correct; the explanation is wrong. Nit but someone reading this to understand ordering semantics will be confused.
+`calculateUsedGPUs` uses `CurrentReplicas`, not `TargetReplicas`. The most-restrictive-wins property comes from `TryAllocate` receiving the mutated `TargetReplicas` — not from `calculateUsedGPUs`. Behavior is correct; the comment is wrong.
 
-**Suggested fix:** "each constituent's `TryAllocate` call receives the `TargetReplicas` already reduced by earlier constituents; later constituents can only further cap, not increase."
+**Suggested fix:** "each constituent's `TryAllocate` receives the `TargetReplicas` already reduced by earlier constituents; later constituents can only further cap, not increase."
 
-### N2 — `Remaining()` over-reports when the `default` key fires for unlisted namespaces
+### N2 — `quotaAllocator.Remaining()` under-counts when the `default` key applies
 
 **File:** `internal/engines/pipeline/quota_inventory.go` — `quotaAllocator.Remaining()`
 
-`Remaining()` iterates `NamespaceQuotas` keys and skips `QuotaLimiterReservedNamespaceKey`. If unlisted namespaces are consuming quota via the default fallback, their usage is in `usedByNS[concrete-ns]` but `Remaining()` doesn't see those entries. Remaining can be higher than actual remaining. Currently Remaining is used for reporting only, so not a correctness bug, but worth a doc note.
+`Remaining()` iterates over `NamespaceQuotas` keys and skips `QuotaLimiterReservedNamespaceKey`. If unlisted namespaces are consuming budget via the default-key fallback, their usage is tracked in `usedByNS[concrete-ns]` but `Remaining()` doesn't iterate those keys — it only looks at statically-declared namespace keys. Remaining can over-report. Currently used for reporting only (not allocation correctness), but worth a comment/docstring noting the limitation.
 
-### N3 — `"PR-1"` in a code comment
+### N3 — `"PR-1"` in two places
 
-**File:** `internal/config/config.go` — `LimiterType` godoc
+**Files:**
+- `internal/config/config.go` — `LimiterType` godoc: *"mutually exclusive in PR-1 — composing physical and quota bounds"*
+- `docs/developer-guide/quota-limiter.md` — Startup wiring table: *"The two are mutually exclusive in PR-1 — quota mode does not consult physical inventory."*
 
-> "mutually exclusive in PR-1 — composing physical and quota bounds"
+Both references. PR numbers in code comments and shipped docs don't age well — the PR closes and the reference becomes meaningless. Suggest: "mutually exclusive in the initial implementation — composing physical and quota bounds is tracked in sub-issue #1003."
 
-PR numbers in code comments don't age well. Suggest: "mutually exclusive in the initial implementation — composing physical and quota bounds is tracked in sub-issue #1003."
+### N4 — CompositeLimiter error-path comment slightly misleading
 
-### N4 — CompositeLimiter partial-mutation comment slightly misleading on error path
-
-**File:** `internal/engines/pipeline/composite_limiter.go` — `Limit` behavior doc
+**File:** `internal/engines/pipeline/composite_limiter.go` — struct-level comment
 
 > "decisions made by earlier constituents stay applied (TryAllocate's in-memory usage updates are per-allocator, so partial commits do not leak)"
 
-On error from constituent B, decisions mutated by constituent A (TargetReplicas reductions) do stay. The "do not leak" claim is only true for per-allocator usage state, not decisions slice mutations. Since an error aborts the cycle this is not a correctness problem. The comment could be clarified.
+On error from constituent B, decisions mutated by constituent A (TargetReplicas reductions) do remain. The "do not leak" claim is only true for per-allocator usage state, not for decisions slice mutations. Since an error aborts the cycle this is not a correctness problem, but the claim is misleading.
 
 ---
 
-## Confirmed correct
+## New observation — `effectiveAvailable` / `math.MaxInt` sentinel
 
-- Most-restrictive-wins semantic is correct (despite the comment inaccuracy in N1)
-- `QuotaInventory` mutex usage is correct; per-cycle allocator is appropriately non-reentrant
-- `QuotaEntries()` deep copies — external mutation of config state blocked
-- `shouldCollectClusterInventory` gate is clean, well-tested, correctly returns false for unknown types (empty string, "bogus")
-- Validation accumulates all errors via `errors.Join` — good operator UX
-- `SetLimiterForTest`/`ReloadQuotaForTest` exported from non-`_test.go` is correctly justified (cross-package test visibility constraint)
-- All three `NewEngine` callers updated with `NewNoOpLimiter`
-- The `default` reserved key collision with the K8s `default` namespace is prominently documented in both code and developer guide
-- `loadQuotaLimiterEntries` correctly no-ops when `limiterType != LimiterTypeQuota`
-- `QuotaForNamespace` return contract (`nil,true` for excluded; `map,false` for found/default; `empty-map,false` for strict-allowlist miss) is consistent with allocator usage
+**File:** `internal/engines/pipeline/greedy_score_optimizer.go` — `effectiveAvailable`
+
+When a namespace has an unlimited quota for a type AND the cluster has no cap for that type, `effectiveAvailable` sets `eff[accType] = math.MaxInt`. This path appears safe in practice: the developer guide explicitly notes that "a purely unlimited namespace-quota config with no finite cluster cap does not scale under the V2 GreedyByScore optimizer (its fair-share loop stops when the finite cluster aggregate is zero)." Since the cluster has no cap for the type, `available[accType]` is absent, so the fair-share loop assigns no allocation target for that type — `math.MaxInt` in `effAvail` is never reached. **No new finding; the math.MaxInt path is dead code in the optimizer's normal flow.** However, there is no test exercising the unlimited-namespace-type path end-to-end through the `GreedyByScore` optimizer. Worth a note for future reviewers, but not a blocking issue.
+
+---
+
+## Confirmed correct (rev 2)
+
+All items from rev 1 confirmed correct still hold. Additionally:
+
+- `GetResourcePools` (namespace scope) now correctly aggregates only finite pools; unlimited omitted → no ambiguity
+- `GetNamespaceResourcePools` closed-allowlist contract is consistent with V1 `tryAllocateNamespace` semantics (documented and tested)
+- `aggregateNamespacePools` derives the cluster Pools aggregate from active namespaces (not the static config total), keeping it consistent with what the optimizer partitions
+- `mergeNamespaceConstraints` + `tighterBudget` + `nsPoolBudget` correctly handle the unlimited sentinel (-1) — well tested
+- `effectiveAvailable` correctly enforces the closed allowlist (types not in `nsBudget` are absent, not zero) — prevents cross-namespace quota leakage
+- Reconcile loop in `allocateForModel` only decrements cluster budget for types that cluster caps, and only decrements namespace budget for finite caps — correct
+- `computeCurrentGPUUsageByNamespace` materializes every request's namespace (including zero-replica new deployments) ensuring new-to-scale namespaces are still constrained
+- `gpuConstraintProviders` correctly handles `NoOpLimiter` → nil providers → falls back to unlimited (cost-aware) optimizer
+- `ComputeConstraints` signature change propagated to all callers
 
 ---
 
 ## Summary
 
-Two behavioral items (B1, B2) worth raising with ev-shindin; four nits (N1–N4) that could be addressed or let go. B1 is the stronger one — the `Limit=0` ambiguity affects any future downstream consumer of `GetResourcePools()` output. B2 is mostly a documentation gap.
+B1 and B2 fully resolved. The PR is substantially stronger in rev 2. Remaining open items are N1–N4, all minor (comment/doc nits). No new behavioral findings. Suggest raising N1, N2, N3 with ev-shindin — N3 appears in both source code and the shipped developer guide so that's the most concrete one to call out.
