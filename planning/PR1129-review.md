@@ -84,6 +84,86 @@ On error from constituent B, decisions mutated by constituent A (TargetReplicas 
 
 ---
 
+## New findings (from design analysis)
+
+### D1 — No-reload constraint is not prominently documented for operators
+
+**Files:** `docs/developer-guide/quota-limiter.md`, `internal/config/config.go`, `internal/engines/pipeline/quota_inventory.go`
+
+The quota file is read **once at startup** and the limiter is built once in `main.go` — there is no live-reload path. `QuotaInventory.Refresh()` is a deliberate no-op. This is documented in struct comments (`limiterConfig`: *"no live-reload path"*) and the `Refresh()` godoc, but the developer guide never says "restart required to change quotas."
+
+This is a real operator footgun: a common Kubernetes pattern is to mount a ConfigMap as a file volume. Kubernetes silently hot-updates that file on disk. An operator who edits the quota ConfigMap will see the file change with zero effect on the running controller — the limiter object in memory is never replaced. No warning, no log message, no error.
+
+**Suggested additions:**
+1. A prominent note in the developer guide: *"Quota configuration is loaded once at startup. Changing the quota file while the controller is running has no effect; restart the controller to pick up changes."*
+2. If the quota file path is accessible at runtime (it is — it's on `cfg.limiter.quotaConfigFile`), add a periodic or on-demand check that re-reads the file and logs a warning when the on-disk content differs from what was loaded. Even a startup-only hash comparison with a "file changed, restart required" warning in the controller logs would help.
+
+### D2 — `--limiter-type` is a global switch; per-entry `type: quota` field is redundant and misleading
+
+**Files:** `internal/config/quota_limiter.go`, `internal/engines/pipeline/limiter_factory.go`
+
+The `--limiter-type` flag selects between `inventory` and `quota` modes globally for the entire controller. Within quota mode, every entry in the YAML file's `limiters` list MUST have `type: "quota"` — `Validate()` rejects any other value.
+
+This means the `type` field on each `QuotaLimiterConfig` entry is presently useless: it can only ever be `"quota"` (if it's anything else the entry fails validation), and the choice of `inventory` vs `quota` is made at the flag level, not at the per-entry level. An operator reading the YAML schema might reasonably ask: *"Can I declare one cluster-scope entry as `type: inventory` and one namespace-scope entry as `type: quota`?"* The answer is no — but neither the developer guide nor the validation error message explains this clearly.
+
+**Suggested clarifications:**
+1. Developer guide: explicitly state that `--limiter-type` is a global switch; the `type` field on individual entries is a type discriminator reserved for future limiter types (e.g., `reservation`, `priority`) and must be `"quota"` for all current entries.
+2. The validation error message for `type != "quota"` could say: *"type must be \"quota\" (the per-entry type discriminator; the global --limiter-type flag selects between inventory and quota modes)"*.
+
+### D3 — Deny-by-default semantics are not clear in the configuration docs
+
+**Files:** `docs/developer-guide/quota-limiter.md` — "Special values" table and "Namespace lookup rules"
+
+The PR uses `"quota mode = closed allowlist"` semantics: any accelerator type or namespace not explicitly listed in the config is **denied** (treated as quota=0). This is the right default for a security-conscious resource cap, but the developer guide does not call it out directly.
+
+Specific gaps:
+
+**Cluster scope:** if an operator wants to cap H100 at 4 but leave A100 unlimited, they must write:
+```yaml
+quotas:
+  H100: 4
+  A100: -1   # must explicitly list to allow
+```
+If `A100` is simply omitted, all A100 allocation is denied. The special-values table only says "missing entry = denied" in passing; there is no example of "unlimited except for listed types" and no warning that unlisted GPU types are silently denied.
+
+**Namespace scope + `default` key:** to allow unlimited GPUs for all namespaces except explicit caps, the operator must write `"default": {"H100": -1}`. But `-1` for the default key still requires enumerating every GPU type the operator wants to allow for unlisted namespaces. If a new GPU type (e.g., `B200`) is added to the cluster and the quota YAML is not updated, all B200 allocations are silently denied for any namespace relying on the default fallback.
+
+**Suggested additions:**
+1. A dedicated "deny by default" callout in the developer guide, early in the Configuration section: *"Any accelerator type or namespace not explicitly listed (or covered by the `default` key) is denied. This is intentional; add `-1` for types you want to leave uncapped."*
+2. An example in the namespace scope section showing "unlimited for all namespaces/types except explicit caps" with a note about the per-GPU-type enumeration requirement.
+
+### D4 — Fair-share semantics with heterogeneous quotas are undocumented; behavior may surprise operators
+
+**Files:** `internal/engines/pipeline/greedy_score_optimizer.go` — `fairShareScaleUp`, `allocateForModel`, `effectiveAvailable`; `docs/developer-guide/quota-limiter.md`
+
+The V2 `GreedyByScoreOptimizer` fair-share algorithm is **saturation-need-based and model-count-based**, not quota-aware. The mean is computed as `totalClusterGPUs / numActiveModels`. Namespace quotas act as hard upper bounds applied after the mean is set — they do not weight the fair-share calculation.
+
+**Worked example — what actually happens:**
+
+3 models across 3 namespaces, cluster quota 8 GPUs of type A100:
+- M1 (NS1): saturation deficit = 3 GPUs, namespace quota = 2
+- M2 (NS2): saturation deficit = 4 GPUs, namespace quota = 4
+- M3 (NS3): saturation deficit = 4 GPUs, namespace quota = 4
+
+_Round 1:_ mean = 8 / 3 ≈ 2.67. M2 and M3 process first (higher deficit). Each gets ≈ 2.67 (not quota-constrained since quota 4 > mean 2.67). M1 processes last; quota of 2 caps it below the mean — it gets 2, not 2.67. Cluster remaining after round 1: ≈ 0.67.
+
+_Round 2:_ M1 is satisfied (got its max). M2 and M3 still need ≈ 1.33 each. Mean = 0.67 / 2 ≈ 0.33. Each gets ≈ 0.33 more.
+
+_Final:_ M1 = 2, M2 ≈ 3, M3 ≈ 3.
+
+**The outcome is correct,** but the path matters:
+
+1. The 0.67 GPUs freed by M1's quota undershoot are only available to M2/M3 in **round 2**, not round 1. Within a single cycle with many models, this delay is fine — the loop iterates until no further allocation is possible. But it is not documented.
+
+2. **Fair share is per-model, not per-namespace.** If NS1 has 3 models and NS2 has 1 model, NS1's models occupy 3 fair-share slots. NS1 collectively gets 3× the mean allocation per round relative to NS2, regardless of their respective quotas. An operator who expects "each namespace gets an equal share of the cluster" will be surprised.
+
+3. **Quota size is not a scheduling weight.** A namespace with quota 100 has no priority advantage over one with quota 4. The quota only prevents the large-quota namespace from exceeding its cap; it does not entitle it to proportionally more fair-share rounds.
+
+**Suggested additions to developer guide:**
+- A "Fair-share interaction" section in `docs/developer-guide/quota-limiter.md` (or the optimizer doc) explaining: fair share is computed relative to model count and saturation need, not relative to quota size; quotas are hard ceilings, not weights; fairness is per-model, not per-namespace. The worked example above (or a simplified version) would make this concrete.
+
+---
+
 ## New observation — `effectiveAvailable` / `math.MaxInt` sentinel
 
 **File:** `internal/engines/pipeline/greedy_score_optimizer.go` — `effectiveAvailable`
