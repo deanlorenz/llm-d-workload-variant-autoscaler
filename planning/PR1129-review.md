@@ -1,6 +1,6 @@
 # PR #1129 Review — Quota-based limiter
 
-**Status: DRAFT**
+**Status: FINAL**
 **PR:** [#1129](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1129)
 **Author:** ev-shindin
 **Filed:** 2026-05-13 | **Base:** main | **State:** open, no reviews yet
@@ -113,7 +113,7 @@ The outcome is correct. Two things worth documenting: (1) a quota-constrained mo
 
 ## PR Comment Draft
 
-> **For Dean's approval before posting. Do not post without confirmation.**
+> **Posted** — [issuecomment-4800506572](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1129#issuecomment-4800506572) — 2026-06-25
 
 ---
 
