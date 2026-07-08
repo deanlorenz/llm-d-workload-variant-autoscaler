@@ -3,7 +3,7 @@ type: review
 pr: 1127
 title: "checklists for analyzer in WVA"
 author: asm582
-status: LGTM — future items captured below
+status: FINAL — APPROVED + MERGED 2026-06-26
 date: 2026-06-25
 ---
 
@@ -50,9 +50,6 @@ non-enabled path. Ties to F2 (shared re-evaluation process).
 
 ---
 
-## F4 — User guide requirement (author-added, confirm coverage)
+## F4 — User guide requirement
 
-The PR author added a recording / user guide requirement (results formatted per `benchmark.md`
-template, with config parameters alongside results). Confirm this is sufficient or whether a
-dedicated per-analyzer user guide (configuration + expected outcomes) should be a separate
-checklist item — consistent with the initial graduation-target proposal.
+CLOSED. Author added "with clear instructions in developer docs" to Recording Results. Addressed.
