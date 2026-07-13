@@ -1,8 +1,31 @@
 # WVA Position Summary
 
+## Executive Summary
+
+WVA is the **workload-aware autoscaling decision engine for llm-d**. It ingests llm-d/vLLM signals and emits a *desired replica count*, relying on KEDA/HPA as the actuators that carry out its decisions — much as the llm-d inference router relies on a service-mesh proxy such as istio.
+
+Its value builds in layers:
+
+1. **Advanced metrics** — workload-aware signals, exportable and useful beyond autoscaling (capacity planning, batch scheduling, routing). A consensus value-add, one that can also be consumed by other autoscalers.
+2. **Combined decision logic** — conditional (if-then-else) policy over multiple signals that KEDA/HPA cannot express directly (they combine triggers only by taking their max).
+3. **Multi-deployment coordination** — joint, constrained decisions across correlated deployments (Prefill→Decode), heterogeneous variants, and a shared GPU pool. This is beyond a per-deployment scaler's reach, and is WVA's strongest differentiator.
+
+The four scenarios in this doc make the coordination layer concrete:
+
+| UC | Situation | KEDA result | WVA result |
+|---|---|---|---|
+| **UC1** — Correlated (Prefill→Decode) | Traffic grows | Two cascaded warmups (**>120 s**), queue builds | One warmup (**>60 s**) |
+| **UC2** — Variant selection | Two workloads: A is flexible, B is A100-only. Both grow under an 8×A100 cap | B **starved** (4 of 6 A100) | Both served — A's growth steered to L40 |
+| **UC3** — Endpoint scaling | Small bump to a 2-variant endpoint | **Wasted resources** — both variants scale up | **Right-sized** — only one variant scales |
+| **UC4** — Shared pool | A spikes, then B, on a contended pool | A=12, B=4 (B **locked out**) | A=8, B=8 (**fair share**) · *forward work* |
+
+**Bottom line:** the durable justification for WVA is *global, workload-aware optimization across deployments and shared resources* — acting as the autoscaling brain that drives existing actuators, not merely exposing new metrics. Some coordination and reallocation is still forward work, but it reflects concrete customer demand.
+
+---
+
 ## Core Value of WVA
 
-WVA's value builds in layers, each harder to dismiss as "just a metric source": a metric provider (exportable, and useful beyond autoscaling), then combined decision logic (a *decision*, not a scalar that a threshold can consume), then multi-deployment coordination (a joint decision no per-deployment scaler can make).
+The layers below build on one another, each meeting a larger need that KEDA/HPA leave unaddressed: richer metrics, then conditional decision logic, then multi-deployment coordination — a widening gap where only WVA can deliver.
 
 **1. Advanced Metric Provider**
 
