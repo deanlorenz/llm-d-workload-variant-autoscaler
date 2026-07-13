@@ -12,14 +12,13 @@ Its value builds in layers:
 
 The four scenarios in this doc make the coordination layer concrete:
 
-| UC | Situation | KEDA result | WVA result |
-|---|---|---|---|
-| **UC1** — Correlated (Prefill→Decode) | Traffic grows | Two cascaded warmups (**>120 s**), queue builds | One warmup (**>60 s**) |
-| **UC2** — Variant selection | Two workloads: A is flexible, B is A100-only. Both grow under an 8×A100 cap | B **starved** (4 of 6 A100) | Both served — A's growth steered to L40 |
-| **UC3** — Endpoint scaling | Small bump to a 2-variant endpoint | **Wasted resources** — both variants scale up | **Right-sized** — only one variant scales |
-| **UC4** — Shared pool | A spikes, then B, on a contended pool | A=12, B=4 (B **locked out**) | A=8, B=8 (**fair share**) · *forward work* |
+- **UC1 · Correlated (P→D):** traffic grows — KEDA needs two cascaded warmups (**>120 s**); WVA one (**>60 s**).
+- **UC2 · Variant selection:** A flexible, B A100-only, both grow under an 8×A100 cap — KEDA starves B (4 of 6 A100); WVA serves both (A's growth → L40).
+- **UC3 · Endpoint scaling:** small bump to a 2-variant endpoint — KEDA scales both variants (**wasted**); WVA scales one (**right-sized**).
+- **UC4 · Shared pool:** A spikes, then B, on a contended pool — KEDA A=12 / B=4 (B **locked out**); WVA A=8 / B=8 (**fair share**). *(forward work)*
 
-**Bottom line:** the durable justification for WVA is *global, workload-aware optimization across deployments and shared resources* — acting as the autoscaling brain that drives existing actuators, not merely exposing new metrics. Some coordination and reallocation is still forward work, but it reflects concrete customer demand.
+> ### Bottom Line
+> The durable justification for WVA is **global, workload-aware optimization across deployments and shared resources** — WVA is the autoscaling *brain* that drives existing actuators (KEDA/HPA), not merely a source of new metrics. Some coordination and reallocation is still forward work, but it reflects concrete customer demand.
 
 ---
 
