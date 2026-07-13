@@ -17,7 +17,7 @@ small, self-contained fix; together they make a single follow-up cleanup PR
 sized similar to a typical doc-only PR.
 
 PR #1052: <https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1052>
-Review doc: [`PR1052-review.md`](PR1052-review.md) (FINAL).
+Review doc: [`PR1052-review.md`](archive/PR1052-review.md) (FINAL).
 
 ---
 
@@ -121,7 +121,7 @@ implemented as a manual loop. Standard library `slices.Contains` works.
 
 ## References
 
-- [`PR1052-review.md`](PR1052-review.md) — original review doc that surfaced
+- [`PR1052-review.md`](archive/PR1052-review.md) — original review doc that surfaced
   these items.
 - [`TA-PR3-plan.md`](TA-PR3-plan.md) — Type 3 plan for PR #1052 itself
   (state management, ShapeTracker, ObservationWindow, SanityReport).

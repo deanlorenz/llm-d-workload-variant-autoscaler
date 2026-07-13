@@ -1,6 +1,6 @@
 # PR #1250 (TA3 / ThroughputAnalyzer) — Deep Critical Code Review
 
-**Type:** 6 (review) · **Status:** DRAFT · **Date:** 2026-06-17
+**Type:** 6 (review) · **Status:** DONE — MERGED 2026-06-16 · **Date:** 2026-06-17
 **Scope:** entire TA3 diff vs `upstream/main@04f95779` (39 commits, ~2200 LOC prod + ~2900 LOC test)
 **Method:** code-only review, independent of the plan docs. Five subsystem passes (core
 analyzer + ITL math read first-hand by the plan-agent; collector, wiring/gate, and test

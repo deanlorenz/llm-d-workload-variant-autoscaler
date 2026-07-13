@@ -1,6 +1,6 @@
 # PR #1250 Review Summary
 
-**Status: DRAFT**
+**Status: DONE — MERGED 2026-06-16**
 
 **PR:** [engines/analyzers/throughput: ThroughputAnalyzer — ITL model, scaling signal, and engine wiring](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1250)
 **Head:** `dbf3a98`

@@ -116,7 +116,7 @@ or minReplicas), flag it for re-analysis.
 - [`multi-analyzer-optimizer-plan.md`](multi-analyzer-optimizer-plan.md)
   § Phase 2 — implementation guide for the scale-up fix and the post-#1237
   rebase plan.
-- [`multi-analyzer-optimizer-review.md`](multi-analyzer-optimizer-review.md)
+- [`multi-analyzer-optimizer-review.md`](archive/multi-analyzer-optimizer-review.md)
   — the review that surfaced B1, B2, T1, N2, N3 (FINAL).
 - PR [#1237](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1237)
   — single-analyzer scale-down fix on `main`.

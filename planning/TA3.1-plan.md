@@ -7,21 +7,21 @@
 > **This is no longer a forward task list — do not resume any task from it.**
 >
 > **A post-implementation deep code review (2026-06-17) supersedes this plan for the
-> consolidated-fix backlog:** [`planning/PR1250-deep-review.md`](PR1250-deep-review.md).
+> consolidated-fix backlog:** [`planning/PR1250-deep-review.md`](archive/PR1250-deep-review.md).
 > It reviewed the *entire* shipped TA3 code independent of this plan and found quality
 > debt the round-by-round process did not catch. Where its findings contradict or
 > qualify claims made in this plan, the review wins — see the **Reconciliation** table
 > immediately below. The next TA3 work (after #1250 merges) is the review's 7 fix
 > bundles, not anything in this doc.
 >
-> Triage doc: [`planning/PR1250-review.md`](PR1250-review.md)
+> Triage doc: [`planning/PR1250-review.md`](archive/PR1250-review.md)
 > Rebase resolution: [`planning/PR1267-impact-and-decisions.md`](PR1267-impact-and-decisions.md)
 
 ---
 
 ## Reconciliation — deep review (2026-06-17) vs this plan
 
-The deep review ([`PR1250-deep-review.md`](PR1250-deep-review.md)) confirmed the plan's
+The deep review ([`PR1250-deep-review.md`](archive/PR1250-deep-review.md)) confirmed the plan's
 *intent* was mostly sound but caught places where the as-shipped code diverged, where a
 "fix" was inert, or where a plan assumption was invalidated by a later round. Read this
 before trusting any "fixed"/"safe" claim in the body below.
@@ -734,7 +734,7 @@ review, or (b) additional items surface from ev-shindin's review that are
 clearly out of scope for #1250.
 
 Reference docs: [`TA-PR5-plan.md`](TA-PR5-plan.md) §6.1,
-[`TA-PR5-review.md`](TA-PR5-review.md) §§ D1, D2, T1, T2.
+[`TA-PR5-review.md`](archive/TA-PR5-review.md) §§ D1, D2, T1, T2.
 
 ---
 

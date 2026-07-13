@@ -1,6 +1,6 @@
 # PR #1225 Review Summary
 
-**Status: DRAFT**
+**Status: DONE — MERGED 2026-06-07**
 
 **PR:** [engines/saturation: multi-analyzer registry](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1225)
 **Head:** `6339e49`

@@ -1,6 +1,6 @@
 # PR #1051 Review Summary
 
-**Status: DRAFT**
+**Status: DONE — MERGED 2026-05-12**
 
 **PR:** [collector/registration: register throughput analyzer queries (PR-1, PR-2)](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1051)  
 **Head:** `c405e8d` (rebased 2026-05-11; previous tip `900c94c`)  

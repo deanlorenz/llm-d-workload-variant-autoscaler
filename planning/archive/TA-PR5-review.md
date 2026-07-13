@@ -1,6 +1,6 @@
 # TA-PR5 — Code Review
 
-**Status: FINAL**
+**Status: DONE — MERGED 2026-06-16 (via #1250)**
 **Reviewer:** plan-agent (reviewer role), 2026-06-07
 **Branch reviewed:** `TA3` @ `3b1c5ad2` (18 commits above optimizer base
 `multi-analyzer-optimizer@4bfac2fa`).

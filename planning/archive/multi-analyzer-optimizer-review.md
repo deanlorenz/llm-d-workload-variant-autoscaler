@@ -1,6 +1,6 @@
 # Multi-Analyzer Optimizer — Code Review
 
-**Status: FINAL (Phase 1) / DRAFT (Phase 2, Phase 3, Phase 4 — see addenda below)**
+**Status: DONE — MERGED 2026-06-10**
 **Reviewer:** plan-agent (reviewer role), 2026-06-07 (P1/P2), 2026-06-08 (P3/P4)
 **Branch reviewed:** `multi-analyzer-optimizer` @ `ad1a8e1e` (17 commits on `main@badc48be` post-#1237).
 Phase 1 review covers commits 1–8 (tip `233867bd`). Phase 2 addendum covers commits 9–11 (tip `4bfac2fa`). Phase 3 addendum covers commits 12–15 (tip `680b1fb8`). Phase 4 addendum covers the rebase onto `main@badc48be` + lint-fix (tip `ad1a8e1e`).

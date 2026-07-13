@@ -12,7 +12,7 @@ This document is the single backlog for all TA follow-up work. It covers:
 - Critical longer-term TA design components
 - Dev guide and user guide gaps
 
-**Source:** `planning/PR1250-deep-review.md` (the independent post-implementation code review),
+**Source:** `planning/archive/PR1250-deep-review.md` (the independent post-implementation code review),
 plus the dev guide accuracy audit of `docs/developer-guide/throughput-analyzer.md`.
 Review tags in brackets (e.g. [C-B1]) trace to that doc.
 
@@ -534,6 +534,29 @@ indicators for the prefill role. `TA-demand.md` has the multi-EPP queue-contribu
 (prefill queue contribution to decode demand deferred in #1250).
 
 **Dependency:** Per-analyzer status return (#1261), disaggregated P/D E2E validation.
+
+---
+
+### I-26 · `wva_saturation_utilization` (and sibling gauges) never fire for throughput-only-driven models [P2→P3]
+
+**What:** Both V2 optimizers (`cost_aware_optimizer.go`, `greedy_score_optimizer.go`) early-
+`continue` when a model has no saturation-analyzer entry in `AnalyzerResults`. A model driven
+purely by the ThroughputAnalyzer (no saturation analyzer registered) produces no
+`VariantDecision` at all, so `wva_saturation_utilization` and the sibling required/spare/kv-token
+gauges never fire for that model — an absent series, not a wrong value, which is harder to notice
+on a dashboard than an explicit zero/stale marker.
+
+Acknowledged as an intentional scope limit in #1368's own commit message ("the throughput
+analyzer also leaves these zero ... by design") — not a regression, latent until TA's role in the
+multi-analyzer engine expands beyond its current scope. Ties to I-17 (per-analyzer status return)
+and the broader direction of making TA a first-class observability contributor once it can drive
+scaling independently.
+
+**Found during:** PR #1392 review (V1 saturation-utilization fix) — audit of every
+`RecordSaturationMetrics` call site across V1, both V2 optimizers, and scale-from-zero confirmed
+this is the only gap. See `planning/PR1392-review.md` § Backlog.
+
+**Dependency:** No action needed until TA drives scaling independently (relates to I-17, I-19, I-20).
 
 ---
 

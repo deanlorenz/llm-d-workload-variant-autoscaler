@@ -1,6 +1,6 @@
 # PR #1266 Review Summary
 
-**Status: DRAFT**
+**Status: DONE — MERGED 2026-06-15**
 
 **PR:** [engines/saturation: multi-analyzer addendum — disabled-analyzer fix, test gaps, pipeline dev guide](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1266)
 **Head:** `0eeb659`

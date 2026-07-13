@@ -534,7 +534,7 @@ After this rebase the optimizer PR targets **`main`** (single-purpose diff: the
 
 Phase 1 (commits 1–7, tip `3fe287fe` + dev-guide stub `233867bd`) is in
 review. Findings in
-[`multi-analyzer-optimizer-review.md`](multi-analyzer-optimizer-review.md)
+[`multi-analyzer-optimizer-review.md`](archive/multi-analyzer-optimizer-review.md)
 (B1, B2, T1, N2, N3, N4) land as additional commits on this branch — no
 new PR. Design framing in
 [`multi-analyzer-design.md`](multi-analyzer-design.md) § Architecture/D

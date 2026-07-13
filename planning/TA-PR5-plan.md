@@ -610,7 +610,7 @@ Order is ergonomic, not load-bearing. Bundle however the diff reads cleanest.
 ### 6.1 Post-review follow-ups
 
 After the initial PR-5 commits land and review completes (see
-[`TA-PR5-review.md`](TA-PR5-review.md), Status: FINAL), three
+[`TA-PR5-review.md`](archive/TA-PR5-review.md), Status: DONE), three
 small follow-up commits on TA3:
 
 - **D1+D2 — analyzer.go doc-comment fixes.** Rewrite the `Analyze`

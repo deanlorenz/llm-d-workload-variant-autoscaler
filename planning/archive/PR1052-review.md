@@ -1,7 +1,7 @@
 <!-- cspell:ignore shindin apimachinery -->
 # PR #1052 Review Summary
 
-**Status: DRAFT**
+**Status: DONE — MERGED 2026-05-19**
 
 **PR:** [engines/analyzers/throughput: add state management package (PR-3)](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1052)
 **Head:** `99a35b0`
