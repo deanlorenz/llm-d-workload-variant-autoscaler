@@ -2,29 +2,30 @@
 
 ## Executive Summary
 
-WVA is the **workload-aware autoscaling decision engine for llm-d**. It ingests llm-d/vLLM signals and emits a *desired replica count*, relying on KEDA/HPA as the actuators that carry out its decisions — much as the llm-d inference router relies on a service-mesh proxy such as istio.
+WVA is the **workload-aware auto-scaling decision engine for llm-d**. It ingests llm-d/vLLM signals and emits a *desired replica count*, relying on KEDA/HPA as the actuators that carry out its decisions — much as the llm-d inference router relies on a service-mesh proxy such as istio.
 
 Its value builds in layers:
 
-1. **Advanced metrics** — workload-aware signals, exportable and useful beyond autoscaling (capacity planning, batch scheduling, routing). A consensus value-add, one that can also be consumed by other autoscalers.
-2. **Combined decision logic** — conditional (if-then-else) policy over multiple signals that KEDA/HPA cannot express directly (they combine triggers only by taking their max).
-3. **Multi-deployment coordination** — joint, constrained decisions across correlated deployments (Prefill→Decode), heterogeneous variants, and a shared GPU pool. This is beyond a per-deployment scaler's reach, and is WVA's strongest differentiator.
+1. **Advanced metrics provider** — workload-aware signals, exportable and useful beyond auto-scaling (capacity planning, batch scheduling, routing). A **consensus value-add**, one that can also be consumed by other auto-scalers.
+2. **Combined decision logic** — conditional (if-then-else) policy over multiple signals that **KEDA/HPA cannot express directly** (they combine triggers only by taking their max).
+3. **Multi-deployment coordination** — joint, constrained decisions across correlated deployments (Prefill→Decode), heterogeneous variants, and a shared GPU pool. This is **beyond a per-deployment scaler's** reach, and is WVA's strongest differentiator.
+4. **Cost optimization** — cost- and revenue-aware placement under constrained resources, a capability **KEDA does not provide at all**.
 
 The four scenarios in this doc make the coordination layer concrete:
 
 - **UC1 · Correlated (P→D):** traffic grows — KEDA needs two cascaded warmups (**>120 s**); WVA one (**>60 s**).
-- **UC2 · Variant selection:** A flexible, B A100-only, both grow under an 8×A100 cap — KEDA starves B (4 of 6 A100); WVA serves both (A's growth → L40).
+- **UC2 · Variant selection:** A flexible, B A100-only, both grow under an 8×A100 cap — KEDA **starves B** (A takes A100s); WVA **serves both** (uses L40s for A's growth).
 - **UC3 · Endpoint scaling:** small bump to a 2-variant endpoint — KEDA scales both variants (**wasted**); WVA scales one (**right-sized**).
-- **UC4 · Shared pool:** A spikes, then B, on a contended pool — KEDA A=12 / B=4 (B **locked out**); WVA A=8 / B=8 (**fair share**). *(forward work)*
+- **UC4 · Shared pool:** A spikes, then B, on a contended pool — KEDA A gets all free GPUs (B **locked out**); WVA splits GPUs between A and B (**fair share**). *(forward work)*
 
 > ### Bottom Line
-> The durable justification for WVA is **global, workload-aware optimization across deployments and shared resources** — WVA is the autoscaling *brain* that drives existing actuators (KEDA/HPA), not merely a source of new metrics. Some coordination and reallocation is still forward work, but it reflects concrete customer demand.
+> The durable justification for WVA is **global, workload-aware optimization across deployments and shared resources** — WVA is the *auto-scaling brain* that drives existing actuators (KEDA/HPA), not merely a source of new metrics. Some coordination and reallocation is still forward work, but it reflects concrete customer demand.
 
 ---
 
 ## Core Value of WVA
 
-The layers below build on one another, each meeting a larger need that KEDA/HPA leave unaddressed: richer metrics, then conditional decision logic, then multi-deployment coordination — a widening gap where only WVA can deliver.
+The layers below build on one another, each meeting a larger need that KEDA/HPA leave unaddressed: richer metrics, then conditional decision logic, then multi-deployment coordination and finally cost optimization — a widening gap where only WVA can deliver.
 
 **1. Advanced Metric Provider**
 
@@ -36,7 +37,7 @@ The layers below build on one another, each meeting a larger need that KEDA/HPA 
   * History-based
   * Workload-aware resource utilization
 * These metrics enable better resource right-sizing (e.g., distinguishing prefill-heavy from decode-heavy workloads).
-* Metrics can be exposed for use by any auto-scaler, dashboard, or eventing system — and are useful beyond autoscaling (capacity planning, batch scheduling, request routing). This is the consensus value-add of WVA to llm-d.
+* Metrics can be exposed for use by any auto-scaler, dashboard, or eventing system — and are useful beyond auto-scaling (capacity planning, batch scheduling, request routing). This is the consensus value-add of WVA to llm-d.
 * Honest scope: WVA v1's *metrics* largely reuse existing signals, so this layer alone can often be reproduced without WVA; the richer metrics are future work. The combined logic and coordination below (Sections 2–4) are *not* reproducible in KEDA regardless.
 
 **2. Combined Decision Logic**
@@ -75,7 +76,7 @@ The key differentiator. KEDA/HPA are per-deployment (per-ScaledObject): there is
 * Multiple implementations of the same model behind one endpoint.
 * WVA can optimize placement and scaling decisions across heterogeneous hardware (e.g., different GPU types).
 * Supports resource optimization at the fleet level rather than deployment level.
-* This is WVA's most novel capability — no autoscaler supports multi-variant scaling today — and correspondingly the most debated. The correlated-deployment and shared-resource cases carry the position on their own even if one sets variants aside. (Emerging llm-d inference-gateway work — dispatching a request to one of several candidate models by cost/complexity — would strengthen the multi-variant case further.)
+* This is WVA's most novel capability — no auto-scaler supports multi-variant scaling today — and correspondingly the most debated. The correlated-deployment and shared-resource cases carry the position on their own even if one sets variants aside. (Emerging llm-d inference-gateway work — dispatching a request to one of several candidate models by cost/complexity — would strengthen the multi-variant case further.)
 
 **4. Cost Optimization**
 
@@ -121,9 +122,11 @@ The key differentiator. KEDA/HPA are per-deployment (per-ScaledObject): there is
 
 ---
 
-## Bottom Line
+## From Position to Evidence
 
-The strongest long-term justification for WVA is **global, workload-aware optimization across multiple deployments and shared resources**, not merely exposing new metrics. Advanced metrics are useful, but they can often be consumed by other auto-scalers. The unique value lies in acting as the **auto-scaling decision engine ("brain")**, combining complex policies, coordinating multiple deployments, optimizing resource allocation, and ultimately driving scaling decisions through existing actuators such as KEDA or HPA.
+The unique value lies in acting as the **auto-scaling decision engine ("brain")** — combining complex policies, coordinating multiple deployments, optimizing resource allocation, and ultimately driving scaling decisions through existing actuators such as KEDA or HPA.
+
+The scenarios below make this concrete — each contrasts KEDA's correct *local* decision with WVA's correct *global* one.
 
 # WVA Use Case Scenarios
 
@@ -275,4 +278,4 @@ A spikes first. B spikes shortly afterward.
 - **Multi-variant status (UC2, UC3).**
   * We have seen clusters with heterogeneous GPUs and models deployable on different GPU types.
   * We do not yet have a concrete example of heterogeneous deployments behind one endpoint (though EPP supports it).
-  * KEDA cannot support this, so we should not expect to find existing autoscale-enabled use cases — the absence is a consequence of the capability gap, not evidence against the need.
+  * KEDA cannot support this, so we should not expect to find existing auto-scale-enabled use cases — the absence is a consequence of the capability gap, not evidence against the need.
