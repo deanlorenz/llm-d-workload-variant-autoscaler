@@ -85,13 +85,16 @@ agree, because each analyzer's contribution is reduced to replicas before anythi
 
 ### Provenance label $E$
 
-An optional **error/provenance hint** $E$ records *how* a value was obtained (e.g. `direct`,
-`fallback`, `stale`, `fetch-failed`). $E$ is **observability only** — the engine and optimizer never
-branch on it. It is **set inside WVA** — by an internal analyzer (in Go) or, for an external analyzer,
-by the wrapper from collection state — and is **never read from an external query result** (a PromQL
-result cannot carry it). It surfaces in the engine's per-cycle logs and, if emitted as a metric, on a
-**separate** provenance series — not as a label on the `wva_analyzer_*` value series, whose label set
-stays stable (a flipping `e` would churn series).
+An optional **error/provenance hint** $E$ records *how* a value was obtained. It is a **free-form
+token chosen by the value's producer**: an internal analyzer's own reason code (WVA already carries
+such a per-result reason today), or, for an external analyzer, the **`e:` field of whichever target
+fallback succeeded** (e.g. `direct`, `fallback`, or a source name like `epp` / `vllm-rps`). WVA
+additionally reserves a few **health** tokens that the wrapper sets itself (`stale`, `fetch-failed`,
+`too-few-pods`). $E$ is **observability only** — the engine and optimizer never branch on it — and is
+**never read from an external query result** (a PromQL result cannot carry it). It surfaces in the
+engine's per-cycle logs and, if emitted as a metric, on a **separate** provenance series — never as a
+label on the `wva_analyzer_*` value series, whose label set must stay stable (a flipping token would
+churn series).
 
 ### Tolerance and effective target
 
@@ -115,7 +118,7 @@ The absent-vs-zero distinction is a first-class part of the contract:
 | State | Condition | Engine/optimizer treatment |
 |---|---|---|
 | **Not defined** | The analyzer's selector does not cover this model/$S$. | **Ignored** — contributes nothing; no penalty, no suppression. Distinct from "missing." |
-| **Missing / degraded** | The analyzer applies, but data is absent or partial this cycle — empty/failed query, too few pods. | **External:** fall back if the definition lists one (records an `e` label), else produce nothing for that $S$. **Internal:** its explicit discrete reliability signal applies (e.g. suppress scale-down). The value is never fabricated as `0`. |
+| **Missing / degraded** | The analyzer applies, but data is absent or partial this cycle — empty/failed query, too few pods. | **External:** fall back if the definition lists one (recording the fallback's `e:` token on the separate provenance series), else produce nothing for that $S$. **Internal:** its explicit discrete reliability signal applies (e.g. suppress scale-down). The value is never fabricated as `0`. |
 | **Present** | A value is returned, **including `0`**. | Used as-is. For **demand**, `0` is a real observation (zero load). For the **target**, `P ≤ 0` is instead treated as **missing** — a per-replica capacity of `0` is a divide-by-zero in `⌈D/P⌉`, not a usable value (per-pod: such pods are dropped from the average). |
 
 Two notes on `0`: a demand signal that has *no series* at zero load would read as missing (→ scale-down
@@ -144,6 +147,11 @@ is one shared pool and the several $S$ jointly serve it. This is precisely the p
 - Across **variant alternatives** serving the same role, contributions combine as a **sum** of
   utilizations (any alternative helps).
 - Across **roles**, they combine as a **min** of utilizations (every role must be served).
+
+Per-role demands are **not comparable in absolute terms** across roles — prefill and decode measure
+different things — so role coordination happens in **utilization** space (`supply/demand` per role,
+min over roles), and no cross-role demand normalization is needed. This is exactly why role-specific
+demand (one query per role) is well-formed rather than a gap to reconcile.
 
 The interface simplification (analyzer emits $D$ and $P$) is orthogonal to the coordination logic
 (the optimizer's AND/OR reasoning over utilizations). The single-$S$ formula above is the special
@@ -195,10 +203,17 @@ Three practical notes: `Q` must be a **bare selector** — an arbitrary expressi
 `target_model_name`, or no model label; and `{{model}}`/`{{ns}}` are **escaped** (reuse
 `EscapePromQLValue`) since a modelID is free-form.
 
-**Role-specific demand** — saturation's KV-tokens, TTFT/ITL differ between prefill and decode — is
-supplied as **one demand query per role**, since no source metric carries a `role` label:
-`demand.perRole: { prefill: …, decode: … }`. WVA scopes and sums each and emits
-`wva_analyzer_demand{…, role}`; `target` may carry `perRole` queries too, applied by each $S$'s role.
+**Selecting which ScaledObjects a query serves.** Both `demand` and `target` are **lists of rules**,
+each carrying a **`match`** — a selector over ScaledObject attributes (`role`, or name/labels). WVA
+discovers the ScaledObjects it manages for each matched `(namespace, model)` — the same owner-walk
+that maps a pod → its ScaledObject — then applies each rule's query to the ScaledObjects its `match`
+selects. This is how **role-specific** signals are expressed: saturation's KV-tokens or TTFT/ITL
+differ between prefill and decode, and no source metric carries a `role` label, so you write one rule
+per role (`match: { role: prefill }` / `{ role: decode }`). Here `role` is the ScaledObject's
+WVA-resolved role — read from its `llm-d.ai/role` pod-template label, *not* a metric label — which is
+exactly why per-role queries are needed. A rule with **no `match`** serves *all* of the model's
+ScaledObjects (the non-disaggregated case). Role-specific demand is emitted as
+`wva_analyzer_demand{…, role}`.
 
 **Pod → ScaledObject reduction.** The wrapper maps each pod to its ScaledObject and reduces the
 per-pod targets to one value per $S$. The **default reduction is the average** of the pods'
@@ -212,40 +227,59 @@ ScaledObject, attaching queries to individual ScaledObjects would force the dema
 duplicated across every $S$ of a model. Instead, a definition is **per analyzer** and selects its
 targets:
 
-```
+```yaml
 ExternalAnalyzer:
-  label:    L                        # unique within the WVA instance
+  label: kv-saturation               # unique within the WVA instance
   modelLabel: model_name             # optional; label keys WVA scopes by (default model / namespace)
-  selector:                          # simple list — modelID + namespace, no operator label matching
-    - { namespace: ns-a, modelID: model-x }
-    - { namespace: ns-b, modelID: model-y }
-  demand:
-    query: Q_demand                  # bare selector; WVA wraps as sum(max_over_time( … {{model}},{{ns}} [w]))
-    # perRole: { prefill: Q_p, decode: Q_d }   # role-specific alternative to `query`
-    # orZero: false                            # opt "no series" into demand 0 (signals that vanish at zero)
-  target:                            # per pod; ordered fallbacks, first success wins
-    - { query: Q_target_primary,  e: direct }
-    - { query: Q_target_fallback, e: fallback }
-  targetReduce: avg | median | min | max     # optional; default avg (pod → ScaledObject)
+  selector:                          # which (namespace, model); modelID "*" = every model in the ns
+    - { namespace: llm, modelID: "*" }
+
+  demand:                            # total load; reduced by sum(max_over_time(…[w]))
+    - match: { role: prefill }       # ScaledObject selector: which S this query serves
+      query: prefill_demand_tokens
+    - match: { role: decode }
+      query: decode_demand_tokens
+                                     # a demand rule may add `orZero: true` (see below)
+  target:                            # per-replica capacity; per-pod, averaged pod→S
+    - match: { role: prefill }
+      queries:                       # ordered fallbacks; first success wins
+        - { query: kv_util_epp_prefill,  e: epp }
+        - { query: kv_util_vllm_prefill, e: vllm }
+    - match: { role: decode }
+      queries:
+        - { query: kv_util_decode, e: direct }
+  targetReduce: avg | median | min | max     # pod → ScaledObject; default avg
 ```
 
-- One definition covers many models and ScaledObjects; each query is written **once** and templated
-  per matched `(namespace, model)` / per matched $S$. Different analyzers have different queries —
-  nothing is shared across analyzer labels.
-- The **selector is a simple list** of `(namespace, modelID)` pairs — no label matching; `modelID: "*"`
-  matches every model in the namespace, so a definition need not enumerate them. A duplicate label $L$
-  across definitions is a **configuration error** (rejected, not silently resolved).
-- Where the selector does **not** match a model or $S$, the analyzer is **ignored** for that item —
-  not treated as missing.
+Non-disaggregated case — one rule, no `match`, serves every ScaledObject of the model:
+
+```yaml
+  demand: [ { query: total_demand_tokens } ]
+  target: [ { queries: [ { query: kv_util, e: direct } ] } ]
+```
+
+- Each query is a **bare selector** written **once** and templated per matched `(namespace, model)`;
+  WVA discovers the model's ScaledObjects (owner-walk) and applies each rule to the ones its `match`
+  selects. Different analyzers have different queries — nothing is shared across analyzer labels.
+- The top-level **`selector` is a simple list** of `(namespace, modelID)` pairs — no operator label
+  matching; `modelID: "*"` matches every model in the namespace. A duplicate label $L$ across
+  definitions is a **configuration error** (rejected, not silently resolved).
+- **`orZero`** (per demand rule): a signal with *no series* at zero load reads as **missing**
+  (→ scale-down suppressed); `orZero: true` appends `… or vector(0)` so it becomes a real `0`. Use it
+  only when "no series" reliably means zero (not "metric broken"), paired with a longer window so a
+  transient gap does not thrash to zero.
+- A ScaledObject that **no rule matches** gets nothing from this analyzer (**not-defined** — ignored,
+  not missing).
 - The definition is **implementation-agnostic**: *how* it reaches WVA — ConfigMap, CRD, API — is TBD
   and orthogonal to this proposal.
 
-**Fallbacks and error handling.** The target may list **ordered fallback queries**; the wrapper uses
-the **first that succeeds** and records which one via an `e` label. For an external analyzer this is
-**observability only** — a used fallback is logged; it does not by itself change the scaling action.
-If **all target queries fail/empty**, the analyzer produces no result for that $S$ this cycle (never
-a fabricated `0`). Internal analyzers, by contrast, carry an explicit **discrete** reliability signal
-(e.g. "do not claim spare capacity") that *is* actionable.
+**Fallbacks and error handling.** A `target` rule may list **ordered fallback queries**; the wrapper
+uses the **first that succeeds** and records which one via its **`e:` token** on the separate
+provenance series (e.g. `e=epp` when the primary wins, `e=vllm` on fallback). For an external analyzer
+this is **observability only** — it does not by itself change the scaling action. If **all queries
+fail/empty**, the wrapper sets a health token (`e=fetch-failed`) and produces no result for that $S$
+this cycle (never a fabricated `0`). Internal analyzers, by contrast, carry an explicit **discrete**
+reliability signal (e.g. "do not claim spare capacity") that *is* actionable.
 
 ### Roles and responsibilities
 
