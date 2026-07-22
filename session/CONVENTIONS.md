@@ -214,6 +214,22 @@ read-only git queries from your own worktree. The distinction matters because `c
 CWD and persists across subsequent tool calls, silently moving writes to the wrong tree.
 `git -C` leaves CWD untouched.
 
+**Git write-verbs are never run outside your own sanctioned scope — not even for a lookup.**
+`git stash`, `git checkout` (writing working tree/index), `git reset`, `git rebase`, `git merge`,
+`git commit`, `git branch -D`, `git clean` are write operations. The read-only-vs-write line
+governs every one of these the same way it governs plain file edits — "I'm just checking
+something" or "I'll put it back after" is not an exception, because the target worktree may be
+actively edited by another agent at that exact moment, and a stash/checkout can silently capture
+or clobber their in-progress, uncommitted work. If you need historical content, use
+`git show <rev>:<path>` or `git log -p -- <path>` — both read-only. If you need to *execute* code
+against a historical revision, use an isolated temp worktree/clone, never the shared active tree.
+If you notice a file differs from what you just read (a sign the tree is being actively edited by
+someone else), that is a signal to do less there, not neutral background information. If a mistake
+happens anyway: stop and surface it immediately — do not chain further git-surgery commands to
+self-correct; let the tree's owner direct recovery. (Incident: 2026-07-14, reviewer role; see
+`plans/session/CURRENT.md` § Next steps — "Governance follow-up — reviewer-worktree incident
+(2026-07-14)" — for the follow-up discussion on mechanical enforcement.)
+
 *Exception — plan-agent subagent spawning (plans worktree only):* `EnterWorktree` does not work
 inside subagents spawned from `plans/` (structural limitation: the tool validates that CWD is
 inside the bare repo root, but `plans/` is a sibling, not a child). The approved workaround is:
