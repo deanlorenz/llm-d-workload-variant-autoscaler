@@ -398,6 +398,17 @@ Flagged during the discussion; to be resolved and reflected in the implementatio
    cases before we commit to it. The current `NamespaceAwareInventory` + `NamespacePools` path is a
    correct approximation. **Deferred** to the same milestone as issue #7.
 
+9. **Per-config analyzer selection — NEW (2026-07-22, from the #1442 review).** Today analyzer
+   selection (V1 vs V2) is decided from the *global* `default` entry while thresholds are merged
+   per-model/namespace, so a resolved entry's own fields can disagree with the analyzer it runs on
+   (the source of #1442's `ApplyV2ThresholdDefaults` + inverted-pair reset machinery). An
+   alternative is to key selection on the **resolved config's `IsV2()`**: a V1-style per-model/
+   namespace override then means "this model runs V1" (the more intuitive operator model),
+   `ApplyDefaults` handles thresholds via its existing `IsV2()` branch, and both the post-merge V2
+   defaulting and the inverted-pair reset become unnecessary. Trade-off: it is a semantic change —
+   a V1-style override would opt a model back to V1, which some existing overrides may not intend.
+   **Noted as a future direction, out of scope for #1442.**
+
 ---
 
 ## Implementation mapping & verification — Phase 3
