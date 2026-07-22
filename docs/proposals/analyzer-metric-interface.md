@@ -40,7 +40,8 @@ integrating with it.
 - **Tight KEDA integration or dependency.** WVA is KEDA-*shaped* but independent.
 - **Re-architecting where aggregation lives** (inside analyzers vs. lifted into the engine) — an
   internal cleanup unrelated to this contract.
-- **Changing the optimizer's coordination logic or the actuation path.**
+- **Changing the optimizer's coordination *math* (sum/min over utilizations) or the actuation path**
+  (Phase 2 registers external analyzers into the optimizer, but the coordination math is untouched).
 
 ## Background: KEDA / HPA vocabulary
 
@@ -75,8 +76,8 @@ Per analyzer $L$:
 
 | Metric | Scope | Meaning |
 |---|---|---|
-| **Demand** $D_L$ | per **model instance** — `(namespace, model)` | Total demand for the whole model instance, in analyzer $L$'s unit. **One value per model instance**, not per ScaledObject. Collected as `last()( Q_demand{model, namespace} )`. |
-| **Target** $P_L(S)$ | per **ScaledObject** $S$ | The amount of demand (same unit as $D_L$) that a **single replica** of $S$ can supply — the per-replica capacity (PRC). Named **target** to match HPA's `target`/`averageValue`; KEDA's Prometheus scaler calls the analogous knob `threshold`. Collected **per pod** as `last() by (pod)( Q_target{model, namespace} )`, then reduced pod→$S$ (see [External analyzers](#external-analyzers)). |
+| **Demand** $D_L$ | per **model instance** — `(namespace, model)` (plus `role` when the signal is role-specific — see [External analyzers](#external-analyzers)) | Total demand for the whole model instance, in analyzer $L$'s unit. **One value per model instance**, not per ScaledObject. A total, so reduced by **sum** over a window — `sum( max_over_time( Q_demand[w] ) )` (`max_over_time` catches bursts between scrapes, matching the collector; `mean` is an option). |
+| **Target** $P_L(S)$ | per **ScaledObject** $S$ | The amount of demand (same unit as $D_L$) that a **single replica** of $S$ can supply — the per-replica capacity. Named **target** to match HPA's `target`/`averageValue`; KEDA's Prometheus scaler calls the analogous knob `threshold`. A per-replica quantity, so collected **per pod** — `avg_over_time( Q_target[w] )` grouped `by (pod)` — then reduced pod→$S$ by **average** (see [External analyzers](#external-analyzers)). |
 
 The two share a unit *within an analyzer* so that $D_L / P_L(S)$ is a pure replica count. Different
 analyzers may use entirely different units (KV-tokens, requests/s, ITL-seconds) — they never need to
@@ -88,8 +89,9 @@ An optional **error/provenance hint** $E$ records *how* a value was obtained (e.
 `fallback`, `stale`, `fetch-failed`). $E$ is **observability only** — the engine and optimizer never
 branch on it. It is **set inside WVA** — by an internal analyzer (in Go) or, for an external analyzer,
 by the wrapper from collection state — and is **never read from an external query result** (a PromQL
-result cannot carry it). It surfaces in the engine's per-cycle logs and as a label on the metrics WVA
-itself emits.
+result cannot carry it). It surfaces in the engine's per-cycle logs and, if emitted as a metric, on a
+**separate** provenance series — not as a label on the `wva_analyzer_*` value series, whose label set
+stays stable (a flipping `e` would churn series).
 
 ### Tolerance and effective target
 
@@ -114,7 +116,11 @@ The absent-vs-zero distinction is a first-class part of the contract:
 |---|---|---|
 | **Not defined** | The analyzer's selector does not cover this model/$S$. | **Ignored** — contributes nothing; no penalty, no suppression. Distinct from "missing." |
 | **Missing / degraded** | The analyzer applies, but data is absent or partial this cycle — empty/failed query, too few pods. | **External:** fall back if the definition lists one (records an `e` label), else produce nothing for that $S$. **Internal:** its explicit discrete reliability signal applies (e.g. suppress scale-down). The value is never fabricated as `0`. |
-| **Present** | A value is returned, **including `0`**. | Used as-is. `0` is a real observation (zero demand, zero capacity), distinct from absent. |
+| **Present** | A value is returned, **including `0`**. | Used as-is. For **demand**, `0` is a real observation (zero load). For the **target**, `P ≤ 0` is instead treated as **missing** — a per-replica capacity of `0` is a divide-by-zero in `⌈D/P⌉`, not a usable value (per-pod: such pods are dropped from the average). |
+
+Two notes on `0`: a demand signal that has *no series* at zero load would read as missing (→ scale-down
+suppressed), so a definition may set `orZero: true` (`… or vector(0)`) to opt such a signal into a real
+`0` — pair it with a longer window so a transient gap does not thrash the target to zero.
 
 ### The single-ScaledObject case
 
@@ -141,7 +147,8 @@ is one shared pool and the several $S$ jointly serve it. This is precisely the p
 
 The interface simplification (analyzer emits $D$ and $P$) is orthogonal to the coordination logic
 (the optimizer's AND/OR reasoning over utilizations). The single-$S$ formula above is the special
-case when there is one $S$ per demand.
+case when there is one $S$ per demand. Combining several *analyzers* for one target is likewise the
+optimizer's job — per-analyzer weights live in its config, not in the contract.
 
 ### Metric emission
 
@@ -150,14 +157,15 @@ signals with a small, common label set. Metric names cannot contain dots, so the
 **label**, not part of the name:
 
 ```
-wva_analyzer_demand{analyzer, namespace, model}                 # per model instance
+wva_analyzer_demand{analyzer, namespace, model, role?}          # per model instance (role only if role-specific)
 wva_analyzer_target{analyzer, namespace, model, scaledobject}   # per ScaledObject
 ```
 
 - The common labels are `(analyzer, namespace, model)`, plus `scaledobject` on the per-$S$ target.
   The **`scaledobject` identifier must be unique**, so a consumer can tell what a series points to.
-- A ScaledObject name can be opaque, so an optional free-form **`description`** label (contents TBD —
-  e.g. role, GPU count, inference-pool name) may be attached for dashboard readability.
+- A ScaledObject name can be opaque, so a human-readable **`description`** (role, GPU count,
+  inference-pool name) may be exposed for dashboards on a **separate** `wva_analyzer_info` series — not
+  as a free-form, churn-prone label on the value series.
 - **Absence is meaningful:** a missing series is *not* a zero; consumers must not coalesce absent to
   `0`.
 
@@ -171,16 +179,26 @@ An **external analyzer** is defined entirely as PromQL — no Go, no rebuild. A 
 definition, runs the queries each cycle, and reduces the per-pod results to per-ScaledObject targets.
 Internal (Go) analyzers are unchanged.
 
-**What the analyzer supplies vs. what WVA wraps.** A definition supplies only the *inner* metric
-selector $Q$; WVA supplies the scoping and the last-value/reduction wrapping. Schematically:
+**What the analyzer supplies vs. what WVA wraps.** A definition supplies the *inner* metric selector
+$Q$ — a bare metric name or vector selector, carrying no namespace/model matcher of its own — plus the
+label keys to scope by; WVA injects the scoping and the reduction:
 
 ```
-demand  →  last()         ( Q_demand{ model="{{model}}", namespace="{{ns}}" } )   # one value per (model, ns)
-target  →  last() by(pod) ( Q_target{ model="{{model}}", namespace="{{ns}}" } )   # one value per pod
+demand  →  sum         ( max_over_time( Q_demand{ <modelLabel>="{{model}}", <nsLabel>="{{ns}}" }[w] ) )   # one series per (model, ns)
+target  →  avg by(pod) ( avg_over_time( Q_target{ <modelLabel>="{{model}}", <nsLabel>="{{ns}}" }[w] ) )    # one value per pod
 ```
 
-`{{model}}` and `{{ns}}` are templated by the collection loop. The demand query yields a single value
-per model instance; the target query yields one value **per pod**.
+Three practical notes: `Q` must be a **bare selector** — an arbitrary expression (a converted KEDA
+`sum(rate(...))`, or WVA's own analyzer queries) can't take an appended matcher, so it needs a
+`{{scope}}` placeholder or a translation step; the **label keys are configurable**
+(`modelLabel`/`namespaceLabel`, default `model`/`namespace`) because real metrics use `model_name`,
+`target_model_name`, or no model label; and `{{model}}`/`{{ns}}` are **escaped** (reuse
+`EscapePromQLValue`) since a modelID is free-form.
+
+**Role-specific demand** — saturation's KV-tokens, TTFT/ITL differ between prefill and decode — is
+supplied as **one demand query per role**, since no source metric carries a `role` label:
+`demand.perRole: { prefill: …, decode: … }`. WVA scopes and sums each and emits
+`wva_analyzer_demand{…, role}`; `target` may carry `perRole` queries too, applied by each $S$'s role.
 
 **Pod → ScaledObject reduction.** The wrapper maps each pod to its ScaledObject and reduces the
 per-pod targets to one value per $S$. The **default reduction is the average** of the pods'
@@ -197,10 +215,14 @@ targets:
 ```
 ExternalAnalyzer:
   label:    L                        # unique within the WVA instance
-  selector:                          # simple list — modelID + namespace, no label matching
+  modelLabel: model_name             # optional; label keys WVA scopes by (default model / namespace)
+  selector:                          # simple list — modelID + namespace, no operator label matching
     - { namespace: ns-a, modelID: model-x }
     - { namespace: ns-b, modelID: model-y }
-  demandQuery: Q_demand              # single inner selector; WVA wraps as last()( … {{model}},{{ns}} )
+  demand:
+    query: Q_demand                  # bare selector; WVA wraps as sum(max_over_time( … {{model}},{{ns}} [w]))
+    # perRole: { prefill: Q_p, decode: Q_d }   # role-specific alternative to `query`
+    # orZero: false                            # opt "no series" into demand 0 (signals that vanish at zero)
   target:                            # per pod; ordered fallbacks, first success wins
     - { query: Q_target_primary,  e: direct }
     - { query: Q_target_fallback, e: fallback }
@@ -210,9 +232,9 @@ ExternalAnalyzer:
 - One definition covers many models and ScaledObjects; each query is written **once** and templated
   per matched `(namespace, model)` / per matched $S$. Different analyzers have different queries —
   nothing is shared across analyzer labels.
-- The **selector is a simple list** of `(namespace, modelID)` pairs — no label matching. If two
-  definitions with the same label $L$ could match the same item, that is a **configuration error**
-  (surfaced as an error or warning): one wins, the other is disabled.
+- The **selector is a simple list** of `(namespace, modelID)` pairs — no label matching; `modelID: "*"`
+  matches every model in the namespace, so a definition need not enumerate them. A duplicate label $L$
+  across definitions is a **configuration error** (rejected, not silently resolved).
 - Where the selector does **not** match a model or $S$, the analyzer is **ignored** for that item —
   not treated as missing.
 - The definition is **implementation-agnostic**: *how* it reaches WVA — ConfigMap, CRD, API — is TBD
@@ -246,7 +268,9 @@ already-processed per-$S$ data.
 
 WVA should **look like** KEDA without **depending on** it. Because the query shape is so close, a KEDA
 Prometheus-scaler definition can be **converted** into a WVA external analyzer with **no change to
-KEDA** — its query becomes the analyzer's inner selector. Where both a WVA optimizer and KEDA exist,
+KEDA** — its query becomes the analyzer's demand query (a KEDA query is a full expression, so scoping
+is added via a `{{scope}}` placeholder or a small translation, not a literal appended matcher). Where
+both a WVA optimizer and KEDA exist,
 WVA owns multi-ScaledObject coordination; the exposed metrics let KEDA/HPA drive simple single-$S$
 cases or serve purely as observability. They never both actuate the same $S$.
 
@@ -258,7 +282,7 @@ cases or serve purely as observability. They never both actuate the same $S$.
 2. **External-analyzer wrapper.** Add the analyzer-centric PromQL definition and the wrapper that
    implements the internal analyzer interface (query templating, pod→$S$ reduction, selector, ordered
    fallbacks with `e` labels), feeding results to the optimizer.
-3. **Polish.** Provenance/`description` labels, reduction-function grammar, and hardening of the
+3. **Polish.** Provenance/`description` info series, reduction-function grammar, and hardening of the
    wrapper's error handling.
 
 ## Alternatives considered
@@ -275,7 +299,8 @@ cases or serve purely as observability. They never both actuate the same $S$.
 - **Internal analyzers are unchanged**; they keep producing their results in Go.
 - **Metrics are additive** — new `wva_analyzer_*` series, no change to existing emission.
 - **Each ScaledObject is owned by exactly one of {KEDA, WVA}**, so there is no dual-actuation risk.
-- The **optimizer coordination logic and the actuation path are unchanged.**
+- The **optimizer coordination *math* and the actuation path are unchanged** (Phase 2 only registers
+  external analyzers into the optimizer; it does not change the coordination math).
 
 ## References
 
