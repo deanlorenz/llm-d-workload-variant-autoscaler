@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-07-23
+**Last updated:** 2026-07-26
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,15 +10,32 @@
 
 **Active (full abstracts):**
 
-- **2026-07-23 — TA 0.9 task plans authored (4 PRs) + design reconciliation.** Four coder-ready Type 3 plans committed on the plans branch (`64a102c4`), off `main@f5b7577c`: **A** `ta-devguide-fixes` (I-21/22/23 dev-guide, doc-only), **A′** `ta-registration-safety` (`effectiveEnabled` opt-in — config-absence veto + startup log; covers only the config-absence half), **D** `ta-veto-liveness` (per-analyzer liveness gate: an uninformative analyzer — never-had-metrics / error / stale — cannot veto scale-down regardless of cause; saturation token-capacity **not** exempt; safety floor = no live analyzer → no scale-down; "last non-error analysis time" is the signal), **C** `ta-model-level-demand` (TA decode demand from a **model-level** arrival sum `Λ_req×avgOL` + queue-drain, per TA-demand §3.3/§3.5 & TA-overview:26 "demand per model"; dissolves the former per-instance-merge **I-1** for TA — `ReplicaMetrics.ArrivalRate` kept for QM/`allocation.go`). **Design reconciliation** (from re-reading TA HL design vs code): demand is per-model (code had diverged to per-pod summation); supply/k*/PRC are **arrival-independent** (`DefaultKSat`·KV/ITL — correct as-is, arrival→0 cannot corrupt PRC); the arrival-driven `k_knee` (TA-supply §5.5) is **unimplemented → DEFERRED** to a future TA phase (prefill-heavy; likely covered by sat_v2 K2); A=0 fallback left as-is. EPP-metric semantics fact-find (`inference_extension_scheduler_attempts_total` per-request vs per-attempt, label set, queued-exclusion) **DEFERRED to a parallel research agent at coding time** — captured in the PR C plan. **Sequencing: A + C parallel; A′ → D sequential** (shared `engine_v2.go` / `multi-analyzer-pipeline.md`). Note folded into [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) (I-1 reframed as not-a-TA-blocker). Worktrees + per-coder kickoff triggers set up; nothing committed to any code branch, no code-branch pushes.
+- **2026-07-23 — TA 0.9 task plans authored (4 PRs) + design reconciliation.** Four coder-ready Type 3 plans committed on the plans branch (`64a102c4`), off `main@f5b7577c`: **A** `ta-devguide-fixes` (I-21/22/23 dev-guide, doc-only), **A′** `ta-registration-safety` (`effectiveEnabled` opt-in — config-absence veto + startup log; covers only the config-absence half), **D** `ta-veto-liveness` (per-analyzer liveness gate: an uninformative analyzer — never-had-metrics / error / stale — cannot veto scale-down regardless of cause; saturation token-capacity **not** exempt; safety floor = no live analyzer → no scale-down; "last non-error analysis time" is the signal), **C** `ta-model-level-demand` (TA decode demand from a **model-level** arrival sum `Λ_req×avgOL` + queue-drain, per TA-demand §3.3/§3.5 & TA-overview:26 "demand per model"; dissolves the former per-instance-merge **I-1** for TA — `ReplicaMetrics.ArrivalRate` kept for QM/`allocation.go`). **Design reconciliation** (from re-reading TA HL design vs code): demand is per-model (code had diverged to per-pod summation); supply/k*/PRC are **arrival-independent** (`DefaultKSat`·KV/ITL — correct as-is, arrival→0 cannot corrupt PRC); the arrival-driven `k_knee` (TA-supply §5.5) is **unimplemented → DEFERRED** to a future TA phase (prefill-heavy; likely covered by sat_v2 K2); A=0 fallback left as-is. EPP-metric semantics fact-find **completed 2026-07-26** (planner-run, read-only; see tail) — signal confirmed sound for PR C; one plan fix applied (dropped an inert `model_name` fallback from the Commit 1 query template); metric is deprecated in EPP 0.9 (dual-written, migration tracked as a separate not-yet-filed issue). **Sequencing: A + C parallel; A′ → D sequential** (shared `engine_v2.go` / `multi-analyzer-pipeline.md`). Note folded into [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) (I-1 reframed as not-a-TA-blocker). Worktrees + per-coder kickoff triggers set up; nothing committed to any code branch, no code-branch pushes.
 - **2026-07-21 — Metric-based analyzer interface proposal → PR #1444 (OPEN).** New external-facing proposal: each analyzer produces, per finest-grain item, a **demand** `D` and a **target** `P` (per-replica capacity), same unit so `D/P` = replicas — shape symmetric with KEDA/HPA. Two goals: (1) expose all analyzer results (internal + external) as `wva_analyzer_*` metrics; (2) define external analyzers as PromQL (analyzer-centric definition + selector, pod→ScaledObject reduction default `avg`, ordered target fallbacks with observability-only `e` label). No code changes; optimizer coordination + actuation unchanged; each ScaledObject owned by exactly one of {KEDA, WVA}. Internal working draft (retains open-questions + cross-refs to [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md)): [`planning/analyzer-metric-interface-proposal.md`](../planning/analyzer-metric-interface-proposal.md). Promoted to code branch `analyzer-metric-proposal` (worktree kept) as `docs/proposals/analyzer-metric-interface.md` (house template, Status: Draft, author Dean); committed `39a83d0b` (DCO-signed), pushed origin, **PR [#1444](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1444)** to upstream `main`, reviewer ev-shindin. **2026-07-22 update:** went through a review round — Evgeny (approver) pushed a correctness pass (`607699f5`: PromQL aggregator fixes, external bare-selector shape, configurable model/namespace labels, provenance on separate series); Dean pushed follow-up refinements (`ff3e168b`: `match:` ScaledObject selector, role grounded in the `llm-d.ai/role` pod-template label, per-role demand reconciled in utilization-space, `orZero` explained); reply posted to Evgeny. Tip `ff3e168b`; **PR #1444 MERGED 2026-07-22 — Evgeny approved, CI green** (proposal now on upstream `main`). Internal draft reduced to a pointer to the canonical branch doc; `optimizer-coordination-design.md` gained the interface-proposal pointer + the per-role-demand/utilization reconciliation note. Tracking issue **[#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)** opened (assignees Dean + ev-shindin; umbrella Phase 1/2/3). Implementation **not started — deprioritized** behind higher-priority work. Authoring worktree/branch kept ~3 weeks then archive via `git boidem` (~2026-08-13; Evgeny may still commit).
 - **2026-06-17 — TA post-merge deep review + forward plan.** Independent code review of all #1250 code completed ([`planning/PR1250-deep-review.md`](../planning/PR1250-deep-review.md), Status: DRAFT). Found 3 systemic issues: (1) no single canonical collector instance key — scheduler loop keys on wrong port label, so `ArrivalRate` silently never merges into KV data (config-masked today, latent correctness bug); (2) split-contract test rot — ~20 unit assertions are `Expect(RC)==0` (unconditionally true), headline scale tests are tautological; (3) "off by default" lives in YAML content not code — gate defaults `nil→true`, runtime edit silently ignored. Two post-merge fixes by ev-shindin (`34c9be9b` booting-replica supply, `b2f1d7ef` e2e fake-metrics) supersede some findings; remaining 25 internal issues organized in [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) with P0/P1/P2/P3 priority + PR groupings. Dev guide has 3 stale items (I-21 PromQL, I-22 removed file, I-23 ReplicaCount); user guide is missing (I-24).
-- **2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED.** Both superseded by #1267 (`c55906a4`, merged): #1267 retained `llm_d_ai_variant` as the label fast-path and added owner-walk locator fallback (`locator.PodLocator`) — the label-drop premise of #1263 and the Attributor-seam approach of #1275 are both wrong given #1267's design (dropping the label kills shadow-pod attribution). `collector-va-attribution` branch to archive. The only non-superseded piece from #1275 is the `UnattributedReadyPods` K8s event — decision pending: fold into standalone issue. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md), [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
-- **2026-06-15 — #1266 MERGED** (`6d25b134` onto main). Addendum to #1246: `effectiveEnabled` bug fix (explicit `Enabled:false` now skips run + append), config-bridge + non-uniform Score tests, full pipeline dev guide rewrite. Note: `runRegisteredAnalyzers` dead-code was NOT removed in this PR — it remains in `engine_v2.go`; follow-up plan at [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4. `effectiveEnabled` opt-in fix (absent entry → false): [`planning/PR1266-fixup-effectiveEnabled.md`](../planning/PR1266-fixup-effectiveEnabled.md).
 - **2026-07-15 — optimizer-pd-role-ceiling: code+tests complete; dev-guide edits UNCOMMITTED; clean-design discussion in progress.** All 10 planned tests landed (6 commits, tip `0c33a3eb`, all gates green). **⚠️ Uncommitted state:** the planner (authorized by Dean; coder done) edited the Type 4 dev-guide directly in the worktree — saturation single-source note + worked example + edge-case→test table + why-coupled paragraph — **`M multi-analyzer-pipeline.md`, NOT committed** (pending Dean's review). Separately, Dean opened a design discussion on making the optimizer's data-flow/algorithm doc *clean* (analyzers→utilization desired/achieved; optimizer coordinates AND/OR; constraints); captured in new Type 1 doc [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) — **Phase 1 (discussion) done, Phase 2 (clean design) drafted & awaiting Dean's review of 2 framing questions, Phase 3 (verify code vs. clean model) not started.** Suspected real bug surfaced: anticipated supply is in the denominator, not counted toward achieved (see design doc § Open issues #2 — needs a trace). **Resume 2026-07-16:** answer the 2 Phase-2 questions, lock clean design, do Phase 3, then restructure dev-guide. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-07-26 — `ta-devguide-fixes` (PR A) implemented + internally reviewed (APPROVE, no
+  blocking findings); I-21/22/23 + NTH-1 `port` fold-in; tip `f931a4e9`; not pushed. Review:
+  [`planning/ta-devguide-fixes-review.md`](../planning/ta-devguide-fixes-review.md).
+- 2026-07-26 — EPP-metric fact-find (for PR C) complete, planner-run read-only:
+  `inference_extension_scheduler_attempts_total` deprecated in EPP 0.9 (→
+  `llm_d_epp_scheduler_attempts_total`, dual-written); no retry over-count; `status=success` ==
+  dispatched; EPP-queued/rejected requests excluded; `model_name` fallback in the Commit 1
+  template was inert, removed (`9db5cd3c`). Separate 0.9 EPP-metric-rename issue not yet filed.
+  See [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md) § Deferred.
+- 2026-07-26 — PR C (`ta-model-level-demand`) coding **paused**: coder spawned an unauthorized
+  research subagent mid-task (see § Next steps governance item); Dean stopped the session.
+  Second occurrence of the same pattern as the 2026-07-14 reviewer-worktree incident.
+- 2026-06-15 — #1275 (collector-va-attribution) CLOSED; #1263 CLOSED — both superseded by #1267
+  (`c55906a4`); label-drop and Attributor-seam approaches both wrong given #1267's owner-walk
+  fallback design. Full decisions: [`planning/PR1267-impact-and-decisions.md`](../planning/PR1267-impact-and-decisions.md),
+  [`planning/PR1275-closure-capture.md`](../planning/PR1275-closure-capture.md).
+- 2026-06-15 — #1266 MERGED `6d25b134` onto main. Addendum to #1246: `effectiveEnabled` fix,
+  config-bridge + non-uniform Score tests, pipeline dev-guide rewrite. `runRegisteredAnalyzers`
+  dead-code follow-up tracked separately (§ Next steps).
 - 2026-07-22 — PR #1442 (V2-default saturation analyzer, ev-shindin) reviewed; APPROVE + 2 non-blocking comments (RC-1 inverted-pair-reset middle ground, RC-2 README per-model-flip note) posted 2026-07-22; review FINAL: [`planning/PR1442-review.md`](../planning/PR1442-review.md). Follow-up (out of scope for #1442, captured as design-doc issue #9): per-config analyzer-selection alternative keyed on resolved `IsV2()` — see [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md).
 - 2026-07-13 — #1392 (V1 saturation-utilization fix, shuynh2017) reviewed; comment posted ([issuecomment-4958365615](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1392#issuecomment-4958365615)); Dean approved on GitHub; review FINAL: [`planning/PR1392-review.md`](../planning/PR1392-review.md). Audit of every `RecordSaturationMetrics` call site found one pre-existing gap (throughput-only-driven models never emit the saturation gauges) — filed as I-26 in [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md).
 - 2026-07-08 — #1129 (quota-based limiter, ev-shindin) reviewed; comment posted ([issuecomment-4800506572](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1129#issuecomment-4800506572)); review FINAL: [`planning/PR1129-review.md`](../planning/PR1129-review.md). B1/B2 fixed in rev 2; D1–D4 + N1–N4 posted as docs/usability notes only.
@@ -64,10 +81,10 @@
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | analyzer-metric-proposal | #1444 | **MERGED** 2026-07-22 (`ff3e168b`) — review round: Evgeny (approver) pushed a correctness pass `607699f5` (PromQL aggregator fixes, external bare-selector shape, configurable model/namespace labels, provenance on separate series); Dean pushed follow-up `ff3e168b` (`match:` ScaledObject selector, role grounded in the `llm-d.ai/role` pod-template label, per-role demand reconciled in utilization-space, `orZero` explained). Reply posted (`issuecomment-5047415526`); Evgeny **APPROVED + merged**. Tracking issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455) (Phase 1/2/3; assignees Dean + ev-shindin). Worktree kept; archive via `git boidem` ~2026-08-13. Internal draft (now a pointer to the branch doc): [`planning/analyzer-metric-interface-proposal.md`](../planning/analyzer-metric-interface-proposal.md). | `ff3e168b` |
 | (upstream) v2-default-analyzer | #1442 | **Reviewed 2026-07-22** — APPROVE review posted (LGTM + 2 non-blocking comments: RC-1 inverted-pair-reset middle ground, RC-2 README per-model-flip note). Review FINAL: [`planning/PR1442-review.md`](../planning/PR1442-review.md). CI green. | (fork branch) |
-| ta-devguide-fixes | — | **PLAN READY (0.9), PR A** — I-21/22/23 dev-guide catch-up (doc-only). Off `main@f5b7577c`. Plan: [`planning/ta-devguide-fixes-plan.md`](../planning/ta-devguide-fixes-plan.md). Kickoff: `session/handoffs/ta-devguide-fixes__kickoff.md`. | — |
+| ta-devguide-fixes | — | **IMPLEMENTED + internally reviewed (APPROVE), in review** — 4 commits (`d2d86c0f`, `570bd528`, `444cd4a3`, `f931a4e9`); NTH-1 `port` label fix folded in; internal review FINAL: [`planning/ta-devguide-fixes-review.md`](../planning/ta-devguide-fixes-review.md); not pushed. Plan: [`planning/ta-devguide-fixes-plan.md`](../planning/ta-devguide-fixes-plan.md). | `f931a4e9` |
 | ta-registration-safety | — | **PLAN READY (0.9), PR A′** — `effectiveEnabled` opt-in (config-absence veto) + startup log. Off `main@f5b7577c`. Plan: [`planning/ta-registration-safety-plan.md`](../planning/ta-registration-safety-plan.md). | — |
 | ta-veto-liveness | — | **PLAN READY (0.9), PR D** — per-analyzer liveness gate on `needsScaleDownForRole` (uninformative → no veto; safety floor). Off `main@f5b7577c`. Plan: [`planning/ta-veto-liveness-plan.md`](../planning/ta-veto-liveness-plan.md). | — |
-| ta-model-level-demand | — | **PLAN READY (0.9), PR C** — TA decode demand from model-level arrival rate + queue-drain; supersedes per-instance merge (former I-1) for TA. Off `main@f5b7577c`. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | — |
+| ta-model-level-demand | — | **PAUSED (0.9), PR C** — coder stopped 2026-07-26 after spawning an unauthorized research subagent (see § Next steps governance item). EPP-metric fact-find since completed separately (planner-run, read-only) — signal confirmed sound; plan doc fixed (`9db5cd3c`, dropped an inert `model_name` fallback). TA decode demand from model-level arrival rate + queue-drain; supersedes per-instance merge (former I-1) for TA. Off `main@f5b7577c`. Ready to resume. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | — |
 
 ---
 
@@ -77,17 +94,17 @@ None currently.
 
 ## Next steps
 
-- **TA 0.9 coding (PLANS READY — kicking off):** four Type 3 plans off `main@f5b7577c` —
-  `ta-devguide-fixes` (A), `ta-registration-safety` (A′), `ta-veto-liveness` (D),
-  `ta-model-level-demand` (C). Worktrees created; per-coder kickoff triggers at
-  `session/handoffs/<branch>__kickoff.md`. **A + C in parallel; A′ → D sequential** (shared
-  `engine_v2.go` / `multi-analyzer-pipeline.md`). Each coder starts *in its worktree*, marks its
-  `<branch>__kickoff.md.WIP`, reads the referenced plan (Type 3) — that plan is the sole scope.
-  At coding time, launch the EPP-metric fact-find as a parallel read-only research agent (brief
-  in the PR C plan § Deferred). Origin branches for the four: `git push -u origin <branch>` at
-  first push — held for explicit confirmation.
+- **TA 0.9 coding (IN PROGRESS):** four Type 3 plans off `main@f5b7577c` — `ta-devguide-fixes`
+  (A, **implemented + reviewed, not pushed**), `ta-registration-safety` (A′, in progress),
+  `ta-veto-liveness` (D, not started — waits on A′, shared `engine_v2.go` /
+  `multi-analyzer-pipeline.md`), `ta-model-level-demand` (C, **paused** — see governance item
+  below; fact-find complete, plan fixed, ready to resume). Origin branches for the four:
+  `git push -u origin <branch>` at first push — held for explicit confirmation. Next: resume PR
+  C coding; get A′ to push-ready; then D.
 - **TA forward plan — immediate P0 items (now):**
-  - **I-21/I-22/I-23** — fix dev guide: stale PromQL examples (`by (pod)` → `by (instance, pod, llm_d_ai_variant)`), remove `itl_knowledge_store.go` from package structure, add `nKV`/booting-replica note. Single PR, doc-only. Plan: [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) § I-21–23.
+  - ~~**I-21/I-22/I-23**~~ — **DONE** on `ta-devguide-fixes` (PR A), not yet pushed. Stale PromQL
+    examples, removed-file reference, and `nKV`/booting-replica note all fixed; internally
+    reviewed APPROVE. See PR Status row above.
   - **I-5** — gate observability: log "TA not registered" on the disabled path; K8s Event when runtime configmap edit is silently ignored. Fold I-12 (gate unit tests + default-config test) into same PR. See forward plan § I-5, I-12.
   - **Discuss priorities:** review forward plan with Dean before coding any P1 items (collector key unification I-1 is the highest-risk correctness item; test-rot I-11 unlocks future reviewability).
 - **wva-analyzer-lifecycle (PLAN READY):** config-driven analyzer registration, ManagedAnalyzer lifecycle (Activate/Deactivate/Reactivate), live-set refactor, effectiveEnabled fix, remove startup gate. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the `PR1266-fixup-effectiveEnabled.md` stopgap (that plan is now moot — the full fix is in Commit 3g of the lifecycle plan). Pending implementation kick-off.
@@ -95,24 +112,43 @@ None currently.
 - **analyzer-metric-interface (PR #1444 MERGED → issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)):** enhancement tracked (Phase 1 metric exposure → Phase 2 external PromQL wrapper → Phase 3 polish). **Implementation deprioritized** — do NOT start until higher-priority work clears and Dean scopes Phase 1. **Archive `analyzer-metric-proposal` branch/worktree ~2026-08-13** (`git boidem`), after confirming Evgeny has no further commits.
 - ~~**#1266 effectiveEnabled fixup:**~~ **SUPERSEDED** by wva-analyzer-lifecycle plan (see above). Do not implement `planning/PR1266-fixup-effectiveEnabled.md`.
 - **runRegisteredAnalyzers deletion:** dead-code in `engine_v2.go`; plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
-- **Issues to file:** Q1+Q2 from `planning/open-items-roadmap.md`; TA forward plan internal issues I-1 through I-25 (file as GitHub issues at Dean's direction — do not file without confirmation).
+- **Issues to file:** Q1+Q2 from `planning/open-items-roadmap.md`; TA forward plan internal issues I-1 through I-25; "migrate WVA EPP metric queries from deprecated `inference_extension_*` to `llm_d_epp_*` (0.9 rename)" (scoped in `session/handoffs/plan__epp-metric-factfind.md`.DONE once consumed — search for an existing upstream/WVA issue first) (file as GitHub issues at Dean's direction — do not file without confirmation).
 - **TA3 post-merge:** triage 3 pre-existing smoke failures (`smoke_test.go:339,:542,:1724`); Step 2f E2E discussion.
 - **Parallel track (NOT authorized):** WVA-vs-KEDA benchmark — see § Benchmark.
-- **Governance follow-up — reviewer-worktree incident (2026-07-14).** A reviewer ran `git stash` +
-  `git checkout` directly in a coder's active worktree for a lookup that had a read-only answer
-  (`git show <rev>:<path>`); state was recovered byte-identical, but Dean wants a *gate*, not
-  another prose reminder, since this is a second occurrence of a rule already in CONVENTIONS.md.
-  Candidate directions to evaluate (not yet designed): (1) mechanical enforcement via a
-  PreToolUse-style hook / `settings.json` permission rule blocking `git stash|checkout|reset|
-  rebase|merge` when CWD ≠ the session's declared worktree — `update-config` skill is the likely
-  entry point; (2) a `REVIEWER-CONVENTIONS.md` with its own pre-action checklist, mirroring
-  `CODER-CONVENTIONS.md`; (3) clarify who may edit `CONVENTIONS.md` itself — currently unowned in
-  the doc-ownership table; (4) name a concrete safe pattern for "run code at a historical
-  revision" (temp worktree/clone) so it isn't improvised under pressure again. CONVENTIONS.md's
-  incident note currently points at the now-consumed handoff
-  (`session/handoffs/plan__review-agent-worktree-incident-and-gates.md`) — that pointer will 404
-  after this sync; flagging for Dean rather than editing CONVENTIONS.md directly (ownership of
-  that file is itself one of the open questions above).
+- **Governance follow-up — repeat scope-boundary incidents (2026-07-14, 2026-07-26).** Two
+  occurrences of the same underlying pattern: an agent acts on something a document *mentions*
+  rather than checking scope first, even though CONVENTIONS.md already states the principle in
+  prose ("documents describe what should happen; scope boundaries govern who does it").
+  - **2026-07-14 (reviewer-worktree).** A reviewer ran `git stash` + `git checkout` directly in a
+    coder's active worktree for a lookup that had a read-only answer (`git show <rev>:<path>`);
+    state was recovered byte-identical, but Dean wants a *gate*, not another prose reminder.
+  - **2026-07-26 (PR C unauthorized subagent).** The `ta-model-level-demand` (PR C) coder read
+    its Type 3 plan's "PARALLEL FACT-FIND ... launch as a read-only research agent" line and
+    called the Agent tool immediately, without asking — the plan's mention of a parallel task
+    was misread as an instruction addressed to the coder itself. The spawned agent also
+    malfunctioned (permission hooks blocked its file reads as if it were bound by the coder's
+    own worktree-scope rules). Dean stopped the coder mid-session; ~17 minutes/tokens wasted.
+    Root cause + fix already applied: (a) the plan-doc phrasing was rewritten
+    (`9684c867`) to explicitly disclaim coder action; (b) a doc gap was identified — neither
+    CODER-CONVENTIONS.md §7 nor §8 mentions "spawning a subagent via the Agent tool" as an
+    action category at all (both are framed around file writes / git verbs / GitHub actions);
+    (c) a feedback memory was saved so the lesson persists across sessions
+    (`feedback_coder_no_unauthorized_subagents`, `feedback_plan_doc_no_other_role_actions`).
+  - **Candidate directions to evaluate (not yet designed):** (1) mechanical enforcement via a
+    PreToolUse-style hook / `settings.json` permission rule — for 07-14, blocking
+    `git stash|checkout|reset|rebase|merge` when CWD ≠ the session's declared worktree; for
+    07-26, gating Agent-tool calls from role-scoped sessions pending explicit confirmation —
+    `update-config` skill is the likely entry point for both; (2) a `REVIEWER-CONVENTIONS.md`
+    with its own pre-action checklist, mirroring `CODER-CONVENTIONS.md`; (3) clarify who may
+    edit `CONVENTIONS.md` itself — currently unowned in the doc-ownership table (open since
+    07-14, still open); (4) add an explicit "coders/reviewers never spawn subagents without
+    asking first, even when a document mentions launching one" rule to CONVENTIONS.md (not
+    CODER-CONVENTIONS.md only, since the principle applies to every role) — exact wording TBD by
+    whoever owns the edit, pending (3); (5) name a concrete safe pattern for "run code at a
+    historical revision" (temp worktree/clone) so it isn't improvised under pressure again.
+  - Consumed handoffs for this item: `session/handoffs/plan__review-agent-worktree-incident-and-gates.md`
+    (07-14, already consumed pre-sync) and `session/handoffs/plan__coder-conventions-subagent-gate.md`
+    (07-26, consumed this sync).
 
 ---
 
