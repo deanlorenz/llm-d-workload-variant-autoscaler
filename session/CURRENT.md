@@ -17,9 +17,9 @@
 
 **Tail (compressed — recover via the ID/ref):**
 
-- 2026-07-26 — `ta-registration-safety` (PR A′) implemented + internally reviewed (FINAL, no
-  blocking findings); tip `44af05c6`; 2 follow-ups (F1 doc fix, F2 test spec) routed to coder
-  via trigger; not pushed. Review: [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md).
+- 2026-07-26 — `ta-registration-safety` (PR A′) F1+F2 landed (`7b69a561`, `7374be55`); review
+  closed out FINAL, **ready to push**; tip `7374be55`, 5 commits total; not pushed. Review:
+  [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md).
 - 2026-07-26 — `ta-devguide-fixes` (PR A) implemented + internally reviewed (APPROVE, no
   blocking findings); I-21/22/23 + NTH-1 `port` fold-in; **pushed to origin** `f5b7577c..f931a4e9`
   (no PR opened yet, per Dean's direction). Review:
@@ -86,7 +86,7 @@
 | analyzer-metric-proposal | #1444 | **MERGED** 2026-07-22 (`ff3e168b`) — review round: Evgeny (approver) pushed a correctness pass `607699f5` (PromQL aggregator fixes, external bare-selector shape, configurable model/namespace labels, provenance on separate series); Dean pushed follow-up `ff3e168b` (`match:` ScaledObject selector, role grounded in the `llm-d.ai/role` pod-template label, per-role demand reconciled in utilization-space, `orZero` explained). Reply posted (`issuecomment-5047415526`); Evgeny **APPROVED + merged**. Tracking issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455) (Phase 1/2/3; assignees Dean + ev-shindin). Worktree kept; archive via `git boidem` ~2026-08-13. Internal draft (now a pointer to the branch doc): [`planning/analyzer-metric-interface-proposal.md`](../planning/analyzer-metric-interface-proposal.md). | `ff3e168b` |
 | (upstream) v2-default-analyzer | #1442 | **Reviewed 2026-07-22** — APPROVE review posted (LGTM + 2 non-blocking comments: RC-1 inverted-pair-reset middle ground, RC-2 README per-model-flip note). Review FINAL: [`planning/PR1442-review.md`](../planning/PR1442-review.md). CI green. | (fork branch) |
 | ta-devguide-fixes | — | **PUSHED to origin, no PR yet** — 4 commits (`d2d86c0f`, `570bd528`, `444cd4a3`, `f931a4e9`); NTH-1 `port` label fix folded in; internal review FINAL/APPROVE: [`planning/ta-devguide-fixes-review.md`](../planning/ta-devguide-fixes-review.md). Plan: [`planning/ta-devguide-fixes-plan.md`](../planning/ta-devguide-fixes-plan.md). PR open pending Dean's direction. | `f931a4e9` |
-| ta-registration-safety | — | **IMPLEMENTED + internally reviewed (FINAL, no blocking findings), in review** — 3 commits (`75f529b9` opt-in fix, `30bca98e` startup log, `44af05c6` dev-guide doc); `effectiveEnabled` fall-through flip verified against the saturation-exemption invariant; review: [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md). **2 coder-actionable follow-ups before push:** F1 (fold or track a stale forward-reference in `throughput-analyzer.md`:27-29), F2 (add one missing `effectiveEnabled` test spec — "other analyzers present, target absent"). F3 (cross-package veto coverage) accepted as documented, no action. Not pushed. | `44af05c6` |
+| ta-registration-safety | — | **READY TO PUSH** — 5 commits (`75f529b9` opt-in fix, `30bca98e` startup log, `44af05c6` dev-guide doc, `7b69a561` F2 test spec, `7374be55` F1 doc fix); `effectiveEnabled` fall-through flip verified against the saturation-exemption invariant; review FINAL, no outstanding findings: [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md). F3 (cross-package veto coverage) accepted as documented, no action — closer fit for PR D. Awaiting Dean's push confirmation. | `7374be55` |
 | ta-veto-liveness | — | **PLAN READY (0.9), PR D** — per-analyzer liveness gate on `needsScaleDownForRole` (uninformative → no veto; safety floor). Off `main@f5b7577c`. Plan: [`planning/ta-veto-liveness-plan.md`](../planning/ta-veto-liveness-plan.md). | — |
 | ta-model-level-demand | — | **PAUSED (0.9), PR C** — coder stopped 2026-07-26 after spawning an unauthorized research subagent (see § Next steps governance item). EPP-metric fact-find since completed separately (planner-run, read-only) — signal confirmed sound; plan doc fixed (`9db5cd3c`, dropped an inert `model_name` fallback). TA decode demand from model-level arrival rate + queue-drain; supersedes per-instance merge (former I-1) for TA. Off `main@f5b7577c`. Ready to resume. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | — |
 
@@ -99,13 +99,12 @@ None currently.
 ## Next steps
 
 - **TA 0.9 coding (IN PROGRESS):** four Type 3 plans off `main@f5b7577c` — `ta-devguide-fixes`
-  (A, **implemented + reviewed, not pushed**), `ta-registration-safety` (A′, **implemented +
-  reviewed FINAL, 2 follow-ups F1/F2 routed to coder via trigger, not pushed**), `ta-veto-liveness`
-  (D, not started — waits on A′ landing F1/F2 and reaching a stable tip; shared `engine_v2.go` /
-  `multi-analyzer-pipeline.md`), `ta-model-level-demand` (C, **paused** — see governance item
-  below; fact-find complete, plan fixed, ready to resume). Origin branches for the four:
-  `git push -u origin <branch>` at first push — held for explicit confirmation. Next: resume PR
-  C coding; confirm A′'s F1/F2 land + gates green; then start D.
+  (A, **pushed to origin `f931a4e9`, no PR yet**), `ta-registration-safety` (A′, **ready to
+  push**, tip `7374be55`, F1+F2 landed, review FINAL), `ta-veto-liveness` (D, not started — A′
+  has reached a stable, review-complete tip so the shared-file risk that gated D on A′ is now
+  resolved; still Dean's call when to start), `ta-model-level-demand` (C, **paused** — see
+  governance item below; fact-find complete, plan fixed, ready to resume). Next: Dean to confirm
+  A′ push; resume PR C coding; decide when to start D.
 - **Plan-authoring process note (from A′ review, not yet actioned):** the coder found 3
   pre-existing tests broke on the `effectiveEnabled` behavioral-contract change because their
   fixtures relied on "absent config entry defaults to enabled" as a shorthand for "just use
