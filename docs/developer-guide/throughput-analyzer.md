@@ -435,7 +435,11 @@ N_dec_sat = DefaultKSat × KV_max / KVreq      # in-flight requests at k_sat
 μ_dec_sat = N_dec_sat / ITL(k_sat)            # decode tokens/sec at saturation operating point
 ```
 
-Per-variant totals: `totalSupply = Σ μ_dec_sat`, `perReplicaSupply = totalSupply / n`.
+Per-variant totals: `totalSupply = Σ μ_dec_sat`, `perReplicaSupply = totalSupply / n`, where
+`n` is the count of KV-capable replicas (`nKV`) — replicas actually reporting KV metrics, not
+a raw spec/status replica count. This `n` becomes `ReplicaCount_v` in the Scaling Signal
+formulas below, mirroring the saturation analyzer's `readyCount`; still-booting KV=0 replicas
+are excluded here and counted separately via `PendingReplicas_v` below instead.
 
 `DefaultKSat = 0.85` — the KV utilization at which μ_dec_sat is evaluated. This is a
 per-analyzer constant pending alignment with the EPP system-wide k_sat (see open items).
