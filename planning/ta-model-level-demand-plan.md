@@ -11,12 +11,12 @@
 
 - [Overview {#overview}](#overview-overview) L21:50
 - [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L51:83
-- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L84:122
-- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L123:164
-- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L165:201
-- [Tests to add {#tests}](#tests-to-add-tests) L202:223
-- [Developer guide {#devguide}](#developer-guide-devguide) L224:237
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L238:250
+- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L84:127
+- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L128:172
+- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L173:209
+- [Tests to add {#tests}](#tests-to-add-tests) L210:231
+- [Developer guide {#devguide}](#developer-guide-devguide) L232:245
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L246:258
 
 ## Overview {#overview}
 
@@ -104,19 +104,24 @@ Document these in the handoff (do not silently drop — CONVENTIONS deletion/def
   is not part of TA's path. It remains relevant only to `queueingmodel` (separately
   half-broken) — track as a QM-scoped follow-up, not a TA blocker.
 
-- **NOT IN THIS CODER'S SCOPE — planner-owned fact-find, tracked separately.** There is an open
-  question about the semantics of `inference_extension_scheduler_attempts_total` against the EPP
-  (gateway-api-inference-extension) source on GitHub, recorded here for context only: (1)
-  incremented **per request forwarded** or **per scheduling attempt** (retries → over-count)?
-  (2) what `status` values exist; does `status="success"` == dispatched to a model endpoint?
-  (3) are EPP-queued (not-yet-dispatched) requests excluded? (4) exact label set
-  (`pod_name`/`port`/`target_model_name`/`model_name`/`namespace`/`instance`) and whether
-  `pod_name`/`port` identify the target engine or the EPP; (5) any cleaner "requests forwarded"
-  counter; (6) EPP version caveats. If it turns out to count per-attempt (not per-request), the
-  model-level rate over-reads and the plan needs revisiting. **The PR C coder does not act on
-  this item** — it is not a commit, not a test, not a research task for this worktree. Dean
-  decides when and how it gets investigated (e.g. a separate planner-launched research agent);
-  the coder's scope is exactly Commits 1–2 and the tests below, nothing else.
+- **RESOLVED — EPP-metric fact-find complete (2026-07-26, planner-run, read-only).** The
+  semantics of `inference_extension_scheduler_attempts_total` were verified against the EPP 0.9
+  source (llm-d-router's own fork, `LLM_D_ROUTER_VERSION=v0.9.0`). Headline: **the metric is
+  deprecated in 0.9**, renamed to `llm_d_epp_scheduler_attempts_total` — both are dual-written
+  today, so this plan's query works unchanged; migrating to the new name is tracked as a
+  separate, not-yet-filed "0.9 EPP metric rename" issue, out of scope for this PR. Signal
+  confirmed sound: counted **per request**, not per retry (`Schedule()` runs once per request,
+  no retry loop); `status="success"` means dispatched to a target pod; EPP-queued/rejected
+  requests are correctly excluded (admission runs before scheduling). The model-level
+  `sum by (namespace)` query is unaffected by 0.9's `pod_name`→`endpoint_name` rename (this
+  query carries no pod label). One concrete fix landed in Commit 1 below: this metric has **no
+  `model_name` label** on any EPP version examined, so the `model_name` fallback clause in the
+  original template was inert (matched zero series) — removed. Known limitation, not a
+  blocker: `status="success"` measures dispatched/served arrivals, so under hard queue-capacity
+  shedding the signal plateaus and can understate true demand; the queue-drain term partially
+  compensates, but requests rejected at queue capacity are invisible to both. Full findings in
+  the consumed handoff (`session/handoffs/plan__epp-metric-factfind.md`, folded in here and in
+  `CURRENT.md`).
 
 [↑ TOC](#toc)
 
@@ -131,10 +136,13 @@ Mirror the existing model-level `SchedulerQueue` plumbing exactly.
    `QueryModelArrivalRate` with template:
    ```
    sum by (namespace) (rate(inference_extension_scheduler_attempts_total{status="success",namespace="{{.namespace}}",target_model_name="{{.modelID}}"}[1m]))
-     or sum by (namespace) (rate(inference_extension_scheduler_attempts_total{status="success",namespace="{{.namespace}}",model_name="{{.modelID}}",target_model_name=""}[1m]))
    ```
-   Same `status="success"` filter and the same `target_model_name`/`model_name` `or` fallback
-   as the per-pod query — only the groupby changes (drop `pod_name`, `port`).
+   Same `status="success"` filter as the per-pod query; groupby drops `pod_name`/`port`. **No
+   `model_name` fallback clause** — the EPP-metric fact-find verified against the EPP 0.9 source
+   that `inference_extension_scheduler_attempts_total` has never carried a `model_name` label
+   (only `target_model_name`), so a `model_name=...` filter on this metric matches zero series.
+   Do not copy the `model_name`/`target_model_name` `or` pattern from other queries (e.g. the
+   flow-control queue metric, which does carry `model_name`) onto this one.
 
 2. **Collect it model-level.** Mirror `CollectSchedulerQueueMetrics`
    ([replica_metrics.go:1027](../Main/internal/collector/replica_metrics.go#L1027)) — either a
