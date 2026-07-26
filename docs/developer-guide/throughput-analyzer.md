@@ -227,7 +227,6 @@ internal/engines/analyzers/throughput/
 ├── observation_window.go      ObservationWindow: rolling (k,ITL) pairs, Ready flag
 ├── sanity.go                  CheckModelMetrics: 6 SanityIssue types
 ├── itl_model.go               ITLModel{A,B}, FitITLModel (OLS), ITLAt(k)
-├── itl_knowledge_store.go     itlKnowledgeStore: tier-3 skeleton (not yet wired)
 └── analyzer.go                ThroughputAnalyzer: Observe() + full Analyze()
 ```
 
@@ -420,9 +419,10 @@ survives shape-change window resets. When no prior Tier-1 fit has occurred (`has
 false), B falls back to `DefaultBaselineITLSec` (0.006 s — H100 baseline at near-zero load).
 `lastFittedB` and `hasFittedB` are exposed in `ThroughputVariantState` for observability.
 
-**Tier 3 (not yet wired):** `itlKnowledgeStore` is present in the package for a future
-zero-replica fallback using the last successful tier-1 fit. It is not wired into the current
-`Analyze()` loop because that loop only iterates variants with active replica metrics.
+**Tier 3 (not implemented):** a zero-replica fallback — reusing the last successful Tier-1 fit
+when a variant has scaled to zero replicas — is not implemented. The current `Analyze()` loop
+only iterates variants with active replica metrics, so a scaled-to-zero variant has no ITL
+model to fall back to.
 
 ## Supply Estimation
 
