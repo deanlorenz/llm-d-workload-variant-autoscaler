@@ -10,13 +10,13 @@
 ## TOC {#toc}
 
 - [Overview {#overview}](#overview-overview) L21:50
-- [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L51:83
-- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L84:127
-- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L128:172
-- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L173:209
-- [Tests to add {#tests}](#tests-to-add-tests) L210:231
-- [Developer guide {#devguide}](#developer-guide-devguide) L232:245
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L246:258
+- [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L51:90
+- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L91:134
+- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L135:186
+- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L187:223
+- [Tests to add {#tests}](#tests-to-add-tests) L224:245
+- [Developer guide {#devguide}](#developer-guide-devguide) L246:259
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L260:272
 
 ## Overview {#overview}
 
@@ -62,6 +62,13 @@ These were settled in review — treat as fixed constraints, not open choices:
    `queueingmodel` ([queueingmodel/analyzer.go](../Main/internal/engines/analyzers/queueingmodel/analyzer.go))
    and `internal/utils/allocation.go`. Leave both in place. This PR only changes **what TA's
    demand reads** — TA stops using per-pod `ArrivalRate` and reads the new model-level value.
+
+2a. **Do NOT touch QM's registration file (`queueing_model.go`) at all.** This PR adds a new,
+   TA-exclusive query — it must be registered through TA's own registration file
+   (`throughput_analyzer.go`, see Commit 1), never inside `queueing_model.go`, even though both
+   queries read the same underlying source metric. QM's registration is QM's to own; TA needing
+   a new metric is not a reason to add to or modify QM's file. This is a boundary rule, not a
+   functional-safety one — QM's own query/collection path is covered by decision 2 above.
 
 3. **Combine the EPP queue-drain term correctly at model level.** The queue term is not an
    RPS — `estimateQueueDemand` converts a queued-request *count* into a decode token rate via
@@ -129,11 +136,18 @@ Document these in the handoff (do not silently drop — CONVENTIONS deletion/def
 
 Mirror the existing model-level `SchedulerQueue` plumbing exactly.
 
-1. **Register a model-level arrival query.** In the collector registration (near
-   `QuerySchedulerDispatchRate`,
-   [queueing_model.go](../Main/internal/collector/registration/queueing_model.go), or a
-   saturation-scoped file if that is where model-level queries live), add e.g.
-   `QueryModelArrivalRate` with template:
+1. **Register a model-level arrival query — in TA's own registration file, not QM's.**
+   Add it to
+   [throughput_analyzer.go](../Main/internal/collector/registration/throughput_analyzer.go)'s
+   `RegisterThroughputAnalyzerQueries`, alongside `QueryGenerationTokenRate`/`QueryKvUsageInstant`/
+   `QueryRequestRate`. **Do not add it to `queueing_model.go`**, even though the underlying source
+   metric (`inference_extension_scheduler_attempts_total`) is the same one
+   `QuerySchedulerDispatchRate` reads there — this query is TA-exclusive (no other analyzer
+   consumes it), and `throughput_analyzer.go`'s own header comment states the file's purpose
+   exactly: "queries that are genuinely new and not provided by other analyzer registrations."
+   Splicing a TA-only query into QM's registration file entangles ownership even though it would
+   be functionally harmless (additive, doesn't touch `QuerySchedulerDispatchRate` or QM's
+   per-pod `ArrivalRate` path). Add e.g. `QueryModelArrivalRate` with template:
    ```
    sum by (namespace) (rate(inference_extension_scheduler_attempts_total{status="success",namespace="{{.namespace}}",target_model_name="{{.modelID}}"}[1m]))
    ```
