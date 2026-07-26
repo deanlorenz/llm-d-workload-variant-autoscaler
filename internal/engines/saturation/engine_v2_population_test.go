@@ -67,6 +67,15 @@ var _ = Describe("Engine config-population helpers", func() {
 			Expect(effectiveEnabled("throughput", config.SaturationScalingConfig{})).To(BeFalse())
 		})
 
+		It("returns false when other analyzers are configured but the target is absent", func() {
+			cfg := config.SaturationScalingConfig{
+				Analyzers: []config.AnalyzerScoreConfig{
+					{Name: "other"},
+				},
+			}
+			Expect(effectiveEnabled("throughput", cfg)).To(BeFalse())
+		})
+
 		It("returns true when Enabled is nil for the matching entry", func() {
 			cfg := config.SaturationScalingConfig{
 				Analyzers: []config.AnalyzerScoreConfig{
