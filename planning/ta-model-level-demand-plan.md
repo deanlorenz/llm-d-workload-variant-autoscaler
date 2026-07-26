@@ -11,12 +11,12 @@
 
 - [Overview {#overview}](#overview-overview) L21:50
 - [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L51:83
-- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L84:108
-- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L109:150
-- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L151:187
-- [Tests to add {#tests}](#tests-to-add-tests) L188:209
-- [Developer guide {#devguide}](#developer-guide-devguide) L210:223
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L224:236
+- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L84:122
+- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L123:164
+- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L165:201
+- [Tests to add {#tests}](#tests-to-add-tests) L202:223
+- [Developer guide {#devguide}](#developer-guide-devguide) L224:237
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L238:250
 
 ## Overview {#overview}
 
@@ -104,17 +104,19 @@ Document these in the handoff (do not silently drop — CONVENTIONS deletion/def
   is not part of TA's path. It remains relevant only to `queueingmodel` (separately
   half-broken) — track as a QM-scoped follow-up, not a TA blocker.
 
-- **PARALLEL FACT-FIND (separate agent, run alongside coding — NOT a blocker).** Verify the
-  semantics of `inference_extension_scheduler_attempts_total` against the EPP
-  (gateway-api-inference-extension) source on GitHub before fully trusting it as the arrival
-  signal. Key questions: (1) incremented **per request forwarded** or **per scheduling attempt**
-  (retries → over-count)? (2) what `status` values exist; does `status="success"` == dispatched
-  to a model endpoint? (3) are EPP-queued (not-yet-dispatched) requests excluded? (4) exact label
-  set (`pod_name`/`port`/`target_model_name`/`model_name`/`namespace`/`instance`) and whether
+- **NOT IN THIS CODER'S SCOPE — planner-owned fact-find, tracked separately.** There is an open
+  question about the semantics of `inference_extension_scheduler_attempts_total` against the EPP
+  (gateway-api-inference-extension) source on GitHub, recorded here for context only: (1)
+  incremented **per request forwarded** or **per scheduling attempt** (retries → over-count)?
+  (2) what `status` values exist; does `status="success"` == dispatched to a model endpoint?
+  (3) are EPP-queued (not-yet-dispatched) requests excluded? (4) exact label set
+  (`pod_name`/`port`/`target_model_name`/`model_name`/`namespace`/`instance`) and whether
   `pod_name`/`port` identify the target engine or the EPP; (5) any cleaner "requests forwarded"
   counter; (6) EPP version caveats. If it turns out to count per-attempt (not per-request), the
-  model-level rate over-reads and the plan needs revisiting. Launch as a read-only research agent
-  when coding starts.
+  model-level rate over-reads and the plan needs revisiting. **The PR C coder does not act on
+  this item** — it is not a commit, not a test, not a research task for this worktree. Dean
+  decides when and how it gets investigated (e.g. a separate planner-launched research agent);
+  the coder's scope is exactly Commits 1–2 and the tests below, nothing else.
 
 [↑ TOC](#toc)
 
