@@ -211,7 +211,7 @@ namespace filtering limitation of the scheduler metric.
 | `AvgOutputTokens` | `QueryAvgOutputTokens` | `max by (instance, pod, llm_d_ai_variant)` | 5m rate | OL for KV_req and λ_dec |
 | `AvgInputTokens` | `QueryAvgInputTokens` | `max by (instance, pod, llm_d_ai_variant)` | 5m rate | IL for IL_eff = IL × (1−H％) |
 | `PrefixCacheHitRate` | `QueryPrefixCacheHitRate` | `max by (instance, pod, llm_d_ai_variant)` | 5m rate | H％ for IL_eff |
-| `ArrivalRate` | `QuerySchedulerDispatchRate` | `sum by (pod_name, namespace)` | 1m rate | λ_req per pod (primary) |
+| `ArrivalRate` | `QuerySchedulerDispatchRate` | `sum by (pod_name, port, namespace)` | 1m rate | λ_req per pod (primary) |
 
 ## Architecture
 
