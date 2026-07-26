@@ -204,6 +204,15 @@ analyzer must then:
 
 ### I-1 · Collector key unification [P0]
 
+> **⚠️ REFRAMED 2026-07-23 — no longer a TA blocker.** See the *Design reconciliation* note
+> at the end of this section. TA demand is a **model-level** quantity (TA-demand §3.3/§3.5;
+> TA-overview:26 "demand per model"), so it should read a **model-level** arrival sum
+> (`sum by (namespace) (rate(inference_extension_scheduler_attempts_total{…}))`), which has no
+> per-pod/port labels to reconcile — the per-instance merge below is unnecessary for TA. Fix:
+> [`ta-model-level-demand-plan.md`](ta-model-level-demand-plan.md). The per-instance merge
+> described below remains relevant **only to `queueingmodel`** (separately half-broken) — track
+> as a QM-scoped follow-up, not a TA/P0 item.
+
 **What:** The scheduler-dispatch loop in `replica_metrics.go` keys pods using the `port` label
 from the `inference_extension_scheduler_attempts_total` metric, while every other loop keys via
 `buildInstanceKey` which derives port from the scrape `instance` label. When these two port
@@ -224,6 +233,22 @@ says "foreign pod" but these queries are model-scoped — a miss signals a bug, 
 - Test: pod in throughput metric but not in KV metric → log a WARN (not silent skip).
 
 **Review refs:** C-B1, C-B2, C-B3, C-D3, C-N5, C-S1.
+
+**Design reconciliation (2026-07-23) — TA demand vs. code, from the HL design docs.**
+Findings from re-reading TA-overview/TA-demand/TA-supply against the code:
+- **Demand is per-model** (TA-overview:26; TA-demand §3.3 `λ_dec = λ·avgOL`, §3.5 `Λ_req = Σ_r λ_r`).
+  The code computed it by summing **per-pod** `ArrivalRate_r×OL_r` — same intended total, but via a
+  fragile per-pod EPP↔vLLM key merge (this I-1). Moving to a model-level arrival sum yields the
+  same `Λ_req` without the merge → dissolves I-1 for TA. Plan: `ta-model-level-demand-plan.md`.
+- **Supply/k\*/PRC never read arrival rate** — `computeVariantSupply` uses fitted ITL + measured KV
+  at a fixed `DefaultKSat` (`nSat/itlSat`). So arrival→0 cannot corrupt per-replica capacity; the
+  code is already correct here.
+- **`k_knee` (TA-supply §5.5) is unimplemented** — the arrival-driven operating knee (prefill-vs-decode
+  limit) is NOT in the code; only `k_sat` (capacity at `DefaultKSat`) is. This is the real
+  design→code gap. **DEFERRED to a future TA phase** (prefill-heavy case; likely already covered by
+  saturation_v2's K2 metric). Track as a future-phase item, not a 0.9 fix.
+- **A=0 fallback** (`computeDemand` A→B→k\*local) is conservative-but-acceptable; after the model-level
+  move it may be unexercised — left as-is, revisit when `k_knee` is implemented.
 
 ---
 
