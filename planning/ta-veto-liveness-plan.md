@@ -9,15 +9,22 @@
 
 ## TOC {#toc}
 
-- [Overview {#overview}](#overview-overview) L22:53
-- [Design {#design}](#design-design) L54:104
-- [Open decision — staleness threshold {#threshold}](#open-decision--staleness-threshold-threshold) L105:121
-- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L122:143
-- [Commit 1 — liveness field + engine state {#commit-1}](#commit-1--liveness-field--engine-state-commit-1) L144:197
-- [Commit 2 — gate the veto helpers {#commit-2}](#commit-2--gate-the-veto-helpers-commit-2) L198:241
-- [Tests to add {#tests}](#tests-to-add-tests) L242:269
-- [Developer guide {#devguide}](#developer-guide-devguide) L270:281
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L282:294
+- [Overview {#overview}](#overview-overview) L29:60
+- [Design {#design}](#design-design) L61:111
+- [Open decision — staleness threshold {#threshold}](#open-decision--staleness-threshold-threshold) L112:128
+- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L129:157
+- [Commit 1 — liveness field + engine state {#commit-1}](#commit-1--liveness-field--engine-state-commit-1) L158:211
+- [Commit 2 — gate the veto helpers {#commit-2}](#commit-2--gate-the-veto-helpers-commit-2) L212:255
+- [Tests to add {#tests}](#tests-to-add-tests) L256:283
+- [Developer guide {#devguide}](#developer-guide-devguide) L284:295
+- [Review follow-ups (round 1) {#followups}](#review-follow-ups-round-1-followups) L296:411
+  - [F-B1 — QM path must stay always-live (code + test) {#f-b1}](#f-b1--qm-path-must-stay-always-live-code--test-f-b1) L304:328
+  - [F-T1b — no-data → non-live is correct; document the persistence-window semantics (doc only) {#f-t1b}](#f-t1b--no-data--non-live-is-correct-document-the-persistence-window-semantics-doc-only-f-t1b) L329:355
+  - [F-T1a — make the per-model keying test discriminate (test) {#f-t1a}](#f-t1a--make-the-per-model-keying-test-discriminate-test-f-t1a) L356:371
+  - [F-Conc — document the single-writer assumption on lastGoodAnalysis (comment only) {#f-conc}](#f-conc--document-the-single-writer-assumption-on-lastgoodanalysis-comment-only-f-conc) L372:383
+  - [F-Demand — liveness is supply/capacity currency; demand robustness is separate (doc only) {#f-demand}](#f-demand--liveness-is-supplycapacity-currency-demand-robustness-is-separate-doc-only-f-demand) L384:399
+  - [F-NTH — two minor doc/comment touch-ups {#f-nth}](#f-nth--two-minor-doccomment-touch-ups-f-nth) L400:411
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L412:424
 
 ## Overview {#overview}
 
@@ -127,8 +134,15 @@ analyzer; too long → a dead analyzer keeps vetoing).
 - `internal/engines/saturation/engine.go` — `Engine` struct field `lastGoodAnalysis`;
   update it and set `Live` on each result in the per-cycle path (find where
   `runAnalyzersAndScore` / the role helpers are invoked).
+- `internal/engines/saturation/engine_queueing_model.go` — QM `NamedAnalyzerResult`
+  construction (add static `Live: true`; review follow-up [F-B1](#f-b1)).
+- New QM engine test (`engine_queueing_model_test.go` or sibling) — QM scale-down
+  coverage ([F-B1](#f-b1)).
 - Tests in the pipeline and saturation packages.
 - `docs/developer-guide/multi-analyzer-pipeline.md` — the scale-down / all-agree section.
+
+**Round-1 review follow-ups** ([§followups](#followups)) add the QM file/test above and a
+set of doc/comment touch-ups on already-landed code; see that section for the exact changes.
 
 **Non-goals:**
 - Do **not** implement the #1261 per-analyzer status contract here — this is the coarse
@@ -276,6 +290,122 @@ is excluded from the vote and cannot block scale-down; with no live analyzer, sc
 is withheld; saturation's token-capacity result is gated the same as any analyzer, while
 its shared collection role is a separate upstream concern. Describe current code only
 (Type 4). Do not reference #1261 or the plans branch.
+
+[↑ TOC](#toc)
+
+## Review follow-ups (round 1) {#followups}
+
+The internal review found the core mechanics correct (the `Live` field, the two gated
+helpers, the safety floor, per-tuple keying, the fixtures, the dev-guide). The items below
+are the agreed fixes — **all decisions locked by Dean 2026-07-27**. Apply them on top of the
+existing three commits (`785b5350`, `77be65ca`, `b3b7f762`); group into commits as convenient,
+all DCO-signed. Only **F-B1** and **F-T1a** touch code logic; the rest are doc/comment.
+
+### F-B1 — QM path must stay always-live (code + test) {#f-b1}
+
+**Problem.** The queueing-model optimize path builds its `NamedAnalyzerResult` inline in
+`internal/engines/saturation/engine_queueing_model.go` (~L80-86,
+`Name: domain.SaturationAnalyzerName`) and calls the shared `e.optimizer.Optimize`, but
+**never sets `Live`**. With `Live == false`, the new safety floor in `needsScaleDownForRole`
+skips every QM entry, `liveCount` stays 0, and QM **can never scale down** — a regression
+(pre-PR, a QM result with `Spare > 0` scaled down normally via `initRoleState` →
+`RoleSpare["both"]`).
+
+**Fix (decision: static always-live).** At the QM `NamedAnalyzerResult` construction site,
+set `Live: true` statically. Add a comment — plain prose, **no plans-branch identifiers**
+(§4a) — explaining that the queueing-model path is intentionally always-live because it is
+not yet a per-analyzer-liveness participant; its own liveness will be built when it becomes a
+first-class multi-analyzer participant in future work. Do **not** wire QM into
+`updateLivenessAndSetLive`, and do **not** touch any other QM code (the coder correctly left
+QM byte-identical to `main` — keep it that way except this one field).
+
+**Test (new coverage — the QM optimize path has none today).** Add a minimal engine-level
+test (new `engine_queueing_model_test.go` or sibling) asserting a QM result with spare
+capacity still scales down under the new gate. This pins the static-live guarantee against
+future regressions and closes the coverage blind spot that let the regression pass green.
+
+[↑ TOC](#toc)
+
+### F-T1b — no-data → non-live is correct; document the persistence-window semantics (doc only) {#f-t1b}
+
+**Resolution (locked): keep the mechanism unchanged — no code change to the liveness
+definition.** The review asked whether liveness should derive from a uniform engine-level
+nil/error signal instead of saturation's `no-data`/`error` reason strings. It should **not**
+change: a mislabelled/broken Prometheus query does not make the analyzer *error* — it returns
+a well-formed result with `no-data` (ready replicas + broken query → per-replica capacities
+drop to nil → empty → `no-data`). The engine-level error/nil signal never fires for that case,
+so the reason-based `resultIsInformative` check is **load-bearing** for detecting a
+durably-broken analyzer. The staleness window is what correctly separates the two "no-data"
+situations:
+
+- **never had good data** (config bug / wrong label at startup) → `lastGoodAnalysis` never set
+  → non-live → no veto ✓
+- **had good data, transient no-data now** (blip, brief no-ready-replicas) → timestamp still
+  fresh → live → still vetoes ("uncertain, err toward not scaling down") ✓
+- **had good data, now stale > window** → aged out → non-live → no veto ✓
+
+**Coder action (doc only):** in `docs/developer-guide/multi-analyzer-pipeline.md` (liveness /
+scale-down section) add a short paragraph stating this — an analyzer reporting no usable
+capacity (`no-data`) becomes non-live *only after* its last informative result ages out of the
+staleness window; a transient no-data with a recent good result still participates; a
+never-informative analyzer (e.g. a mislabelled query) never becomes live and cannot veto.
+Current-code prose only, no plans-branch refs.
+
+[↑ TOC](#toc)
+
+### F-T1a — make the per-model keying test discriminate (test) {#f-t1a}
+
+**Problem.** The `"scopes liveness per model"` spec in `engine_v2_liveness_test.go` does not
+exercise per-tuple keying: its model-a step-2 result is *informative*, so it writes its own
+`T_a` timestamp and yields `false` regardless of whether the map is correctly per-tuple
+`(name, model, ns)` or the buggy name-only. Both keyings pass → it guards nothing.
+
+**Fix.** Make model-a's step-2 result **non-informative** (`Reason: "no-data"`) so it does
+**not** write `T_a`. Then:
+- correct per-tuple map → `T_a` never written → `Live == false` ✓
+- (would-be) name-only map → step-1's model-b write to the shared `"saturation"` key reads
+  back as live → `Live == true` — the test now *fails* under name-only keying, which is the
+  property a regression guard for the deliberate per-tuple choice must have.
+
+[↑ TOC](#toc)
+
+### F-Conc — document the single-writer assumption on lastGoodAnalysis (comment only) {#f-conc}
+
+**Resolution (locked): comment only, no lock.** `lastGoodAnalysis` is safe today because the
+`PollingExecutor` runs cycles sequentially in one goroutine and models are processed serially
+— the same single-writer assumption the unguarded `vaEventTracker` already relies on. Add a
+field comment on `lastGoodAnalysis` (mirroring `vaEventTracker`'s) noting that safety depends
+on non-overlapping single-goroutine cycles, and that parallelizing model processing would
+require synchronizing this map (its top-level insert would race first). No `sync.Mutex` /
+`sync.Map`.
+
+[↑ TOC](#toc)
+
+### F-Demand — liveness is supply/capacity currency; demand robustness is separate (doc only) {#f-demand}
+
+**Decision (Dean, option 1):** PR D's liveness gates on **supply/capacity** informativeness
+only; it does **not** attempt to detect broken *demand*. That is correct and intentional — a
+false-low demand biases toward scale-down (never toward a spurious veto), and demand
+robustness is handled by other mechanisms: the metric sanity filter on calibration inputs, the
+request-rate / local-demand backstops, the model-level arrival rewire (removes the per-pod
+EPP-merge false-0 class), and the future per-analyzer status contract.
+
+**Coder action (doc only):** add one sentence to the dev-guide liveness section stating the
+boundary — liveness reflects whether an analyzer has a *current capacity* signal; robustness
+of the *demand* signal is out of scope for the veto gate and handled upstream (metric sanity +
+demand fallbacks). Current-code prose only.
+
+[↑ TOC](#toc)
+
+### F-NTH — two minor doc/comment touch-ups {#f-nth}
+
+1. Dev-guide responsibility table: it attributes `Live` to the engine "applying uniformly to
+   every analyzer." With the QM static-live fix that is no longer literally uniform — reword to
+   note the multi-analyzer path is liveness-gated while the queueing-model path is statically
+   live (prose, no plans-branch refs).
+2. `analyzer_helpers.go`: add a one-line comment on `applyDeallocationForRole` noting it is
+   intentionally **not** `Live`-gated — harmless, because non-live entries are excluded from the
+   veto and the safe-removal min, so mutating their `RoleSpare` affects nothing that is read.
 
 [↑ TOC](#toc)
 
