@@ -1,0 +1,48 @@
+from: plan
+session: rebase-lastgood-55e24be9
+
+## Task
+Re-rebase all four TA 0.9 branches from their current `aa86a2a9` base onto the
+**last compiling commit `55e24be9`** (#1469, the immediate parent of `aa86a2a9`).
+`aa86a2a9` (#1334) does not compile — it reintroduced `interfaces.` refs in
+`internal/engines/saturation/engine.go` after the `internal/interfaces`→`domain`
+rename (#1449), so `go build`/`make test`/`make lint` cannot run on it. `55e24be9`
+has the rename and no stray `interfaces.` refs → it builds. (Upstream fix is
+already open as PR #1477 but not merged; we are not waiting on it.)
+
+Do this one worktree at a time via `EnterWorktree`; verify `pwd` +
+`git branch --show-current` after each switch and before any operation.
+
+## Per branch — rebase mechanism
+Each branch is currently based on `aa86a2a9` with our commits on top (and, for C,
+the two reworded subjects). Move that same commit stack onto `55e24be9`:
+
+```
+git rebase --onto 55e24be9 aa86a2a9
+```
+
+This replays only our commits onto `55e24be9` (drops the broken `aa86a2a9` from
+underneath — it was never our commit). Expected clean on all four: `#1334`'s only
+change is `modeLabelForAnalyzer` in `engine.go`, a region none of the four branches
+touch. C's reworded commit messages carry through unchanged. If any branch hits a
+conflict, stop and write a `plan__*.md` handoff.
+
+Confirm the new base after rebasing: `git merge-base HEAD upstream/main` and
+`git log --oneline -1 $(git rev-list --max-parents=0 ... )` — simplest check:
+`git log --oneline 55e24be9..HEAD` should show only our commits, and
+`git rev-parse 55e24be9` should be `HEAD`'s ancestor with nothing from `aa86a2a9`.
+
+## Full gates this time (55e24be9 compiles)
+Run on every branch — these are now runnable:
+- `make test`
+- `gofmt -l ./internal/... ./pkg/... ./cmd/...` (must be empty)
+- `make lint`
+- `go build ./...`
+- `-race` where relevant on `ta-veto-liveness` (`make test` with race, per its prior runs).
+- DCO: `git log 55e24be9..HEAD --format="%b" | grep -c Signed-off-by` must equal the commit count.
+
+## Do NOT push
+Per coder rules, do not `git push` (these are force-pushes; Dean runs them).
+When all four are rebased onto `55e24be9` and all gates are green, write a
+`plan__*.md` handoff reporting, per branch: new tip SHA, base confirmed
+`55e24be9`, and each gate's pass/fail. Dean force-pushes; PRs follow.
