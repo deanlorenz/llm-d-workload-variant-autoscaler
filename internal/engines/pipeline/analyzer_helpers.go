@@ -27,6 +27,32 @@ func rolesOf(vcs []domain.VariantCapacity) []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
+// Sentinel VariantCapacity.Reason values that indicate a variant carries no
+// usable capacity signal (see domain.VariantCapacity.Reason doc). Analyzers
+// that skip a variant entirely on failure (e.g. throughput's ITL-model
+// resolution) never emit these — the variant is simply absent from
+// VariantCapacities, which resultIsInformative also treats as uninformative.
+const (
+	analyzerReasonNoData = "no-data"
+	analyzerReasonError  = "error"
+)
+
+// ResultIsInformative reports whether nr carries a usable capacity signal:
+// a non-nil Result with at least one VariantCapacity whose Reason is not a
+// no-data/error sentinel. Used by the engine to decide whether to refresh
+// the analyzer's last-good-analysis timestamp for the liveness gate.
+func ResultIsInformative(nr NamedAnalyzerResult) bool {
+	if nr.Result == nil {
+		return false
+	}
+	for _, vc := range nr.Result.VariantCapacities {
+		if vc.Reason != analyzerReasonNoData && vc.Reason != analyzerReasonError {
+			return true
+		}
+	}
+	return false
+}
+
 // applyAllocation subtracts the capacity provided by n replicas of variant v
 // from each analyzer's Remaining counter. Clamps to 0. The slice is the working
 // allocation state; Result.RequiredCapacity is never mutated.
