@@ -1091,6 +1091,51 @@ func (c *ReplicaMetricsCollector) CollectSchedulerQueueMetrics(
 	}
 }
 
+// CollectModelArrivalRate collects the model-level request arrival rate (req/s)
+// from the llm-d inference scheduler. Unlike the per-instance scheduler dispatch
+// rate (QuerySchedulerDispatchRate), this query sums the same source metric
+// across the whole model with no pod_name/port labels to reconcile against
+// vLLM's per-instance metrics. Returns 0 (not an error) when the metric is
+// unavailable.
+func (c *ReplicaMetricsCollector) CollectModelArrivalRate(
+	ctx context.Context,
+	modelID, namespace string,
+) float64 {
+	logger := ctrl.LoggerFrom(ctx)
+
+	params := map[string]string{
+		source.ParamNamespace: namespace,
+		source.ParamModelID:   modelID,
+	}
+
+	results, err := c.source.Refresh(ctx, source.RefreshSpec{
+		Queries: []string{registration.QueryModelArrivalRate},
+		Params:  params,
+	})
+	if err != nil {
+		logger.V(logging.DEBUG).Info("Model arrival rate unavailable",
+			"modelID", modelID, "namespace", namespace, "error", err)
+		return 0
+	}
+
+	result := results[registration.QueryModelArrivalRate]
+	if result == nil || result.HasError() {
+		return 0
+	}
+
+	var arrivalRate float64
+	for _, value := range result.Values {
+		if !math.IsNaN(value.Value) && !math.IsInf(value.Value, 0) && value.Value >= 0 {
+			arrivalRate += value.Value
+		}
+	}
+
+	logger.V(logging.DEBUG).Info("Collected model arrival rate",
+		"modelID", modelID, "namespace", namespace, "arrivalRate", arrivalRate)
+
+	return arrivalRate
+}
+
 // getScaleTargetNames extracts scale target names from the scale target map.
 func getScaleTargetNames(scaleTargets map[string]scaletarget.ScaleTargetAccessor) []string {
 	names := make([]string, 0, len(scaleTargets))
