@@ -1463,6 +1463,36 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(result.TotalDemand).To(Equal(0.0),
 				"model-level demand must not be held up by a still-nonzero RequestRate")
 		})
+
+		It("weights avgOL by replica count across non-prefill variants, not an equal-per-variant mean (review finding F1)", func() {
+			// v-light: 1 replica, OL=100. v-heavy: 3 replicas, OL=300.
+			// Weighted (correct):   avgOL = (1×100 + 3×300) / (1+3) = 1000/4 = 250
+			// Unweighted (wrong):   avgOL = (100 + 300) / 2 = 200
+			// These must diverge — pins that the fix is weighted, not a mean-of-means.
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-light", ilM, 100, prefix, kvMax, B, kValues)
+			injectWindowObs(analyzer, ctx, modelID, namespace, "v-heavy", ilM, 300, prefix, kvMax, B, kValues)
+
+			lightReplica := domain.ReplicaMetrics{
+				VariantName: "v-light", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+				AvgITL: A*0.50 + B, AvgInputTokens: ilM, AvgOutputTokens: 100,
+				PrefixCacheHitRate: prefix, TotalKvCapacityTokens: kvMax,
+			}
+			heavyReplica := domain.ReplicaMetrics{
+				VariantName: "v-heavy", KvCacheUsage: 0.50, KvUsageInstant: 0.50,
+				AvgITL: A*0.50 + B, AvgInputTokens: ilM, AvgOutputTokens: 300,
+				PrefixCacheHitRate: prefix, TotalKvCapacityTokens: kvMax,
+			}
+			replicas := []domain.ReplicaMetrics{lightReplica, heavyReplica, heavyReplica, heavyReplica}
+
+			const modelArrivalRate = 10.0
+			result, err := analyzer.Analyze(ctx, domain.AnalyzerInput{
+				ModelID: modelID, Namespace: namespace, ReplicaMetrics: replicas,
+				ArrivalRate: modelArrivalRate,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.TotalDemand).To(BeNumerically("~", modelArrivalRate*250.0, 1e-6),
+				"avgOL must be replica-count-weighted (250), not an equal-per-variant mean (200)")
+		})
 	})
 
 	Describe("averageShapeMetrics — RequestRate-weighted averaging", func() {

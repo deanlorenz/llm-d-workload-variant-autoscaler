@@ -245,6 +245,7 @@ func (a *ThroughputAnalyzer) Analyze(
 		anyGPSMismatch    bool
 		totalDecodeITLSat float64
 		totalDecodeOL     float64
+		totalDecodeKV     int // Σ nKV over non-prefill variants — avgOL replica-count weight
 		nDecodeVariants   int
 	)
 	variantCapacities := make([]domain.VariantCapacity, 0, len(byVariant))
@@ -313,15 +314,21 @@ func (a *ThroughputAnalyzer) Analyze(
 		pending := pendingByVariant[variantName]
 		// Track ITL(k_sat) and avgOL across non-prefill variants: ITL(k_sat) for
 		// queue demand estimation, avgOL for the model-level arrival decode term.
-		// Uses the tracked/smoothed shape.AvgOutputTokens (from state.shapeTracker,
-		// robust to a single warm-up cycle reporting AvgOutputTokens==0) rather than
-		// a fresh average over live input.ReplicaMetrics, which would zero out
-		// avgOL during EPP warm-up (ArrivalRate>0, no completions yet) and
-		// reintroduce the spurious-scale-down bug regression-tested by "EPP
-		// warm-up" below.
+		// avgOL uses each variant's tracked/smoothed shape.AvgOutputTokens (from
+		// state.shapeTracker, robust to a single warm-up cycle reporting
+		// AvgOutputTokens==0) rather than a fresh average over live
+		// input.ReplicaMetrics, which would zero out avgOL during EPP warm-up
+		// (ArrivalRate>0, no completions yet) and reintroduce the spurious-
+		// scale-down bug regression-tested by "EPP warm-up" below. Weighted by
+		// nKV (replica count) across variants — per review finding F1
+		// (2026-07-27), an unweighted mean-of-means would let every non-prefill
+		// variant contribute equally regardless of its share of replicas/traffic,
+		// diverging from the plan's specified RequestRate-weighted model-level
+		// average whenever 2+ non-prefill variants have different OL profiles.
 		if state.role != domain.RolePrefill {
 			totalDecodeITLSat += itlSat
-			totalDecodeOL += shape.AvgOutputTokens
+			totalDecodeOL += float64(nKV) * shape.AvgOutputTokens
+			totalDecodeKV += nKV
 			nDecodeVariants++
 		}
 
@@ -375,10 +382,12 @@ func (a *ThroughputAnalyzer) Analyze(
 	// variant's computeDemand result. This replaces the retired per-variant EPP
 	// arrival contribution to TotalDemand (per-variant VariantCapacity.TotalDemand
 	// above is unaffected — it still reflects computeDemand/computeLocalDemand for
-	// per-variant introspection). avgOL is the mean tracked shape.AvgOutputTokens
-	// across non-prefill variants (totalDecodeOL / nDecodeVariants, accumulated in
-	// the loop above); zero when no non-prefill variant currently has a resolved
-	// ITL model, matching avgDecodeITLSat's guard below.
+	// per-variant introspection). avgOL is the nKV-weighted mean of tracked
+	// shape.AvgOutputTokens across non-prefill variants (totalDecodeOL /
+	// totalDecodeKV, accumulated in the loop above) — weighted, not a plain
+	// mean-of-variant-means, so a variant with more replicas contributes
+	// proportionally more (review finding F1). Zero when no non-prefill variant
+	// currently has a resolved ITL model, matching avgDecodeITLSat's guard below.
 	var totalDemand, arrivalDecodeDemand float64
 	var arrivalDemandByRole map[string]float64
 	// Scheduler queue demand is decode-rate-denominated and not variant-attributed.
@@ -387,9 +396,10 @@ func (a *ThroughputAnalyzer) Analyze(
 	var queueDemandByRole map[string]float64
 	// nDecodeVariants > 0 is guaranteed here: the loop above only increments it for
 	// variants that produced supply > 0 (itlSat > 0), so dividing by nDecodeVariants
-	// is safe from division-by-zero.
+	// or totalDecodeKV (both guaranteed >= 1 in that case) is safe from
+	// division-by-zero.
 	if nDecodeVariants > 0 {
-		avgOL := totalDecodeOL / float64(nDecodeVariants)
+		avgOL := totalDecodeOL / float64(totalDecodeKV)
 		arrivalDecodeDemand = input.ArrivalRate * avgOL
 		totalDemand = arrivalDecodeDemand
 		arrivalDemandByRole = distributeDemandByRole(arrivalDecodeDemand, variantCapacities)
