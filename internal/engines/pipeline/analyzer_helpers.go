@@ -230,12 +230,17 @@ func variantsForRole(vcs []domain.VariantCapacity, role string) []domain.Variant
 
 // safeRemovalReplicasForRole returns the number of replicas of variant v that
 // can safely be removed — the minimum of floor(RoleSpare[role]_i / PRC_i[v])
-// across analyzers that have variant v and a non-zero PRC. Returns 0 if any
-// contributing analyzer has RoleSpare[role] ≤ 0 or RoleSpare is nil.
+// across live analyzers that have variant v and a non-zero PRC. Non-live
+// analyzers (no metrics, error state, never analyzed, or stale) are skipped
+// and do not constrain the minimum. Returns 0 if any contributing analyzer
+// has RoleSpare[role] ≤ 0 or RoleSpare is nil.
 func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
 	smallest := math.MaxInt
 	found := false
 	for _, e := range s {
+		if !e.Live {
+			continue // non-live analyzers do not constrain the safe-removal minimum
+		}
 		if e.Result == nil || e.RoleSpare == nil {
 			continue
 		}
@@ -273,22 +278,25 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 	}
 }
 
-// needsScaleDownForRole reports whether every analyzer agrees this role has
-// spare capacity (all-down gate, scoped to one role). Returns false if any
-// analyzer's RoleSpare[role] ≤ 0 or RoleSpare is nil.
+// needsScaleDownForRole reports whether every live analyzer agrees this role
+// has spare capacity (all-down gate, scoped to one role). Non-live analyzers
+// (no metrics, error state, never analyzed, or stale) do not veto — this
+// applies uniformly, including saturation's token-capacity result; there is
+// no name-based exemption. Returns false if any live analyzer's
+// RoleSpare[role] ≤ 0 or RoleSpare is nil. Safety floor: if no live analyzer
+// remains, there is no current basis to scale down, so this returns false.
 func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
-	if len(s) == 0 {
-		return false
-	}
+	liveCount := 0
 	for _, e := range s {
-		if e.Result == nil || e.RoleSpare == nil {
+		if !e.Live {
+			continue // non-live analyzers do not veto (no metrics / error / never analyzed)
+		}
+		if e.Result == nil || e.RoleSpare == nil || e.RoleSpare[role] <= 0 {
 			return false
 		}
-		if e.RoleSpare[role] <= 0 {
-			return false
-		}
+		liveCount++
 	}
-	return true
+	return liveCount > 0
 }
 
 // RolePickFn is the role-generic optimizer variant selector for the unified
