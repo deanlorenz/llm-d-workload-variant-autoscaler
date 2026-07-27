@@ -168,6 +168,17 @@ type Engine struct {
 	// capacityStore is shared with the V2 analyzer for caching capacity knowledge.
 	capacityStore *saturation_v2.CapacityKnowledgeStore
 
+	// lastGoodAnalysis records, per model (keyed by utils.GetNamespacedKey(namespace,
+	// modelID)) and analyzer name, the AnalyzedAt of the most recent informative
+	// (non-error, capacity-bearing) result. Used to gate the scale-down veto: an
+	// analyzer whose last good analysis for a model is absent or staler than
+	// analyzerLivenessStaleCycles cycles does not participate in that model's vote.
+	// Keyed per model (not just per analyzer name) because one Engine instance
+	// serves all models — a global-by-name map would leak one model's freshness
+	// into another's. In-memory only; reset on process restart / leader failover
+	// (safe: non-live → no scale-down until refreshed).
+	lastGoodAnalysis map[string]map[string]time.Time
+
 	// analyzers is the engine's analyzer registry, mutated only during setup
 	// (NewEngine + RegisterAnalyzer). After StartOptimizeLoop it is frozen —
 	// further RegisterAnalyzer calls return an error. The optimize goroutine reads
@@ -247,6 +258,7 @@ func NewEngine(client client.Client, apiReader client.Reader, scheme *runtime.Sc
 		saturationV2Analyzer:    satV2,
 		queueingModelAnalyzer:   queueingmodel.NewQueueingModelAnalyzer(),
 		capacityStore:           capacityStore,
+		lastGoodAnalysis:        make(map[string]map[string]time.Time),
 		optimizer:               scalingOptimizer,
 		metricsEmitter:          metrics.NewMetricsEmitter(),
 		v1AnalyzerFactory:       defaultV1AnalyzerFactory,

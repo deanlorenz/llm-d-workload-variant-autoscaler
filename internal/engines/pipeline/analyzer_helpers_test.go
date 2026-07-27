@@ -75,6 +75,37 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(saturationEntry(s)).To(BeNil())
 		})
 	})
+
+	Describe("ResultIsInformative", func() {
+		It("returns false for a nil Result", func() {
+			Expect(ResultIsInformative(NamedAnalyzerResult{Result: nil})).To(BeFalse())
+		})
+
+		It("returns false when every VariantCapacity is no-data or error", func() {
+			nr := NamedAnalyzerResult{Result: &domain.AnalyzerResult{
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "a", Reason: "no-data"},
+					{VariantName: "b", Reason: "error"},
+				},
+			}}
+			Expect(ResultIsInformative(nr)).To(BeFalse())
+		})
+
+		It("returns false for an empty VariantCapacities slice (e.g. throughput with no resolvable ITL model)", func() {
+			nr := NamedAnalyzerResult{Result: &domain.AnalyzerResult{}}
+			Expect(ResultIsInformative(nr)).To(BeFalse())
+		})
+
+		It("returns true when at least one VariantCapacity carries a usable reason", func() {
+			nr := NamedAnalyzerResult{Result: &domain.AnalyzerResult{
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "a", Reason: "no-data"},
+					{VariantName: "b", Reason: "T1-ols"},
+				},
+			}}
+			Expect(ResultIsInformative(nr)).To(BeTrue())
+		})
+	})
 })
 
 // makeNamedPD builds a NamedAnalyzerResult with RoleCapacities for P/D tests.
