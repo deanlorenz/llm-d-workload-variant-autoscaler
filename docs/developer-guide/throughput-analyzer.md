@@ -454,8 +454,9 @@ TA's decode demand is a **model-level** quantity (TA-demand §3.3/§3.5), not a 
 contributions:
 
 ```
-avgOL               = mean(shape.AvgOutputTokens) over decode/both variants
-                      (tracked WorkloadShape — see Warm-Up Safety below)
+avgOL               = Σ_v (nKV_v × shape_v.AvgOutputTokens) / Σ_v nKV_v
+                      over non-prefill variants v (tracked WorkloadShape,
+                      weighted by each variant's replica count — see below)
 arrivalDecodeDemand = AnalyzerInput.ArrivalRate × avgOL
 ```
 
@@ -470,7 +471,7 @@ filter (correct) or returns zero (filter/EPP absent). No witness metric is neede
 per-instance EPP↔vLLM key merge that previously fed it into TA's demand (and could orphan and
 drop it when ports differed) is no longer on TA's critical path.
 
-### Warm-Up Safety
+### Warm-Up Safety and Weighting
 
 `avgOL` is computed from each variant's **tracked** `WorkloadShape.AvgOutputTokens`
 (`state.shapeTracker.Current()`), never a fresh average over the current cycle's live
@@ -480,6 +481,13 @@ would zero `avgOL` and, with it, `TotalDemand` — reintroducing the exact spuri
 that the per-variant EPP-warm-up fix (`computeDemand` falling through to `computeLocalDemand`
 when `AvgOutputTokens == 0`, see below) was written to prevent. The tracked shape is robust to
 a single zero-OL cycle.
+
+Combining each variant's tracked OL into one model-level `avgOL` must be **weighted by replica
+count** (`nKV`), not an unweighted mean-of-variant-means — otherwise a variant with one replica
+and a variant with ten replicas would contribute equally to `avgOL`, diverging from the true
+per-replica/request-weighted model-level average whenever non-prefill variants have different OL
+profiles and/or different replica counts. With a single non-prefill variant the distinction is
+invisible; it only matters with 2+ (e.g. canary/blue-green, multiple GPU tiers).
 
 ### Per-Variant Demand (Introspection Only)
 
