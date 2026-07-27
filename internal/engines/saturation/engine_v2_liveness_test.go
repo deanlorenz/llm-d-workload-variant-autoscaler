@@ -86,17 +86,25 @@ var _ = Describe("analyzer liveness gate (engine level)", func() {
 		Expect(namedByName(results)[domain.SaturationAnalyzerName].Live).To(BeFalse())
 	})
 
-	It("scopes liveness per model: one model's fresh result does not make another model's stale entry live", func() {
-		stale := &fakeAnalyzerWithResult{
+	It("scopes liveness per model: one model's fresh result does not make another model's never-analyzed entry live", func() {
+		// model-a's own call below must be non-informative (Reason: "no-data"), so it never
+		// writes its own timestamp. If it were informative (even with an old AnalyzedAt), that
+		// write alone would force Live=false regardless of whether the map is keyed correctly
+		// per (name, model, namespace) or buggily by name only — the two keyings would be
+		// indistinguishable, and the test would guard nothing. With a non-informative model-a
+		// result, correct per-tuple keying leaves model-a's entry absent (never written) →
+		// Live=false; a name-only-keyed map would instead read back model-b's fresh write under
+		// the shared "saturation" key → Live=true — so this discriminates the two keyings.
+		neverAnalyzed := &fakeAnalyzerWithResult{
 			analyzerName: domain.SaturationAnalyzerName,
 			result: &domain.AnalyzerResult{
-				AnalyzedAt:        time.Now().Add(-95 * time.Second),
-				VariantCapacities: []domain.VariantCapacity{{VariantName: "v", Reason: "P1-obs"}},
+				AnalyzedAt:        time.Now(),
+				VariantCapacities: []domain.VariantCapacity{{VariantName: "v", Reason: "no-data"}},
 			},
 		}
-		e := liveEngine(stale)
+		e := liveEngine(neverAnalyzed)
 
-		// model-b, fresh: refreshes lastGoodAnalysis for model-b only.
+		// model-b, fresh and informative: refreshes lastGoodAnalysis for model-b only.
 		fresh := &fakeAnalyzerWithResult{
 			analyzerName: domain.SaturationAnalyzerName,
 			result: &domain.AnalyzerResult{
@@ -109,9 +117,10 @@ var _ = Describe("analyzer liveness gate (engine level)", func() {
 		_, err := e.runAnalyzersAndScore(context.Background(), "model-b", "ns", nil, cfg, nil, nil, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		// model-a's stale result must still be non-live — not contaminated by model-b's freshness.
-		e.saturationV2Analyzer = stale
-		e.analyzersSnapshot = []analyzerEntry{{name: domain.SaturationAnalyzerName, analyzer: stale}}
+		// model-a's never-analyzed, non-informative result must still be non-live — not
+		// contaminated by model-b's freshness.
+		e.saturationV2Analyzer = neverAnalyzed
+		e.analyzersSnapshot = []analyzerEntry{{name: domain.SaturationAnalyzerName, analyzer: neverAnalyzed}}
 		results, err := e.runAnalyzersAndScore(context.Background(), "model-a", "ns", nil, cfg, nil, nil, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(namedByName(results)[domain.SaturationAnalyzerName].Live).To(BeFalse())
