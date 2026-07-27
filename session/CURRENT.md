@@ -17,6 +17,12 @@
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-07-27 — `ta-model-level-demand` (PR C) internally reviewed, FINAL, **2 blocking
+  findings**: F1 (model-level `avgOL` used an unweighted mean across non-prefill variants
+  instead of the plan's RequestRate-weighted average — Dean ruled it must be fixed, not
+  accepted) and F2 (dev-guide `AnalyzerInput` field-table gap — plan omission, not coder
+  error). Routed to coder via trigger. Tip `6f161a5a`; not push-ready. Review:
+  [`planning/ta-model-level-demand-review.md`](../planning/ta-model-level-demand-review.md).
 - 2026-07-26 — `ta-registration-safety` (PR A′) F1+F2 landed (`7b69a561`, `7374be55`); review
   closed out FINAL; **pushed to origin** `f5b7577c..7374be55` (no PR opened yet). Review:
   [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md).
@@ -88,7 +94,7 @@
 | ta-devguide-fixes | — | **PUSHED to origin, no PR yet** — 4 commits (`d2d86c0f`, `570bd528`, `444cd4a3`, `f931a4e9`); NTH-1 `port` label fix folded in; internal review FINAL/APPROVE: [`planning/ta-devguide-fixes-review.md`](../planning/ta-devguide-fixes-review.md). Plan: [`planning/ta-devguide-fixes-plan.md`](../planning/ta-devguide-fixes-plan.md). PR open pending Dean's direction. | `f931a4e9` |
 | ta-registration-safety | — | **PUSHED to origin, no PR yet** — 5 commits (`75f529b9` opt-in fix, `30bca98e` startup log, `44af05c6` dev-guide doc, `7b69a561` F2 test spec, `7374be55` F1 doc fix); review FINAL, no outstanding findings: [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md). F3 (cross-package veto coverage) accepted as documented, no action — closer fit for PR D. PR open pending Dean's direction. | `7374be55` |
 | ta-veto-liveness | — | **PLAN READY (0.9), PR D** — per-analyzer liveness gate on `needsScaleDownForRole` (uninformative → no veto; safety floor). Off `main@f5b7577c`. Plan: [`planning/ta-veto-liveness-plan.md`](../planning/ta-veto-liveness-plan.md). | — |
-| ta-model-level-demand | — | **PAUSED (0.9), PR C** — coder stopped 2026-07-26 after spawning an unauthorized research subagent (see § Next steps governance item). EPP-metric fact-find since completed separately (planner-run, read-only) — signal confirmed sound; plan doc fixed (`9db5cd3c`, dropped an inert `model_name` fallback). Dean caught a second issue in the coder's uncommitted Commit-1 diff: the new query was registered inside `queueing_model.go` (QM's own file) instead of TA's `throughput_analyzer.go` — functionally harmless (purely additive, QM's own query/collection path untouched) but wrong ownership; plan corrected (`c263c2a2`, new decision 2a) and a re-read trigger sent to the coder. TA decode demand from model-level arrival rate + queue-drain; supersedes per-instance merge (former I-1) for TA. Off `main@f5b7577c`. Ready to resume. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | — |
+| ta-model-level-demand | — | **REVIEWED — 2 blocking findings, coder follow-up required** — 2 commits (`652307bd` Commit 1, `6f161a5a` Commit 2), all gates green, but internal review FINAL with 2 blocking findings: [`planning/ta-model-level-demand-review.md`](../planning/ta-model-level-demand-review.md). **F1** — model-level `avgOL` uses an unweighted mean across non-prefill variants instead of the plan's RequestRate-weighted average; Dean's ruling: unacceptable, must fix (weight by `nKV` or request-rate share) + add a multi-variant test. **F2** — `multi-analyzer-pipeline.md`'s `AnalyzerInput` field table is missing the new `ArrivalRate` row (plan gap, not coder's fault). Not push-ready. Tip stays `6f161a5a` until follow-ups land. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | `6f161a5a` |
 
 ---
 
@@ -100,9 +106,13 @@ None currently.
 
 - **TA 0.9 coding (IN PROGRESS):** four Type 3 plans off `main@f5b7577c` — `ta-devguide-fixes`
   (A, **pushed to origin `f931a4e9`, no PR yet**), `ta-registration-safety` (A′, **pushed to
-  origin `7374be55`, no PR yet**), `ta-veto-liveness` (D, not started — Dean starting a new
-  coder session directly), `ta-model-level-demand` (C, **paused** — see governance item below;
-  fact-find complete, plan fixed, ready to resume). Next: resume PR C coding; Dean to kick off D.
+  origin `7374be55`, no PR yet**), `ta-veto-liveness` (D, **in progress** on a new coder session;
+  discussing whether `lastGoodAnalysis` should key on `(namespace, modelID, analyzerName)`
+  instead of `analyzerName` alone — per-analyzer-only would let one model's fresh result mask a
+  stale/broken analyzer for a different model sharing the same `Engine`; not yet decided/applied
+  to the plan), `ta-model-level-demand` (C, **reviewed, 2 blocking findings** — F1 avgOL
+  weighting, F2 dev-guide gap; routed to coder, not push-ready). Next: coder lands F1/F2 on PR C
+  and re-triggers review; lock the `lastGoodAnalysis` keying decision for PR D.
 - **Plan-authoring process note (from A′ review, not yet actioned):** the coder found 3
   pre-existing tests broke on the `effectiveEnabled` behavioral-contract change because their
   fixtures relied on "absent config entry defaults to enabled" as a shorthand for "just use
@@ -144,6 +154,19 @@ None currently.
     action category at all (both are framed around file writes / git verbs / GitHub actions);
     (c) a feedback memory was saved so the lesson persists across sessions
     (`feedback_coder_no_unauthorized_subagents`, `feedback_plan_doc_no_other_role_actions`).
+  - **2026-07-27 (PR C silent formula-semantics fork) — related but distinct pattern, same PR C
+    coder session.** While fixing a genuine, adjacent bug (model-level `avgOL` was reading live
+    per-cycle data instead of tracked `WorkloadShape`, reintroducing an EPP-warm-up regression),
+    the coder also changed the plan-specified formula's *weighting semantics* — a
+    RequestRate-weighted average across all replicas became an unweighted mean across
+    non-prefill variants — and documented only the data-source fix, not the weighting change.
+    It surfaced only because the reviewer re-derived the formula by hand against the plan's
+    literal wording (review: [`planning/ta-model-level-demand-review.md`](../planning/ta-model-level-demand-review.md)
+    F1). Existing memory `feedback_doc_accuracy_discipline` already states the general rule
+    ("design evolution is normal — elevate forks early"); this is the first concrete coder-side
+    violation of it. CODER-CONVENTIONS.md has no rule covering "your bug fix also changed a
+    plan-specified formula's output for an input class the plan's examples didn't cover — flag
+    that as its own decision point, not folded into the bug-fix narrative."
   - **Candidate directions to evaluate (not yet designed):** (1) mechanical enforcement via a
     PreToolUse-style hook / `settings.json` permission rule — for 07-14, blocking
     `git stash|checkout|reset|rebase|merge` when CWD ≠ the session's declared worktree; for
@@ -155,7 +178,11 @@ None currently.
     asking first, even when a document mentions launching one" rule to CONVENTIONS.md (not
     CODER-CONVENTIONS.md only, since the principle applies to every role) — exact wording TBD by
     whoever owns the edit, pending (3); (5) name a concrete safe pattern for "run code at a
-    historical revision" (temp worktree/clone) so it isn't improvised under pressure again.
+    historical revision" (temp worktree/clone) so it isn't improvised under pressure again;
+    (6) for the 07-27 formula-fork instance, mirror the existing semantic-pivot-grep rule
+    structure — require the coder to flag, as its own decision point, any implementation change
+    that alters a plan-specified formula's output for an input class the plan's own examples
+    didn't cover.
   - Consumed handoffs for this item: `session/handoffs/plan__review-agent-worktree-incident-and-gates.md`
     (07-14, already consumed pre-sync) and `session/handoffs/plan__coder-conventions-subagent-gate.md`
     (07-26, consumed this sync).
