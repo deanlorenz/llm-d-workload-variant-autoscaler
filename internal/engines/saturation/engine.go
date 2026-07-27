@@ -178,6 +178,10 @@ type Engine struct {
 	// serves all models — a global-by-name map would leak one model's freshness
 	// into another's. In-memory only; reset on process restart / leader failover
 	// (safe: non-live → no scale-down until refreshed).
+	// Unguarded, like vaEventTracker: safe today because PollingExecutor runs
+	// optimize cycles sequentially in one goroutine and models within a cycle
+	// are processed serially. Parallelizing model processing would need to
+	// synchronize this map — the top-level per-model insert would race first.
 	lastGoodAnalysis map[string]map[string]time.Time
 
 	// analyzers is the engine's analyzer registry, mutated only during setup
