@@ -261,13 +261,38 @@ analyzer produces a fresh capacity-bearing result, it becomes live again on
 the next cycle. Liveness is tracked per model, not just per analyzer name,
 so one model's freshness never masks another's staleness.
 
-This liveness filter applies uniformly to every analyzer, including
+An analyzer reporting no usable capacity (`no-data`) does not become
+non-live immediately — it becomes non-live only once its last informative
+result ages out of the staleness window. This distinguishes three cases: an
+analyzer that never had good data (e.g. a mislabelled metric at startup)
+never sets its timestamp and is non-live from the start; a transient
+no-data blip on an analyzer with a recent good result stays live and still
+participates in the vote (the intended "uncertain, err toward not scaling
+down" behavior); and an analyzer whose good data has aged past the window
+becomes non-live. A mislabelled or broken metrics query is not treated as
+an *error* — it still returns a well-formed result, just one with no usable
+capacity — so this reason-based check, not an engine-level error signal, is
+what actually detects a durably-broken analyzer.
+
+Within the multi-analyzer engine path (`runAnalyzersAndScore`), this
+liveness filter applies uniformly to every registered analyzer, including
 saturation's own token-capacity signal — there is no name-based exemption
 inside the scale-down gate. (Saturation's separate role as the shared
 metrics-collection layer — cache size, replica cost, etc., feeding every
 analyzer and the cost optimizer — is unaffected; that collection either
 succeeds for everyone or, if it fails, every analyzer ends up non-live and
-the safety floor below applies.)
+the safety floor below applies.) The queueing-model optimize path
+(`optimizeQueueingModel`) is a separate, older code path that does not yet
+run through this liveness tracking; its `NamedAnalyzerResult` sets `Live:
+true` statically so it keeps scaling down as before. It will pick up real
+liveness tracking when it becomes a first-class multi-analyzer participant.
+
+Liveness reflects whether an analyzer has a current *capacity* (supply-side)
+signal — it does not attempt to detect a broken *demand* signal. A
+falsely-low demand value only biases toward scale-down, never toward a
+spurious veto, so it is out of scope for this gate; demand robustness is
+handled upstream by other mechanisms (metric sanity checks on calibration
+inputs, request-rate / local-demand fallbacks).
 
 **Safety floor.** If every analyzer in the slice is non-live for a role,
 `needsScaleDownForRole` returns false rather than falling through to "no

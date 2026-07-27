@@ -262,6 +262,10 @@ func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
 
 // applyDeallocationForRole decrements each analyzer's RoleSpare[role] by
 // n × PRC_i[v]. Clamps to 0. Never mutates Result.
+// Intentionally not Live-gated: non-live entries are already excluded from
+// the veto (needsScaleDownForRole) and the safe-removal minimum
+// (safeRemovalReplicasForRole), so mutating their RoleSpare here is harmless
+// — nothing reads it back.
 func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 	for i := range s {
 		if s[i].Result == nil || s[i].RoleSpare == nil {
