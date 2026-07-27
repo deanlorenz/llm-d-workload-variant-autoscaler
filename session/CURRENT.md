@@ -17,6 +17,13 @@
 
 **Tail (compressed — recover via the ID/ref):**
 
+- 2026-07-27 — `ta-veto-liveness` (PR D) internally reviewed (3 commits, tip `b3b7f762`, gates
+  green). Two decisions locked in-doc: **B1** (coder fix — QM path never sets `Live` → safety
+  floor silently disabled QM scale-down; fix = static `Live: true` + QM scale-down test) and
+  **Concurrency** (map safe under single-goroutine executor; comment only). Two open: **T1b**
+  (design fork → Dean: is saturation `no-data` a logical omit or never-had-metrics liveness?)
+  and **T1a** (inert per-tuple-keying test; keep+fix or drop, contingent on T1b). Not
+  push-ready. Review: [`planning/ta-veto-liveness-review.md`](../planning/ta-veto-liveness-review.md).
 - 2026-07-27 — `ta-model-level-demand` (PR C) internally reviewed, FINAL, **2 blocking
   findings**: F1 (model-level `avgOL` used an unweighted mean across non-prefill variants
   instead of the plan's RequestRate-weighted average — Dean ruled it must be fixed, not
@@ -93,7 +100,7 @@
 | (upstream) v2-default-analyzer | #1442 | **Reviewed 2026-07-22** — APPROVE review posted (LGTM + 2 non-blocking comments: RC-1 inverted-pair-reset middle ground, RC-2 README per-model-flip note). Review FINAL: [`planning/PR1442-review.md`](../planning/PR1442-review.md). CI green. | (fork branch) |
 | ta-devguide-fixes | — | **PUSHED to origin, no PR yet** — 4 commits (`d2d86c0f`, `570bd528`, `444cd4a3`, `f931a4e9`); NTH-1 `port` label fix folded in; internal review FINAL/APPROVE: [`planning/ta-devguide-fixes-review.md`](../planning/ta-devguide-fixes-review.md). Plan: [`planning/ta-devguide-fixes-plan.md`](../planning/ta-devguide-fixes-plan.md). PR open pending Dean's direction. | `f931a4e9` |
 | ta-registration-safety | — | **PUSHED to origin, no PR yet** — 5 commits (`75f529b9` opt-in fix, `30bca98e` startup log, `44af05c6` dev-guide doc, `7b69a561` F2 test spec, `7374be55` F1 doc fix); review FINAL, no outstanding findings: [`planning/ta-registration-safety-review.md`](../planning/ta-registration-safety-review.md). F3 (cross-package veto coverage) accepted as documented, no action — closer fit for PR D. PR open pending Dean's direction. | `7374be55` |
-| ta-veto-liveness | — | **PLAN READY (0.9), PR D** — per-analyzer liveness gate on `needsScaleDownForRole` (uninformative → no veto; safety floor). Off `main@f5b7577c`. Plan: [`planning/ta-veto-liveness-plan.md`](../planning/ta-veto-liveness-plan.md). | — |
+| ta-veto-liveness | — | **REVIEWED — 2 decisions locked, 2 open items (1 design fork for Dean)** — 3 commits (`785b5350` state, `77be65ca` gate, `b3b7f762` dev-guide), all gates green (incl. `-race`). Core mechanics implemented cleanly (Live field, gated helpers, safety floor, per-tuple keying, fixtures, dev-guide). Review: [`planning/ta-veto-liveness-review.md`](../planning/ta-veto-liveness-review.md). **Decided (Dean, in-doc):** **B1** (blocking, coder fix) — QM optimize path reuses the shared optimizer but never sets `Live`, so the safety floor silently disabled QM scale-down; fix = static `Live: true` on the QM `NamedAnalyzerResult` (option b) + a QM scale-down test (QM has zero test coverage today); **Concurrency** — `lastGoodAnalysis` map is safe under the single-goroutine `PollingExecutor`; comment only, no lock. **OPEN:** **T1b** (design fork → **Dean**) — the PR derives liveness from saturation's *domain* reasons (`no-data`/`error`) rather than the uniform engine-level nil/error/missing signal that already exists; the one open question is whether saturation's `no-data` (no replicas + no store record at startup) is a *logical omit* (role b, doesn't gate) or a genuine *never-had-metrics liveness* failure (the plan's original framing); **T1a** (test, contingent on T1b) — the "scopes liveness per model" test is inert (passes under both correct per-tuple keying and the buggy name-only map); keep+fix or drop. Not push-ready; nothing folded into the plan until T1b is settled. Plan: [`planning/ta-veto-liveness-plan.md`](../planning/ta-veto-liveness-plan.md). | `b3b7f762` |
 | ta-model-level-demand | — | **REVIEWED — 2 blocking findings, coder follow-up required** — 2 commits (`652307bd` Commit 1, `6f161a5a` Commit 2), all gates green, but internal review FINAL with 2 blocking findings: [`planning/ta-model-level-demand-review.md`](../planning/ta-model-level-demand-review.md). **F1** — model-level `avgOL` uses an unweighted mean across non-prefill variants instead of the plan's RequestRate-weighted average; Dean's ruling: unacceptable, must fix (weight by `nKV` or request-rate share) + add a multi-variant test. **F2** — `multi-analyzer-pipeline.md`'s `AnalyzerInput` field table is missing the new `ArrivalRate` row (plan gap, not coder's fault). Not push-ready. Tip stays `6f161a5a` until follow-ups land. Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | `6f161a5a` |
 
 ---
@@ -106,13 +113,16 @@ None currently.
 
 - **TA 0.9 coding (IN PROGRESS):** four Type 3 plans off `main@f5b7577c` — `ta-devguide-fixes`
   (A, **pushed to origin `f931a4e9`, no PR yet**), `ta-registration-safety` (A′, **pushed to
-  origin `7374be55`, no PR yet**), `ta-veto-liveness` (D, **in progress** on a new coder session;
-  discussing whether `lastGoodAnalysis` should key on `(namespace, modelID, analyzerName)`
-  instead of `analyzerName` alone — per-analyzer-only would let one model's fresh result mask a
-  stale/broken analyzer for a different model sharing the same `Engine`; not yet decided/applied
-  to the plan), `ta-model-level-demand` (C, **reviewed, 2 blocking findings** — F1 avgOL
-  weighting, F2 dev-guide gap; routed to coder, not push-ready). Next: coder lands F1/F2 on PR C
-  and re-triggers review; lock the `lastGoodAnalysis` keying decision for PR D.
+  origin `7374be55`, no PR yet**), `ta-veto-liveness` (D, **reviewed** tip `b3b7f762`; coder
+  implemented per-tuple `(namespace, modelID, analyzerName)` keying — a deliberate deviation from
+  the plan's name-only key, confirmed correct by the review; B1 + Concurrency decisions locked,
+  **T1b is an open design fork awaiting Dean** — see below), `ta-model-level-demand` (C,
+  **reviewed, 2 blocking findings** — F1 avgOL weighting, F2 dev-guide gap; routed to coder, not
+  push-ready). **Next on D:** Dean settles T1b (no-data = logical omit vs never-had-metrics
+  liveness); then the planner folds B1 (static QM `Live: true` + QM scale-down test), the
+  T1b resolution, T1a (keep+fix or drop the inert keying test), and the concurrency field-comment
+  into the plan doc as one consolidated coder trigger. **Next on C:** coder lands F1/F2 and
+  re-triggers review.
 - **Plan-authoring process note (from A′ review, not yet actioned):** the coder found 3
   pre-existing tests broke on the `effectiveEnabled` behavioral-contract change because their
   fixtures relied on "absent config entry defaults to enabled" as a shorthand for "just use
