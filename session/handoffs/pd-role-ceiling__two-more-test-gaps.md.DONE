@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/optimizer-pd-role-ceiling-plan.md
+note: § Test plan now has 2 pending items (9/10, fractional round-up-to-1 isolated; mid-call headroom→capped transition after partial progress) found during a planner corner-case audit; § Implementation phases has a corresponding pending Commit 7

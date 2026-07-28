@@ -1,0 +1,38 @@
+from: optimizer-pd-role-ceiling
+session: 2 more test-plan scenarios found post-review — multi-analyzer RoleCapacities aggregation
+
+## What changed
+
+Dean asked whether the test suite covered "all these corner cases" after the numerator fix
+(911e13b7). Answering that honestly surfaced a real gap not in the plan doc's § Test plan list:
+every existing P/D test (including all 6 originally-planned scenarios) uses exactly one analyzer
+entry in `s []NamedAnalyzerResult`. In production, saturation *and* throughput can both populate
+`RoleCapacities` for the same disaggregated model, and they can disagree — nothing exercised that.
+
+Added two tests in `69c759a1` (committed):
+
+1. **`achievedSoFar`/`denom` must read only the saturation entry's `RoleCapacities`**, even when
+   a second analyzer (throughput) populates a divergent `RequiredCapacity` for the same role —
+   matching the existing `saturationEntry` single-canonical-source convention used elsewhere
+   (`cost_aware_optimizer.go:303-311`). Verified by hand-breaking `saturationRoleView` to merge
+   every analyzer's `RoleCapacities` instead of filtering to saturation, confirming the new test
+   fails, then reverting.
+2. **`roleBottleneckReplicas`' cross-analyzer `max` for `n_role` sizing is unaffected** by
+   narrowing the achieved/denom source to saturation alone — a companion check that I didn't
+   accidentally over-narrow a *different*, unrelated code path (this one intentionally still
+   aggregates across every analyzer in `s`) while fixing the first issue.
+
+## Update the plan doc
+
+`planning/optimizer-pd-role-ceiling-plan.md` § Test plan lists 6 scenarios (all now implemented,
+per the plan's own numbering) plus a "should keep passing unchanged" note. Please add a 7th/8th
+item (or a new sub-list) covering the above — multi-analyzer `RoleCapacities` divergence wasn't
+anticipated in the original design discussion, so it's net-new scope rather than a resolution of
+an existing open question.
+
+## Open questions / follow-ups
+
+One deliberately-left gap, flagged but not tested (low priority, noted in my status file): a role
+with zero variants (`RoleCapacities` has an entry but `variantsForRole` returns empty) — `pick()`
+would return `("", 0)` immediately. Low-probability in production (every real role has ≥1
+variant); leaving untested unless the planner wants it added.

@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/optimizer-pd-role-ceiling-plan.md
+note: § Implementation phases now includes a new step 0 (red-first verification) ahead of Commit 1

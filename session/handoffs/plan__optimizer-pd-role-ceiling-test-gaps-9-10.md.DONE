@@ -1,0 +1,37 @@
+reason: Commit 7 landed — § Test plan items 9/10 (fractional round-up-to-1 isolated; mid-call
+headroom→capped transition after partial progress) now covered.
+refs:
+  - planning/optimizer-pd-role-ceiling-plan.md
+  - internal/engines/pipeline/cost_aware_optimizer_test.go
+note: |
+  Commit 0c33a3eb ("test(optimizer): cover fractional round-up and mid-call cap transition")
+  closes both pending test-plan items from the 2026-07-14 corner-case audit. Test-only, no
+  production code changed.
+
+  Item 9 ("should round a fractional replica gap up to 1, not floor it to 0"): prefill capped at
+  1 replica from cold start (own ceiling = jointCap = 1.0 exactly); decode unconstrained at
+  achieved=0.667 (denom=150, supply=100), whose gap to jointCap is exactly 0.5 replicas. Verified
+  by temporarily replacing `k = min(max(int(math.Floor(raw)), 1), n)` with plain
+  `k = min(int(math.Floor(raw)), n)` — this test failed, along with 4 pre-existing ones
+  (respect-maxReplicas spillover, multi-variant-per-role, 3-synthetic-role, multi-analyzer
+  achieved/denom) — confirms the rounding rule is more broadly load-bearing than this one fixture
+  alone. Reverted cleanly (`git diff` empty before commit).
+
+  Item 10 ("should freeze a role's contribution correctly after it becomes capped mid-call, not
+  just when already capped from the start"): prefill starts with real headroom (MaxReplicas=2,
+  CurrentReplicas=0) and IS the role defining jointCap in iteration 1 — its full-headroom commit
+  of 2 both sets that iteration's jointCap and exhausts its cap in the same step. Decode is
+  trimmed to jointCap in iteration 1 (getting 1, not its own higher ceiling of 2). Iteration 2
+  must recompute pick() fresh (now returning `("", 0)` for prefill) and correctly freeze its
+  achieved contribution at the same value, rather than either granting more (stale headroom) or
+  losing it (stale achieved). Verified by temporarily hoisting the `pick()` call out of the
+  iteration loop (computed once, reused every iteration) — this test failed, along with 7 others
+  spanning both optimizers. Reverted cleanly.
+
+  Both fixtures and their iteration-by-iteration math were hand-traced before writing the test
+  (not just written-then-debugged) — happy to walk through the arithmetic if useful for the plan
+  doc write-up.
+
+  Requesting: fold this into § Test plan (items 9/10: pending → done, commit 0c33a3eb) and
+  § Implementation phases (Commit 7: not started → done). No design questions raised — this was
+  fully specified by the existing plan doc language, no fork to resolve.

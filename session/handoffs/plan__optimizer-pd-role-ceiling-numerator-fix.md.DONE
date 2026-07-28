@@ -1,0 +1,62 @@
+from: optimizer-pd-role-ceiling
+session: 4th design resolution — achieved-so-far numerator, found post-commit-1
+
+## What changed
+
+Commit `a694012a` (the joint-allocation fix, planner-approved 2026-07-14) landed with a
+still-subtle bug in the `achievedSoFar` numerator, found while designing the "FairShare-pressure
+invariant" test (§ Test plan item 6) — no test in `a694012a` exercised genuine multi-model
+fair-share competition (mean>0), so it went uncaught until then.
+
+**The bug:** `a694012a` read `originalRC_role`/the achieved-so-far numerator from
+`pickerState[satIdx][role]` at function entry. That's a faithful proxy for "how much has this
+role already achieved, this call" only when nothing external interferes with `pickerState`
+between calls. `GreedyByScoreOptimizer.allocateForModel` violates that on every outer call after
+the first: it rebuilds `pickerState` fresh from `RequiredCapacity` and externally caps it to that
+iteration's fair-share budget *before* calling into `allocateForModelPaired`. Whenever more than
+one model competes for the same GPU pool, that cap sits strictly below the true remaining demand
+— and reading achieved-so-far off the capped value misread the unfunded gap as "already
+achieved," inflating a role's progress and letting a sibling role over-commit past its true joint
+ceiling.
+
+**The fix:** committed capacity is now computed directly from the replica delta already tracked
+in `targets[]`/`stateMap` (`targets[v] - CurrentReplicas`, × `PerReplicaCapacity`, summed over the
+role's variants) instead of from `pickerState`. This is exact regardless of how many outer
+fair-share calls have run or how tightly any of them capped their budget, because `targets[]`
+persists and accumulates across the whole optimizer pass. `RequiredCapacity` itself (the
+denominator) is now read as a fixed value off the analyzer's `RoleCapacities` (via the
+`saturationRoleView` helper already added in `a694012a`) rather than off `pickerState`, for the
+same reason.
+
+Committed as `911e13b7` (analyzer_helpers.go fix + the regression test that caught it) and
+`4fdd1123` (two more test-plan scenarios: multi-variant-per-role, synthetic 3-role — no code
+changes, unaffected by the bug).
+
+## Update the plan doc
+
+`planning/optimizer-pd-role-ceiling-plan.md` § Design — corrected algorithm currently documents
+3 "Resolved during implementation" points (snapshot location, `denom_role` derivation, the
+`achievedSoFar` clamp). Please add a 4th:
+
+> **4. `originalRC_role`/achieved-so-far numerator must come from actual commits, not
+> pickerState.** Resolution #1 above (snapshot `pickerState[satIdx][role]` at function entry)
+> is only correct for the *denominator* derivation, not for the achieved-so-far numerator.
+> `GreedyByScoreOptimizer`'s per-iteration fair-share budget cap on `pickerState` means the
+> at-entry snapshot can sit below the true remaining demand whenever more than one model is
+> active — misreading the unfunded gap as already-achieved progress. Fixed by computing
+> committed capacity from `targets[v] - stateMap[v].CurrentReplicas` (summed per role, across
+> that role's variants) instead — this is exact across any number of outer fair-share calls
+> since `targets[]` persists across the whole pass. No test in the original 3-resolution round
+> exercised genuine multi-model competition (mean>0 in `fairShareScaleUp`), which is why this
+> surfaced only once the FairShare-pressure invariant test (§ Test plan item 6) was designed.
+
+This also means the formula block just above (the `achievedSoFar_role = ... / denom_role`
+line) should read `committed_role` (computed from `targets`/`stateMap`) instead of
+`(originalRC_role − pickerState[i][role])` — the pickerState-based expression is what was wrong.
+
+## Open questions / follow-ups
+
+None — this is a closed loop (bug found by the coder's own test design, fixed, tested, committed;
+full reasoning trace is in the two commit messages). Flagging for the plan doc only so it stays
+the authoritative record rather than this handoff, per the coder's own preference stated in the
+prior handoff on this topic.

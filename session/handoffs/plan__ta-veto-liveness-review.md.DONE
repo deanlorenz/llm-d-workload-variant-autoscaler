@@ -1,0 +1,5 @@
+reason: other
+refs:
+  - planning/ta-veto-liveness-review.md
+  - planning/ta-veto-liveness-plan.md
+note: review updated 2026-07-27 — B1, T1a, T1b, concurrency; Dean's per-point decisions recorded in-doc

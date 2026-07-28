@@ -1,0 +1,6 @@
+reason: code-review-before-push
+refs:
+  - ta-registration-safety/ (worktree)
+  - planning/ta-registration-safety-plan.md
+  - planning/ta-registration-safety-review.md
+note: 2 new commits (7b69a561 F2 spec, 7374be55 F1 doc fix) added on top of the previously-reviewed 3; original 3 unchanged. All gates re-verified green (make test, gofmt, make lint, go build ./...); tip now 7374be55.

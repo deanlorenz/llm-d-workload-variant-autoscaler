@@ -1,0 +1,5 @@
+reason: code-review-before-push
+refs:
+  - optimizer-pd-role-ceiling/ (worktree)
+  - planning/optimizer-pd-role-ceiling-plan.md
+note: 4 commits on main@6e3ceb3e (a694012a, 911e13b7, 4fdd1123, 2e3f023d); all gates green (build, gofmt, full test suite, lint clean w.r.t. diff, DCO verified); commit boundaries now settled

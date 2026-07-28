@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/ta-model-level-demand-plan.md
+note: Commit 1's query-registration target changed — now throughput_analyzer.go, not queueing_model.go (new decision 2a added).

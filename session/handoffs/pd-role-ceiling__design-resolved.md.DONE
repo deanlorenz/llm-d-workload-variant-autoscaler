@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/optimizer-pd-role-ceiling-plan.md
+note: all 3 design questions approved as proposed, plus one planner amendment (achievedSoFar clamp when originalRC_role<=0) — folded into § Design "Resolved during implementation"; test-plan item 1 fixture recalibration approved as proposed

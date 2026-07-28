@@ -1,0 +1,6 @@
+reason: code-review-before-push
+refs:
+  - ta-model-level-demand/ (worktree)
+  - planning/ta-model-level-demand-plan.md
+  - session/status/ta-model-level-demand.md
+note: 2 commits on main@f5b7577c; all gates green
