@@ -124,10 +124,16 @@ agents via handoff files.
 - **Ref integrity.** CURRENT.md is updated *last*. When a referenced doc changes (especially
   design-doc `Fnn`/`Ann` anchors, which renumber), re-validate CURRENT.md's refs into it and
   fix any that no longer resolve.
-- **Editing lock.** Before starting a direct CURRENT.md edit session, create
-  `session/handoffs/current__editing.md.WIP` as a sentinel. Another planner instance
-  seeing this file creates a `plan__*.md` handoff instead of editing directly. Rename the
-  sentinel to `current__editing.md.DONE` after committing.
+- **Single-writer model (2026-07-28).** Only **one dedicated sync session** writes CURRENT.md
+  (and other canonical `session/` shared state — the PR Status table, Blocked-on, Next steps,
+  Pending handoffs). Every other session — including other planner instances and auto-mode
+  sessions — only *submits* handoffs; none edits CURRENT.md directly, and none invokes
+  `/sync-current`. Scope is CURRENT.md + `session/` state only; `planning/` Type-3 docs remain
+  multi-writer (request risky `planning/` deletions via handoff to be safe).
+- **Editing lock.** The `session/handoffs/current__editing.md.WIP` sentinel is the gate. The
+  dedicated sync session creates it before writing CURRENT.md and renames it to
+  `current__editing.md.DONE` after committing. Any session that sees `.WIP` refuses to sync
+  and writes a `plan__*.md` handoff instead.
 
 **Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
@@ -289,16 +295,20 @@ recent_commits:
 notes: <freeform, optional>
 ```
 
-*Handoffs — serialize updates to shared state.* Coders and review agents do not edit
-CURRENT.md, the PR Status table, or any other planner-owned shared file directly. They
-write a handoff at `session/handoffs/plan__<topic>.md` describing what the planner
-should fold in. The planner is the single writer; the handoff queue avoids edit conflicts.
+*Handoffs — serialize updates to shared state.* No session edits CURRENT.md, the PR Status
+table, or any other canonical `session/` shared file directly — not coders, not review
+agents, not other planner instances. They write a handoff at
+`session/handoffs/plan__<topic>.md` describing what the dedicated sync session should fold
+in. The sync session is the single writer; the handoff queue avoids edit conflicts. Handoffs
+need not be committed by the submitting session — all sessions share the `plans/` worktree
+filesystem, so the sync session reads uncommitted handoff files directly and commits/consumes
+them in its batch.
 
-When Dean says "sync state" (or equivalent), the plan-agent runs `/sync-current` from
-the `plans` worktree. It reads every `plan__*.md`, applies the described updates to
-CURRENT.md, marks each consumed file by renaming it to `<file>.md.DONE`, then `git rm`s
-the .DONE files in its commit. Sync is a deliberate, explicit declaration — not a
-background process.
+When Dean says "sync state" (or equivalent), the **dedicated sync session** runs
+`/sync-current` from the `plans` worktree. It reads every `plan__*.md`, applies the described
+updates to CURRENT.md, marks each consumed file by renaming it to `<file>.md.DONE`, then
+`git rm`s the .DONE files in its commit. Sync is a deliberate, explicit declaration — not a
+background process, and not something other session types invoke.
 
 Handoff format — two header lines plus freeform prose body:
 ```

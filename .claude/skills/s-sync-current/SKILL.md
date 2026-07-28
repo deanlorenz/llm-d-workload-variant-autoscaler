@@ -140,6 +140,11 @@ Print the commit SHA or the up-to-date message when done.
 
 ## Notes
 
+- **Invoked only from the dedicated sync session.** Per CONVENTIONS "single-writer model,"
+  only one designated session runs this skill; every other session (planner instances and
+  auto-mode included) submits handoffs instead of syncing. Handoffs need not be committed by
+  their sender — this skill reads uncommitted handoff files directly, and Step 5 already
+  removes untracked `.DONE` files via `rm` rather than `git rm`.
 - Triggers (`<recipient>__*.md` where recipient ≠ `plan`) are not the sync skill's
   business. Leave them alone; their recipients process them.
 - Status files at `plans/session/status/<branch>.md` are not handoffs. Leave them
