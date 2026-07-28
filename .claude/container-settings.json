@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(keybindings-help)",
+      "Skill(keybindings-help:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-session-start.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
