@@ -3,6 +3,7 @@ package saturation
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -72,6 +73,13 @@ func (e *Engine) runV2AnalysisOnly(
 	// them at this point would always report 0 and be misleading.
 	return result, nil
 }
+
+// analyzerLivenessStaleCycles is the number of optimization cycles an
+// analyzer's last informative result may age before it is treated as stale
+// (non-live) for the scale-down veto gate. Fixed for now; revisit as a
+// per-deployment config field if operators need to tune it.
+// TODO: make configurable if needed.
+const analyzerLivenessStaleCycles = 3
 
 // runAnalyzersAndScore runs the V2 saturation analyzer, applies the universal
 // threshold post-step to every analyzer's result (using per-analyzer config
@@ -159,10 +167,49 @@ func (e *Engine) runAnalyzersAndScore(
 			ScaleDownBoundary: down,
 		})
 	}
+	e.updateLivenessAndSetLive(namespace, modelID, namedResults)
+
 	for _, nr := range namedResults {
 		logAnalyzerResult(ctx, modelID, namespace, nr)
 	}
 	return namedResults, nil
+}
+
+// updateLivenessAndSetLive refreshes e.lastGoodAnalysis for this model with
+// every informative result's AnalyzedAt, then sets nr.Live on each entry in
+// place based on whether its last good analysis (if any) is within the
+// staleness window. Applies uniformly to every analyzer, including
+// saturation — no name-based exemption.
+func (e *Engine) updateLivenessAndSetLive(
+	namespace, modelID string,
+	namedResults []pipeline.NamedAnalyzerResult,
+) {
+	if e.lastGoodAnalysis == nil {
+		e.lastGoodAnalysis = make(map[string]map[string]time.Time)
+	}
+	modelKey := utils.GetNamespacedKey(namespace, modelID)
+	if e.lastGoodAnalysis[modelKey] == nil {
+		e.lastGoodAnalysis[modelKey] = make(map[string]time.Time)
+	}
+	perAnalyzer := e.lastGoodAnalysis[modelKey]
+
+	// Config is nil in unit tests that construct a minimal Engine directly
+	// (bypassing NewEngine, which panics on a nil Config in production).
+	interval := 30 * time.Second
+	if e.Config != nil {
+		interval = e.Config.OptimizationInterval()
+	}
+	now := time.Now()
+	threshold := analyzerLivenessStaleCycles * interval
+
+	for i := range namedResults {
+		nr := &namedResults[i]
+		if pipeline.ResultIsInformative(*nr) {
+			perAnalyzer[nr.Name] = nr.Result.AnalyzedAt
+		}
+		lastGood, ok := perAnalyzer[nr.Name]
+		nr.Live = ok && now.Sub(lastGood) <= threshold
+	}
 }
 
 // scoreForAnalyzer returns the AnalyzerScoreConfig.Score for the named analyzer,
