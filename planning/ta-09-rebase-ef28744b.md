@@ -87,6 +87,31 @@ Files expected to interact with the new base: `internal/engines/saturation/engin
 - **No PR-body / CURRENT.md edits.** The stale "#1477 / CI red" caveat in the four PR
   bodies and in CURRENT.md is planner/Dean territory — dropped after the force-push lands.
 
+## Addendum 2026-07-28 — D (#1481) CI re-trigger via tip amend
+
+After the force-push, A/A′/C `lint-and-test` re-ran green, but **D's `pull_request`
+workflow never dispatched** (GitHub dropped the webhook — only the
+`pull_request_target` signed-commits job fired). A close+reopen of #1481 did **not**
+re-fire it (no `pull_request` run created; nothing held awaiting approval). The only
+reliable re-trigger is a fresh `synchronize` event = a new head SHA.
+
+**Coder task (D / `ta-veto-liveness` only):** amend the tip to change its SHA without
+changing content or commit count:
+
+```
+# in the ta-veto-liveness worktree, tip 832baa08
+git commit --amend --no-edit -s
+```
+
+- `--no-edit`: message unchanged. `-s`: keep the DCO sign-off (do not duplicate — if
+  amend would add a second `Signed-off-by`, drop the flag; verify exactly one remains).
+- New tip SHA ≠ `832baa08`; **still 6 commits** off `ef28744b`; tree byte-identical.
+- Re-verify the DCO line count (6/6) and that `git diff 832baa08 HEAD` is empty (content
+  identical — only the commit metadata/SHA changed).
+- **No push** — report the new tip; Dean force-pushes (`--force-with-lease`) to fire the
+  `synchronize` event that re-dispatches `lint-and-test`.
+- No other branch is touched — A/A′/C are already green.
+
 ## Post-rebase (plan-agent / Dean, not the coder)
 
 - Force-push all four `--force-with-lease` (Dean-confirmed, per-branch PR warning).
