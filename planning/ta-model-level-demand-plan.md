@@ -4,7 +4,7 @@
 > via `Read <file> offset:<start-line> limit:<end-start+1>`. Never read the
 > whole file up front.
 
-**Type:** 3 (task plan) · **Branch:** `ta-model-level-demand` off `main` (`f5b7577c`; round-2 rebases onto `upstream/main` `28a58b77` — see [C.0 {#c0}](#c0--rebase-onto-current-upstreammain-first-c0))
+**Type:** 3 (task plan) · **Branch:** `ta-model-level-demand` off `main` (`f5b7577c`; round-2 rebases onto the **current tip** of `upstream/main` — the moving ref, never a pinned SHA — see [C.0 {#c0}](#c0--rebase-onto-current-upstreammain-first-c0))
 **Size:** 1 model-level query + plumbing + TA demand rewire · **Reviewer session:** yes (demand semantics)
 
 ## TOC {#toc}
@@ -16,11 +16,11 @@
 - [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L191:227
 - [Tests to add {#tests}](#tests-to-add-tests) L228:249
 - [Developer guide {#devguide}](#developer-guide-devguide) L250:263
-- [Review follow-ups (ev-shindin PR #1480 comments) {#followups}](#review-follow-ups-ev-shindin-pr-1480-comments-followups) L264:370
-  - [C.0 — Rebase onto current upstream/main FIRST {#c0}](#c0--rebase-onto-current-upstreammain-first-c0) L274:325
-  - [C.1 — document why a zero/absent arrival signal is safe (comment) {#c1}](#c1--document-why-a-zeroabsent-arrival-signal-is-safe-comment-c1) L326:345
-  - [C.2 — document why RequestRate is not used as a broken-arrival cross-check (comment) {#c2}](#c2--document-why-requestrate-is-not-used-as-a-broken-arrival-cross-check-comment-c2) L346:370
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L371:383
+- [Review follow-ups (ev-shindin PR #1480 comments) {#followups}](#review-follow-ups-ev-shindin-pr-1480-comments-followups) L264:376
+  - [C.0 — Rebase onto current upstream/main FIRST {#c0}](#c0--rebase-onto-current-upstreammain-first-c0) L274:331
+  - [C.1 — document why a zero/absent arrival signal is safe (comment) {#c1}](#c1--document-why-a-zeroabsent-arrival-signal-is-safe-comment-c1) L332:351
+  - [C.2 — document why RequestRate is not used as a broken-arrival cross-check (comment) {#c2}](#c2--document-why-requestrate-is-not-used-as-a-broken-arrival-cross-check-comment-c2) L352:376
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L377:389
 
 ## Overview {#overview}
 
@@ -278,27 +278,33 @@ reference other branches/PRs by identifier in the code comment (§4a); describe 
 comment folds must land on current code. This authorization is specific to the C/D round-2 work —
 it does not generalize.
 
-**Target.** Rebase `ta-model-level-demand` onto `upstream/main` (currently `28a58b77`). The branch's
-merge-base is `11d70a8a` (the #1479 merge); the replayed base gains the four commits in
-`11d70a8a..upstream/main`:
+**Target — always the live tip, never a pinned SHA.** Rebase `ta-model-level-demand` onto the
+current tip of `upstream/main`:
 
-- `2fd5fa53` (#1473) — Makefile `BENCHMARK_WORKLOAD` default; no code impact.
-- `6436f2b1` (#1450) — **rename `internal/saturation` → `internal/saturationv1`**.
-- `bf8fd8d9` (#1448) — **move surviving `pkg/` packages → `internal/queueing`**.
-- `28a58b77` (#1487) — **wire `GLOBAL_OPT_INTERVAL` into the optimize loop**.
+```
+git fetch upstream
+git rebase upstream/main
+```
 
-**What this branch's edit targets do / don't hit** (verified live against `upstream/main`):
+`upstream/main` is a **moving ref** — rebase onto whatever it points to at the moment you run this.
+Do **not** substitute a specific commit SHA for `upstream/main`: the tip advances, a pinned SHA goes
+stale, and it misreads as "rebase onto exactly this one commit." Any SHA named below is
+informational context as of authoring only — the rebase target is the ref, full stop.
 
-- C's core edit site `internal/engines/analyzers/throughput/analyzer.go` is **unchanged in path**;
-  `internal/domain/analyzer.go` and `internal/engines/saturation/engine_v2.go` likewise. So the
-  #1450/#1448 renames do **not** move C's edit sites — but if C's model-level arrival query or its
-  plumbing imports anything that lived under `pkg/` (now `internal/queueing`) or under
-  `internal/saturation` (now `internal/saturationv1`), those imports need the new path. Import-path
-  churn, not a logic change.
-- The two round-2 additions are **comment-only** (C.1, C.2) — no behavior to re-verify against
-  #1487 beyond a clean `go build ./...` after the rebase. Still run the full per-file diff /
-  per-commit checks below for the *pre-existing* C commits, since git's three-way merge can drop a
-  hunk under conflict.
+**Churn to expect during conflict resolution** (as of authoring, `upstream/main` had advanced past
+this branch's merge-base `11d70a8a`, the #1479 merge, with — among others — a
+`internal/saturation → internal/saturationv1` rename, a `pkg/ → internal/queueing` move, and a
+change wiring the optimize-loop interval via an env var; **more may have landed since — diff against
+your actual rebased base, do not treat this list as complete**):
+
+- The renames/moves do **not** relocate C's edit sites:
+  `internal/engines/analyzers/throughput/analyzer.go`, `internal/domain/analyzer.go`,
+  `internal/engines/saturation/engine_v2.go`. But if C's model-level arrival query or its plumbing
+  imports anything that was renamed/moved, those imports need the new path. Import-path churn, not a
+  logic change.
+- The two round-2 additions are **comment-only** (C.1, C.2) — no behavior to re-verify beyond a
+  clean `go build ./...` after the rebase. Still run the full per-file diff / per-commit checks below
+  for the *pre-existing* C commits, since git's three-way merge can drop a hunk under conflict.
 
 **Procedure** (CONVENTIONS non-trivial-rebase rule applies — multi-commit stack, touched files may
 import moved packages):

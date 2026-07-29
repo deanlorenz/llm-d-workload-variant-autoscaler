@@ -4,7 +4,7 @@
 > via `Read <file> offset:<start-line> limit:<end-start+1>`. Never read the
 > whole file up front.
 
-**Type:** 3 (task plan) · **Branch:** `ta-veto-liveness` off `main` (`f5b7577c`; round-2 rebases onto `upstream/main` `28a58b77` — see [D.0 {#d0}](#d0--rebase-onto-current-upstreammain-first-d0))
+**Type:** 3 (task plan) · **Branch:** `ta-veto-liveness` off `main` (`f5b7577c`; round-2 rebases onto the **current tip** of `upstream/main` — the moving ref, never a pinned SHA — see [D.0 {#d0}](#d0--rebase-onto-current-upstreammain-first-d0))
 **Size:** engine state + 2 aggregation-helper changes + tests · **Reviewer session:** yes (core scale-down semantics)
 
 ## TOC {#toc}
@@ -24,13 +24,13 @@
   - [F-Conc — document the single-writer assumption on lastGoodAnalysis (comment only) {#f-conc}](#f-conc--document-the-single-writer-assumption-on-lastgoodanalysis-comment-only-f-conc) L378:389
   - [F-Demand — liveness is supply/capacity currency; demand robustness is separate (doc only) {#f-demand}](#f-demand--liveness-is-supplycapacity-currency-demand-robustness-is-separate-doc-only-f-demand) L390:405
   - [F-NTH — two minor doc/comment touch-ups {#f-nth}](#f-nth--two-minor-doccomment-touch-ups-f-nth) L406:417
-- [Review follow-ups (round 2 — ev-shindin PR #1481 comments) {#followups2}](#review-follow-ups-round-2--ev-shindin-pr-1481-comments-followups2) L418:613
-  - [D.0 — Rebase onto current upstream/main FIRST {#d0}](#d0--rebase-onto-current-upstreammain-first-d0) L426:479
-  - [D.1 — de-duplicate the no-data/error sentinel strings across packages {#d1}](#d1--de-duplicate-the-no-dataerror-sentinel-strings-across-packages-d1) L480:508
-  - [D.2 — prune `lastGoodAnalysis` of departed models (code) {#d2}](#d2--prune-lastgoodanalysis-of-departed-models-code-d2) L509:534
-  - [D.3 — demand-liveness detector: warn when supply is live but demand never is (code + comment + doc) {#d3}](#d3--demand-liveness-detector-warn-when-supply-is-live-but-demand-never-is-code--comment--doc-d3) L535:601
-  - [Dev guide (round-2) {#devguide2}](#dev-guide-round-2-devguide2) L602:613
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L614:626
+- [Review follow-ups (round 2 — ev-shindin PR #1481 comments) {#followups2}](#review-follow-ups-round-2--ev-shindin-pr-1481-comments-followups2) L418:620
+  - [D.0 — Rebase onto current upstream/main FIRST {#d0}](#d0--rebase-onto-current-upstreammain-first-d0) L426:486
+  - [D.1 — de-duplicate the no-data/error sentinel strings across packages {#d1}](#d1--de-duplicate-the-no-dataerror-sentinel-strings-across-packages-d1) L487:515
+  - [D.2 — prune `lastGoodAnalysis` of departed models (code) {#d2}](#d2--prune-lastgoodanalysis-of-departed-models-code-d2) L516:541
+  - [D.3 — demand-liveness detector: warn when supply is live but demand never is (code + comment + doc) {#d3}](#d3--demand-liveness-detector-warn-when-supply-is-live-but-demand-never-is-code--comment--doc-d3) L542:608
+  - [Dev guide (round-2) {#devguide2}](#dev-guide-round-2-devguide2) L609:620
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L621:633
 
 ## Overview {#overview}
 
@@ -430,27 +430,34 @@ chase `main`; here Dean directed it because `main` advanced materially since thi
 and the round-2 folds must land on current code. This authorization is specific to the C/D
 round-2 work — it does not generalize to other open PRs.
 
-**Target.** Rebase `ta-veto-liveness` onto `upstream/main` (currently `28a58b77`). The branch's
-merge-base is `11d70a8a` (the #1479 merge), so the replayed base gains the four commits in
-`11d70a8a..upstream/main`:
+**Target — always the live tip, never a pinned SHA.** Rebase `ta-veto-liveness` onto the current
+tip of `upstream/main`:
 
-- `2fd5fa53` (#1473) — Makefile `BENCHMARK_WORKLOAD` default; no code impact.
-- `6436f2b1` (#1450) — **rename `internal/saturation` → `internal/saturationv1`**.
-- `bf8fd8d9` (#1448) — **move surviving `pkg/` packages → `internal/queueing`**.
-- `28a58b77` (#1487) — **wire `GLOBAL_OPT_INTERVAL` into the optimize loop**.
+```
+git fetch upstream
+git rebase upstream/main
+```
 
-**What this branch's edit targets do / don't hit** (verified live against `upstream/main`):
+`upstream/main` is a **moving ref** — rebase onto whatever it points to at the moment you run this.
+Do **not** substitute a specific commit SHA for `upstream/main`: the tip advances, a pinned SHA goes
+stale, and it misreads as "rebase onto exactly this one commit." Any SHA named below is
+informational context as of authoring only — the rebase target is the ref, full stop.
 
-- D's three core files are **unchanged in path**: `internal/engines/saturation/engine_v2.go`,
-  `internal/engines/pipeline/analyzer_helpers.go`, `internal/domain/analyzer.go`. So the #1450/#1448
-  renames do **not** move D's edit sites — but any *import* of the renamed `internal/saturation*`
-  or moved `pkg/*` packages inside files this branch touches (or their tests) needs the new import
-  path. That is import-path churn, not a logic change — fix and move on.
-- **#1487 is the one to re-verify by hand.** D's staleness threshold is
-  `analyzerLivenessStaleCycles × OptimizationInterval` (Commit 1). #1487 changes how the optimize
-  loop obtains its interval (`GLOBAL_OPT_INTERVAL`). After the rebase, confirm the interval value D
-  reads for the threshold still resolves from the same source and the threshold semantics are
-  intact; if #1487 relocated or renamed the interval field, update D's reference **and** its test.
+**Churn to expect during conflict resolution** (as of authoring, `upstream/main` had advanced past
+this branch's merge-base `11d70a8a`, the #1479 merge, with — among others — a
+`internal/saturation → internal/saturationv1` rename, a `pkg/ → internal/queueing` move, and a
+change wiring the optimize-loop interval via an env var; **more may have landed since — diff against
+your actual rebased base, do not treat this list as complete**):
+
+- The renames/moves do **not** relocate D's three core files:
+  `internal/engines/saturation/engine_v2.go`, `internal/engines/pipeline/analyzer_helpers.go`,
+  `internal/domain/analyzer.go`. But any *import* of a renamed/moved package inside files this branch
+  touches (or their tests) needs the new path. Import-path churn, not a logic change — fix and move on.
+- **Re-verify the optimize-loop-interval interaction by hand.** D's staleness threshold is
+  `analyzerLivenessStaleCycles × OptimizationInterval` (Commit 1). If a main change relocated or
+  renamed how the optimize loop obtains its interval, confirm the interval value D reads for the
+  threshold still resolves from the same source and the threshold semantics are intact; update D's
+  reference **and** its test if it moved.
 
 **Procedure** (CONVENTIONS non-trivial-rebase rule applies — multi-commit stack, and touched files
 may import moved packages):
