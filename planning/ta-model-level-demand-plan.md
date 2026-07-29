@@ -4,19 +4,23 @@
 > via `Read <file> offset:<start-line> limit:<end-start+1>`. Never read the
 > whole file up front.
 
-**Type:** 3 (task plan) · **Branch:** `ta-model-level-demand` off `main` (`f5b7577c`)
+**Type:** 3 (task plan) · **Branch:** `ta-model-level-demand` off `main` (`f5b7577c`; round-2 rebases onto `upstream/main` `28a58b77` — see [C.0 {#c0}](#c0--rebase-onto-current-upstreammain-first-c0))
 **Size:** 1 model-level query + plumbing + TA demand rewire · **Reviewer session:** yes (demand semantics)
 
 ## TOC {#toc}
 
-- [Overview {#overview}](#overview-overview) L21:50
-- [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L51:90
-- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L91:134
-- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L135:186
-- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L187:223
-- [Tests to add {#tests}](#tests-to-add-tests) L224:245
-- [Developer guide {#devguide}](#developer-guide-devguide) L246:259
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L260:272
+- [Overview {#overview}](#overview-overview) L25:54
+- [Design decisions (resolved) {#decisions}](#design-decisions-resolved-decisions) L55:94
+- [Deferred / out of scope {#deferred}](#deferred--out-of-scope-deferred) L95:138
+- [Commit 1 — model-level arrival query + plumbing {#commit-1}](#commit-1--model-level-arrival-query--plumbing-commit-1) L139:190
+- [Commit 2 — TA demand uses model-level arrival {#commit-2}](#commit-2--ta-demand-uses-model-level-arrival-commit-2) L191:227
+- [Tests to add {#tests}](#tests-to-add-tests) L228:249
+- [Developer guide {#devguide}](#developer-guide-devguide) L250:263
+- [Review follow-ups (ev-shindin PR #1480 comments) {#followups}](#review-follow-ups-ev-shindin-pr-1480-comments-followups) L264:370
+  - [C.0 — Rebase onto current upstream/main FIRST {#c0}](#c0--rebase-onto-current-upstreammain-first-c0) L274:325
+  - [C.1 — document why a zero/absent arrival signal is safe (comment) {#c1}](#c1--document-why-a-zeroabsent-arrival-signal-is-safe-comment-c1) L326:345
+  - [C.2 — document why RequestRate is not used as a broken-arrival cross-check (comment) {#c2}](#c2--document-why-requestrate-is-not-used-as-a-broken-arrival-cross-check-comment-c2) L346:370
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L371:383
 
 ## Overview {#overview}
 
@@ -254,6 +258,113 @@ model-level `sum(rate(scheduler_attempts))` (not per-pod), combined with the sch
 drain-rate term; note that `ReplicaMetrics.ArrivalRate` (per-pod) is retained for other
 consumers but no longer drives TA demand; note `k_knee`/arrival-driven saturation is not
 implemented (future phase). Describe current code only (Type 4).
+
+[↑ TOC](#toc)
+
+## Review follow-ups (ev-shindin PR #1480 comments) {#followups}
+
+Locked by Dean 2026-07-29. ev-shindin raised two points about the no-EPP / zero-arrival case.
+**Both resolve to comment-only additions on C** — the behavior is already correct by design; the
+comments make the intent legible at the code so a future reader (or reviewer) does not
+re-litigate it. No logic change on C. The active broken-arrival *detection* lives in the
+throughput analyzer's engine liveness path (the demand-liveness detector), authored as a separate
+fold on the `ta-veto-liveness` branch — **do not implement any detector here**, and do not
+reference other branches/PRs by identifier in the code comment (§4a); describe behavior in prose.
+
+### C.0 — Rebase onto current upstream/main FIRST {#c0}
+
+**Dean explicitly authorized this rebase (2026-07-29).** Normally an open-PR branch does not chase
+`main`; here Dean directed it because `main` advanced materially since this branch's base and the
+comment folds must land on current code. This authorization is specific to the C/D round-2 work —
+it does not generalize.
+
+**Target.** Rebase `ta-model-level-demand` onto `upstream/main` (currently `28a58b77`). The branch's
+merge-base is `11d70a8a` (the #1479 merge); the replayed base gains the four commits in
+`11d70a8a..upstream/main`:
+
+- `2fd5fa53` (#1473) — Makefile `BENCHMARK_WORKLOAD` default; no code impact.
+- `6436f2b1` (#1450) — **rename `internal/saturation` → `internal/saturationv1`**.
+- `bf8fd8d9` (#1448) — **move surviving `pkg/` packages → `internal/queueing`**.
+- `28a58b77` (#1487) — **wire `GLOBAL_OPT_INTERVAL` into the optimize loop**.
+
+**What this branch's edit targets do / don't hit** (verified live against `upstream/main`):
+
+- C's core edit site `internal/engines/analyzers/throughput/analyzer.go` is **unchanged in path**;
+  `internal/domain/analyzer.go` and `internal/engines/saturation/engine_v2.go` likewise. So the
+  #1450/#1448 renames do **not** move C's edit sites — but if C's model-level arrival query or its
+  plumbing imports anything that lived under `pkg/` (now `internal/queueing`) or under
+  `internal/saturation` (now `internal/saturationv1`), those imports need the new path. Import-path
+  churn, not a logic change.
+- The two round-2 additions are **comment-only** (C.1, C.2) — no behavior to re-verify against
+  #1487 beyond a clean `go build ./...` after the rebase. Still run the full per-file diff /
+  per-commit checks below for the *pre-existing* C commits, since git's three-way merge can drop a
+  hunk under conflict.
+
+**Procedure** (CONVENTIONS non-trivial-rebase rule applies — multi-commit stack, touched files may
+import moved packages):
+
+1. Before rebasing, write the pre-rebase plan in **your status file**
+   (`plans/session/status/ta-model-level-demand.md`) — you have no write access to `planning/`.
+   List the existing C commits with a one-line "behavior to preserve" each, the files you expect to
+   conflict (import-path churn from #1450/#1448), and the post-rebase checklist.
+2. After the rebase: per-file `git diff <pre-rebase-tip> <post-rebase-tip> -- <file>` for every
+   touched file; confirm every claimed behavior survived.
+3. Per-commit message-vs-diff check.
+4. **Re-verify every anchor this plan cites** (`throughput/analyzer.go` line numbers, the Commit 2
+   demand-assembly site, the `anyEPP := input.ArrivalRate > 0` derivation) — line numbers shift
+   under rebase; re-grep before adding the comments.
+
+Rebasing rewrites this branch's history, so the eventual push is `--force-with-lease` — **Dean
+confirms that separately at push time; do not push.** Hand back in your status file rather than
+forcing a conflict you cannot resolve cleanly.
+
+Note: after #1448 the `./pkg/...` path in the pre-push `gofmt` line may no longer exist — expected;
+`./internal/...` now covers the moved packages.
+
+[↑ TOC](#toc)
+
+### C.1 — document why a zero/absent arrival signal is safe (comment) {#c1}
+
+**Point.** ev-shindin flagged that with no EPP (arrival = 0), TA could look like it wants to scale
+down spuriously. **Resolution (Dean): harmless, no code change** — this is the intended behavior
+already analyzed when demand moved per-pod → model-level:
+
+- With no served-rate floor (decision #4), `ArrivalRate = 0 → TotalDemand = 0`. Zero demand only
+  ever *permits* scale-down; it never *forces* a scale action and never triggers scale-up. So a
+  missing or zero arrival signal cannot cause a spurious scale-up, and cannot by itself force a
+  scale-down (the multi-analyzer all-live-agree gate still governs that).
+
+**Coder action (comment only).** Near the model-level demand assembly (Commit 2 site, where
+`TotalDemand` is composed from `input.ArrivalRate × avgOL + queueDemand`), add a short prose
+comment stating: arrival rate is the demand signal; when it is zero (e.g. EPP absent or not yet
+scraped) demand is legitimately zero, which permits but never forces scale-down and never drives
+scale-up — so a zero/absent arrival signal is safe here and is intentionally **not** floored to a
+served-rate proxy. Current-code prose; no plans-branch refs.
+
+[↑ TOC](#toc)
+
+### C.2 — document why RequestRate is not used as a broken-arrival cross-check (comment) {#c2}
+
+**Point.** ev-shindin proposed warning when `ArrivalRate == 0` while some other signal
+(`ΣRequestRate`, KV, waiting) is non-zero — "then arrival is broken." **Resolution (Dean): do
+NOT add that cross-check on C**, because the naive form produces false positives:
+
+- `domain.ReplicaMetrics.RequestRate` is a request **completion / processed** rate (req/s served),
+  **not** an arrival rate. A draining engine keeps `RequestRate > 0` after arrivals have legitimately
+  gone to zero, so `ArrivalRate == 0 && ΣRequestRate > 0` is a **normal drain state**, not a fault
+  — warning on it would fire constantly during ramp-down. (RequestRate sourced from EPP is also not
+  validated for this use.)
+- The correct broken-arrival signal is **temporal, not instantaneous**: "supply has been live but
+  demand has never been observed for a full staleness window." That is detected as an
+  observability-only warning in the throughput analyzer's engine liveness path (the demand-liveness
+  latch), not in the per-cycle demand math here.
+
+**Coder action (comment only).** At the `anyEPP := input.ArrivalRate > 0` derivation (Commit 2),
+add a short prose comment: EPP-presence is derived from the model-level arrival rate; the per-pod
+`ReplicaMetrics.RequestRate` (a completion rate, non-zero during drain) is deliberately **not**
+used as a cross-check here because it would false-positive on legitimate drain — durable
+"live supply, never-seen demand" is surfaced as a warning in the engine liveness path instead.
+Current-code prose; no plans-branch/PR refs.
 
 [↑ TOC](#toc)
 

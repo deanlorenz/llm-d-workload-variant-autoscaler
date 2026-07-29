@@ -4,27 +4,33 @@
 > via `Read <file> offset:<start-line> limit:<end-start+1>`. Never read the
 > whole file up front.
 
-**Type:** 3 (task plan) · **Branch:** `ta-veto-liveness` off `main` (`f5b7577c`)
+**Type:** 3 (task plan) · **Branch:** `ta-veto-liveness` off `main` (`f5b7577c`; round-2 rebases onto `upstream/main` `28a58b77` — see [D.0 {#d0}](#d0--rebase-onto-current-upstreammain-first-d0))
 **Size:** engine state + 2 aggregation-helper changes + tests · **Reviewer session:** yes (core scale-down semantics)
 
 ## TOC {#toc}
 
-- [Overview {#overview}](#overview-overview) L29:60
-- [Design {#design}](#design-design) L61:111
-- [Open decision — staleness threshold {#threshold}](#open-decision--staleness-threshold-threshold) L112:128
-- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L129:157
-- [Commit 1 — liveness field + engine state {#commit-1}](#commit-1--liveness-field--engine-state-commit-1) L158:211
-- [Commit 2 — gate the veto helpers {#commit-2}](#commit-2--gate-the-veto-helpers-commit-2) L212:255
-- [Tests to add {#tests}](#tests-to-add-tests) L256:283
-- [Developer guide {#devguide}](#developer-guide-devguide) L284:295
-- [Review follow-ups (round 1) {#followups}](#review-follow-ups-round-1-followups) L296:411
-  - [F-B1 — QM path must stay always-live (code + test) {#f-b1}](#f-b1--qm-path-must-stay-always-live-code--test-f-b1) L304:328
-  - [F-T1b — no-data → non-live is correct; document the persistence-window semantics (doc only) {#f-t1b}](#f-t1b--no-data--non-live-is-correct-document-the-persistence-window-semantics-doc-only-f-t1b) L329:355
-  - [F-T1a — make the per-model keying test discriminate (test) {#f-t1a}](#f-t1a--make-the-per-model-keying-test-discriminate-test-f-t1a) L356:371
-  - [F-Conc — document the single-writer assumption on lastGoodAnalysis (comment only) {#f-conc}](#f-conc--document-the-single-writer-assumption-on-lastgoodanalysis-comment-only-f-conc) L372:383
-  - [F-Demand — liveness is supply/capacity currency; demand robustness is separate (doc only) {#f-demand}](#f-demand--liveness-is-supplycapacity-currency-demand-robustness-is-separate-doc-only-f-demand) L384:399
-  - [F-NTH — two minor doc/comment touch-ups {#f-nth}](#f-nth--two-minor-doccomment-touch-ups-f-nth) L400:411
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L412:424
+- [Overview {#overview}](#overview-overview) L35:66
+- [Design {#design}](#design-design) L67:117
+- [Open decision — staleness threshold {#threshold}](#open-decision--staleness-threshold-threshold) L118:134
+- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L135:163
+- [Commit 1 — liveness field + engine state {#commit-1}](#commit-1--liveness-field--engine-state-commit-1) L164:217
+- [Commit 2 — gate the veto helpers {#commit-2}](#commit-2--gate-the-veto-helpers-commit-2) L218:261
+- [Tests to add {#tests}](#tests-to-add-tests) L262:289
+- [Developer guide {#devguide}](#developer-guide-devguide) L290:301
+- [Review follow-ups (round 1) {#followups}](#review-follow-ups-round-1-followups) L302:417
+  - [F-B1 — QM path must stay always-live (code + test) {#f-b1}](#f-b1--qm-path-must-stay-always-live-code--test-f-b1) L310:334
+  - [F-T1b — no-data → non-live is correct; document the persistence-window semantics (doc only) {#f-t1b}](#f-t1b--no-data--non-live-is-correct-document-the-persistence-window-semantics-doc-only-f-t1b) L335:361
+  - [F-T1a — make the per-model keying test discriminate (test) {#f-t1a}](#f-t1a--make-the-per-model-keying-test-discriminate-test-f-t1a) L362:377
+  - [F-Conc — document the single-writer assumption on lastGoodAnalysis (comment only) {#f-conc}](#f-conc--document-the-single-writer-assumption-on-lastgoodanalysis-comment-only-f-conc) L378:389
+  - [F-Demand — liveness is supply/capacity currency; demand robustness is separate (doc only) {#f-demand}](#f-demand--liveness-is-supplycapacity-currency-demand-robustness-is-separate-doc-only-f-demand) L390:405
+  - [F-NTH — two minor doc/comment touch-ups {#f-nth}](#f-nth--two-minor-doccomment-touch-ups-f-nth) L406:417
+- [Review follow-ups (round 2 — ev-shindin PR #1481 comments) {#followups2}](#review-follow-ups-round-2--ev-shindin-pr-1481-comments-followups2) L418:613
+  - [D.0 — Rebase onto current upstream/main FIRST {#d0}](#d0--rebase-onto-current-upstreammain-first-d0) L426:479
+  - [D.1 — de-duplicate the no-data/error sentinel strings across packages {#d1}](#d1--de-duplicate-the-no-dataerror-sentinel-strings-across-packages-d1) L480:508
+  - [D.2 — prune `lastGoodAnalysis` of departed models (code) {#d2}](#d2--prune-lastgoodanalysis-of-departed-models-code-d2) L509:534
+  - [D.3 — demand-liveness detector: warn when supply is live but demand never is (code + comment + doc) {#d3}](#d3--demand-liveness-detector-warn-when-supply-is-live-but-demand-never-is-code--comment--doc-d3) L535:601
+  - [Dev guide (round-2) {#devguide2}](#dev-guide-round-2-devguide2) L602:613
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L614:626
 
 ## Overview {#overview}
 
@@ -406,6 +412,202 @@ demand fallbacks). Current-code prose only.
 2. `analyzer_helpers.go`: add a one-line comment on `applyDeallocationForRole` noting it is
    intentionally **not** `Live`-gated — harmless, because non-live entries are excluded from the
    veto and the safe-removal min, so mutating their `RoleSpare` affects nothing that is read.
+
+[↑ TOC](#toc)
+
+## Review follow-ups (round 2 — ev-shindin PR #1481 comments) {#followups2}
+
+Three folds land on top of the round-1 commits, **all decisions locked by Dean 2026-07-29**.
+Two are ev-shindin's PR comments (D.1, D.2); the third (D.3) is the demand-liveness detector
+Dean designed in response to the C-side "never-live demand" review point (folded into D because
+it lives at the same engine liveness site). Group into commits as convenient, all DCO-signed.
+D.1 is a refactor/test; D.2 is code; D.3 is code + comment + doc.
+
+### D.0 — Rebase onto current upstream/main FIRST {#d0}
+
+**Dean explicitly authorized this rebase (2026-07-29).** Normally an open-PR branch does not
+chase `main`; here Dean directed it because `main` advanced materially since this branch's base
+and the round-2 folds must land on current code. This authorization is specific to the C/D
+round-2 work — it does not generalize to other open PRs.
+
+**Target.** Rebase `ta-veto-liveness` onto `upstream/main` (currently `28a58b77`). The branch's
+merge-base is `11d70a8a` (the #1479 merge), so the replayed base gains the four commits in
+`11d70a8a..upstream/main`:
+
+- `2fd5fa53` (#1473) — Makefile `BENCHMARK_WORKLOAD` default; no code impact.
+- `6436f2b1` (#1450) — **rename `internal/saturation` → `internal/saturationv1`**.
+- `bf8fd8d9` (#1448) — **move surviving `pkg/` packages → `internal/queueing`**.
+- `28a58b77` (#1487) — **wire `GLOBAL_OPT_INTERVAL` into the optimize loop**.
+
+**What this branch's edit targets do / don't hit** (verified live against `upstream/main`):
+
+- D's three core files are **unchanged in path**: `internal/engines/saturation/engine_v2.go`,
+  `internal/engines/pipeline/analyzer_helpers.go`, `internal/domain/analyzer.go`. So the #1450/#1448
+  renames do **not** move D's edit sites — but any *import* of the renamed `internal/saturation*`
+  or moved `pkg/*` packages inside files this branch touches (or their tests) needs the new import
+  path. That is import-path churn, not a logic change — fix and move on.
+- **#1487 is the one to re-verify by hand.** D's staleness threshold is
+  `analyzerLivenessStaleCycles × OptimizationInterval` (Commit 1). #1487 changes how the optimize
+  loop obtains its interval (`GLOBAL_OPT_INTERVAL`). After the rebase, confirm the interval value D
+  reads for the threshold still resolves from the same source and the threshold semantics are
+  intact; if #1487 relocated or renamed the interval field, update D's reference **and** its test.
+
+**Procedure** (CONVENTIONS non-trivial-rebase rule applies — multi-commit stack, and touched files
+may import moved packages):
+
+1. Before rebasing, write the pre-rebase plan in **your status file**
+   (`plans/session/status/ta-veto-liveness.md`) — you have no write access to `planning/`. List the
+   round-1 + round-2 commits with a one-line "behavior to preserve" each, the files you expect to
+   conflict (import-path churn from #1450/#1448; the #1487 interval site), and the post-rebase
+   checklist.
+2. After the rebase: per-file `git diff <pre-rebase-tip> <post-rebase-tip> -- <file>` for every
+   touched file; confirm every claimed behavior survived (git's three-way merge can silently drop a
+   hunk that no longer applies cleanly).
+3. Per-commit message-vs-diff check.
+4. **Re-verify every anchor this plan cites** (line numbers in `engine_v2.go`,
+   `analyzer_helpers.go:35-38/44/237/292`, `domain/analyzer.go` `TotalDemand`) — line numbers shift
+   under rebase; re-grep before editing.
+
+Rebasing rewrites this branch's history, so the eventual push is `--force-with-lease` — **Dean
+confirms that separately at push time; do not push.** If a conflict looks like it would drop
+behavior and you cannot resolve it cleanly, hand it back in your status file rather than forcing it.
+
+Note: after #1448 the `./pkg/...` path in the pre-push `gofmt` line may no longer exist — expected;
+`./internal/...` now covers the moved packages.
+
+[↑ TOC](#toc)
+
+### D.1 — de-duplicate the no-data/error sentinel strings across packages {#d1}
+
+**Problem (ev-shindin).** The `"no-data"` / `"error"` `VariantCapacity.Reason` sentinels are
+declared as literals in **two** packages: `pipeline/analyzer_helpers.go:35-38`
+(`analyzerReasonNoData` / `analyzerReasonError`, consumed by `ResultIsInformative`) and the
+saturation_v2 analyzer package that **produces** them (grep for `"no-data"` / `"error"` reason
+assignments — e.g. `satReason*` constants). Two independent literals for the same wire contract
+can silently drift; a rename on one side breaks liveness detection with no compile error.
+
+**Fix (decision: single source if layering allows, else a pin test).** First map the import
+graph between the producer package and `pipeline`:
+
+- **If one package can import the other without a cycle** (`pipeline` is the lower layer — the
+  saturation engine already imports it), promote the sentinels to the lower layer, export them
+  (`pipeline.ReasonNoData` / `pipeline.ReasonError`), and have the producer reference the
+  exported constants. One definition, no drift possible. Confirm with `go build ./...`.
+- **If a shared constant would introduce an import cycle** (producer is a sibling that neither
+  imports nor is imported by `pipeline`), do **not** force a new shared low-level package for two
+  strings. Instead add a **cross-package pin test** (in the `pipeline` test package, which may
+  import both) asserting the producer's constants equal `pipeline`'s — so a future drift fails a
+  test rather than silently disabling the liveness gate. State in the test comment why a shared
+  constant was not used (the layering reason).
+
+Pick based on the **actual** import graph — do not guess. Classify nothing as deleted unless a
+literal is actually removed (then note it DEPRECATED-superseded-by-the-shared-constant in the
+handoff).
+
+[↑ TOC](#toc)
+
+### D.2 — prune `lastGoodAnalysis` of departed models (code) {#d2}
+
+**Problem (ev-shindin).** `e.lastGoodAnalysis` gains an outer `modelKey` entry for every model
+ever analyzed (`updateLivenessAndSetLive`, engine_v2.go:186-189) and **never evicts** one. A
+model that is deleted from the cluster leaves its entry resident for the controller's lifetime.
+It does not persist across a controller restart (in-memory only), so the leak is bounded by
+uptime, not unbounded forever — but it is still a real per-model accumulation that should be
+pruned.
+
+**Fix — selective eviction, NOT a per-cycle reset.** The latch's whole purpose is cross-cycle
+persistence (round-1 F-T1b), so it must **not** be cleared each cycle like `vaEventTracker`.
+Instead, at the **per-cycle boundary where the full set of models being optimized this cycle is
+known** (the caller that loops models and invokes the per-model analyze path — find the
+enumeration site above `updateLivenessAndSetLive`, one call layer up), prune outer `modelKey`s
+of `lastGoodAnalysis` that are **absent** from the current active-model set. Keep every key that
+is still active (preserving its supply/demand timestamps). This is a set-difference delete on the
+outer map only; inner per-analyzer maps for surviving models are untouched.
+
+If the active-model set is not cleanly available at a single call site, hand that back in the
+handoff rather than reaching across scope — but it should be: the loop that produced the model
+list this cycle is the natural owner. Guard against the empty-set case (a cycle that legitimately
+sees zero models must not wipe the whole map — only prune when the active set is the authoritative
+current set, not a transient empty read).
+
+[↑ TOC](#toc)
+
+### D.3 — demand-liveness detector: warn when supply is live but demand never is (code + comment + doc) {#d3}
+
+**Origin.** The C-side review surfaced a "never-live demand" concern: if the EPP arrival query is
+broken or EPP is absent, the throughput analyzer's model-level demand (`Result.TotalDemand`,
+`domain.AnalyzerResult.TotalDemand`) stays **0** every cycle, yet the analyzer remains **live**
+because its liveness is *supply*-driven (its ITL/KV per-replica capacities resolve and emit
+non-sentinel reasons regardless of arrival). So "supply live, demand always zero" is invisible to
+the round-1 liveness gate. Dean's decision: detect it as an **observability signal only** — a WARN
+log — never a veto.
+
+**Why warn-only is sufficient and a veto would be wrong (this rationale MUST appear as a code
+comment at the detector, plain prose, no plans-branch refs per §4a):**
+- Zero demand is a **legitimate** state, not necessarily a fault: with no served-rate floor,
+  arrival→0 correctly drives `TotalDemand→0`, which only *permits* scale-down and never forces a
+  scale action — a missing or zero arrival signal can therefore never cause a spurious scale-up
+  or a spurious veto. Vetoing on "demand looks absent" would defeat the very scale-down the
+  round-1 gate exists to enable.
+- The veto path is already handled by the **supply/capacity** liveness gate (round-1): an
+  analyzer with no *capacity* signal is excluded from the scale-down vote. The demand detector is
+  strictly additive telemetry pointing a human at a likely-broken arrival query.
+- **Mechanically it cannot veto even by accident:** the demand latch is stored in the same
+  `lastGoodAnalysis[modelKey]` map under a **synthetic inner key** that is not any real analyzer
+  name, and the Live/veto path only ever reads that map via **keyed lookups on real analyzer
+  names** (`perAnalyzer[nr.Name]` in `updateLivenessAndSetLive`; the helpers read `e.Live`, never
+  the map). The map is never ranged over in the decision path, so a synthetic key can never flip
+  any `nr.Live`.
+
+**Design — two latches, one map, timestamp delta is the signal:**
+- **Supply latch (existing):** `perAnalyzer[throughputName]` — the throughput analyzer's
+  last-informative timestamp, already maintained by round-1 (`ResultIsInformative` → supply
+  resolved). This is the "supply ever/recently live" signal.
+- **Demand latch (new):** stamp `perAnalyzer[demandKey] = now` (or `nr.Result.AnalyzedAt`) each
+  cycle the throughput entry has `Result.TotalDemand > 0`, where `demandKey` is derived from the
+  throughput analyzer name plus a suffix that **cannot collide with any real analyzer name**
+  (e.g. `throughputName + "\x00demand"` — a NUL-delimited sentinel; document the choice). Same
+  map, so it is pruned by D.2 for free and shares the single-writer assumption (round-1 F-Conc).
+- **Signal (WARN):** in `updateLivenessAndSetLive` (it already has `now`, `perAnalyzer`,
+  `threshold`, and the interval), after the liveness loop, for the throughput entry: if its
+  supply latch is live now (present and within `threshold`) **AND** the demand latch is either
+  never set or its timestamp lags the supply latch by **≥ the staleness window** (`threshold`),
+  log a WARN via the engine logger. Use a timestamp gap (not a bool) precisely so a **cold-start
+  EPP scrape lag** — supply comes up a cycle or two before the first arrival scrape — does **not**
+  false-positive: the gap is still `< threshold` during warm-up and only trips once demand has
+  been absent for a full staleness window. Message (prose, no plans refs): the throughput
+  analyzer has a live capacity/supply signal but has reported **no demand for ≥ the staleness
+  window**, which usually means the request-arrival query is misconfigured or EPP is not
+  reporting arrivals; scale-up will not trigger until arrivals are observed. Do **not** set
+  `nr.Live`, do **not** touch any `RoleSpare`, do **not** gate any decision on this.
+- Scope for 0.9: the detector pairs the **throughput** analyzer's supply and demand (it is the
+  arrival-driven demand consumer that can silently zero). Generalizing to other analyzers'
+  demand is out of scope.
+
+**DEFERRED — per-pod demand latch (future).** When demand becomes per-pod/per-replica, the
+demand latch inner key extends with a pod component (`throughputName + "\x00demand" + "\x00" +
+podID`), and a per-replica demand latch is added alongside. Not built now (0.9 demand is
+model-level). Record in the handoff as DEFERRED with this intent so it is recoverable.
+
+**Test.** Engine-level test asserting: (1) throughput supply informative + `TotalDemand > 0`
+every cycle → no warn (demand latch keeps pace); (2) throughput supply informative but
+`TotalDemand == 0` for `> threshold` → warn fired (capture via a test logger sink), and crucially
+`nr.Live` for throughput stays **true** and scale-down/veto behavior is unchanged (the detector
+did not affect the decision); (3) cold-start: supply live one cycle, demand zero that cycle only
+→ **no** warn (gap `< threshold`). Assert the synthetic demand key never appears in a keyed
+`nr.Name` lookup (or simply that a model with only the synthetic key present cannot become live).
+
+[↑ TOC](#toc)
+
+### Dev guide (round-2) {#devguide2}
+
+`docs/developer-guide/multi-analyzer-pipeline.md`, liveness/scale-down section (the one round-1
+edits): add a short paragraph describing the demand-liveness telemetry — the engine logs a
+warning when an analyzer has a live capacity signal but no observed demand for the staleness
+window (typically a broken arrival query / EPP not reporting), and that this is **observability
+only**: it never changes liveness or the scale-down vote, because zero demand is a legitimate
+state that only permits (never forces) scale actions. Current-code prose only; no plans-branch
+refs; no "PR C/D" cross-references.
 
 [↑ TOC](#toc)
 
