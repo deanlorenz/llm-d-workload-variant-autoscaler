@@ -895,8 +895,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		kValues := []float64{0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65}
 
 		It("still populates per-variant demand from k*, but no longer drives model-level TotalDemand when EPP is absent", func() {
-			// DEFERRED (plan §Deferred, "computeDemand per-replica A→B→k*local
-			// fallback"): with demand model-level, Λ_req (input.ArrivalRate) is the
+			// DEFERRED behavior (the computeDemand per-replica A→B→k*local
+			// fallback): with demand model-level, Λ_req (input.ArrivalRate) is the
 			// sole driver of TotalDemand's arrival component. When EPP is absent
 			// model-wide, input.ArrivalRate is legitimately 0 (no signal, not "zero
 			// traffic") and — unlike before this PR — the per-variant k*-local
@@ -1078,7 +1078,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		}
 
 		It("queue demand alone (no EPP, no k*-local) emits RequiredCapacity when queue is large", func() {
-			// DEFERRED (plan §Deferred): with EPP absent (ArrivalRate=0 here, both
+			// DEFERRED behavior: with EPP absent (ArrivalRate=0 here, both
 			// per-pod and model-level), the k*-local fallback (λ_local≈2618 tok/s)
 			// no longer reaches model-level TotalDemand — only the scheduler queue
 			// term does. QueueSize=450: λ_queue = 450/(2.0×ITL(k_sat)) =
@@ -1341,7 +1341,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 	})
 
-	Describe("Analyze — model-level demand invariants (plan §Tests 1-4)", func() {
+	Describe("Analyze — model-level demand invariants", func() {
 		const (
 			ilM    = 5000.0
 			olM    = 200.0 // L: model-level avgOL, tracked via injectWindowObs
@@ -1442,7 +1442,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 		})
 
 		It("arrival→0 reduces demand to zero even when the engine is still completing requests (no served-rate floor)", func() {
-			// Decision #4: a draining engine keeps RequestRate > 0 for a while after
+			// No served-rate floor: a draining engine keeps RequestRate > 0 for a while after
 			// arrivals stop; that must not be used as a demand floor, or scale-down
 			// would be wrongly blocked.
 			injectWindowObs(analyzer, ctx, modelID, namespace, "v1", ilM, olM, prefix, kvMax, B, kValues)
@@ -1464,7 +1464,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 				"model-level demand must not be held up by a still-nonzero RequestRate")
 		})
 
-		It("weights avgOL by replica count across non-prefill variants, not an equal-per-variant mean (review finding F1)", func() {
+		It("weights avgOL by replica count across non-prefill variants, not an equal-per-variant mean", func() {
 			// v-light: 1 replica, OL=100. v-heavy: 3 replicas, OL=300.
 			// Weighted (correct):   avgOL = (1×100 + 3×300) / (1+3) = 1000/4 = 250
 			// Unweighted (wrong):   avgOL = (100 + 300) / 2 = 200

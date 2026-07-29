@@ -450,7 +450,7 @@ per-analyzer constant pending alignment with the EPP system-wide k_sat (see open
 
 ### Model-Level Decode Demand
 
-TA's decode demand is a **model-level** quantity (TA-demand §3.3/§3.5), not a sum of per-variant
+TA's decode demand is a **model-level** quantity, not a sum of per-variant
 contributions:
 
 ```
@@ -510,7 +510,7 @@ result now only populates `VariantCapacity.TotalDemand` / `Utilization` (surface
 `TotalDemand`'s arrival component. When EPP is absent model-wide, `ArrivalRate` is legitimately
 0 (no signal — not "zero traffic"), and unlike before this cascade's k\*-local fallback no
 longer backfills model-level `TotalDemand` in that case; it remains per-variant only. This is a
-deliberate simplification, not a bug — revisit when `k_knee` (TA-supply.md §5.5, arrival-driven
+deliberate simplification, not a bug — revisit when `k_knee` (an arrival-driven
 operating knee) is implemented.
 
 ### Scheduler Queue Demand

@@ -173,9 +173,9 @@ func (a *ThroughputAnalyzer) Observe(
 //   - Tier 2 (constrained OLS): window not ready — fit A with B = DefaultBaselineITLSec
 //     using all replica (k*, ITL_obs) points: A = Σ((ITL_i−B)·k_i) / Σ(k_i²).
 //
-// Model-level decode demand is Λ_req × avgOL (TA-demand §3.3/§3.5): the
+// Model-level decode demand is Λ_req × avgOL: the
 // model-level arrival rate (input.ArrivalRate, a single sum(rate(...)) query
-// with no per-pod labels — decision #1) times avgOL, the RequestRate-weighted
+// with no per-pod labels — an all-or-nothing model-level signal) times avgOL, the RequestRate-weighted
 // average output length across all healthy replicas of the model. This is the
 // sole driver of TotalDemand's arrival component; it does not depend on
 // per-variant EPP attribution.
@@ -235,7 +235,7 @@ func (a *ThroughputAnalyzer) Analyze(
 
 	// EPP presence is now derived from the model-level arrival rate rather than
 	// per-replica ArrivalRate: a model-level sum(rate(...)) is all-or-nothing
-	// (decision #1), so a single check here is equivalent and simpler.
+	// by design, so a single check here is equivalent and simpler.
 	//
 	// The per-replica ReplicaMetrics.RequestRate is deliberately NOT consulted here as
 	// a "broken arrival" cross-check (e.g. warn when arrival == 0 while ΣRequestRate > 0).
@@ -330,9 +330,9 @@ func (a *ThroughputAnalyzer) Analyze(
 		// input.ReplicaMetrics, which would zero out avgOL during EPP warm-up
 		// (ArrivalRate>0, no completions yet) and reintroduce the spurious-
 		// scale-down bug regression-tested by "EPP warm-up" below. Weighted by
-		// nKV (replica count) across variants — per review finding F1
-		// (2026-07-27), an unweighted mean-of-means would let every non-prefill
-		// variant contribute equally regardless of its share of replicas/traffic,
+		// nKV (replica count) across variants: an unweighted mean-of-means would
+		// let every non-prefill variant contribute equally regardless of its
+		// share of replicas/traffic,
 		// diverging from the plan's specified RequestRate-weighted model-level
 		// average whenever 2+ non-prefill variants have different OL profiles.
 		if state.role != domain.RolePrefill {
@@ -387,7 +387,7 @@ func (a *ThroughputAnalyzer) Analyze(
 	totalSupply := aggregation.SumTotalSupply(variantCapacities)
 	totalAnticipatedSupply := aggregation.SumTotalAnticipatedSupply(variantCapacities)
 
-	// Decode demand is a model-level quantity (TA-demand §3.3/§3.5): Λ_req × avgOL,
+	// Decode demand is a model-level quantity: Λ_req × avgOL,
 	// computed once from the model-level arrival rate rather than summed from each
 	// variant's computeDemand result. This replaces the retired per-variant EPP
 	// arrival contribution to TotalDemand (per-variant VariantCapacity.TotalDemand
@@ -396,7 +396,7 @@ func (a *ThroughputAnalyzer) Analyze(
 	// shape.AvgOutputTokens across non-prefill variants (totalDecodeOL /
 	// totalDecodeKV, accumulated in the loop above) — weighted, not a plain
 	// mean-of-variant-means, so a variant with more replicas contributes
-	// proportionally more (review finding F1). Zero when no non-prefill variant
+	// proportionally more. Zero when no non-prefill variant
 	// currently has a resolved ITL model, matching avgDecodeITLSat's guard below.
 	var totalDemand, arrivalDecodeDemand float64
 	var arrivalDemandByRole map[string]float64
@@ -593,7 +593,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 // so the caller can use computeLocalDemand when both paths yield zero. The returned
 // λ_dec only feeds this variant's own VariantCapacity.TotalDemand/Utilization
 // (introspection) — Analyze's model-level TotalDemand uses input.ArrivalRate ×
-// avgOL instead (decision #1), and derives anyEPP from that model-level rate
+// avgOL instead (the all-or-nothing model-level design), and derives anyEPP from that model-level rate
 // rather than from this function's isEPP return.
 func computeDemand(metrics []domain.ReplicaMetrics) (float64, bool) {
 	var lambdaDec float64
