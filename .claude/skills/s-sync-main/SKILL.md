@@ -32,17 +32,23 @@ An explicit arg (`status` / `watch` / `stop` / `sync`) skips the menu and runs t
 
 ## status — checking if the watcher is running
 
+One Bash call — the **first line is the gate verdict** (staleness), the rest is the detail:
+
 ```bash
-cat /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/session/status/main.md 2>/dev/null
+S=/home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/session/status/main.md
+if [ -f "$S" ]; then
+  age=$(( $(date +%s) - $(date -d "$(grep -m1 '^last_check:' "$S" | cut -d' ' -f2-)" +%s 2>/dev/null || echo 0) ))
+  [ "$age" -lt 150 ] && echo "RUNNING (last check ${age}s ago)" || echo "STALE / NOT RUNNING (last check ${age}s ago)"
+  cat "$S"
+else
+  echo "NOT RUNNING (no status file — never started on this machine)"
+fi
 ```
 
-Read the `last_check` field. The watcher heartbeats every 60s, so:
-
-- File missing, or `last_check` older than ~150s → **not running** (dead, or never started in
-  this session; a stale `watcher_pid` from a previous session is expected and harmless — ignore
-  it).
-- `last_check` within ~150s → **running**. Report `current_step`, the tip under `## Branch`,
-  and any push failure noted under `## Notes`.
+The watcher heartbeats every 60s, so a `last_check` under ~150s → **RUNNING**; older or missing
+→ **STALE / NOT RUNNING** (dead, or never started on this machine). After the verdict line the
+status file gives `current_step`, the tip under `## Branch`, and any push failure under
+`## Notes`. A stale `watcher_pid` from a previous session is expected and harmless — ignore it.
 
 This check has no side effects — safe to run any time, from any worktree.
 
