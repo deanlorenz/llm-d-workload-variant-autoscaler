@@ -236,6 +236,16 @@ func (a *ThroughputAnalyzer) Analyze(
 	// EPP presence is now derived from the model-level arrival rate rather than
 	// per-replica ArrivalRate: a model-level sum(rate(...)) is all-or-nothing
 	// (decision #1), so a single check here is equivalent and simpler.
+	//
+	// The per-replica ReplicaMetrics.RequestRate is deliberately NOT consulted here as
+	// a "broken arrival" cross-check (e.g. warn when arrival == 0 while ΣRequestRate > 0).
+	// RequestRate is a request completion rate, not an arrival rate: a draining engine
+	// keeps RequestRate > 0 after arrivals have legitimately fallen to zero, so that
+	// condition is a normal ramp-down state, not a fault — cross-checking it would warn
+	// constantly during scale-down. A genuine broken-arrival signal is temporal — supply
+	// live but demand never observed across a full staleness window — and is surfaced as
+	// an observability-only warning in the engine liveness path, not in this per-cycle
+	// demand math.
 	anyEPP := input.ArrivalRate > 0
 
 	a.mu.Lock()
@@ -400,6 +410,12 @@ func (a *ThroughputAnalyzer) Analyze(
 	// division-by-zero.
 	if nDecodeVariants > 0 {
 		avgOL := totalDecodeOL / float64(totalDecodeKV)
+		// Arrival rate is the demand signal. When it is zero — EPP absent, or present
+		// but not yet scraped — arrivalDecodeDemand is legitimately zero and so is
+		// TotalDemand. Zero demand only ever permits scale-down (still governed by the
+		// multi-analyzer all-live-agree gate); it never forces a scale action and never
+		// drives scale-up. So a zero/absent arrival signal is safe here and is
+		// intentionally NOT floored to a served-rate proxy.
 		arrivalDecodeDemand = input.ArrivalRate * avgOL
 		totalDemand = arrivalDecodeDemand
 		arrivalDemandByRole = distributeDemandByRole(arrivalDecodeDemand, variantCapacities)
