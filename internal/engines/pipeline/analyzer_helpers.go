@@ -31,10 +31,19 @@ func rolesOf(vcs []domain.VariantCapacity) []string {
 // usable capacity signal (see domain.VariantCapacity.Reason doc). Analyzers
 // that skip a variant entirely on failure (e.g. throughput's ITL-model
 // resolution) never emit these — the variant is simply absent from
-// VariantCapacities, which resultIsInformative also treats as uninformative.
+// VariantCapacities, which ResultIsInformative also treats as uninformative.
+//
+// These are the single source of truth for the no-data/error sentinels:
+// producer packages (e.g. saturation_v2) reference them rather than
+// re-declaring the literals, so ResultIsInformative and the producers cannot
+// drift apart.
 const (
-	analyzerReasonNoData = "no-data"
-	analyzerReasonError  = "error"
+	// ReasonNoData marks a variant for which the analyzer had no usable input
+	// (no live replicas and no store record).
+	ReasonNoData = "no-data"
+	// ReasonError marks a variant whose capacity could not be resolved due to
+	// an internal analyzer error.
+	ReasonError = "error"
 )
 
 // ResultIsInformative reports whether nr carries a usable capacity signal:
@@ -46,7 +55,7 @@ func ResultIsInformative(nr NamedAnalyzerResult) bool {
 		return false
 	}
 	for _, vc := range nr.Result.VariantCapacities {
-		if vc.Reason != analyzerReasonNoData && vc.Reason != analyzerReasonError {
+		if vc.Reason != ReasonNoData && vc.Reason != ReasonError {
 			return true
 		}
 	}
