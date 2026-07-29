@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the two-variant V2 full-pipeline 5-panel timeseries plot.
 
-Mirrors `two_variant_v2_full_pipeline_v3.png` from biran-20260527-101013-246.
+Mirrors `two_variant_v2_full_pipeline_v3.png` from a prior benchmark run.
 Panels: Replica Count | KV Cache Util (avg per variant) | Requests Running
 (sum per variant) | vLLM Requests Waiting (sum per variant) | EPP Queue Metrics.
 """

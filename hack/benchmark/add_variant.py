@@ -417,7 +417,8 @@ def make_variant_deployment(primary, cfg, namespace):
 
 
 def make_variant_scaledobject(dep_name, so_name, model_id, cost, min_replicas,
-                               max_replicas, namespace, prometheus_url):
+                               max_replicas, namespace, prometheus_url,
+                               accelerator_name):
     """Build a KEDA ScaledObject for a WVA variant.
 
     WVA discovers the ScaledObject via the llm-d.ai/managed annotation and
@@ -436,7 +437,7 @@ def make_variant_scaledobject(dep_name, so_name, model_id, cost, min_replicas,
                 # Required for WVA to resolve accelerator type for k1/k2 computation.
                 # Without this WVA emits with accelerator_type="unresolved" and withholds
                 # accelerator-specific saturation metrics.
-                "inference.optimization/acceleratorName": "NVIDIA-H100-80GB-HBM3",
+                "inference.optimization/acceleratorName": accelerator_name,
             },
             "annotations": {
                 "llm-d.ai/managed": "true",
@@ -590,9 +591,18 @@ def main():
                     help="Kubernetes namespace")
     ap.add_argument("--config", required=True,
                     help="Path to a variant override yaml (see module docstring)")
-    ap.add_argument("--prometheus-url",
-                    default="https://thanos-querier.openshift-monitoring.svc.cluster.local:9091",
-                    help="Prometheus server URL for KEDA triggers (default: OCP thanos-querier)")
+    ap.add_argument("--prometheus-url", required=True,
+                    help="Prometheus server URL for KEDA triggers")
+    ap.add_argument("--accelerator-name", required=True,
+                    help="Node GPU accelerator label (inference.optimization/acceleratorName) "
+                         "WVA uses to resolve k1/k2 and accelerator-specific saturation metrics")
+    ap.add_argument("--primary-cost", required=True,
+                    help="variant-cost annotation for a bootstrapped primary ScaledObject "
+                         "(used only when no existing HPA/ScaledObject is found)")
+    ap.add_argument("--primary-min", type=int, required=True,
+                    help="minReplicaCount for a bootstrapped primary ScaledObject")
+    ap.add_argument("--primary-max", type=int, required=True,
+                    help="maxReplicaCount for a bootstrapped primary ScaledObject")
     ap.add_argument("--dry-run", action="store_true",
                     help="Print manifests as JSON without applying")
     args = ap.parse_args()
@@ -641,16 +651,16 @@ def main():
         if legacy_hpa is not None:
             hpa_ann = legacy_hpa.get("metadata", {}).get("annotations", {})
             model_id = hpa_ann.get("llm-d.ai/model-id") or detect_model_id(primary_dep)
-            primary_cost = hpa_ann.get("llm-d.ai/variant-cost", "10.0")
-            primary_min = legacy_hpa.get("spec", {}).get("minReplicas", 1)
-            primary_max = legacy_hpa.get("spec", {}).get("maxReplicas", 10)
+            primary_cost = hpa_ann.get("llm-d.ai/variant-cost", args.primary_cost)
+            primary_min = legacy_hpa.get("spec", {}).get("minReplicas", args.primary_min)
+            primary_max = legacy_hpa.get("spec", {}).get("maxReplicas", args.primary_max)
             print(f"      Found legacy direct HPA '{legacy_hpa['metadata']['name']}' "
                   f"(model-id={model_id}, cost={primary_cost}) — converting to ScaledObject")
         else:
             model_id = detect_model_id(primary_dep) or dep_name
-            primary_cost = "10.0"
-            primary_min = 1
-            primary_max = 10
+            primary_cost = args.primary_cost
+            primary_min = args.primary_min
+            primary_max = args.primary_max
             print(f"      No ScaledObject or HPA found — creating primary ScaledObject "
                   f"(model-id={model_id}, cost={primary_cost})")
 
@@ -663,6 +673,7 @@ def main():
             max_replicas=primary_max,
             namespace=ns,
             prometheus_url=args.prometheus_url,
+            accelerator_name=args.accelerator_name,
         )
         # Delete the legacy HPA BEFORE creating the ScaledObject:
         # KEDA's admission webhook rejects a ScaledObject if a managed HPA
@@ -677,7 +688,7 @@ def main():
     else:
         ann = primary_so.get("metadata", {}).get("annotations", {})
         model_id = ann.get("llm-d.ai/model-id") or detect_model_id(primary_dep) or dep_name
-        primary_cost = ann.get("llm-d.ai/variant-cost", "10.0")
+        primary_cost = ann.get("llm-d.ai/variant-cost", args.primary_cost)
         primary_so_name = primary_so["metadata"]["name"]
         print(f"      {primary_so_name}  (model-id={model_id}, cost={primary_cost})")
 
@@ -699,6 +710,7 @@ def main():
         max_replicas=cfg["maxReplicas"],
         namespace=ns,
         prometheus_url=args.prometheus_url,
+        accelerator_name=args.accelerator_name,
     )
 
     print(f"  Applying Deployment: {var_dep_name}")

@@ -11,13 +11,13 @@
 #   ./hack/benchmark/post_run_analyze.sh <results_dir> [namespace] [suffix]
 #
 # Where:
-#   <results_dir> is e.g. biran-20260531-130812-164/results/guidellm-1780222131-3ew5uw_1
-#   [namespace]   defaults to $BENCHMARK_NAMESPACE or `biran`
+#   <results_dir> is e.g. <workspace>-20260531-130812-164/results/guidellm-1780222131-3ew5uw_1
+#   [namespace]   defaults to $BENCHMARK_NAMESPACE (required if arg omitted)
 #   [suffix]      optional title suffix for the plot
 set -euo pipefail
 
 RESULTS_DIR="${1:?usage: $0 <results_dir> [namespace] [suffix]}"
-NS="${2:-${BENCHMARK_NAMESPACE:-biran}}"
+NS="${2:-${BENCHMARK_NAMESPACE:?namespace required: pass as arg 2 or set BENCHMARK_NAMESPACE}}"
 SUFFIX="${3:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

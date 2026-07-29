@@ -36,6 +36,13 @@ E2E_WVA_SECONDARY_OVERLAY_PATH ?= $(CURDIR)/test/e2e/testdata/secondary-controll
 # llm-d-benchmark CLI configuration
 # Ensure brew-installed tools (helm >=3.19) take precedence over Rancher Desktop
 export PATH := /opt/homebrew/bin:$(PATH)
+
+# Environment-specific benchmark overrides. Copy hack/benchmark/.env.sample ->
+# hack/benchmark/.env and fill in. Included BEFORE the ?= defaults below so .env
+# values win over them; CLI overrides (make VAR=...) still win over .env. The
+# §5.2 image/chart/model/accelerator values have NO ?= default here — they must
+# come from .env (or the CLI); benchmark-standup errors if a required one is unset.
+-include hack/benchmark/.env
 BENCHMARK_REPO_URL   ?= https://github.com/llm-d/llm-d-benchmark.git
 BENCHMARK_REPO_DIR   ?= $(CURDIR)/llm-d-benchmark
 BENCHMARK_DIRECT_KEDA ?= false
@@ -419,6 +426,25 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 		{ print } \
 	' $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml > $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tmp && \
 	mv $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tmp $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml
+	@echo "Substituting .env image/chart/model/workdir tokens into scenario ($(BENCHMARK_SPEC).yaml)..."
+	@sed -i.tokbak \
+		-e 's|__WVA_IMAGE_REPO__|$(WVA_IMAGE_REPO)|g' \
+		-e 's|__WVA_IMAGE_TAG__|$(WVA_IMAGE_TAG)|g' \
+		-e 's|__VLLM_IMAGE_REPO__|$(VLLM_IMAGE_REPO)|g' \
+		-e 's|__VLLM_IMAGE_TAG__|$(VLLM_IMAGE_TAG)|g' \
+		-e 's|__WVA_CHART_VERSION__|$(WVA_CHART_VERSION)|g' \
+		-e 's|__PROMETHEUS_ADAPTER_CHART_VERSION__|$(PROMETHEUS_ADAPTER_CHART_VERSION)|g' \
+		-e 's|__BENCHMARK_MODEL_ID__|$(BENCHMARK_MODEL_ID)|g' \
+		-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
+		-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
+		-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
+		$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml
+	@rm -f $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak
+	@if grep -qE '__[A-Z_]+__' $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml; then \
+		echo "ERROR: unsubstituted placeholders remain in $(BENCHMARK_SPEC).yaml — set them in hack/benchmark/.env (see .env.sample):"; \
+		grep -oE '__[A-Z_]+__' $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml | sort -u | sed 's/^/  /'; \
+		exit 1; \
+	fi
 	$(LLMDBENCHMARK) $(BENCHMARK_CLI_FLAGS) standup \
 		-p $(BENCHMARK_NAMESPACE) \
 		$(if $(BENCHMARK_MODEL_ID),-m $(BENCHMARK_MODEL_ID),) \
@@ -463,6 +489,27 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 		mkdir -p "$(BENCHMARK_REPO_DIR)/config/scenarios/$$(dirname $(BENCHMARK_SPEC))"; \
 		cp "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml" \
 		   "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
+	fi
+	@if [ -f "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml" ]; then \
+		echo "Substituting .env image/chart/model/workdir tokens into scenario ($(BENCHMARK_SPEC).yaml)..."; \
+		sed -i.tokbak \
+			-e 's|__WVA_IMAGE_REPO__|$(WVA_IMAGE_REPO)|g' \
+			-e 's|__WVA_IMAGE_TAG__|$(WVA_IMAGE_TAG)|g' \
+			-e 's|__VLLM_IMAGE_REPO__|$(VLLM_IMAGE_REPO)|g' \
+			-e 's|__VLLM_IMAGE_TAG__|$(VLLM_IMAGE_TAG)|g' \
+			-e 's|__WVA_CHART_VERSION__|$(WVA_CHART_VERSION)|g' \
+			-e 's|__PROMETHEUS_ADAPTER_CHART_VERSION__|$(PROMETHEUS_ADAPTER_CHART_VERSION)|g' \
+			-e 's|__BENCHMARK_MODEL_ID__|$(BENCHMARK_MODEL_ID)|g' \
+			-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
+			-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
+			-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
+			"$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
+		rm -f "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak"; \
+		if grep -qE '__[A-Z_]+__' "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; then \
+			echo "ERROR: unsubstituted placeholders remain in $(BENCHMARK_SPEC).yaml — set them in hack/benchmark/.env (see .env.sample):"; \
+			grep -oE '__[A-Z_]+__' "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml" | sort -u | sed 's/^/  /'; \
+			exit 1; \
+		fi; \
 	fi
 	@if [ -f "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2" ]; then \
 		echo "Copying local specification: hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2 -> $(BENCHMARK_REPO_DIR)/config/specification/$(BENCHMARK_SPEC).yaml.j2"; \
@@ -548,10 +595,23 @@ benchmark-add-variant: ## Add a WVA variant to the running benchmark (set BENCHM
 		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-add-variant BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
+	@missing=""; \
+	[ -z "$(ACCELERATOR_NAME)" ] && missing="$$missing ACCELERATOR_NAME"; \
+	[ -z "$(PRIMARY_COST)" ]     && missing="$$missing PRIMARY_COST"; \
+	[ -z "$(PRIMARY_MIN)" ]      && missing="$$missing PRIMARY_MIN"; \
+	[ -z "$(PRIMARY_MAX)" ]      && missing="$$missing PRIMARY_MAX"; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: required benchmark .env value(s) unset:$$missing (see hack/benchmark/.env.sample)"; \
+		exit 1; \
+	fi
 	python3 $(CURDIR)/hack/benchmark/add_variant.py \
 		-n $(BENCHMARK_NAMESPACE) \
 		--config $(VARIANT_CONFIG) \
-		--prometheus-url $(PROMETHEUS_URL)
+		--prometheus-url $(PROMETHEUS_URL) \
+		--accelerator-name $(ACCELERATOR_NAME) \
+		--primary-cost $(PRIMARY_COST) \
+		--primary-min $(PRIMARY_MIN) \
+		--primary-max $(PRIMARY_MAX)
 
 .PHONY: benchmark-enable-v2-saturation
 benchmark-enable-v2-saturation: ## Enable WVA saturation V2 analyzer (apply configmap + restart controller)

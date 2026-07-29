@@ -31,6 +31,9 @@ gpu.cluster
 llm-d/
 llm-d-infra/
 llm-d-benchmark/
+
+# Local benchmark environment overrides (copy hack/benchmark/.env.sample -> .env)
+hack/benchmark/.env
 # llmdbenchmark workspace directories (created by benchmark runs)
 *-*-*-*-*-*/
 biran-*/
