@@ -50,7 +50,7 @@ BENCHMARK_FORCE      ?= true
 BENCHMARK_MONITORING ?= true
 BENCHMARK_UV         ?= false
 BENCHMARK_SCENARIOS_DIR ?= $(CURDIR)/test/benchmark/scenarios
-BENCHMARK_MODEL_ID   ?= $(MODEL_ID)
+BENCHMARK_MODEL_ID   ?= # empty: scenario YAML drives the model; set BENCHMARK_MODEL_ID=<id> to override
 BENCHMARK_DECODE_REPLICAS ?= 1
 BENCHMARK_KEDA_MIN_REPLICAS ?= 1
 BENCHMARK_KEDA_MAX_REPLICAS ?= 10
@@ -458,6 +458,18 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 			exit 1; \
 		fi; \
 	fi
+	@if [ -f "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml" ]; then \
+		echo "Copying local scenario: hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml -> $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
+		mkdir -p "$(BENCHMARK_REPO_DIR)/config/scenarios/$$(dirname $(BENCHMARK_SPEC))"; \
+		cp "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml" \
+		   "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
+	fi
+	@if [ -f "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2" ]; then \
+		echo "Copying local specification: hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2 -> $(BENCHMARK_REPO_DIR)/config/specification/$(BENCHMARK_SPEC).yaml.j2"; \
+		mkdir -p "$(BENCHMARK_REPO_DIR)/config/specification/$$(dirname $(BENCHMARK_SPEC))"; \
+		cp "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2" \
+		   "$(BENCHMARK_REPO_DIR)/config/specification/$(BENCHMARK_SPEC).yaml.j2"; \
+	fi
 	@if [ -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" ]; then \
 		cp "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" \
 		   "$(BENCHMARK_REPO_DIR)/workload/profiles/$(BENCHMARK_HARNESS)/$(BENCHMARK_WORKLOAD).in"; \
@@ -521,20 +533,25 @@ benchmark-plot-two-variant: ## Plot two-variant replica/latency/throughput graph
 	echo "Two-variant plot: $$LATEST_DIR/metrics/graphs/two_variant_v2_full_pipeline.png"
 
 VARIANT_CONFIG ?= $(CURDIR)/hack/benchmark/scenarios/guides/variants/v2-tp1-cheaper.yaml
+# Prometheus URL for KEDA ScaledObject triggers. Default is the OCP thanos-querier.
+# Override for vanilla Kubernetes clusters, e.g.:
+#   PROMETHEUS_URL=http://prometheus.monitoring.svc.cluster.local:9090
+PROMETHEUS_URL ?= https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
 WVA_V2_SATURATION_CONFIGMAP ?= $(CURDIR)/hack/benchmark/scenarios/wva_threshold/wva_saturation_v2_config.yaml
 WVA_CONTROLLER_DEPLOY ?= deploy/workload-variant-autoscaler-controller-manager
 WVA_ROLLOUT_TIMEOUT ?= 120s
 WVA_MONITORING_NAMESPACE ?= workload-variant-autoscaler-monitoring
 
 .PHONY: benchmark-add-variant
-benchmark-add-variant: ## Add a secondary WVA variant to the running benchmark (set BENCHMARK_NAMESPACE=<namespace>, optional VARIANT_CONFIG=<path>)
+benchmark-add-variant: ## Add a WVA variant to the running benchmark (set BENCHMARK_NAMESPACE=<namespace>, optional VARIANT_CONFIG=<path>, PROMETHEUS_URL=<url>)
 	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
 		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-add-variant BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
 	python3 $(CURDIR)/hack/benchmark/add_variant.py \
 		-n $(BENCHMARK_NAMESPACE) \
-		--config $(VARIANT_CONFIG)
+		--config $(VARIANT_CONFIG) \
+		--prometheus-url $(PROMETHEUS_URL)
 
 .PHONY: benchmark-enable-v2-saturation
 benchmark-enable-v2-saturation: ## Enable WVA saturation V2 analyzer (apply configmap + restart controller)
@@ -542,7 +559,22 @@ benchmark-enable-v2-saturation: ## Enable WVA saturation V2 analyzer (apply conf
 		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-enable-v2-saturation BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
-	kubectl apply -n $(BENCHMARK_NAMESPACE) -f $(WVA_V2_SATURATION_CONFIGMAP)
+	@# Detect the saturation ConfigMap name: Kustomize installs use wva-saturation-scaling-config,
+	@# Helm-based installs use workload-variant-autoscaler-wva-saturation-scaling-config.
+	@# Prefer the shorter Kustomize name if both exist (the controller reads it).
+	@SAT_CM=$$(kubectl get configmap wva-saturation-scaling-config \
+		-n $(BENCHMARK_NAMESPACE) -o name 2>/dev/null | sed 's|configmap/||'); \
+	if [ -z "$$SAT_CM" ]; then \
+		SAT_CM=$$(kubectl get configmap -n $(BENCHMARK_NAMESPACE) \
+			-o name 2>/dev/null | grep "saturation-scaling-config" | head -1 | sed 's|configmap/||'); \
+	fi; \
+	if [ -z "$$SAT_CM" ]; then \
+		echo "ERROR: saturation-scaling-config ConfigMap not found in namespace $(BENCHMARK_NAMESPACE)"; \
+		exit 1; \
+	fi; \
+	echo "Patching ConfigMap $$SAT_CM to enable V2 saturation analyzer..."; \
+	kubectl patch configmap "$$SAT_CM" -n $(BENCHMARK_NAMESPACE) --type=merge \
+		-p '{"data":{"default":"analyzers:\n  - name: saturation\nkvCacheThreshold: 0.80\nqueueLengthThreshold: 5\nkvSpareTrigger: 0.1\nqueueSpareTrigger: 3\nenableLimiter: false\n"}}'
 	$(MAKE) benchmark-restart-controller BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE)
 
 .PHONY: benchmark-restart-controller
@@ -551,8 +583,15 @@ benchmark-restart-controller: ## Restart WVA controller to flush in-memory state
 		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-restart-controller BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
-	kubectl rollout restart -n $(BENCHMARK_NAMESPACE) $(WVA_CONTROLLER_DEPLOY)
-	kubectl rollout status -n $(BENCHMARK_NAMESPACE) $(WVA_CONTROLLER_DEPLOY) --timeout=$(WVA_ROLLOUT_TIMEOUT)
+	@# Detect the controller deployment name: Kustomize installs use wva-controller-manager,
+	@# Helm-based installs use workload-variant-autoscaler-controller-manager.
+	@DEPLOY=$$(kubectl get deploy -n $(BENCHMARK_NAMESPACE) \
+		-l app.kubernetes.io/name=workload-variant-autoscaler \
+		-o name 2>/dev/null | head -1); \
+	DEPLOY=$${DEPLOY:-$(WVA_CONTROLLER_DEPLOY)}; \
+	echo "Restarting $$DEPLOY..."; \
+	kubectl rollout restart -n $(BENCHMARK_NAMESPACE) $$DEPLOY; \
+	kubectl rollout status -n $(BENCHMARK_NAMESPACE) $$DEPLOY --timeout=$(WVA_ROLLOUT_TIMEOUT)
 
 BURSTY_WORKLOAD    ?= bursty.yaml
 BENCHMARK_WAIT_TIMEOUT ?= 7200
