@@ -288,11 +288,23 @@ true` statically so it keeps scaling down as before. It will pick up real
 liveness tracking when it becomes a first-class multi-analyzer participant.
 
 Liveness reflects whether an analyzer has a current *capacity* (supply-side)
-signal — it does not attempt to detect a broken *demand* signal. A
-falsely-low demand value only biases toward scale-down, never toward a
-spurious veto, so it is out of scope for this gate; demand robustness is
-handled upstream by other mechanisms (metric sanity checks on calibration
-inputs, request-rate / local-demand fallbacks).
+signal — it does not gate on the *demand* signal. A falsely-low demand value
+only biases toward scale-down, never toward a spurious veto, so it never
+affects the veto gate; demand robustness is handled upstream by other
+mechanisms (metric sanity checks on calibration inputs, request-rate /
+local-demand fallbacks).
+
+**Demand-liveness telemetry (warn-only).** As an observability aid, the engine
+separately watches for the throughput analyzer having a live capacity signal
+while reporting no demand (`TotalDemand == 0`) for at least the staleness
+window. This usually means the request-arrival query is misconfigured or EPP
+is not reporting arrivals — supply is being measured but no load is observed,
+so scale-up will never trigger. When detected, the engine logs a warning; it
+never sets `Live`, never touches `RoleSpare`, and never gates any scaling
+decision. The signal is a timestamp gap rather than a boolean so a cold-start
+scrape lag (supply resolving a cycle or two before the first arrival scrape)
+does not false-positive: the gap only reaches the staleness window after
+demand has genuinely been absent for that long.
 
 **Safety floor.** If every analyzer in the slice is non-live for a role,
 `needsScaleDownForRole` returns false rather than falling through to "no

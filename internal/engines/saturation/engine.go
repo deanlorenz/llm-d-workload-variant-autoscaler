@@ -882,6 +882,18 @@ func (e *Engine) optimizeV2(
 ) []domain.VariantDecision {
 	logger := ctrl.LoggerFrom(ctx)
 
+	// Prune liveness state for departed models. Any model still present in
+	// modelGroups is active this cycle (config-not-loaded or transient-failure
+	// models are enumerated but skipped below — they have not departed); keys
+	// absent from modelGroups belong to models whose VariantAutoscalings are
+	// gone, so their lastGoodAnalysis entries are evicted here. Keyed identically
+	// to updateLivenessAndSetLive (utils.GetNamespacedKey(namespace, modelID)).
+	activeKeys := make(map[string]bool, len(modelGroups))
+	for _, modelVAs := range modelGroups {
+		activeKeys[utils.GetNamespacedKey(modelVAs[0].Namespace, modelVAs[0].Spec.ModelID)] = true
+	}
+	e.pruneLastGoodAnalysis(activeKeys)
+
 	// Stage 1: Collect ModelScalingRequests for all models
 	requests := make([]pipeline.ModelScalingRequest, 0, len(modelGroups))
 	// modelReplicaMetrics collects per-model replica metrics for KV token enrichment
