@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Skill(keybindings-help)",
-      "Skill(keybindings-help:*)"
+      "Skill(keybindings-help:*)",
+      "Bash(bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-status.sh)"
     ]
   },
   "hooks": {
