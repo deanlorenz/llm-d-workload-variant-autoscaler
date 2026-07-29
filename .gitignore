@@ -1,0 +1,4 @@
+# plans branch only (orphan) — never part of a code PR or upstream.
+# The sync-main watcher rewrites this heartbeat file every 60s; it is
+# machine-local liveness, not shared project state, so keep it out of git.
+session/status/main.md
