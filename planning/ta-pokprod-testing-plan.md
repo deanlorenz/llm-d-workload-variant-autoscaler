@@ -16,14 +16,14 @@
 ## Table of contents
 
 - [1. Where we are (findings)](#1-where-we-are-findings) — L34:66
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:104
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L106:132
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L134:176
-- [5. Phase 2 — Fresh benchmark branch + adopt Ofer's harness](#5-phase-2--fresh-benchmark-branch--adopt-ofers-harness) — L178:212
-- [6. Phase 3 — Clean stale pokprod](#6-phase-3--clean-stale-pokprod) — L214:230
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L232:270
-- [8. Open items / decisions remaining](#8-open-items--decisions-remaining) — L272:288
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L290:end
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:214
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L216:350
+- [6. Phase 3 — Clean stale pokprod](#6-phase-3--clean-stale-pokprod) — L352:372
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L374:415
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L417:440
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L442:end
 
 ---
 
@@ -97,6 +97,28 @@ The governing principle from Dean: the code being tested and the benchmark that 
 
 Seam between tiers = the image `repository:tag` in the guide. That is the *only* coupling.
 
+### 2a. pokprod shared-cluster safety invariants (2026-07-28, per Dean)
+
+pokprod is a **shared OpenShift cluster** (not pure k8s — expect OCP-specific objects:
+`Route`, `ServiceMonitor`/`PodMonitor` with TLS, SCCs, `oc` not just `kubectl`). Dean **and Ofer
+both hold admin**, so an unscoped or defaulted command can silently land in the wrong namespace or
+mutate cluster-global state. These invariants bind every phase and must be restated in the runbook:
+
+- **Operate only in Dean's namespace** (`dhl-wva-209`, per Phase 3). Every `oc`/harness/helm/kustomize
+  invocation carries an explicit `-n dhl-wva-209`; never rely on the current-context namespace.
+- **Every environment value comes from the explicit `.env`** — namespace, model, instance, image,
+  accelerator, URLs. Never a harness default or inferred value: a default could resolve into Ofer's
+  namespace or a cluster-global object. This is *why* Dean uses a fully-populated `.env`.
+- **Any teardown on pokprod requires Dean's explicit approval** — no teardown/delete is initiated or
+  directed by the plan-agent, and none runs (even by Ofer) without Dean signing off on that specific
+  action. Never run a delete/teardown without an explicit namespace arg.
+- **Never change any cluster-global / out-of-namespace setting** — Prometheus/monitoring stack config,
+  router control plane, routing rules, HTTP/gateway settings, or anything cluster-scoped. Dean *has*
+  the admin rights to do this by mistake; the guard is procedural. **Before applying any kustomize or
+  helm manifest, verify it does not create or mutate cluster-scoped / other-namespace objects** (scan
+  for `ClusterRole`/`ClusterRoleBinding`, resources without a `namespace:`, or edits to shared
+  monitoring/gateway CRs); if it does, stop and surface it to Dean rather than applying.
+
 ---
 
 ## 3. Phase 0 — Preserve (zero-loss)
@@ -112,10 +134,20 @@ verified captured (CONVENTIONS: verify-or-copy-then-delete).
    the 2 real harness commits are already on `origin/benchmark` (BASENAME, scenario-1 guide).
    **Verify this before treating the branch as disposable.**
 3. **Commit** the untracked runbook + notes + `results/` onto the current `benchmark` branch.
-4. **Rename the old branch first, then archive** (Dean's rule — free the name `benchmark` for the
-   fresh branch). Proposed: rename `benchmark` → `benchmark-ta3-legacy`, then `git boidem`
-   (tag `archive/benchmark-ta3-legacy`, push tag to origin, delete local). The snapshot tag is
-   the permanent recovery handle. **Fork only — never upstream.**
+   **Do NOT commit `.claude/settings.json`** — leave it untracked (local worktree config, preserved
+   in place per §5).
+4. **Rename, then create fresh, then archive** (Dean's rule — free the name `benchmark`). Sequence
+   matters because `git boidem` deletes the local branch and **you cannot delete a branch checked
+   out in its own worktree**:
+   1. `git branch -m benchmark benchmark-ta3-legacy` (worktree now on `benchmark-ta3-legacy`).
+   2. `git switch -c benchmark 11d70a8a` (fresh `benchmark` off current main; worktree now on it —
+      this frees `benchmark-ta3-legacy` for archiving). Harness wiring of this fresh branch is Phase 2.
+   3. `git tag archive/benchmark-ta3-legacy benchmark-ta3-legacy` (local snapshot tag — the
+      permanent recovery handle).
+   4. **STOP — do not push, do not delete the local branch.** Write a handoff listing what Dean
+      must push (tag `archive/benchmark-ta3-legacy` + fresh `benchmark` → origin) and that the
+      local `benchmark-ta3-legacy` branch is deleted only *after* the tag is pushed. **Fork only —
+      never upstream.** (`git boidem` itself pushes, so it is Dean's to run, not the coder's.)
 
 ---
 
@@ -123,15 +155,22 @@ verified captured (CONVENTIONS: verify-or-copy-then-delete).
 
 Goal: one clean, reproducible branch/tag/image = current main (has A + A′) + C #1480 + D #1481.
 
-**Prereq — the two open PRs on current main.** C and D were forward-rebased onto post-#1478 main
-already; but #1479 (A′) merged *after* that, so **D still needs a rebase onto current tip and an
-`engine_v2.go` reconciliation against the now-merged A′** (D and A′ shared that file). C is
-independent. ⚠️ **Cross-rebase hazard persists:** these PRs originated on `55e24be9`, before
-#1483's `interfaces → domain` rename; three-way merges can **silently drop hunks**. CONVENTIONS
-pre-rebase discipline is mandatory:
+**Prereq — the two open PRs on current main.** C and D both sit on `827c8542` (post-#1478 A,
+**pre-#1479 A′**). Current main is `11d70a8a` = that + A′. **Both C and D need a 1-commit
+forward-rebase onto `11d70a8a`, and BOTH conflict with A′ on `internal/engines/saturation/engine_v2.go`
++ `engine_v2_test.go` + `docs/developer-guide/multi-analyzer-pipeline.md`** (verified
+`git diff --name-only` overlap 2026-07-28). C additionally overlaps `engine_v2_population_test.go`
+and `throughput-analyzer.md`; D additionally overlaps nothing new. Neither is a clean fast-forward
+— each needs an `engine_v2.go` reconciliation against merged A′. ⚠️ **Cross-rebase hazard
+persists:** these PRs originated on `55e24be9`, before #1483's `interfaces → domain` rename;
+three-way merges can **silently drop hunks**. CONVENTIONS pre-rebase discipline is mandatory:
 - Pre-rebase plan per branch (coder records in `plans/session/status/<branch>.md`).
 - Per-file diff inventory + per-commit message-vs-diff check after each rebase.
-- Both PR branches keep their own upstream life — this rebase is needed for them regardless.
+- **Correction (per Dean 2026-07-28):** the open PRs #1480/#1481 do **not** need this rebase.
+  C and D sit on `827c8542`, an ancestor of current main, so the integration branch can merge
+  them **un-rebased**. Rebasing the live PR branches in place was an unnecessary plan-agent
+  implementation choice — do **not** repeat structural git ops on live PR branches without
+  consulting Dean first.
 
 **Integration branch** (test-only; fork-only; **never** an upstream PR):
 1. Branch off **current upstream main** in its own worktree, name e.g. `ta-testing`.
@@ -141,39 +180,168 @@ pre-rebase discipline is mandatory:
    hunk loss a real risk). Gates: `make test`, `gofmt -l`, `make lint`, `go build ./...`.
 4. **Tag** the integration commit for reproducibility, e.g. `ta-0.9-test-20260728` (immutable
    checkout point — this is what "where did we get the code" resolves to).
-5. **Build & push the image** to `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`
-   (replaces the old `:ta3`). Record the digest in the runbook (Tier B).
-6. **Push branch + tag to origin (`deanlorenz` fork)** for Ofer — subject to Dean's explicit
-   per-push confirmation; **never to upstream**.
+5. **Build the image** from this worktree: `make docker-build
+   IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` (host is linux/x86_64 =
+   OpenShift amd64, native build correct; replaces the old `:ta3`). **`docker-push` to quay is
+   Dean's** (creds + push gate); do it at deploy time. Record the digest in the runbook (Tier B).
+6. **Push branch + tag to origin (`deanlorenz` fork)** — **deferred to Ofer handover** (decision #7:
+   only after Step-0 sanity passes). Subject to Dean's explicit per-push confirmation; **never upstream**.
+
+**Push policy correction (2026-07-28, per Dean):** the **open PRs #1480/#1481 do NOT chase main**
+— rebase happens only at reviewer request or just before final merge. Moreover the C/D PR
+branches did **not** need rebasing *at all* for this exercise: the integration branch could have
+merged them un-rebased (they're ancestors of current main). The in-place rebase of the live PR
+branches was an unnecessary plan-agent choice and must not recur without consulting Dean.
+**State (2026-07-28):** local `ta-model-level-demand` (`25f09a87`) and `ta-veto-liveness`
+(`b3f75650`) are rebased **ahead of** their origin PR tips (`7aec2645` / `19c9a122`). Per Dean:
+**leave as-is, do NOT push** — pushing would confuse reviewers of #1480/#1481. Harmless while
+unpushed. `ta-testing` branch (`db530eed`) + image `:ta-0.9` (digest `sha256:80da87a4…`) **pushed
+to fork/quay 2026-07-28** (Dean authorized both).
 
 **Deliverable to Ofer:** branch `ta-testing` + tag `ta-0.9-test-20260728` + image `…:ta-0.9`
 (+ digest), all on Dean's fork / quay. He points his guide `tag:` at it, or checks out the tag.
 
+**⚠️ Cross-PR test-signature coupling (found during 1c integration, 2026-07-28).** The C+D
+`--no-ff` merge was *textually* clean but had a **semantic** conflict git could not see: C adds an
+`arrivalRate float64` parameter to `runAnalyzersAndScore`, and D's new whole-file test
+`engine_v2_liveness_test.go` (no textual overlap → unflagged) calls the pre-C signature. It failed
+only at `go vet`; fixed in `ta-testing` by adding `arrivalRate=0` to the 6 call sites. **Consequence
+for the real PRs:** whichever of #1480 (C) / #1481 (D) merges to upstream **second** will hit this
+same break when rebased onto the C-or-D-containing main — the second PR needs the identical
+test-call-site fixup, and neither PR's own CI catches it beforehand (independent branches). Flag
+to reviewer/author before the second merge.
+
 ---
 
-## 5. Phase 2 — Fresh benchmark branch + adopt Ofer's harness
+## 5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)
 
-Goal: a fresh Tier-B harness that follows llm-d-benchmark guides and Ofer's KEDA path, decoupled
-from the stale TA code.
+Goal (this phase): a fresh Tier-B harness **present on the branch** that follows the KEDA path,
+with **every environment-specific value parametrized to an explicit `.env`**, validated by a
+**no-op dry standup** — **no cluster contact**. The controller image (`:ta-0.9` seam) is a `.env`
+variable and **deferrable**. Executed by the **benchmark coder** in the `benchmark` worktree; the
+plan-agent does not write harness code.
 
-1. **Study Ofer's actual current setup first** (read-only). His harness is `biranofer/llm-d-benchmark`
-   @ `feat/multi-variant-benchmark`; his WVA-side change is `biranofer/workload-variant-autoscaler`
-   @ `feat/two-variant-keda` (#1435). Determine: (a) what the KEDA-based two-variant guide needs
-   from the WVA controller (ScaledObjects vs the runbook's VA+HPA); (b) which of his changes are
-   unmerged and therefore only in his fork; (c) the exact image/tag/config knobs the guide exposes.
-2. **Create the fresh `benchmark` branch** off current main (name freed in Phase 0). **Reuse the
+### 5.0 Approach — (A) blend (DECIDED 2026-07-28, per Dean)
+
+**Adopt PR #1435's WVA-side changes as the concrete KEDA starting point** (it is the only
+end-to-end-validated two-variant KEDA wiring), **then parametrize every environment-specific value
+to an explicit `.env`** per §2a. The **3 canonical guides are the source of truth for install
+*shape***; #1435 is the source of the concrete wiring; Ofer's fork is reference-only, never copied
+verbatim.
+
+The 3 guides:
+- **llm-d/llm-d** `guides/workload-autoscaling/README.wva.md` — canonical KEDA install. Key shape:
+  **KEDA CRD must exist before the controller starts** (WVA only watches ScaledObjects if the CRD
+  is present at startup); **namespace-scoped via `--watch-namespace=<ns>`**; Prometheus over
+  HTTPS/TLS (secret `prometheus-tls-cert` from the monitoring CA); apply the ScaledObject kustomize
+  overlay and **update `serverAddress` + `namespace` in the trigger** (do **not** also apply
+  `hpa.yaml`); saturation-V2 via configmap `wva-saturation-scaling-config`.
+- **llm-d/llm-d-benchmark** — harness / scenario-runner guides (`multi-variant-benchmark.md`,
+  `standup.md`, `run.md`, `workload-variant-autoscaler.md`).
+- **WVA repo** — `docs/developer-guide/two-variant-wva-benchmark.md` (#1435 rewrites it for KEDA).
+
+Ofer's fork refs (reference-only): harness `biranofer/llm-d-benchmark` @ `feat/multi-variant-benchmark`;
+WVA-side `biranofer/workload-variant-autoscaler` @ `feat/two-variant-keda` (#1435).
+
+### 5.1 What to adopt from #1435 (10 files, WVA-side — all Tier B)
+
+| Area | File | Purpose |
+|---|---|---|
+| script | `hack/benchmark/add_variant.py` (+401/−181) | VA+HPA → KEDA `ScaledObject` + `TriggerAuthentication`; primary bootstrap (legacy-HPA→SO conversion); SA-token-secret + model-id autodetect; `fix_variant_pod_label()`; `--prometheus-url` |
+| script | `hack/benchmark/dump_capacity_demand_estimate.py` (+1/−1) | EPP pod match accepts `router-epp` (not only `gaie-epp`) |
+| script | `hack/benchmark/dump_wva_target_timeseries.py` (+26/−3) | wider multi-iteration window; variant tag matches `-v2-` anywhere (SO names are `…-v2-scaler`) |
+| script | `hack/benchmark/plot_two_variant_pipeline.py` (+3/−3) | plot title reports per-variant **max** replicas |
+| scenario | `hack/benchmark/scenarios/guides/two-variant-wva.yaml` (+72/−75) | flip primary to KEDA (`variantAutoscaling.enabled:false`, `hpa.enabled:false`); **removes** hardcoded `llm-d.ai/variant` label; EPP config `inferenceExtension:`→`router.epp:` |
+| scenario (NEW) | `hack/benchmark/scenarios/guides/wva-sat2-tp1.yaml` (+257) | single-variant TP=1 sat-V2 scenario — **carries the most hardcoding** (see 5.2) |
+| workload (NEW) | `test/benchmark/scenarios/prefill_heavy_15rps_900s.yaml.in` | 4K/1K, 15 RPS Poisson, 900s |
+| workload (NEW) | `test/benchmark/scenarios/prefill_rampup_2_6_10.yaml.in` | ramp 2→6→10 RPS |
+| docs | `docs/developer-guide/two-variant-wva-benchmark.md` (+94/−88) | rewrite for KEDA path; drop prometheus-adapter prereq; add KEDA-CRD prereq + failure modes |
+| build | `Makefile` (+45/−6) | `PROMETHEUS_URL` var; autodetect configmap/deployment (kustomize vs helm); `BENCHMARK_MODEL_ID` default empty; copy-in parity for `benchmark-run` |
+
+**#1435 creates NO cluster-scoped objects** — every object it makes (`ScaledObject`,
+`TriggerAuthentication wva-prometheus-auth`, KEDA-managed HPA `wva-keda-hpa-<dep>`, deployment
+label patch) is namespaced. Good for §2a.
+
+### 5.2 Hardcoded values to parametrize (→ explicit `.env`, no defaults)
+
+| File | Literal | → becomes |
+|---|---|---|
+| `add_variant.py` (`make_variant_scaledobject`, primary + variant SO labels) | `inference.optimization/acceleratorName: "NVIDIA-H100-80GB-HBM3"` | `.env` `ACCELERATOR_NAME` / `--accelerator-name` (or auto-detect from node GPU labels) |
+| `wva-sat2-tp1.yaml:~35` | image `ghcr.io/llm-d/…-autoscaler` `tag: nightly-d6d39be4` | `.env` `WVA_IMAGE_REPO` / `WVA_IMAGE_TAG` (the `:ta-0.9` seam; **deferrable**) |
+| `wva-sat2-tp1.yaml` | `vllm/vllm-openai` `tag: v0.14.0` | `.env` `VLLM_IMAGE_TAG` |
+| `wva-sat2-tp1.yaml` + all example `make` comments | namespace `biran`; model `unsloth/Meta-Llama-3.1-8B-Instruct`; `workDir ~/data/wva-sat2-tp1` | `$NS`=`dhl-wva-209`; `BENCHMARK_MODEL_ID`; `.env` workdir |
+| `wva-sat2-tp1.yaml` / `two-variant-wva.yaml` | `chartVersions.wva: 0.8.0-rc5`, `prometheusAdapter: 5.2.0`; PodMonitor `release: llmd` | `.env` (**note:** `0.8.0-rc5` pin is stale/inconsistent — KEDA path needs a post-#1341 build; reconcile with the `:ta-0.9` image) |
+| `add_variant.py` (`--prometheus-url` default) | `https://thanos-querier.openshift-monitoring.svc…:9091` | already a `PROMETHEUS_URL` Makefile var — source from `.env` |
+| `add_variant.py` (primary defaults) | `primary_cost 10.0`, min 1, max 10 | `.env` `PRIMARY_COST/MIN/MAX` |
+
+Derived/constant (OK to keep): `TriggerAuthentication` name `wva-prometheus-auth` (namespaced),
+`wva-keda-hpa-<dep>` HPA name, KEDA behavior constants (`pollingInterval 15`, `cooldownPeriod
+300`, `scaleDown win 120`, …), SA-token fallback `wva-controller-manager-token` (autodetect first).
+
+**Already fixed by #1435 (no action):** the env-specific `llm-d.ai/variant:
+"unsloth--6b24a594-instruct-decode"` label at today's `two-variant-wva.yaml:122` is **removed** by
+#1435 (set at runtime by `fix_variant_pod_label()`). **No `serverName`/`wva-system` TLS literal
+exists in #1435** — trust is handled by the token-secret CA (`service-ca.crt`→`ca.crt` fallback).
+(This supersedes the earlier plan's ServiceMonitor-`serverName` and `llm_d_ai_variant`-relabel
+worries — both are moot on the #1435 base.)
+
+### 5.3 §2a shared-cluster safety audit (must hold before any apply — Phase 3, not this phase)
+
+- **Only cluster-scoped write in the whole flow:** `benchmark-standup` (Makefile ~L397–403) runs
+  `kubectl create clusterrole prometheus-adapter-resource-reader` when
+  `BENCHMARK_SKIP_PROMETHEUS_ADAPTER=true`. The KEDA path **does not need it** (#1435 drops its
+  docs). **Do not run that path on pokprod;** removing that Makefile block is a recommended
+  follow-up.
+- **KEDA CRD** (`scaledobjects.keda.sh`) is a **cluster prereq** — verify present on pokprod; **do
+  NOT install/modify** it.
+- `oc label namespace $NS openshift.io/user-workload-monitoring=enabled` (Makefile ~L431) — a
+  namespaced label but touches monitoring; **verify already enabled on `dhl-wva-209`; do not toggle
+  cluster monitoring.**
+- `thanos-querier.openshift-monitoring` + WVA SA `cluster-monitoring-view` — shared, **read-only
+  reliance**, fine; no cluster RBAC created.
+- Every install/query carries explicit `-n dhl-wva-209`; controller install uses
+  `--watch-namespace=dhl-wva-209`; ScaledObject trigger `namespace`/`serverAddress` pinned to `.env`.
+
+### 5.4 No-op dry standup (this phase's validation gate — no cluster mutation)
+
+- Add / verify a **`--print-only` (or `--dry-run`) mode in `add_variant.py`** that emits the
+  ScaledObject + TriggerAuthentication manifests to stdout instead of applying (it currently
+  applies imperatively via kubectl).
+- Render the two-variant scenario + generated manifests against `.env` values;
+  `kubectl apply --dry-run=client -f -` on the generated manifests; `kustomize build` /
+  `helm template` the controller + ScaledObject overlays. **No `oc apply`, no live cluster calls.**
+
+### 5.5 Branch / worktree wiring & runbook
+
+1. **Create the fresh `benchmark` branch** off current main (name freed in Phase 0). **Reuse the
    existing `benchmark/` worktree path** — swap its checked-out branch rather than adding a new
    worktree, so the `wva.code-workspace` folder entry ("benchmark") keeps working with **no VSC
-   reconfiguration**. Preserve the untracked `benchmark/.claude/settings.json`. (Minor cleanup:
-   the workspace has a stale `git push origin thpt-analyzer` auto-approve — drop when convenient.)
-3. **Wire the harness to Tier A:** point the guide's `tag:` at `…:ta-0.9`. Keep the embedded
-   `llm-d-benchmark` clone on (or rebased onto) Ofer's `feat/multi-variant-benchmark` so Dean and
-   Ofer run the same scenario definition.
+   reconfiguration**. Preserve the untracked `benchmark/.claude/settings.json`. (Minor cleanup: the
+   workspace has a stale `git push origin thpt-analyzer` auto-approve — drop when convenient.)
+2. **Wire the harness to Tier A:** point the guide's `tag:` (`.env` `WVA_IMAGE_TAG`) at `…:ta-0.9`.
+   Keep the embedded `llm-d-benchmark` clone on Ofer's `feat/multi-variant-benchmark` so Dean and
+   Ofer run the same scenario definition. **Note:** that clone's `docs/multi-variant-benchmark.md`
+   guide is still the **pre-KEDA VA+HPA** recipe — the KEDA path lives only in the WVA-repo
+   `hack/benchmark` files copied into the clone by `make benchmark-standup` (Makefile ~L379–421;
+   the `awk` block rewrites `scaledObject:` bounds from `BENCHMARK_KEDA_*`).
+3. **New `.env.sample`** with `dhl-wva-209` + every value in 5.2 as an explicit placeholder (no
+   defaults, no inferred values) — the §2a `.env` discipline.
 4. **Port only the still-relevant runbook bits** — environment/standup/RBAC/signals — dropping the
-   `:ta3`-specific and VA+HPA-specific steps that Ofer's KEDA path supersedes. Runbook + `results/`
+   `:ta3`-specific and VA+HPA-specific steps Ofer's KEDA path supersedes. Runbook + `results/`
    committed on this branch, **fork only**.
 5. **Fallback noted in the runbook:** if the KEDA path fails, the archived VA+HPA runbook
    (`archive/benchmark-ta3-legacy`) is the proven recovery path.
+
+### 5.6 Verification (no cluster contact)
+
+- `python -m py_compile` / lint on the scripts; `yaml`-validate all scenarios; `kustomize build` /
+  `helm template` the overlays; `kubectl apply --dry-run=client` on generated manifests.
+- **Residual-hardcode grep = zero** outside `.env.sample`:
+  `grep -rn 'NVIDIA-H100\|nightly-d6d39be4\|0\.8\.0-rc5\|unsloth/Meta-Llama\|\bbiran\b\|v0\.14\.0' hack/ test/ docs/`.
+- Dry standup completes with no `oc`/`kubectl apply` (without `--dry-run`) run.
+
+**Out of scope this phase:** live cluster standup / any `oc apply` (Phase 3+, needs Dean); the
+controller image build/push (Tier A, deferred — `:ta-0.9` stays a `.env` var).
 
 **Separation invariant to state in the runbook:** the controller under test is always the Tier-A
 image/tag; if it must change, the change is made in a code worktree (PR branch) → re-tag → re-image
@@ -184,18 +352,22 @@ image/tag; if it must change, the change is made in a code worktree (PR branch) 
 ## 6. Phase 3 — Clean stale pokprod
 
 Goal: remove 2026-06-15 leftovers so old signals don't contaminate new runs. **Cluster-side —
-Dean or Ofer runs; needs cluster access. Plan-agent does not execute.**
+Dean or Ofer runs; needs cluster access. Plan-agent does not execute.** Per §2a: **any teardown
+requires Dean's explicit approval on that specific action**, is scoped to Dean's namespace only
+(explicit `-n`), and must not touch cluster-global state.
 
-Per runbook §12 teardown (project `dhl-wva`):
+**DECIDED (2026-07-28): full nuke + fresh namespace.** Do not reuse `dhl-wva`. Tear it down
+completely (removes all past-state noise) and stand up fresh in **`dhl-wva-209`** (day-of-year of
+2026-07-28). A fresh namespace is the strongest guarantee against stale-signal contamination.
+
+Teardown of the old project (per runbook §12):
 - `llmdbenchmark … teardown -p dhl-wva` (helm releases + variants).
 - `oc delete podmonitor wva-variant-relabel-decode wva-variant-relabel-decode-v2 -n dhl-wva`
 - `oc delete deploy wva-loadgen -n dhl-wva`
 - `oc delete role/rolebinding wva-supplemental-hpa-keda -n dhl-wva` (if used)
-- Free GPUs: `oc scale deploy/<variant> -n dhl-wva --replicas=0` for any lingering variants.
+- Free GPUs / delete the namespace once variants are gone.
 
-**Decision needed (see § Open items):** full teardown vs. keep standing infra (gateway/EPP).
-Confirm the `dhl-wva` project is disposable before deleting. `git status` / inventory the cluster
-namespace first; do not delete what you cannot re-create from §§1–9.
+Then stand up `dhl-wva-209` fresh against the Tier-A image (`…:ta-0.9`).
 
 ---
 
@@ -206,13 +378,15 @@ before any TA-isolation. Dean's guidance: **we have never reliably gotten the sc
 even the 2026-06-15 "scale-up captured" (§12) was sat_v2-driven and the runbook itself (§14) says
 a clean basic scale-up was not achieved. So treat the plumbing as **unproven** and start there.
 
-**Step 0 (do first) — a few basic e2e on pokprod, simplest possible.** With the Tier-A image
-deployed: drive a simple constant→stepped load and confirm the whole chain moves —
-load → `wva_desired_replicas` rises → HPA `REPLICAS` follows → pods actuate. One variant, min=1,
-hold each step ≥6 min (autoscale lag ~2 min). This is the "does anything scale" gate; nothing
-below is meaningful until this is green and reproducible. Mirror `test/e2e/` load drivers
-(§14.1); custom in-cluster loadgen (runbook §13.2) is the reliable fallback if guidellm delivers
-0 load again.
+**Step 0 (do first) — a few basic e2e on pokprod, simplest possible (DECIDED 2026-07-28).**
+Shape: **single variant, small model, small → bigger workload, clear expected scaling signal
+1 → 2.** With the Tier-A image deployed: drive a constant→stepped load and confirm the whole
+chain moves — load → `wva_desired_replicas` rises from 1 → 2 → HPA `REPLICAS` follows → a second
+pod actuates. min=1, hold each step ≥6 min (autoscale lag ~2 min). This is the "does anything
+scale" gate; nothing below is meaningful until this is green and reproducible. Mirror `test/e2e/`
+load drivers (§14.1); custom in-cluster loadgen (runbook §13.2) is the reliable fallback if
+guidellm delivers 0 load again. **A small model keeps GPU footprint low and the 1→2 boundary
+unambiguous.**
 
 **Then — headline scenario — TA drives a decision sat_v2 would not.** Per runbook §14: decode-heavy
 short requests + a *slow* RPS ramp so TA's RequiredCapacity goes positive **before** sat_v2's
@@ -240,26 +414,58 @@ scores that drove it (`--v=4`).
 
 ---
 
-## 8. Open items / decisions remaining
+## 8. Decisions (all resolved 2026-07-28)
 
-- **Integration mechanic:** with A + A′ merged, only C #1480 + D #1481 stack on current main —
-  confirm cherry-pick vs merge; D needs the `engine_v2.go` reconciliation against merged A′.
-- **Tag / image names:** proposed git tag `ta-0.9-test-20260728`, image tag `:ta-0.9`. Confirm.
-- **pokprod cleanup depth:** full teardown vs keep standing gateway/EPP/controller. Confirm
-  `dhl-wva` is disposable; decide whether a fresh namespace (new BASENAME) is cleaner than reusing.
-- **Ofer sync:** short alignment on his KEDA guide before Phase 2 (what the guide needs from the
-  controller; which of his changes are fork-only). Dean coordinates — no plan-agent GH contact.
+- **Integration mechanic — `git merge --no-ff`** (preserves exact PR-commit provenance;
+  re-integration on PR update is a clean re-merge). Only C #1480 + D #1481 merge onto current
+  main; D needs the `engine_v2.go` reconciliation against merged A′ first (rebase, then merge).
+- **Tag / image names — CONFIRMED:** git tag `ta-0.9-test-20260728`; image tag `:ta-0.9` on
+  `quay.io/deanlorenz/llm-d-workload-variant-autoscaler`. Archive old branch as
+  `benchmark-ta3-legacy`.
+- **pokprod cleanup — CONFIRMED:** full nuke of `dhl-wva`; fresh namespace `dhl-wva-209` (§6).
+- **Ofer handover (decision #7):** Dean runs the Step-0 sanity scenarios himself on the Tier-A
+  image. **Once sanity passes, hand the code (image/tag/branch) to Ofer for wider testing.**
+  While those runs are in flight, Ofer's KEDA guide + his current-testing alignment is a
+  **separate discussion in another session**; when it starts, open a kickoff handoff for it.
+  No plan-agent GH contact.
+
+**On Ofer's #1435 (harness-only — verified):** `gh pr view 1435 --json files` shows it touches
+**only** `Makefile`, `docs/developer-guide/two-variant-wva-benchmark.md`, `hack/benchmark/*.py`,
+`hack/benchmark/scenarios/guides/*.yaml`, and `test/benchmark/scenarios/*.yaml.in` — **no files
+under `internal/`, `pkg/`, `cmd/`, or `api/`.** It is a **benchmark-harness change (Tier B)**, not
+controller code, so it is **correctly excluded from the code-under-test image**. His controller-side
+change lives separately in `biranofer/workload-variant-autoscaler @ feat/two-variant-keda`; Tier A
+does not depend on either — it is main + C + D only.
 
 ---
 
 ## 9. Execution ownership & scope
 
-- **Plan-agent (now):** authored this doc only. No file edits beyond it; no GH posting; no cluster
-  or git-surgery actions.
-- **Coder (later, in a code worktree):** Phase 0 commit/rename/archive, Phase 1 rebases +
-  integration branch + tag + image build, Phase 2 fresh branch + harness wiring. Each under its
-  own worktree scope; rebase discipline (message-vs-diff) mandatory; **no push without Dean's
-  explicit per-push confirmation; never to upstream.**
-- **Dean / Ofer:** Phase 3 cluster teardown; Phase 4 runs; Ofer consumes Tier-A image/tag.
+**Yes — the write-work is a coder's, in the worktrees.** The plan-agent cannot write in code
+worktrees (scope boundary), so every git-surgery / build step below is coder work. It is **not one
+session** — it spans four worktrees, and every push is gated on Dean's explicit per-push
+confirmation (coders never push at all — Dean runs each push after review).
+
+Execution map (order = dependency order):
+
+| # | Worktree | Coder work (local only) | Pushes (Dean, after review) |
+|---|---|---|---|
+| Phase 0 | `benchmark` | commit untracked runbook/notes/`results/`; rename `benchmark`→`benchmark-ta3-legacy`; create fresh `benchmark` off main locally; `git boidem` archive tag locally | archive tag `archive/benchmark-ta3-legacy` → origin; fresh `benchmark` → origin |
+| Phase 1a | `ta-veto-liveness` (D) | rebase D `827c8542`→`11d70a8a` + reconcile `engine_v2.go`/`engine_v2_test.go`/pipeline-doc vs merged A′; message-vs-diff; gates | **none — do NOT push** (would confuse PR #1481 reviewers; rebase-in-place was unnecessary) |
+| Phase 1b | `ta-model-level-demand` (C) | rebase C `827c8542`→`11d70a8a` + reconcile `engine_v2.go`/`engine_v2_test.go`/`engine_v2_population_test.go`/2 docs vs merged A′; message-vs-diff; gates | **none — do NOT push** (would confuse PR #1480 reviewers; rebase-in-place was unnecessary) |
+| Phase 1c | **new** `ta-testing` | branch off main; `merge --no-ff` C then D; assembled message-vs-diff; gates; `docker-build`; tag `ta-0.9-test-20260728` | branch + tag → fork; image `:ta-0.9` → quay |
+| Phase 2 | `benchmark` (fresh) | wire guide `tag:`→`:ta-0.9`; port relevant runbook bits; adopt Ofer's guide | fresh-branch commits → fork |
+
+- Phase 1a/1b were **only** needed to assemble the `ta-testing` integration branch — **not**
+  for the PRs themselves (the PRs don't chase main). Merging the un-rebased C/D would have
+  sufficed; rebasing the live PR branches in place was avoidable. 1a and 1b are independent
+  (parallelizable); 1c depends on both.
+- Rebase discipline (CONVENTIONS pre-rebase plan, per-file diff inventory, per-commit
+  message-vs-diff) is **mandatory** — the pre-#1483 `interfaces → domain` origin makes silent
+  hunk loss a real risk.
+- **Launching the coder:** a coder session per worktree (Dean starts Bob in the worktree, or the
+  plan-agent spawns via the sanctioned cd+Agent pattern from `plans/` — Dean's call which).
+- **Dean / Ofer:** Phase 3 cluster teardown (`dhl-wva`→`dhl-wva-209`); Phase 4 Step-0 sanity
+  (Dean); Ofer consumes Tier-A image/tag after sanity passes.
 - **CURRENT.md / PR-status:** updated by the plan-agent via `/sync-current` from handoffs — not
   as part of executing this plan.
