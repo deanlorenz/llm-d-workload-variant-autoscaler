@@ -567,7 +567,7 @@ func (a *ThroughputAnalyzer) resolveITLModel(ctx context.Context, state *variant
 	}
 	if n > 0 && sumK2 > 0 {
 		A := numerator / sumK2
-		if A > 0 {
+		if validITLModel(A, baselineB) {
 			ctrl.LoggerFrom(ctx).V(logging.DEBUG).Info("throughput analyzer: tier-2 constrained OLS fit",
 				"namespace", namespace, "modelID", modelID, "variant", variantName,
 				"A", A, "B", baselineB, "replicas", int(n),
