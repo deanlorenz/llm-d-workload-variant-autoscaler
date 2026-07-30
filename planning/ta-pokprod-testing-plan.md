@@ -18,12 +18,12 @@
 - [1. Where we are (findings)](#1-where-we-are-findings) — L34:66
 - [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:214
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L216:350
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:541
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L543:617
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L619:642
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L644:end
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:239
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L241:375
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L377:566
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L568:644
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L646:669
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L671:end
 
 ---
 
@@ -210,6 +210,31 @@ for the real PRs:** whichever of #1480 (C) / #1481 (D) merges to upstream **seco
 same break when rebased onto the C-or-D-containing main — the second PR needs the identical
 test-call-site fixup, and neither PR's own CI catches it beforehand (independent branches). Flag
 to reviewer/author before the second merge.
+
+### 4.1 Next refresh trigger (2026-07-30, per Dean) — once PR E and PR F land
+
+**Trigger, not yet armed:** once **PR E** (`ta-gate-observability`) and **PR F**
+(`ta-correctness-guards`) **land on upstream main** (i.e. both are opened as PRs, reviewed, and
+merged — not merely pushed to their own fork branches), **refresh the Tier-A code-under-test point
+and rebuild + push the controller image**, mirroring what already happened for C/D:
+
+1. Since C #1480 and D #1481 merged directly onto upstream `main`, Tier A is currently just "a plain
+   `main` checkout" (per CURRENT.md: the old `ta-testing` integration branch/tag/image predate that
+   merge and are stale/moot). E and F will land the same way (regular upstream PRs, not a fork-merge
+   like the original C+D `ta-testing` assembly) — so once both merge, the refresh is: check out the
+   new upstream `main` tip in the `ta-testing` worktree (or recreate it fresh from that tip if it's
+   been removed), tag it for reproducibility (e.g. `ta-0.9-test-<date>`, following the §8 naming
+   pattern), and rebuild the image (`make docker-build
+   IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` or a new tag if Dean wants the
+   old one preserved).
+2. **Push (branch/tag to fork, image to quay) is subject to the standing per-push-confirmation rule**
+   — same gate as every other push in this plan; propose it, state what will be pushed, wait for
+   Dean's explicit go-ahead.
+3. **Current state of E/F (verified 2026-07-30, read-only):** both are pushed to their own origin
+   branches (`ta-gate-observability` @ `552fda63`, `ta-correctness-guards` @ `27523605`) but **neither
+   has an open upstream PR yet** (`gh pr view` on the upstream repo returns "no pull requests found"
+   for either branch name) — so the trigger has not fired. Re-check PR status before acting; do not
+   assume "land" from a push alone.
 
 ---
 
