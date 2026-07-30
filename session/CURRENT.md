@@ -149,8 +149,10 @@
   (1) **Epics #1492/#1493/#1494 + adopted #1005** — all six PRs merged; check whether they should be
   updated/closed (not done — GitHub-write).
   (2) **3 optional test gaps** ev-shindin declined to add on F #1503 (Tier-2 `validITLModel` rejection;
-  `validITLModel` w/ `Inf B`; `computeLocalDemand` non-positive-cap/negative-ITL skips) — untracked;
-  file/fold only if Dean wants them picked up.
+  `validITLModel` w/ `Inf B`; `computeLocalDemand` non-positive-cap/negative-ITL skips) — **Type 3 plan
+  now written** ([`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md));
+  deferred, no branch/worktree/owner (Dean: "leave as is, just document"). Cut a branch only when a coder
+  is assigned.
   (3) **PR #1501 ask #1 watch** — if the author merges without gating `RegisterRateCapacityQueries` on
   `EnableRateAnchoredK2`, the default-config per-cycle Prometheus-query-load regression ships (load-only,
   not correctness). See PR Status row.
@@ -371,6 +373,7 @@ Infra / misc (no design-doc home; file as separate issues):
 - **TA forward plan** — 26 internal issues + 5 deferred features (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md).
   - **Deferred features (Group 0)** — code removed during #1250 dev cycle whose design intent is preserved: D-1 ITL knowledge store (historical A,B per variant, warm-up skip), D-2 GPS-mismatch SC gate, D-3 EPP-absent SC gate, D-4 FreshnessStatus staleness gate (dead end-to-end), D-5 `has*` throughput sentinels (nil-vs-zero for 3 fields). None are deprecated — all return in later PRs (D-2/D-3 via #1261, D-4 via I-6, D-5 via #1264, D-1 via I-18).
   - Key issues: collector key unification (I-1, P0 latent bug), gate observability (I-5, P0), dev guide fixes (I-21–23, P0), per-analyzer status return (I-17→#1261), effectiveEnabled (I-16→`planning/PR1266-fixup-effectiveEnabled.md`).
+- **ta-itl-demand-test-gaps** (deferred, no 0.9 deadline, no owner) — 3 optional test-coverage additions for the throughput analyzer's ITL model validator + `computeLocalDemand`, flagged non-blocking by ev-shindin in PR F #1503 review. Plan ready: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md). No branch/worktree cut — create when a coder is assigned.
 - **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); see forward plan I-8.
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
