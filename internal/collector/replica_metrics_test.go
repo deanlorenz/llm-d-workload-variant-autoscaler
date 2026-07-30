@@ -728,6 +728,106 @@ func TestCollectReplicaMetrics_ArrivalRatePerPodRetained(t *testing.T) {
 	}
 }
 
+// TestCollectReplicaMetrics_Freshness verifies that the per-replica
+// ReplicaMetricsMetadata.FreshnessStatus and Age are derived from the actual
+// metric scrape timestamps rather than hardcoded to "fresh"/0: a pod whose
+// driving metrics are old enough to cross the stale threshold is reported
+// "stale" with a non-zero Age; a pod with fresh timestamps is reported "fresh".
+func TestCollectReplicaMetrics_Freshness(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	if err := metrics.InitMetrics(registry); err != nil {
+		t.Fatalf("InitMetrics: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := llmdVariantAutoscalingV1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	fixture := func(ts time.Time) *mockMetricsSource {
+		// scheduler_dispatch_rate keys its instance by pod_name(or pod)+port (a
+		// dedicated "port" label, not the "instance" label's embedded port used by
+		// buildInstanceKey) — include "port" so it resolves to the same instance
+		// key ("pod-abc:8000") as every other query below.
+		podLabels := map[string]string{
+			"pod":                               "pod-abc",
+			"instance":                          "10.0.0.1:8000",
+			"port":                              "8000",
+			constants.VariantLabelPrometheusKey: "va-1",
+		}
+		// cache_config_info populates cacheConfigTimestamp only when both label
+		// values parse to positive integers (see the collector's cache-config block).
+		cacheConfigLabels := map[string]string{
+			"pod":                               "pod-abc",
+			"instance":                          "10.0.0.1:8000",
+			constants.VariantLabelPrometheusKey: "va-1",
+			"num_gpu_blocks":                    "1000",
+			"block_size":                        "16",
+		}
+		return &mockMetricsSource{
+			refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
+				return map[string]*source.MetricResult{
+					"kv_cache_usage":          {Values: []source.MetricValue{{Labels: podLabels, Value: 0.55, Timestamp: ts}}},
+					"queue_length":            {Values: []source.MetricValue{{Labels: podLabels, Value: 2, Timestamp: ts}}},
+					"avg_output_tokens":       {Values: []source.MetricValue{{Labels: podLabels, Value: 100, Timestamp: ts}}},
+					"avg_input_tokens":        {Values: []source.MetricValue{{Labels: podLabels, Value: 50, Timestamp: ts}}},
+					"prefix_cache_hit_rate":   {Values: []source.MetricValue{{Labels: podLabels, Value: 0.1, Timestamp: ts}}},
+					"cache_config_info":       {Values: []source.MetricValue{{Labels: cacheConfigLabels, Value: 1, Timestamp: ts}}},
+					"scheduler_dispatch_rate": {Values: []source.MetricValue{{Labels: podLabels, Value: 5.0, Timestamp: ts}}},
+					"avg_ttft":                {Values: []source.MetricValue{{Labels: podLabels, Value: 0.2, Timestamp: ts}}},
+					"avg_itl":                 {Values: []source.MetricValue{{Labels: podLabels, Value: 0.04, Timestamp: ts}}},
+				}, nil
+			},
+		}
+	}
+
+	t.Run("stale", func(t *testing.T) {
+		staleTs := time.Now().Add(-3 * time.Minute) // within [StaleThreshold, UnavailableThreshold)
+		collector := NewReplicaMetricsCollector(fixture(staleTs), k8sClient, nil, nil)
+		results, err := collector.CollectReplicaMetrics(
+			context.Background(), "test-model", "test-ns",
+			make(map[string]scaletarget.ScaleTargetAccessor),
+			make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
+			nil, make(map[string]float64),
+		)
+		if err != nil {
+			t.Fatalf("CollectReplicaMetrics: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected exactly 1 ReplicaMetrics entry, got %d", len(results))
+		}
+		m := results[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != "stale" {
+			t.Fatalf("expected FreshnessStatus=stale, got %+v", m.Metadata)
+		}
+		if m.Metadata.Age <= 0 {
+			t.Errorf("expected non-zero Age for stale metrics, got %v", m.Metadata.Age)
+		}
+	})
+
+	t.Run("fresh", func(t *testing.T) {
+		freshTs := time.Now()
+		collector := NewReplicaMetricsCollector(fixture(freshTs), k8sClient, nil, nil)
+		results, err := collector.CollectReplicaMetrics(
+			context.Background(), "test-model", "test-ns",
+			make(map[string]scaletarget.ScaleTargetAccessor),
+			make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
+			nil, make(map[string]float64),
+		)
+		if err != nil {
+			t.Fatalf("CollectReplicaMetrics: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected exactly 1 ReplicaMetrics entry, got %d", len(results))
+		}
+		m := results[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != "fresh" {
+			t.Fatalf("expected FreshnessStatus=fresh, got %+v", m.Metadata)
+		}
+	})
+}
+
 // TestCollectReplicaMetrics_SGLangCacheConfig verifies the SGLang cache-config
 // pass: SGLang exposes total KV-cache token capacity directly via
 // sglang:max_total_num_tokens (queried as sglang/cache_config_info), and the
