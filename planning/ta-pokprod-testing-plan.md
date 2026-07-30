@@ -18,12 +18,12 @@
 - [1. Where we are (findings)](#1-where-we-are-findings) — L34:66
 - [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:242
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L244:378
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L380:569
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L571:647
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L649:672
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L674:end
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:245
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L247:381
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:572
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L574:650
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L652:675
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L677:end
 
 ---
 
@@ -219,25 +219,28 @@ warn operator when a live ConfigMap edit can't change ThroughputAnalyzer registr
 ThroughputAnalyzer and the liveness engine", commit `6bfb73e1`) — both on top of `f5261c8e`/`f9f04d81`
 (D/C) and `da58c0e0` (#1486). New `upstream/main` tip: **`6bfb73e1`**.
 
-**Refresh mechanism (per Dean: "update the test code branch and our controller image") — DONE, one
-open item corrected 2026-07-30:**
+**Refresh mechanism (per Dean: "update the test code branch and our controller image") — FULLY
+DONE, including both pushes (2026-07-30):**
 1. In the `ta-testing` worktree — coder-scoped work — the branch was recreated pointing at the new
    `upstream/main` tip `6bfb73e1` (the old `db530eed` C+D-only assembly predates the real upstream
    merges and has diverged history; its content is preserved forever under the local tag
    `ta-0.9-test-20260728` — nothing lost by moving the branch). Tagged `ta-0.9-test-20260730`
-   (annotated, GPG-signed). All gates green. Image built locally
-   (`quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`, `sha256:3d438b65c824…`,
-   `linux/amd64`).
-2. **Correction — no branch push, no force needed.** `origin/main` (Dean's fork) was independently
-   verified to already be at `6bfb73e1`, identical to `upstream/main` and to the new `ta-testing` tip
-   — it was already fast-forwarded and pushed there before this refresh ran. So pushing the
-   `ta-testing` *branch* would only push an already-public, redundant commit — not needed at all
-   (the earlier "may need `--force-with-lease`" framing solved a non-problem: the branch doesn't need
-   pushing in the first place). **The only remaining action is a plain, non-force tag push**
-   (`git push origin ta-0.9-test-20260730` — safe, since the commit it points at already exists on
-   `origin`), still gated on Dean's explicit confirmation per the standing rule. **Image push to
-   quay remains Dean's own step** (`make docker-push`, needs his credentials). The stale
-   `origin/ta-testing` (still at `db530eed`) is a non-urgent cleanup, not actioned.
+   (annotated, GPG-signed). All gates green. Image built locally, then pushed.
+2. **No branch push, no force needed** — `origin/main` (Dean's fork) was independently verified to
+   already be at `6bfb73e1`, identical to `upstream/main` and to the new `ta-testing` tip (already
+   fast-forwarded and pushed there before this refresh ran), so the `ta-testing` *branch* was never
+   pushed — it would only be a redundant, already-public commit. The stale `origin/ta-testing`
+   (still at `db530eed`) is a non-urgent cleanup, not actioned.
+3. **Both remaining pushes done, Dean-authorized ("quay creds in env. go ahead. push git and
+   docker."):**
+   - `git push origin ta-0.9-test-20260730` — plain, non-force tag push. **Pushed.**
+   - `make docker-push IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` — **Pushed.**
+     Digest `sha256:80dec0e9728f4e7d1d06a952f43330e8b1ac5f09592284f87c0e9981c05e19ca`.
+
+**Deliverable to Ofer (updated):** tag `ta-0.9-test-20260730` (on `origin`, == `upstream/main` @
+`6bfb73e1` = C #1480 + D #1481 + E #1502 + F #1503 + #1486) + image
+`quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` (digest `sha256:80dec0e9…`), both live
+on Dean's fork / quay.
 
 ---
 
