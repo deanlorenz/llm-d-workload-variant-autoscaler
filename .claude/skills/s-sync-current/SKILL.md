@@ -73,20 +73,28 @@ old-vs-new and account for every removed line before continuing.
 ## Step 3a: Prune, reconcile, and ref-check (keep CURRENT.md bounded)
 
 After folding in handoffs, restore CURRENT.md to its Type-5 bounded shape (CONVENTIONS
-Type 5). Targeted edits only — no wholesale rewrite.
+Type 5). Targeted edits only — no wholesale rewrite. **CURRENT.md holds live state only;
+landed/closed history lives in the companion archive `session/history.md`** (TOC-indexed,
+fetch-on-demand — see CONVENTIONS Type 5).
 
-1. **Recent-activity window.** Keep ≈5 active-WIP abstracts in the head; move older ones to
-   the tail as 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item only
-   once its substance is in git or a permanent doc.
+1. **Recent-activity window.** Keep ≈5 active-WIP abstracts in the head. When an item's work has
+   landed (merged/closed) and its substance is in git or a permanent doc, **move it out of
+   CURRENT.md into `session/history.md` → *Activity log*** (verify-or-copy-then-delete, step 5) —
+   do not let a compressed tail accrete in CURRENT.md.
 2. **Reconcile against PR Status.** Drop Blocked-on / Next-steps entries that PR Status shows
    as done or contradicts (e.g. "awaiting CI" after CI ran). PR Status is the source of truth
    for branch/PR state.
+   - **Move merged/closed PR rows to `session/history.md` → *PR Status*.** CURRENT.md's PR-Status
+     table keeps only open / in-flight / actionable rows. Likewise move landed multi-PR *mission*
+     blocks to history.md → *Mission* sections, leaving at most a one-line pointer in CURRENT.md.
 3. **Backlogs stay refs.** Issues-to-Open items are one-line title + `→ Fnn`/doc ref, not prose.
 4. **Ref-check.** Scan CURRENT.md for `→ Fnn`/`→ Ann` and doc-section refs; for any doc
    changed in this sync, confirm the anchor still resolves and fix it if it renumbered.
 5. **No-loss guard (verify-or-copy-then-delete).** Never remove a forward-looking TODO that
    has no home elsewhere. If a handoff or a prune would drop something with no permanent home,
-   **stop and surface it** to the user rather than deleting.
+   **stop and surface it** to the user rather than deleting. When moving items to
+   `session/history.md`, copy + verify the content is present there **before** deleting from
+   CURRENT.md, then run `bash plans/scripts/toc-refresh.sh session/history.md` to re-index.
 
 ---
 

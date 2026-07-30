@@ -104,10 +104,23 @@ landed history lives in git. Updated continuously — by the plan-agent directly
 agents via handoff files.
 
 *Bounded shape (prevents unbounded growth):*
-- **Recent activity** is a rolling window: a short **head** of active-WIP abstracts (≈5) + a
-  **tail** of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress a head item to a
-  tail pointer once its substance is in git or a permanent doc — the ID/ref is the recovery
-  handle.
+- **CURRENT.md holds live state only.** Landed/closed history lives in the companion archive
+  `session/history.md` — a TOC-indexed, fetch-on-demand doc (Reading Protocol + `## TOC` +
+  section-at-a-time, same micro-rules pattern as Type-3 plans; index via
+  `plans/scripts/toc-refresh.sh session/history.md`). CURRENT.md is loaded into every session's
+  context via `@session/CURRENT.md`; history.md is **not**, so keeping it out of CURRENT.md is the
+  whole point. history.md entries **may be fuller** than the old compressed tail *because* they are
+  read one section at a time, never whole.
+- **Recent activity** in CURRENT.md is a rolling window of **active-WIP abstracts only** (≈5 head
+  items). Once an item's work has landed (merged/closed) and its substance is in git or a permanent
+  doc, move it out of CURRENT.md into `session/history.md` → *Activity log* (as a dated 1-liner or
+  fuller entry carrying a PR#/commit-SHA/doc ref) — do not leave a compressed tail accreting in
+  CURRENT.md.
+- **PR Status** in CURRENT.md lists **open / in-flight / actionable rows only**. When a PR merges or
+  closes, move its row to `session/history.md` → *PR Status* sections and re-run toc-refresh.sh.
+- **Completed missions** (landed multi-PR efforts) live as blocks in `session/history.md` →
+  *Mission* sections, not in CURRENT.md — CURRENT.md keeps at most a one-line pointer plus any
+  still-live forward work in § Next steps / § Issues to Open.
 - **Backlogs** (Issues to Open, …) are *refs, not prose*: link the design-doc `Fnn`/`Ann`
   item or a one-line title; full prose lives in the permanent doc.
 - **One source per task**: the per-task section holds the abstract; the PR-Status row is a
