@@ -21,9 +21,9 @@
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:245
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L247:381
 - [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:595
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:675
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L677:700
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L702:end
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:766
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L768:791
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L793:end
 
 ---
 
@@ -671,6 +671,97 @@ scenario supports it) or the custom in-cluster loadgen (runbook §13.2).
 **Output:** a scenario matrix (name / hypothesis / load shape / TA-vs-sat_v2 arm / expected
 signal / pass criteria) captured in the runbook (Tier B), each event summarized with the analyzer
 scores that drove it (`--v=4`).
+
+### 7.2 Grafana observability during benchmark runs (fact-finding, 2026-07-31 — NOT executed)
+
+**Goal:** see the WVA Grafana operational dashboard live in a browser while a benchmark runs on
+pokprod. Pure research so far — **nothing below has been created on the cluster.**
+
+> **⚠️ HARD RULE (Dean, 2026-07-31): never create a `ClusterRoleBinding` (or any other
+> cluster-scoped RBAC object) automatically. Any such action requires Dean's explicit, per-action
+> permission — same standing rule as every other cluster-scoped write in this plan (§2a), called
+> out again here because the recipe below specifically needs one.**
+
+**What already exists (verified, all read-only checks):**
+- WVA emits ~26 real Prometheus metrics (`internal/constants/metrics.go:166-281` — `wva_desired_replicas`,
+  `wva_saturation_utilization`, `wva_spare_capacity`, `wva_required_capacity`, etc.).
+- A real dashboard definition: `deploy/grafana/operational-dashboard.json` (46 KB) — replica overview,
+  scaling decisions, saturation utilization, capacity breakdown, GPU discovery, KV cache, queue depth.
+- It uses a Grafana **template variable** (`datasource_uid`, type `datasource`, filtered to
+  `query: "prometheus"`, **default value literally `"prometheus"`**) — not a hardcoded UID. Naming
+  the datasource CR `prometheus` makes the dashboard resolve it with zero JSON editing.
+- `docs/user-guide/monitoring.md` documents installing it via `make deploy-wva-on-k8s` (Grafana +
+  kube-prometheus-stack, sidecar-loaded dashboard ConfigMap) — but that whole path is **kind-emulator /
+  plain-kubernetes only**. Confirmed by reading `deploy/lib/infra_monitoring.sh` →
+  `deploy_prometheus_stack()` is environment-specific: `deploy/openshift/install.sh`'s implementation
+  (`:113-117`) only calls `find_thanos_url()` — it installs **no Grafana at all** on OpenShift.
+  `deploy/kind-emulator/install.sh:249` and `deploy/kubernetes/install.sh:33` are the ones that
+  `source deploy_prometheus_kube_stack.sh` (installs kube-prometheus-stack's own bundled Prometheus +
+  Grafana, ConfigMap+sidecar dashboard loading — **this is "the setup script that works with WVA
+  kind"** Dean flagged). **It does not help directly on pokprod**: it installs an entirely new
+  Prometheus (redundant with — and itself a cluster-scoped-CRD-installing action against — the shared
+  UWM/Thanos stack we're explicitly not supposed to touch, §2a), not a datasource pointed at existing
+  Thanos. Useful only as a reference for the ConfigMap/sidecar dashboard-loading convention, not as
+  something to run on OpenShift.
+- A second dashboard (`deploy/grafana/benchmark-dashboard.json` + `benchmark-grafana.yaml`, from PR
+  #900) is dead code — not referenced by any current Makefile target, script, or CI job.
+- The `llm-d/llm-d` canonical guide (`docs/operations/observability/setup.md`) confirms the OpenShift
+  Thanos URL (`https://thanos-querier.openshift-monitoring.svc.cluster.local:9091`) but gives **no**
+  auth/RBAC guidance beyond "configure TLS." Its install script
+  (`guides/recipes/observability/install-prometheus-grafana.sh`) **explicitly refuses to run on
+  OpenShift** ("this script does not support OpenShift... use built-in user workload monitoring
+  instead") and has zero ServiceAccount/bearer-token logic anywhere in it.
+- A third-party doc (shuynh2017/opendatahub-operator, `docs/install/wva/3.5-ea2-installation-procedure.md`
+  § "Observability - WVA Grafana Dashboard") is a manual, browser-only import walkthrough — assumes a
+  Grafana instance + Prometheus datasource already exist, links the same `operational-dashboard.json`,
+  and flags one genuinely useful gotcha: **leave the dashboard's `namespace_label` variable set to
+  `exported_namespace`** (matches the `honorLabels`/ServiceMonitor relabeling gotcha already documented
+  in `docs/user-guide/monitoring.md`).
+
+**The gap, confirmed precisely: nowhere in this repo, the llm-d/llm-d guides, or the llm-d-benchmark
+harness is there a documented recipe for authenticating a Grafana datasource against OpenShift's
+shared Thanos.** That's exactly the "access keys" piece Dean anticipated being the hard part.
+
+**The recipe that already works — reverse-engineered (read-only) from two independent, currently-live
+Grafana instances on pokprod (`observability-hub`, `dpikus-precise`, both using `grafana-operator`
+`grafana.integreatly.org` v5, confirmed cluster-wide-installed, not something we'd need to install):**
+
+1. `Grafana` CR (grafana-operator) — minimal spec, a label (e.g. `app: grafana`) for the datasource's
+   `instanceSelector` to match.
+2. A dedicated `ServiceAccount` (e.g. `grafana-sa`) in our own namespace (`dhl-wva-209`).
+3. A static long-lived token `Secret` (`type: kubernetes.io/service-account-token`, annotated
+   `kubernetes.io/service-account.name: grafana-sa`) — supplies the bearer token without needing
+   `TokenRequest`/projected-volume machinery.
+4. **⚠️ A `ClusterRoleBinding` of that ServiceAccount to `cluster-monitoring-view`** — the same
+   ClusterRole the WVA controller itself already uses to read Thanos. **This is the step covered by
+   the hard rule above — do not create it without Dean's explicit go-ahead**, even though it's the
+   same ClusterRole already in use elsewhere on this cluster.
+5. `GrafanaDatasource` CR, **named `prometheus`** (to match the dashboard's template-variable default),
+   `type: prometheus`, `url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091`,
+   `access: proxy`, `jsonData: {httpHeaderName1: Authorization, tlsSkipVerify: true}`,
+   `secureJsonData: {httpHeaderValue1: "Bearer ${token}"}`, `valuesFrom` → the step-3 Secret's `token`
+   key. Both live reference instances use this exact URL independently — strong signal it's the
+   standard, not a one-off.
+6. `GrafanaDashboard` CR — `spec.json:` = the raw contents of `deploy/grafana/operational-dashboard.json`
+   pasted inline (confirmed shape from `dpikus-precise`'s `vllm-overview` dashboard CR), plus
+   `instanceSelector.matchLabels` matching step 1's Grafana CR.
+7. A `Route` (edge TLS) exposing the Grafana `Service` externally — not operator-managed in the
+   reference instances (no `ownerReferences`), so likely a plain `oc expose service`/`oc create route`
+   alongside the CRs.
+
+**Open decision points for Dean before any of this is created:**
+- Confirm the `ClusterRoleBinding` step (4) explicitly, separately from the rest — per the hard rule.
+- Datasource/dashboard naming (`prometheus` recommended, to get the template-variable auto-resolve).
+- Whether Grafana admin credentials should be a `Secret` reference (more correct) vs. the plaintext
+  `spec.config.security.admin_password` the reference instances use (simpler, but not our habit
+  elsewhere in this project).
+- Whether this lives in `dhl-wva-209` itself (single-namespace, benchmark-scoped) or the coder proposes
+  something else.
+- Whether/how to fold this into the `benchmark-standup-shared` Makefile flow (a later automation step,
+  not needed for a first manual proof-of-concept).
+
+**Not yet done:** turning this into a coder task plan / handoff. This section is fact-finding only,
+per Dean's explicit "no edits for now."
 
 ---
 
