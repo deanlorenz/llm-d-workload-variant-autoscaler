@@ -211,30 +211,25 @@ same break when rebased onto the C-or-D-containing main — the second PR needs 
 test-call-site fixup, and neither PR's own CI catches it beforehand (independent branches). Flag
 to reviewer/author before the second merge.
 
-### 4.1 Next refresh trigger (2026-07-30, per Dean) — once PR E and PR F land
+### 4.1 Refresh trigger — ARMED 2026-07-30 (PR E and PR F both merged)
 
-**Trigger, not yet armed:** once **PR E** (`ta-gate-observability`) and **PR F**
-(`ta-correctness-guards`) **land on upstream main** (i.e. both are opened as PRs, reviewed, and
-merged — not merely pushed to their own fork branches), **refresh the Tier-A code-under-test point
-and rebuild + push the controller image**, mirroring what already happened for C/D:
+**Confirmed via a fresh `upstream/main` fetch (read-only):** PR E landed as **#1502** ("feat(controller):
+warn operator when a live ConfigMap edit can't change ThroughputAnalyzer registration", commit
+`1d5553ee`) and PR F landed as **#1503** ("fix(throughput,saturation): correctness guards for
+ThroughputAnalyzer and the liveness engine", commit `6bfb73e1`) — both on top of `f5261c8e`/`f9f04d81`
+(D/C) and `da58c0e0` (#1486). New `upstream/main` tip: **`6bfb73e1`**.
 
-1. Since C #1480 and D #1481 merged directly onto upstream `main`, Tier A is currently just "a plain
-   `main` checkout" (per CURRENT.md: the old `ta-testing` integration branch/tag/image predate that
-   merge and are stale/moot). E and F will land the same way (regular upstream PRs, not a fork-merge
-   like the original C+D `ta-testing` assembly) — so once both merge, the refresh is: check out the
-   new upstream `main` tip in the `ta-testing` worktree (or recreate it fresh from that tip if it's
-   been removed), tag it for reproducibility (e.g. `ta-0.9-test-<date>`, following the §8 naming
-   pattern), and rebuild the image (`make docker-build
-   IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` or a new tag if Dean wants the
-   old one preserved).
-2. **Push (branch/tag to fork, image to quay) is subject to the standing per-push-confirmation rule**
-   — same gate as every other push in this plan; propose it, state what will be pushed, wait for
-   Dean's explicit go-ahead.
-3. **Current state of E/F (verified 2026-07-30, read-only):** both are pushed to their own origin
-   branches (`ta-gate-observability` @ `552fda63`, `ta-correctness-guards` @ `27523605`) but **neither
-   has an open upstream PR yet** (`gh pr view` on the upstream repo returns "no pull requests found"
-   for either branch name) — so the trigger has not fired. Re-check PR status before acting; do not
-   assume "land" from a push alone.
+**Refresh mechanism (per Dean: "update the test code branch and our controller image"):**
+1. In the `ta-testing` worktree — **coder-scoped work, not executed from `plans`** — recreate the
+   `ta-testing` branch pointing at the new `upstream/main` tip (the old `db530eed` C+D-only assembly
+   predates the real upstream merges and has diverged history; it is not a fast-forward base, but its
+   content is preserved under the local tag `ta-0.9-test-20260728` — nothing is lost by moving the
+   branch). Tag the new tip (e.g. `ta-0.9-test-20260730`). Run gates. Build the image locally
+   (`make docker-build IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`).
+2. **Both pushes stay gated on Dean's explicit per-action confirmation:** branch+tag → `origin` fork,
+   and — per `session/status/ta-testing.md`'s original note — **the image push to quay has always
+   been Dean's own step** (`make docker-push`, needs quay credentials neither the coder nor the
+   planner holds), not merely a "please confirm" gate.
 
 ---
 
