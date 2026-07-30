@@ -201,10 +201,13 @@ namespace filtering limitation of the scheduler metric.
 
 **Note on metric freshness:** the collector derives each replica's
 `ReplicaMetricsMetadata.Age`/`FreshnessStatus` from the same scrape timestamps used for the
-aggregate `wva_metrics_freshness_status` gauge — the least-fresh status across a pod's tracked
-metrics, and the age of the oldest one. `CheckModelMetrics` (`sanity.go`) flags a replica as
-`SanityIssueStaleMetrics` when `FreshnessStatus == "stale"`. This is currently detection only:
-the stale-metrics sanity issue is reported but not currently used to gate a scaling decision.
+aggregate `wva_metrics_freshness_status` gauge — the least-fresh status across a pod's *present*
+metrics, and the age of the oldest one. Metrics that are absent by design (e.g. the EPP arrival
+rate when no EPP is deployed, or the prefix-cache metrics when prefix caching is off) leave a zero
+timestamp and are skipped rather than reported as `missing`, so a healthy replica is not
+mislabelled and a genuinely stale metric is not masked. `CheckModelMetrics` (`sanity.go`) flags a
+replica as `SanityIssueStaleMetrics` when `FreshnessStatus == "stale"`. This is currently detection
+only: the stale-metrics sanity issue is reported but not currently used to gate a scaling decision.
 
 ---
 

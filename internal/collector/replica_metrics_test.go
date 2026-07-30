@@ -39,6 +39,7 @@ import (
 
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/collector/source"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/constants"
+	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/domain"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/metrics"
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/utils/scaletarget"
 	llmdVariantAutoscalingV1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/internal/variant"
@@ -745,7 +746,11 @@ func TestCollectReplicaMetrics_Freshness(t *testing.T) {
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	fixture := func(ts time.Time) *mockMetricsSource {
+	// fixture returns a source that reports all nine tracked metrics at timestamp
+	// ts. Any query names passed in omit are dropped from the result set, leaving
+	// their per-replica timestamps zero — used to model metrics that are absent by
+	// design (e.g. scheduler_dispatch_rate when no EPP is deployed).
+	fixture := func(ts time.Time, omit ...string) *mockMetricsSource {
 		// scheduler_dispatch_rate keys its instance by pod_name(or pod)+port (a
 		// dedicated "port" label, not the "instance" label's embedded port used by
 		// buildInstanceKey) — include "port" so it resolves to the same instance
@@ -767,7 +772,7 @@ func TestCollectReplicaMetrics_Freshness(t *testing.T) {
 		}
 		return &mockMetricsSource{
 			refreshFunc: func(_ context.Context, _ source.RefreshSpec) (map[string]*source.MetricResult, error) {
-				return map[string]*source.MetricResult{
+				results := map[string]*source.MetricResult{
 					"kv_cache_usage":          {Values: []source.MetricValue{{Labels: podLabels, Value: 0.55, Timestamp: ts}}},
 					"queue_length":            {Values: []source.MetricValue{{Labels: podLabels, Value: 2, Timestamp: ts}}},
 					"avg_output_tokens":       {Values: []source.MetricValue{{Labels: podLabels, Value: 100, Timestamp: ts}}},
@@ -777,14 +782,18 @@ func TestCollectReplicaMetrics_Freshness(t *testing.T) {
 					"scheduler_dispatch_rate": {Values: []source.MetricValue{{Labels: podLabels, Value: 5.0, Timestamp: ts}}},
 					"avg_ttft":                {Values: []source.MetricValue{{Labels: podLabels, Value: 0.2, Timestamp: ts}}},
 					"avg_itl":                 {Values: []source.MetricValue{{Labels: podLabels, Value: 0.04, Timestamp: ts}}},
-				}, nil
+				}
+				for _, k := range omit {
+					delete(results, k)
+				}
+				return results, nil
 			},
 		}
 	}
 
-	t.Run("stale", func(t *testing.T) {
-		staleTs := time.Now().Add(-3 * time.Minute) // within [StaleThreshold, UnavailableThreshold)
-		collector := NewReplicaMetricsCollector(fixture(staleTs), k8sClient, nil, nil)
+	collect := func(src *mockMetricsSource) []domain.ReplicaMetrics {
+		t.Helper()
+		collector := NewReplicaMetricsCollector(src, k8sClient, nil, nil)
 		results, err := collector.CollectReplicaMetrics(
 			context.Background(), "test-model", "test-ns",
 			make(map[string]scaletarget.ScaleTargetAccessor),
@@ -797,8 +806,18 @@ func TestCollectReplicaMetrics_Freshness(t *testing.T) {
 		if len(results) != 1 {
 			t.Fatalf("expected exactly 1 ReplicaMetrics entry, got %d", len(results))
 		}
-		m := results[0]
-		if m.Metadata == nil || m.Metadata.FreshnessStatus != "stale" {
+		return results
+	}
+
+	const (
+		statusFresh = "fresh"
+		statusStale = "stale"
+	)
+
+	t.Run("stale", func(t *testing.T) {
+		staleTs := time.Now().Add(-3 * time.Minute) // within [StaleThreshold, UnavailableThreshold)
+		m := collect(fixture(staleTs))[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != statusStale {
 			t.Fatalf("expected FreshnessStatus=stale, got %+v", m.Metadata)
 		}
 		if m.Metadata.Age <= 0 {
@@ -807,23 +826,31 @@ func TestCollectReplicaMetrics_Freshness(t *testing.T) {
 	})
 
 	t.Run("fresh", func(t *testing.T) {
-		freshTs := time.Now()
-		collector := NewReplicaMetricsCollector(fixture(freshTs), k8sClient, nil, nil)
-		results, err := collector.CollectReplicaMetrics(
-			context.Background(), "test-model", "test-ns",
-			make(map[string]scaletarget.ScaleTargetAccessor),
-			make(map[string]*llmdVariantAutoscalingV1alpha1.VariantAutoscaling),
-			nil, make(map[string]float64),
-		)
-		if err != nil {
-			t.Fatalf("CollectReplicaMetrics: %v", err)
-		}
-		if len(results) != 1 {
-			t.Fatalf("expected exactly 1 ReplicaMetrics entry, got %d", len(results))
-		}
-		m := results[0]
-		if m.Metadata == nil || m.Metadata.FreshnessStatus != "fresh" {
+		m := collect(fixture(time.Now()))[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != statusFresh {
 			t.Fatalf("expected FreshnessStatus=fresh, got %+v", m.Metadata)
+		}
+	})
+
+	// A metric that is absent by design (here scheduler_dispatch_rate, unscraped
+	// when no EPP is deployed) leaves its timestamp zero. That must not make the
+	// replica "missing": the worst status is taken over present timestamps only.
+	t.Run("fresh when an absent-by-design metric leaves a zero timestamp", func(t *testing.T) {
+		m := collect(fixture(time.Now(), "scheduler_dispatch_rate"))[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != statusFresh {
+			t.Fatalf("expected FreshnessStatus=fresh with an absent metric, got %+v", m.Metadata)
+		}
+	})
+
+	// Because "missing" outranks "stale" in the severity order, an absent metric
+	// must not mask a genuinely stale driving metric — otherwise the rollup would
+	// report "missing" and the CheckModelMetrics stale-metrics gate (which keys on
+	// == "stale") would never fire.
+	t.Run("stale driving metric is not masked by an absent-by-design metric", func(t *testing.T) {
+		staleTs := time.Now().Add(-3 * time.Minute)
+		m := collect(fixture(staleTs, "scheduler_dispatch_rate"))[0]
+		if m.Metadata == nil || m.Metadata.FreshnessStatus != statusStale {
+			t.Fatalf("expected FreshnessStatus=stale despite an absent metric, got %+v", m.Metadata)
 		}
 	})
 }

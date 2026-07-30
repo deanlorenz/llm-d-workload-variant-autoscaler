@@ -474,10 +474,19 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 	// tracked timestamps.
 	freshnessSeverity := map[string]int{"fresh": 0, "stale": 1, "unavailable": 2, "missing": 3}
 
-	// worstFreshnessStatus returns the least-fresh status across data's tracked
+	// worstFreshnessStatus returns the least-fresh status across data's *present*
 	// timestamps (the same set trackMetricFreshness uses) and the age of the oldest
-	// non-zero one, for the per-replica ReplicaMetricsMetadata. If any tracked metric
-	// is stale, unavailable, or missing, the replica as a whole is reported as such.
+	// one, for the per-replica ReplicaMetricsMetadata.
+	//
+	// Absent ("missing") timestamps are skipped rather than allowed to dominate the
+	// rollup: several tracked metrics are legitimately unscraped in common
+	// deployments — arrivalRateTimestamp when no EPP is present, and the
+	// prefix-cache / cache-config timestamps when prefix caching is off. Counting
+	// those as "missing" (the worst severity) would report a healthy replica as
+	// "missing" with a near-zero Age, and — because "missing" outranks "stale" —
+	// would mask a genuinely stale driving metric from the CheckModelMetrics
+	// stale-metrics gate, which keys on FreshnessStatus == "stale". A replica with
+	// no present timestamps at all is still reported "missing".
 	worstFreshnessStatus := func(data *podMetricData, collectedAt time.Time) (string, time.Duration) {
 		thresholds := config.DefaultFreshnessThresholds()
 		timestamps := []time.Time{
@@ -494,14 +503,22 @@ func (c *ReplicaMetricsCollector) collectReplicaMetrics(
 
 		worst := "fresh"
 		var oldestAge time.Duration
+		anyPresent := false
 		for _, ts := range timestamps {
 			status, age, hasTimestamp := classifyTimestamp(ts, collectedAt, thresholds)
-			if hasTimestamp && age > oldestAge {
+			if !hasTimestamp {
+				continue // absent-by-design metric must not dominate the rollup
+			}
+			anyPresent = true
+			if age > oldestAge {
 				oldestAge = age
 			}
 			if freshnessSeverity[status] > freshnessSeverity[worst] {
 				worst = status
 			}
+		}
+		if !anyPresent {
+			return "missing", 0
 		}
 		return worst, oldestAge
 	}
