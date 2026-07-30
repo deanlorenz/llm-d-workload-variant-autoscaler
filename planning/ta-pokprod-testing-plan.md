@@ -20,10 +20,10 @@
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:214
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L216:350
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:504
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L506:580
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L582:605
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L607:end
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:541
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L543:617
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L619:642
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L644:end
 
 ---
 
@@ -427,30 +427,59 @@ verified no-op on pokprod, one required a patch:**
    `helm upgrade --install` onto the shared, already-running control plane — **the one genuinely
    live hazard**, not merely belt-and-suspenders.
 
-**Fork patches applied (testing safety net, Dean-approved "ok on both"; fork-only, uncommitted, no
-cluster contact, no push).** Design = fail-safe "skip only if already present" — mirrors step_02's
-own `_any_crds_missing` gate, i.e. an upstreamable general improvement (installs when absent, reuses
-when present), not a private hack:
-- `step_03_workload_monitoring.py` — `_uwm_enabled()` probes for the
-  `openshift-user-workload-monitoring` namespace; skips the `cluster-monitoring-config` apply when
-  UWM is already on. WVA install + namespace label still run unconditionally after, as before.
-- `wva.py` — `_cluster_roles_present()` parses the rendered `22_prometheus-rbac` for `ClusterRole`
-  names and probes each with `oc get clusterrole --ignore-not-found`; the thanos ClusterRole apply
-  skips only when every declared ClusterRole already exists.
-- `step_07_deploy_setup.py` — `_gateway_provider_present()` probes a per-provider CRD
-  (`{"istio": "gateways.networking.istio.io"}`); the gateway-provider helmfile apply now runs only
-  when that CRD is absent. The namespace-scoped `infra-{release}` gateway apply is unchanged.
-- All three helpers return `False` in dry-run (preserves original render behavior); verified via
-  `py_compile` + step-registry import + a re-run of the full dry-run render (identical output).
+**Fork patches — COMMITTED + PUSHED to `origin/wva-ta-benchmark`** (2026-07-30, DCO-signed, per Dean
+"OK on all. proceed."; verified present on the remote). Design = fail-safe "skip only if already
+present" — mirrors step_02's own presence gate (installs when absent, reuses when present). Dean's
+**bucket split governs their upstream fate — do not conflate the two:**
 
-**Live step list (final, pending Dean's go-ahead):** **03(patched), 04, 05, 07(patched), 09** (+00
-benign). SKIP **02, 08**. Never teardown.
+- **Bucket 1 — "should-have" gates, eventual upstream candidates, NOT priority now** (commit
+  `e88b882`, "presence-gate cluster-scoped gateway/RBAC applies (mirror step_02)"):
+  - `step_07_deploy_setup.py` — `_gateway_provider_present()` probes a per-provider CRD
+    (`{"istio": "gateways.networking.istio.io"}`); the gateway-provider helmfile apply now runs only
+    when that CRD is absent. This is the ONE genuine live hazard (§6.2 above) — ungated it would
+    upgrade/adopt the shared istiod. The namespace-scoped `infra-{release}` gateway apply is unchanged.
+  - `wva.py` — `_cluster_roles_present()` parses the rendered `22_prometheus-rbac` for `ClusterRole`
+    names and probes each with `oc get clusterrole --ignore-not-found`; the thanos ClusterRole apply
+    (already best-effort/non-fatal) now skips only when every declared ClusterRole already exists.
+  - **Policy (Dean, verbatim intent):** these are consistency improvements worth eventually proposing
+    to `llm-d/llm-d-benchmark` as upstream issues/PRs — *after* a live run proves them out. **Not now:
+    "we do not push anything to upstream or wait for it."** No action until a successful standup.
+- **Bucket 2 — fork-only safety net, will NEVER go upstream** (commit `963bb00`, "shared-cluster —
+  don't overwrite cluster-monitoring-config"): `step_03_workload_monitoring.py`'s `_uwm_enabled()`
+  probes the `openshift-user-workload-monitoring` namespace and skips the `cluster-monitoring-config`
+  apply when UWM is already on (WVA install + namespace label still run after, as before). This
+  patch stays fork-only by design — **the public-code end-user make target must not rely on it**
+  (§7.0 goal #3); it exists only to protect *our* shared-cluster testing. **This supersedes §6.3
+  Item 1's "worth upstreaming" framing above for this specific patch** — Bucket 1 is the upstream
+  candidate, Bucket 2 is not.
+
+All three helpers return `False` in dry-run (preserves original render behavior); verified via
+`py_compile` + step-registry import + a re-run of the full dry-run render (identical output).
+
+**Operational wrapper (Tier-B WVA Makefile, uncommitted in the `benchmark` worktree — `make` reads
+the working tree):** new `BENCHMARK_STEPS` passthrough (`--step`) + a `benchmark-standup-shared`
+target = `benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,9` (skips `02`/`08`). Safety comes from the step
+selection + the Bucket-1 gates, not the Bucket-2 safety net.
+
+**Live step list (FINAL — fully verified, one gate remaining):** **03(patched), 04, 05, 07(patched),
+09** (+00 benign). SKIP **02, 08**. Never teardown. Charts verified present at OCI (WVA `0.8.0-rc5`,
+digest `sha256:3067b743…`; `prometheus-adapter` `5.2.0`). The full expanded live command (`make -n
+benchmark-standup-shared BENCHMARK_NAMESPACE=dhl-wva-209`) was captured and safety-audited: the
+ClusterRole-stub block is confirmed **GATED OFF** (`BENCHMARK_SKIP_PROMETHEUS_ADAPTER` unset →
+`[ "" = "true" ]` is false, no cluster-scoped write from the wrapper itself); the only namespace-scoped
+mutation from the wrapper is the UWM label on `dhl-wva-209`. **The only remaining gate is Dean's
+explicit FINAL go on this exact command** — no open technical questions block the first live standup.
+
+(Known non-blocking flag, pre-existing in `.env`: `VLLM_IMAGE_REPO/TAG` resolves to
+`docker.io/vllm/vllm-openai:v0.14.0` — AGENTS.md discourages `docker.io` for e2e; fine for a one-off
+benchmark run, tracked as a cleanup item, not a blocker.)
 
 ### 6.3 Research findings (planner, read-only, 2026-07-30) — Ofer's step_03 gap; modelservice/istio literal vs. detected
 
 Two questions handed to the planner (`session/handoffs/plan__benchmark-standup-shared-write-questions.md`),
-answered by reading `origin/wva-ta-benchmark` (== Ofer's tip verbatim, confirmed by diff — our fork
-patches above are *uncommitted local edits*, not part of his code) and his own docs.
+answered by reading `ofer/feat/multi-variant-benchmark` (his tip, unpatched) vs. our fork's patched
+working tree (at the time, uncommitted local edits — since committed/pushed as `e88b882`/`963bb00`,
+§6.2) and his own docs.
 
 **Item 1 — how does Ofer avoid the step_03 `cluster-monitoring-config` write?** He doesn't, in any
 purpose-built way. Confirmed by diffing our patched working tree against `ofer/feat/multi-variant-benchmark`:
@@ -467,8 +496,16 @@ controller install (also too broad, and matches the "one admin bootstraps once, 
 write). **Conclusion:** this is a genuine gap in the public code, not something Ofer's workflow
 specifically defeats — most likely he simply hasn't hit it because his own test clusters don't carry
 pre-existing custom monitoring-stack config to clobber. Our `_uwm_enabled()` patch is the correct,
-narrowly-targeted fix; **worth upstreaming to `llm-d/llm-d-benchmark`** as a general safety improvement
-(same category as step_02's existing CRD-presence gate), independent of our own testing.
+narrowly-targeted fix.
+
+**Correction (2026-07-30, per Dean's bucket split in §6.2) — do not upstream this specific patch.**
+The line above ("worth upstreaming") is superseded: Dean's categorization puts `_uwm_enabled()` in
+**Bucket 2 (fork-only safety net, never upstream)** — it exists to protect *our* shared-cluster
+testing, not as a general library improvement, and the public-code end-user path must not rely on it.
+Only the Bucket-1 gates (step_07 gateway-provider presence, `wva.py` thanos ClusterRole presence) are
+eventual upstream candidates, and only after a live run proves them out — not a current priority.
+**This item is CLOSED** — a definitive answer was requested and delivered; no further planner action
+needed regardless of the Bucket-2 patch's own defensive coverage.
 
 **Item 2 — is `modelservice`/`gateway.className=istio` cluster-detected or a scenario literal?** Purely
 literal, confirmed by code: `deployed_methods` resolves from `_resolve_deploy_methods()` (`cli.py`),
@@ -537,11 +574,13 @@ before any TA-isolation. Dean's guidance: **we have never reliably gotten the sc
 even the 2026-06-15 "scale-up captured" (§12) was sat_v2-driven and the runbook itself (§14) says
 a clean basic scale-up was not achieved. So treat the plumbing as **unproven** and start there.
 
-**Standup mechanism for this phase (per §6.1–6.2, final):** the controlled step list — `standup -p
-dhl-wva-209 -s 00,03,04,05,07,09` (skip `02`/`08`), with the fork's patched step_03/step_07 (§6.2) as
-the testing safety net — **not** the bare full `make benchmark-standup`. All 4 identified cluster-scoped
-writes are now confirmed no-op on pokprod or neutralized by a patch; the live run is otherwise
-blocked only on Dean's explicit go-ahead.
+**Standup mechanism for this phase (per §6.1–6.2, final):** `make benchmark-standup-shared
+BENCHMARK_NAMESPACE=dhl-wva-209` (`BENCHMARK_STEPS=0,3,4,5,7,9`, skip `02`/`08`) — the new Makefile
+wrapper, **not** the bare `make benchmark-standup`. Runs against the fork's Bucket-1-patched
+step_07/`wva.py` (§6.2, committed+pushed) and standard step_03 (Bucket-2's `_uwm_enabled()` is also
+present but defense-in-depth, not relied on). All 4 identified cluster-scoped writes are confirmed
+no-op on pokprod or neutralized by a patch, and the full expanded command has been safety-audited
+(§6.2) — the live run is blocked only on Dean's explicit FINAL go.
 
 **Step 0 (do first) — a few basic e2e on pokprod, simplest possible (DECIDED 2026-07-28).**
 Shape: **single variant, small model, small → bigger workload, clear expected scaling signal
