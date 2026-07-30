@@ -20,10 +20,10 @@
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:245
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L247:381
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:572
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L574:650
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L652:675
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L677:end
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:595
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:675
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L677:700
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L702:end
 
 ---
 
@@ -404,8 +404,8 @@ durable capture.
 - **Own the outcome without forking the flow.** `standup -s/--step` takes a comma-list or ranges
   (`0,1,5` / `1-7`) with per-step `should_skip(context)`; `-p/--namespace` sets deploy+benchmark NS;
   `--no-monitoring` disables PodMonitor+GAIE ServiceMonitor. This is enough to select exactly the
-  namespace+WVA+modelservice steps, skip the two admin/router steps, and never invoke teardown — **no
-  fork patch is required** for the controlled flow itself.
+  namespace+WVA+modelservice(+EPP) steps, skip the one genuinely cluster-scoped admin step, and never
+  invoke teardown — **no fork patch is required** for the controlled flow itself.
 - **Packaging:** install is editable (`pip install -e .`) — our fork's edits win over any packaged
   version; risky `apply`s live inside editable clone steps. The remote `llm-d-planner@v0.1.0` dependency
   is validation-only (no cluster writes).
@@ -431,9 +431,25 @@ the earlier fma-ClusterRole and kustomize-router hazards **do not fire here at a
 | 05 `harness_namespace` | harness+model NS, namespace-scoped | NEEDED, safe |
 | 06_fma / 06_kustomize / 06_standalone | alternate deploy methods | **moot** — none active for this scenario (method = modelservice) |
 | 07 `deploy_setup` | gateway-provider helmfile (istio-base+istiod) + the namespace `infra-{release}` gateway | **NEEDED — patched** (see below; the only step with **no** native presence gate) |
-| 08 `deploy_gaie` | GAIE router control plane | **SKIP** (Dean: do not touch router control plane) |
+| 08 `deploy_gaie` | per-model **InferencePool + EPP** (Endpoint Picker) Helm release | **NEEDED — CORRECTED 2026-07-30, was wrongly SKIP** (see below) |
 | 09 `deploy_modelservice` | vLLM modelservice + Gateway + Route, namespace-scoped | NEEDED, safe |
 | 10/11 `smoketest`/`inference_test` | validation | read-mostly, safe |
+
+**⚠️ Correction (2026-07-30, found live during the first real standup) — step 08 must NOT be
+skipped.** The original classification conflated step 08 with the shared/cluster-scoped "router
+control plane" language from §6.1 and skipped it alongside step 02. That was wrong: step 08's actual
+payload here is a per-model, **fully namespace-scoped** Helm release
+(`<model>-gaie`, chart `oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool`,
+`namespace: dhl-wva-209`, `createNamespace: false`, no `ClusterRole`/`ClusterRoleBinding` anywhere in
+its helmfile) — it deploys the `InferencePool` CR + EPP (Endpoint Picker) pod *for this specific
+model*, not a shared cluster-wide component. **Symptom when skipped:** step 09's "inference pool"
+wait sub-step polls for pods behind an `InferencePool` that was never created — `oc get inferencepool
+-n dhl-wva-209` returns empty, no EPP pod exists anywhere in the namespace — so it hangs for the full
+25-minute timeout and the standup reports a failure at [09], even though the decode pod itself came
+up healthy and is genuinely serving. This generalizes beyond `wva-sat2-tp1` to any modelservice-deploy
+scenario (`should_skip` for step 08 only checks `"modelservice" not in deployed_methods`, not any
+cluster-scope condition). **Fix:** step 08 belongs in the NEEDED set alongside 03/04/05/07/09 — only
+step 02 is the genuinely cluster-scoped step to skip.
 
 **The 4 genuinely-unconditional shared writes (confirmed in code, not dry-run artifacts) — all
 verified no-op on pokprod, one required a patch:**
@@ -489,17 +505,24 @@ All three helpers return `False` in dry-run (preserves original render behavior)
 
 **Operational wrapper (Tier-B WVA Makefile, uncommitted in the `benchmark` worktree — `make` reads
 the working tree):** new `BENCHMARK_STEPS` passthrough (`--step`) + a `benchmark-standup-shared`
-target = `benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,9` (skips `02`/`08`). Safety comes from the step
-selection + the Bucket-1 gates, not the Bucket-2 safety net.
+target, originally `benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,9` (skips `02`/`08`). **Corrected
+2026-07-30** (see §6.2's step-08 correction) to `BENCHMARK_STEPS=0,3,4,5,7,8,9` (skips `02` only).
+Safety comes from the step selection + the Bucket-1 gates, not the Bucket-2 safety net.
 
-**Live step list (FINAL — fully verified, one gate remaining):** **03(patched), 04, 05, 07(patched),
-09** (+00 benign). SKIP **02, 08**. Never teardown. Charts verified present at OCI (WVA `0.8.0-rc5`,
-digest `sha256:3067b743…`; `prometheus-adapter` `5.2.0`). The full expanded live command (`make -n
-benchmark-standup-shared BENCHMARK_NAMESPACE=dhl-wva-209`) was captured and safety-audited: the
-ClusterRole-stub block is confirmed **GATED OFF** (`BENCHMARK_SKIP_PROMETHEUS_ADAPTER` unset →
-`[ "" = "true" ]` is false, no cluster-scoped write from the wrapper itself); the only namespace-scoped
-mutation from the wrapper is the UWM label on `dhl-wva-209`. **The only remaining gate is Dean's
-explicit FINAL go on this exact command** — no open technical questions block the first live standup.
+**Live step list (CORRECTED 2026-07-30 — step 08 added back in):** **03(patched), 04, 05,
+07(patched), 08, 09** (+00 benign). SKIP **02 only.** Never teardown. Charts verified present at OCI
+(WVA `0.8.0-rc5`, digest `sha256:3067b743…`; `prometheus-adapter` `5.2.0`). The full expanded live
+command (`make -n benchmark-standup-shared BENCHMARK_NAMESPACE=dhl-wva-209`) was captured and
+safety-audited: the ClusterRole-stub block is confirmed **GATED OFF** (`BENCHMARK_SKIP_PROMETHEUS_ADAPTER`
+unset → `[ "" = "true" ]` is false, no cluster-scoped write from the wrapper itself); the only
+namespace-scoped mutation from the wrapper is the UWM label on `dhl-wva-209`.
+
+**Found live during the first real standup (2026-07-30):** running with the original (uncorrected)
+`0,3,4,5,7,9` list, the decode pod deployed and became healthy (confirmed serving real completions
+via a direct in-pod HTTP request), but step 09's "inference pool" wait hung the full 25 minutes and
+failed, because step 08 — which creates the `InferencePool` + EPP pod step 09 waits on — never ran.
+See §6.2's correction for the full diagnosis. **Re-run with the corrected step list is the next
+action**, pending Dean's go-ahead.
 
 (Known non-blocking flag, pre-existing in `.env`: `VLLM_IMAGE_REPO/TAG` resolves to
 `docker.io/vllm/vllm-openai:v0.14.0` — AGENTS.md discourages `docker.io` for e2e; fine for a one-off
@@ -605,13 +628,15 @@ before any TA-isolation. Dean's guidance: **we have never reliably gotten the sc
 even the 2026-06-15 "scale-up captured" (§12) was sat_v2-driven and the runbook itself (§14) says
 a clean basic scale-up was not achieved. So treat the plumbing as **unproven** and start there.
 
-**Standup mechanism for this phase (per §6.1–6.2, final):** `make benchmark-standup-shared
-BENCHMARK_NAMESPACE=dhl-wva-209` (`BENCHMARK_STEPS=0,3,4,5,7,9`, skip `02`/`08`) — the new Makefile
-wrapper, **not** the bare `make benchmark-standup`. Runs against the fork's Bucket-1-patched
-step_07/`wva.py` (§6.2, committed+pushed) and standard step_03 (Bucket-2's `_uwm_enabled()` is also
-present but defense-in-depth, not relied on). All 4 identified cluster-scoped writes are confirmed
-no-op on pokprod or neutralized by a patch, and the full expanded command has been safety-audited
-(§6.2) — the live run is blocked only on Dean's explicit FINAL go.
+**Standup mechanism for this phase (per §6.1–6.2, CORRECTED 2026-07-30):** `make
+benchmark-standup-shared BENCHMARK_NAMESPACE=dhl-wva-209` (`BENCHMARK_STEPS=0,3,4,5,7,8,9`, skip `02`
+only) — the new Makefile wrapper, **not** the bare `make benchmark-standup`. Runs against the fork's
+Bucket-1-patched step_07/`wva.py` (§6.2, committed+pushed) and standard step_03 (Bucket-2's
+`_uwm_enabled()` is also present but defense-in-depth, not relied on). **Step 08 must be included** —
+it deploys the per-model InferencePool+EPP that step 09 depends on; the original `0,3,4,5,7,9` list
+(without 08) was run live and failed at [09] after a 25-minute timeout for exactly this reason (§6.2).
+All identified cluster-scoped writes are confirmed no-op on pokprod or neutralized by a patch; the
+live run is blocked only on Dean's explicit go-ahead to re-run with the corrected step list.
 
 **Step 0 (do first) — a few basic e2e on pokprod, simplest possible (DECIDED 2026-07-28).**
 Shape: **single variant, small model, small → bigger workload, clear expected scaling signal
