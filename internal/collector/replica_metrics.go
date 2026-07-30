@@ -1113,13 +1113,28 @@ func (c *ReplicaMetricsCollector) CollectModelArrivalRate(
 		Params:  params,
 	})
 	if err != nil {
+		// Categorize rather than swallow: a broken or misconfigured arrival query and
+		// genuine zero traffic both surface here as a zero rate, but only the former is a
+		// fault. Record the categorized reason as a collection error so an operator can
+		// tell the two apart (a nonzero arrival_rate error counter means a query problem,
+		// not idle traffic). Demand still falls back to 0 — zero only ever permits
+		// scale-down, gated by the multi-analyzer live-consensus veto.
+		reason := prometheus.CategorizePrometheusError(err)
+		metrics.IncMetricsCollectionErrors(constants.QueryTypeArrivalRate, reason)
 		logger.V(logging.DEBUG).Info("Model arrival rate unavailable",
-			"modelID", modelID, "namespace", namespace, "error", err)
+			"modelID", modelID, "namespace", namespace, "reason", reason, "error", err)
 		return 0
 	}
 
 	result := results[registration.QueryModelArrivalRate]
-	if result == nil || result.HasError() {
+	if result == nil {
+		return 0
+	}
+	if result.HasError() {
+		reason := prometheus.CategorizePrometheusError(result.Error)
+		metrics.IncMetricsCollectionErrors(constants.QueryTypeArrivalRate, reason)
+		logger.V(logging.DEBUG).Info("Model arrival rate result carried an error",
+			"modelID", modelID, "namespace", namespace, "reason", reason)
 		return 0
 	}
 
