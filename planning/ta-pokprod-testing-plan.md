@@ -21,9 +21,9 @@
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:245
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L247:381
 - [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:595
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:766
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L768:791
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L793:end
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:899
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L901:924
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L926:end
 
 ---
 
@@ -762,6 +762,139 @@ Grafana instances on pokprod (`observability-hub`, `dpikus-precise`, both using 
 
 **Not yet done:** turning this into a coder task plan / handoff. This section is fact-finding only,
 per Dean's explicit "no edits for now."
+
+### 7.3 inference-perf load-gen fix + a first "does TA do anything" workload (2026-07-31, corrects a prior handoff)
+
+**Corrects `session/handoffs/plan__benchmark-harness-guidellm-vs-inferenceperf.md`'s diagnosis.**
+That handoff claimed "Ofer ran guidellm, not inference-perf" and proposed patching the Makefile's
+local-`.in` copy branch to fix an inference-perf filename mismatch. **Both are wrong — verified
+directly against Ofer's fork (2026-07-31):**
+
+```
+$ git show ofer/feat/multi-variant-benchmark:config/scenarios/guides/two-variant-wva.yaml
+...
+  harness:
+    name: inference-perf
+    experimentProfile: shared_prefix_synthetic.yaml
+```
+
+Ofer's scenario declares `harness.name: inference-perf` — the `-l guidellm` string the prior
+handoff cited is a **usage-comment example** a few lines above, not the actual config. **We need
+both harnesses** (Dean): guidellm already works via native catalog profiles (proven —
+`wva_sat2_short`, the sat-only validation run); inference-perf is specifically needed because its
+native `load.stages` schema supports **staged/ramped rate profiles** — exactly what a
+calibration-then-trigger workload needs, and something guidellm's profile format doesn't offer as
+cleanly.
+
+**The real root cause (not the local-`.in` filename mismatch):** `Makefile:568` unconditionally
+appends `-w $(BENCHMARK_WORKLOAD).yaml` to every `benchmark-run` invocation, for **both** harnesses
+— `step_05_render_profiles.py`'s `_resolve()` (`llmdbenchmark/executor/step.py:151-171`) is a
+three-tier fallback (CLI/context value → scenario `plan_config` → hardcoded default), and the CLI
+value is Tier 1, unconditionally winning over the scenario's own `harness.experimentProfile` field
+— even when the scenario already correctly declares one (ours does: both `two-variant-wva.yaml:279-281`
+and `wva-sat2-tp1.yaml:213-215` already say `harness: {name: inference-perf, experimentProfile: ...}`,
+matching Ofer's exact shape). The Makefile's forced `-w` silently shadows this every time. The
+local-`.in` copy-branch bug the prior handoff found is a real bug, but it's downstream of this — a
+symptom of routing custom profiles through a separate, fragile mechanism instead of the tool's own
+catalog convention (`workload/profiles/<harness>/<name>.yaml.in`, committed to the fork, exactly how
+Ofer's own `shared_prefix_synthetic.yaml.in` lives on his branch).
+
+**Recommended fix (not yet implemented — coder task):**
+1. Make `Makefile:568`'s `-w` conditional, mirroring the existing `$(if $(BENCHMARK_MODEL_ID),-m
+   $(BENCHMARK_MODEL_ID),)` idiom on the same line: `$(if $(BENCHMARK_WORKLOAD),-w
+   $(BENCHMARK_WORKLOAD).yaml,)`, with `BENCHMARK_WORKLOAD ?=` defaulting to empty rather than
+   `prefill_heavy.yaml`. This restores the scenario's own `harness.experimentProfile` as authoritative
+   whenever the user doesn't explicitly ask for a different profile on the command line — harness-agnostic,
+   fixes both guidellm and inference-perf the same way, no per-harness special-casing.
+2. Audit the other `$(BENCHMARK_WORKLOAD)`-gated blocks (`:498,505,549,554` — the direct-KEDA
+   endpoint injection, the inference-perf catalog auto-fetch, and the local-`.in`/local-file copy
+   branches) so they no-op cleanly when `BENCHMARK_WORKLOAD` is empty, rather than erroring on an
+   empty path.
+3. **Custom profiles stop going through the local-`.in` mechanism entirely.** Commit them directly
+   into the embedded clone's native catalog path on our fork (`wva-ta-benchmark` branch):
+   `workload/profiles/inference-perf/<name>.yaml.in`, referenced purely via the scenario's own
+   `harness.experimentProfile: <name>.yaml` — same convention Ofer's `shared_prefix_synthetic.yaml.in`
+   already uses successfully. (Verified this survives editable-install re-renders the same way his does;
+   it does *not* survive a `git reset --hard origin/wva-ta-benchmark` unless committed to that branch —
+   commit it, don't leave it as a local uncommitted file in the clone.)
+
+**A first workload — "does TA do anything at all" (simpler bar than the full TA-lead experiment in
+`plan__ta-sat-scaleup-lead-setup.md`, which remains open separately).** Per that handoff: TA needs
+`MinSamples=10` with `KSpread≥0.30` to flip its `reason` off `T2-default`
+(`GLOBAL_OPT_INTERVAL=60s` ⇒ needs ~10+ min of varied load). This profile doesn't try to stay under
+saturation's 0.85 KV threshold — that constraint is specific to the fuller "TA leads" experiment;
+here we just want TA to calibrate and show *any* signal (reason flip, nonzero RC) so the coder has
+something concrete to look at. Fixed token shape (matches the already-validated `wva_sat2_short`
+guidellm shape: ~4096 in / ~1024 out) so the OLS fit isn't confounded by shape changes; only the
+rate varies, sweeping from near-idle to above the known-saturating rate (12-24 RPS, per
+`wva_sat2_short`) over 8 stages / 12 minutes:
+
+```yaml
+# workload/profiles/inference-perf/ta_calibration_probe.yaml.in
+# Sweeps rate from near-idle to above-saturating at a fixed token shape, so TA
+# (10 samples, KSpread>=0.30 to leave T2-default) gets a chance to calibrate
+# and show a signal. Does not try to stay under k_sat=0.85 -- unlike a true
+# TA-vs-saturation lead experiment, this just checks TA reacts at all.
+load:
+  type: constant
+  stages:
+  - rate: 2
+    duration: 90
+  - rate: 4
+    duration: 90
+  - rate: 6
+    duration: 90
+  - rate: 8
+    duration: 90
+  - rate: 10
+    duration: 90
+  - rate: 13
+    duration: 90
+  - rate: 16
+    duration: 90
+  - rate: 20
+    duration: 90
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+  base_url: REPLACE_ENV_LLMDBENCH_HARNESS_STACK_ENDPOINT_URL
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+data:
+  type: random
+  input_distribution:
+    min: 4000
+    max: 4200
+    mean: 4096
+    std_dev: 50
+    total_count: 2000
+  output_distribution:
+    min: 950
+    max: 1100
+    mean: 1024
+    std_dev: 30
+    total_count: 2000
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+    per_request: true
+storage:
+  local_storage:
+    path: /workspace
+```
+
+**Unverified, flag to coder:** `total_count: 2000` is a generous guess (the 8-stage sum is ~7,100
+requests at the given rates × durations) — I did not confirm inference-perf's exhaustion behavior
+(cycles vs. errors) if a stage needs more distinct prompts than `total_count`. Verify empirically;
+raise if requests start erroring out partway through a stage.
+
+**Verification signals (same as the fuller experiment):** `analyzer=throughput` log lines — watch
+`reason` flip off `T2-default`, and `RequiredCapacity` go nonzero at some point during the sweep.
 
 ---
 
