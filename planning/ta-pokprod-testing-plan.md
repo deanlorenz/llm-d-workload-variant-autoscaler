@@ -20,10 +20,10 @@
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:214
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L216:350
-- [6. Phase 3 — Clean stale pokprod](#6-phase-3--clean-stale-pokprod) — L352:372
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L374:415
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L417:440
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L442:end
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:427
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L429:503
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L505:528
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L530:end
 
 ---
 
@@ -349,34 +349,122 @@ image/tag; if it must change, the change is made in a code worktree (PR branch) 
 
 ---
 
-## 6. Phase 3 — Clean stale pokprod
+## 6. Phase 3 — Clean stale pokprod + controlled-setup methodology
 
-Goal: remove 2026-06-15 leftovers so old signals don't contaminate new runs. **Cluster-side —
-Dean or Ofer runs; needs cluster access. Plan-agent does not execute.** Per §2a: **any teardown
-requires Dean's explicit approval on that specific action**, is scoped to Dean's namespace only
-(explicit `-n`), and must not touch cluster-global state.
+**Methodology pivot (2026-07-30, Dean redirection — supersedes the earlier full-standup/full-teardown
+framing).** Do not run llm-d-benchmark's full `make benchmark-standup` / full-teardown flow as a black
+box. Instead: **our-NS-only, select exactly the safe steps, never a full teardown.** Established by
+read-only recon of the embedded clone (full detail: `session/status/benchmark.md`); this section is the
+durable capture.
 
-**DECIDED (2026-07-28): full nuke + fresh namespace.** Do not reuse `dhl-wva`. Tear it down
-completely (removes all past-state noise) and stand up fresh in **`dhl-wva-209`** (day-of-year of
-2026-07-28). A fresh namespace is the strongest guarantee against stale-signal contamination.
+### 6.1 Governing principles
 
-Teardown of the old project (per runbook §12):
-- `llmdbenchmark … teardown -p dhl-wva` (helm releases + variants).
-- `oc delete podmonitor wva-variant-relabel-decode wva-variant-relabel-decode-v2 -n dhl-wva`
-- `oc delete deploy wva-loadgen -n dhl-wva`
-- `oc delete role/rolebinding wva-supplemental-hpa-keda -n dhl-wva` (if used)
-- Free GPUs / delete the namespace once variants are gone.
+- **Our-NS-only, always explicit.** Every `llmdbenchmark`/`oc`/harness invocation carries `-p dhl-wva-209`
+  (standup/run) or `-n dhl-wva-209` (`oc`) — never the current-context default (the CLI is "notorious for
+  default-NS overwrites").
+- **Reuse shared infra; never install/modify it.** pokprod already has a shared Prometheus+operator
+  (`prometheus-adapter` in `workload-variant-autoscaler-monitoring`, 64d old), shared KEDA
+  (`scaledobjects.keda.sh` CRD + `openshift-keda/keda-metrics-apiserver`), and a shared router control
+  plane (GAIE). Our project only enables UWM collection for our-NS metrics and consumes them — it never
+  (re)installs or reconfigures any of the three.
+- **Never run a full teardown.** `standup step_04_clean_cluster_roles` deletes cluster-scoped
+  ClusterRoles/Bindings — admin-only, shared-cluster-wide, **never run it.** Cleanup between runs is
+  namespace-scoped only: run-phase `step_01_cleanup_previous` / `step_11_cleanup_post`.
+- **Own the outcome without forking the flow.** `standup -s/--step` takes a comma-list or ranges
+  (`0,1,5` / `1-7`) with per-step `should_skip(context)`; `-p/--namespace` sets deploy+benchmark NS;
+  `--no-monitoring` disables PodMonitor+GAIE ServiceMonitor. This is enough to select exactly the
+  namespace+WVA+modelservice steps, skip the two admin/router steps, and never invoke teardown — **no
+  fork patch is required** for the controlled flow itself.
+- **Packaging:** install is editable (`pip install -e .`) — our fork's edits win over any packaged
+  version; risky `apply`s live inside editable clone steps. The remote `llm-d-planner@v0.1.0` dependency
+  is validation-only (no cluster writes).
 
-Then stand up `dhl-wva-209` fresh against the Tier-A image (`…:ta-0.9`).
+### 6.2 Ofer's 11-step standup — hazard classification (resolved 2026-07-30)
+
+| Step | What it does | Verdict |
+|---|---|---|
+| 00 `ensure_infra` | validates deps, prints banner | benign |
+| 02 `admin_prerequisites` | cluster-scoped Gateway API + inference-ext CRDs + OpenShift SCCs (+ optional Prom CRDs) | **SKIP** — all already present on pokprod (verified `oc get crd`) |
+| 03 `workload_monitoring` | needed for WVA; see hazard #1 below | **NEEDED, with a residual hazard** |
+| 04 `model_namespace` | model NS/PVCs, all namespace-scoped | NEEDED, safe |
+| 05 `harness_namespace` | harness+model NS, namespace-scoped | NEEDED, safe |
+| 06_fma / 06_kustomize / 06_standalone | alternate deploy methods (only one active, gated on `deployMethod`) | fma = hazard #2 (ClusterRole); kustomize = hazard #3 (router commands); standalone = safe. Confirm which is active via `--dry-run` |
+| 07 `deploy_setup` | gateway-provider helmfile + OpenShift agentgateway patches | hazard #4 — possibly cluster-scoped; needs `--dry-run` |
+| 08 `deploy_gaie` | GAIE router control plane | **SKIP** (Dean: do not touch router control plane) |
+| 09 `deploy_modelservice` | vLLM modelservice + Gateway + Route, namespace-scoped | NEEDED, safe |
+| 10/11 `smoketest`/`inference_test` | validation | expected read-mostly; confirm no cluster writes |
+
+**Step_03 crux — RESOLVED.** `_install_wva_if_enabled` does 4 things: (1) prometheus-adapter install —
+self-skips (pokprod's existing ClusterRole is helm-owned by a release the probe finds → reuse, no
+reinstall — **safe**); (2) **thanos-querier ClusterRole apply — runs unconditionally** whenever the
+Prometheus CA cert is extractable (it will be, Dean has admin) — `kubectl apply -f`, non-fatal on
+failure — **this is a real cluster-scoped write on every run (hazard #1)**; mitigate by pre-diffing the
+rendered manifest against the existing ClusterRole (no-op if identical) or patching our fork to skip when
+it already exists; (3) WVA-namespace label — namespace-scoped, safe; (4) WVA controller helm install —
+namespace-scoped, idempotent, safe.
+
+**Provisional safe step list (pending `--dry-run` confirmation of 06/07):** NEEDED & namespace-scoped =
+**00, 03, 04, 05, 09**. SKIP = **02** (already present), **08** (router). UNRESOLVED — must `--dry-run`
+first: **07** (cluster-scoped CRDs?) and which **06_\*** variant is active (fma/kustomize both hazardous;
+standalone safe). Four cluster-scoped writes total to neutralize before any live run: step_03 thanos CR
+(always fires), 06_fma CR (if that variant is active), 07 gateway CRDs (maybe), 08 (moot — skipped).
+
+### 6.3 What actually happened (2026-07-30, Dean-approved, DONE)
+
+The namespace cutover ran ahead of the full controlled-setup design via a simpler path than the
+originally-planned `llmdbenchmark … teardown -p dhl-wva`:
+- `oc new-project dhl-wva-209` — created, context switched, namespace empty/Active.
+- `oc delete project dhl-wva` — the old 45-day legacy VA+HPA stack fully nuked (no GPU pods were
+  running); project confirmed `NotFound`, clean termination.
+- Both steps are **namespace-scoped deletes**, no cluster-global impact; every subsequent command in this
+  session carries explicit `-n dhl-wva-209`.
+
+This closes the original Phase 3 goal (remove 2026-06-15 leftovers, stand up fresh) without needing the
+`llmdbenchmark teardown` command path or the itemized `oc delete podmonitor/deploy/role` cleanup listed
+in the pre-pivot plan — a plain project delete removed all of it at once. **No further Phase 3 action
+needed;** §6.1/§6.2 above now govern the *live standup*, which is Phase 4's concern (§7).
 
 ---
 
 ## 7. Phase 4 — Scenarios + small e2e
 
+### 7.0 Longer-term goals & deliverable shape (2026-07-30, per Dean — supersedes
+`project_benchmark_makefile_two_variant_todo`)
+
+**MECHANISM (important distinction):** the eventual **end-user deliverable must not depend on our
+fork.** It enumerates the specific safe `--step`s (§6.2's provisional list) and runs **standard PUBLIC**
+`llm-d-benchmark`. Our fork (`deanlorenz/llm-d-benchmark`) is a **testing safety net only** — we may
+patch it to make the skips fail-safe *while we test*, but that patching never becomes part of the
+shipped path.
+
+**Sequencing dependency:** the two-variant scenario is **not yet in public `llm-d-benchmark`** — it
+lives on Ofer's `feat/multi-variant-benchmark` (mirrored on our fork's `wva-ta-benchmark` branch, used
+for *our* testing now). The public-code end-user path is blocked on that scenario landing upstream
+first; this is a sequencing concern for whoever schedules the upstream PR, not something this plan
+resolves.
+
+**Three longer-term goals to carry forward:**
+1. **Ofer runs with our controller image** — already achievable today via the `WVA_IMAGE_REPO`/
+   `WVA_IMAGE_TAG` `.env` seam (§5.2/§5.5); no code change needed.
+2. **An end-user TA guide**, in the spirit of the existing WVA-with-KEDA guide on `llm-d/llm-d`
+   (`guides/workload-autoscaling/README.wva.md`, read in §5.0).
+3. **A Makefile target + setup env** that lets an end user safely test TA using **public** benchmark
+   code with an explicit safe `--step` list (not our fork) — the shipped form of §6.1–6.2's controlled
+   flow. (Supersedes the deferred "generalize `benchmark-standup` for two-variant + WVA-image-override"
+   note; that note is now absorbed here.)
+
+### 7.1 Step 0 — basic e2e sanity
+
 Goal: **simplest-first.** Confirm the basic scale signal works end-to-end on pokprod *at all*
 before any TA-isolation. Dean's guidance: **we have never reliably gotten the scale signal** —
 even the 2026-06-15 "scale-up captured" (§12) was sat_v2-driven and the runbook itself (§14) says
 a clean basic scale-up was not achieved. So treat the plumbing as **unproven** and start there.
+
+**Standup mechanism for this phase (per §6.1/§6.2):** the controlled step list — `standup -p
+dhl-wva-209 -s 00,03,04,05,09` (skip `02`/`08`) — **not** the bare full `make benchmark-standup`. A CLI
+`--dry-run`/render (needs the editable install of our fork clone; read-only, no cluster writes) resolves
+step 07 and the active `06_*` variant before any live run; the 4 identified cluster-scoped writes
+(§6.2) must each be confirmed no-op or neutralized before Dean's go-ahead for a live standup.
 
 **Step 0 (do first) — a few basic e2e on pokprod, simplest possible (DECIDED 2026-07-28).**
 Shape: **single variant, small model, small → bigger workload, clear expected scaling signal
