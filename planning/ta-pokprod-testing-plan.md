@@ -20,10 +20,10 @@
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
 - [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:214
 - [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L216:350
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:427
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L429:503
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L505:528
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L530:end
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L352:504
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L506:580
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L582:605
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L607:end
 
 ---
 
@@ -379,37 +379,114 @@ durable capture.
   version; risky `apply`s live inside editable clone steps. The remote `llm-d-planner@v0.1.0` dependency
   is validation-only (no cluster writes).
 
-### 6.2 Ofer's 11-step standup — hazard classification (resolved 2026-07-30)
+### 6.2 Ofer's 11-step standup — hazard classification (fully resolved 2026-07-30, via `--dry-run` + read-only pokprod checks)
+
+A `--dry-run` render (uv venv, editable install of the fork clone, no cluster writes) confirmed the
+scenario's actual deploy shape and — critically — that **dry-run over-reports writes**: every
+`oc get crd`/secret/cm presence-probe returns empty in dry-run mode, so it shows install commands a
+*live* run would skip. The table below is the corrected, code-confirmed model, not the dry-run's
+worst-case view.
+
+**Deploy shape for `two-variant-wva`:** method = **modelservice** (→ step_09), gateway class =
+**istio**. All three `06_*` alternates (fma/kustomize/standalone) are skipped for this scenario —
+the earlier fma-ClusterRole and kustomize-router hazards **do not fire here at all.**
 
 | Step | What it does | Verdict |
 |---|---|---|
 | 00 `ensure_infra` | validates deps, prints banner | benign |
-| 02 `admin_prerequisites` | cluster-scoped Gateway API + inference-ext CRDs + OpenShift SCCs (+ optional Prom CRDs) | **SKIP** — all already present on pokprod (verified `oc get crd`) |
-| 03 `workload_monitoring` | needed for WVA; see hazard #1 below | **NEEDED, with a residual hazard** |
+| 02 `admin_prerequisites` | cluster-scoped Gateway API + inference-ext CRDs + OpenShift SCCs (+ optional Prom CRDs) | **SKIP** via `--step` — all already present on pokprod, and its istio-install sub-step is self-gated (no-op live either way) |
+| 03 `workload_monitoring` | WVA install + 2 unconditional cluster-scoped applies (below) | **NEEDED — patched** |
 | 04 `model_namespace` | model NS/PVCs, all namespace-scoped | NEEDED, safe |
 | 05 `harness_namespace` | harness+model NS, namespace-scoped | NEEDED, safe |
-| 06_fma / 06_kustomize / 06_standalone | alternate deploy methods (only one active, gated on `deployMethod`) | fma = hazard #2 (ClusterRole); kustomize = hazard #3 (router commands); standalone = safe. Confirm which is active via `--dry-run` |
-| 07 `deploy_setup` | gateway-provider helmfile + OpenShift agentgateway patches | hazard #4 — possibly cluster-scoped; needs `--dry-run` |
+| 06_fma / 06_kustomize / 06_standalone | alternate deploy methods | **moot** — none active for this scenario (method = modelservice) |
+| 07 `deploy_setup` | gateway-provider helmfile (istio-base+istiod) + the namespace `infra-{release}` gateway | **NEEDED — patched** (see below; the only step with **no** native presence gate) |
 | 08 `deploy_gaie` | GAIE router control plane | **SKIP** (Dean: do not touch router control plane) |
 | 09 `deploy_modelservice` | vLLM modelservice + Gateway + Route, namespace-scoped | NEEDED, safe |
-| 10/11 `smoketest`/`inference_test` | validation | expected read-mostly; confirm no cluster writes |
+| 10/11 `smoketest`/`inference_test` | validation | read-mostly, safe |
 
-**Step_03 crux — RESOLVED.** `_install_wva_if_enabled` does 4 things: (1) prometheus-adapter install —
-self-skips (pokprod's existing ClusterRole is helm-owned by a release the probe finds → reuse, no
-reinstall — **safe**); (2) **thanos-querier ClusterRole apply — runs unconditionally** whenever the
-Prometheus CA cert is extractable (it will be, Dean has admin) — `kubectl apply -f`, non-fatal on
-failure — **this is a real cluster-scoped write on every run (hazard #1)**; mitigate by pre-diffing the
-rendered manifest against the existing ClusterRole (no-op if identical) or patching our fork to skip when
-it already exists; (3) WVA-namespace label — namespace-scoped, safe; (4) WVA controller helm install —
-namespace-scoped, idempotent, safe.
+**The 4 genuinely-unconditional shared writes (confirmed in code, not dry-run artifacts) — all
+verified no-op on pokprod, one required a patch:**
 
-**Provisional safe step list (pending `--dry-run` confirmation of 06/07):** NEEDED & namespace-scoped =
-**00, 03, 04, 05, 09**. SKIP = **02** (already present), **08** (router). UNRESOLVED — must `--dry-run`
-first: **07** (cluster-scoped CRDs?) and which **06_\*** variant is active (fma/kustomize both hazardous;
-standalone safe). Four cluster-scoped writes total to neutralize before any live run: step_03 thanos CR
-(always fires), 06_fma CR (if that variant is active), 07 gateway CRDs (maybe), 08 (moot — skipped).
+1. **step_03 `_apply_monitoring`** — `oc apply -f 03_cluster-monitoring-config.yaml` (ConfigMap
+   `cluster-monitoring-config` in `openshift-monitoring`, `data.config.yaml: enableUserWorkload: true`).
+   **No "already-enabled?" gate in Ofer's code** — `oc apply` replaces `config.yaml` wholesale, which
+   would clobber any other monitoring-stack settings an admin had configured in that same key.
+   Verified on pokprod: the existing ConfigMap's `data.config.yaml` is **exactly**
+   `enableUserWorkload: true` (no other keys) → the render is identical → **confirmed no-op on
+   pokprod specifically.** Patched anyway (see below) since the no-gate behavior isn't safe in
+   general.
+2. **step_03 thanos-querier ClusterRole apply** (inside `install_prometheus_adapter`, outside the
+   PA-reuse `if`/`else` → fires whenever the Prometheus CA cert is extractable, which it is when
+   Dean has admin). Verified: `allow-thanos-querier-api-access` ClusterRole already exists (99d,
+   not helm-owned) → apply is a **reconcile no-op.**
+3. **step_02 SCC bindings / CRD installs** — moot, step_02 is skipped via `--step` regardless.
+4. **step_07 gateway-provider re-apply** — `helmfile apply 09_helmfile-gateway-provider.yaml`
+   installs istio-base+istiod v1.29.2 cluster-wide, **with no presence gate at all** (unlike
+   step_02's equivalent istio-install, which does self-skip). Verified: istiod is Running in
+   `istio-system` (72d) and the `istio` GatewayClass is `Accepted` on pokprod → a live run would
+   `helm upgrade --install` onto the shared, already-running control plane — **the one genuinely
+   live hazard**, not merely belt-and-suspenders.
 
-### 6.3 What actually happened (2026-07-30, Dean-approved, DONE)
+**Fork patches applied (testing safety net, Dean-approved "ok on both"; fork-only, uncommitted, no
+cluster contact, no push).** Design = fail-safe "skip only if already present" — mirrors step_02's
+own `_any_crds_missing` gate, i.e. an upstreamable general improvement (installs when absent, reuses
+when present), not a private hack:
+- `step_03_workload_monitoring.py` — `_uwm_enabled()` probes for the
+  `openshift-user-workload-monitoring` namespace; skips the `cluster-monitoring-config` apply when
+  UWM is already on. WVA install + namespace label still run unconditionally after, as before.
+- `wva.py` — `_cluster_roles_present()` parses the rendered `22_prometheus-rbac` for `ClusterRole`
+  names and probes each with `oc get clusterrole --ignore-not-found`; the thanos ClusterRole apply
+  skips only when every declared ClusterRole already exists.
+- `step_07_deploy_setup.py` — `_gateway_provider_present()` probes a per-provider CRD
+  (`{"istio": "gateways.networking.istio.io"}`); the gateway-provider helmfile apply now runs only
+  when that CRD is absent. The namespace-scoped `infra-{release}` gateway apply is unchanged.
+- All three helpers return `False` in dry-run (preserves original render behavior); verified via
+  `py_compile` + step-registry import + a re-run of the full dry-run render (identical output).
+
+**Live step list (final, pending Dean's go-ahead):** **03(patched), 04, 05, 07(patched), 09** (+00
+benign). SKIP **02, 08**. Never teardown.
+
+### 6.3 Research findings (planner, read-only, 2026-07-30) — Ofer's step_03 gap; modelservice/istio literal vs. detected
+
+Two questions handed to the planner (`session/handoffs/plan__benchmark-standup-shared-write-questions.md`),
+answered by reading `origin/wva-ta-benchmark` (== Ofer's tip verbatim, confirmed by diff — our fork
+patches above are *uncommitted local edits*, not part of his code) and his own docs.
+
+**Item 1 — how does Ofer avoid the step_03 `cluster-monitoring-config` write?** He doesn't, in any
+purpose-built way. Confirmed by diffing our patched working tree against `ofer/feat/multi-variant-benchmark`:
+the entire `_uwm_enabled()` gate (§6.2) is our fork's addition — his `_apply_monitoring` has always
+applied unconditionally. His own docs (`docs/workload-variant-autoscaler.md`) *do* document
+multi-tenant "install-if-absent, reuse-if-present" semantics — but only for `prometheus-adapter`, its
+`prometheus-ca` ConfigMap, and the `allow-thanos-querier-api-access` ClusterRole (which have their own
+native reuse-checks in `wva.py`, independent of our patch). The `cluster-monitoring-config`
+ConfigMap-replace is not mentioned in that multi-tenant table at all. Two existing knobs bear on it but
+neither is a precise fit: `monitoring.enabled: false` skips the whole monitoring subsystem (too broad —
+also drops PodMonitor/adapter setup), and `--non-admin` skips step_03 in its entirety including the WVA
+controller install (also too broad, and matches the "one admin bootstraps once, others run
+`--non-admin`" pattern implied by the reuse table — but doesn't give a *targeted* skip for this one
+write). **Conclusion:** this is a genuine gap in the public code, not something Ofer's workflow
+specifically defeats — most likely he simply hasn't hit it because his own test clusters don't carry
+pre-existing custom monitoring-stack config to clobber. Our `_uwm_enabled()` patch is the correct,
+narrowly-targeted fix; **worth upstreaming to `llm-d/llm-d-benchmark`** as a general safety improvement
+(same category as step_02's existing CRD-presence gate), independent of our own testing.
+
+**Item 2 — is `modelservice`/`gateway.className=istio` cluster-detected or a scenario literal?** Purely
+literal, confirmed by code: `deployed_methods` resolves from `_resolve_deploy_methods()` (`cli.py`),
+whose priority is `--methods` CLI flag → the scenario's `<method>.enabled` keys → a phase default —
+never a cluster query. `gateway.className` is read via `_require_config(plan_config, "gateway",
+"className")` — a required config field, overridable only by `--gateway-class`. There is **no
+detection layer anywhere** in the tool that probes the cluster's installed gateway provider and picks
+accordingly; our own new `_gateway_provider_present()` (§6.2) is a one-way presence *check* used to
+skip a redundant install, not a selection mechanism. The scenario's `istio` literal happens to match
+pokprod by construction (the scenario was authored against a cluster that also runs istio), not by
+inference. **Consequence for the public-code end-user path (§7.0 goal #3):** the makefile target must
+either (a) document the prerequisite explicitly (target cluster must already run the gateway provider
+named in the scenario), or (b) make `gateway.className` a required `.env`/CLI input rather than a
+scenario constant — relevant directly to Dean's CONFIG-CONSOLIDATION goal (variant-count + all config
+in one yaml). No code or upstream change needed to *use* this today — `--gateway-class` already exists
+as the override lever.
+
+### 6.4 What actually happened (2026-07-30, Dean-approved, DONE)
 
 The namespace cutover ran ahead of the full controlled-setup design via a simpler path than the
 originally-planned `llmdbenchmark … teardown -p dhl-wva`:
@@ -422,7 +499,7 @@ originally-planned `llmdbenchmark … teardown -p dhl-wva`:
 This closes the original Phase 3 goal (remove 2026-06-15 leftovers, stand up fresh) without needing the
 `llmdbenchmark teardown` command path or the itemized `oc delete podmonitor/deploy/role` cleanup listed
 in the pre-pivot plan — a plain project delete removed all of it at once. **No further Phase 3 action
-needed;** §6.1/§6.2 above now govern the *live standup*, which is Phase 4's concern (§7).
+needed;** §6.1–6.3 above now govern the *live standup*, which is Phase 4's concern (§7).
 
 ---
 
@@ -460,11 +537,11 @@ before any TA-isolation. Dean's guidance: **we have never reliably gotten the sc
 even the 2026-06-15 "scale-up captured" (§12) was sat_v2-driven and the runbook itself (§14) says
 a clean basic scale-up was not achieved. So treat the plumbing as **unproven** and start there.
 
-**Standup mechanism for this phase (per §6.1/§6.2):** the controlled step list — `standup -p
-dhl-wva-209 -s 00,03,04,05,09` (skip `02`/`08`) — **not** the bare full `make benchmark-standup`. A CLI
-`--dry-run`/render (needs the editable install of our fork clone; read-only, no cluster writes) resolves
-step 07 and the active `06_*` variant before any live run; the 4 identified cluster-scoped writes
-(§6.2) must each be confirmed no-op or neutralized before Dean's go-ahead for a live standup.
+**Standup mechanism for this phase (per §6.1–6.2, final):** the controlled step list — `standup -p
+dhl-wva-209 -s 00,03,04,05,07,09` (skip `02`/`08`), with the fork's patched step_03/step_07 (§6.2) as
+the testing safety net — **not** the bare full `make benchmark-standup`. All 4 identified cluster-scoped
+writes are now confirmed no-op on pokprod or neutralized by a patch; the live run is otherwise
+blocked only on Dean's explicit go-ahead.
 
 **Step 0 (do first) — a few basic e2e on pokprod, simplest possible (DECIDED 2026-07-28).**
 Shape: **single variant, small model, small → bigger workload, clear expected scaling signal
