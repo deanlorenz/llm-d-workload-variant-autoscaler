@@ -47,6 +47,18 @@
 
 **Type:** 3 (task plan) · **Branch:** `wva-analyzer-lifecycle` off `main`
 
+> ⚠️ **REJECTED (Dean, 2026-07-31): the "zero-signal" design for satv2's `Deactivate` (below, and
+> Commit 2c) must NOT be implemented as written.** Dean does not recall approving this specific
+> choice and considers it "a very risky hack." The requirement was always to genuinely disable
+> saturation's scaling signal — not have it keep running and return a neutral/zero result that
+> still occupies an entry in `namedResults` (with the attendant risk of interacting oddly with the
+> veto/liveness logic and any log/metrics surface that walks all entries). Do not kick off
+> implementation from this plan as-is. See
+> `session/handoffs/plan__sat-v2-disable-not-working-f1-gap.md` (or its `.DONE`/CURRENT.md
+> successor) for the full context — a separate planner is being spawned to redesign this
+> specifically, weighing true removal from `namedResults` against F1 "Pre-analysis extraction"
+> (`planning/multi-analyzer-design.md:506-511`) as the correct fix shape.
+
 **Problem.** Analyzer registration is code-driven (frozen at startup) and disconnected
 from configuration. Five correctness gaps result:
 
@@ -69,8 +81,9 @@ from configuration. Five correctness gaps result:
   transition — natural, since it is all one goroutine).
 - `cmd/main.go` registers a static factory slice (no boolean gate); activation is
   config-driven per-cycle.
-- satv2 is special: always in the live set; `Deactivate` sets an internal `disabled`
-  flag that changes what `Analyze` returns (metadata only, no scaling signal).
+- ~~satv2 is special: always in the live set; `Deactivate` sets an internal `disabled`
+  flag that changes what `Analyze` returns (metadata only, no scaling signal).~~
+  **REJECTED — see warning above. Do not implement this bullet as written.**
 - Fix `effectiveEnabled` absent-entry default from `true` to `false`.
 
 **Files changed (high-level):**
@@ -333,6 +346,10 @@ func (a *SaturationAnalyzer) Reactivate(_ context.Context, _ config.AnalyzerScor
 [↑ TOC](#toc)
 
 ### 2c. Modify `Analyze()` for the disabled path
+
+> ⚠️ **REJECTED (Dean, 2026-07-31) — see the warning at the top of this doc. This zero-signal
+> approach must not be implemented.** Kept below only as a record of the rejected design, for
+> whoever redesigns this next.
 
 At the **top** of `Analyze()` (after the satConfig type-assert), add:
 
