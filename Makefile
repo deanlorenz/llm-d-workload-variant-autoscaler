@@ -52,12 +52,18 @@ BENCHMARK_NAMESPACE  ?= # set via BENCHMARK_NAMESPACE=<namespace>
 BENCHMARK_GATEWAY_URL ?= http://infra-llmdbench-inference-gateway-istio.$(BENCHMARK_NAMESPACE).svc.cluster.local:80
 BENCHMARK_WORKSPACE  ?= $(CURDIR)
 BENCHMARK_HARNESS    ?= guidellm
-BENCHMARK_WORKLOAD   ?= prefill_heavy.yaml
+# Empty by default: the scenario's own harness.experimentProfile is authoritative.
+# Set BENCHMARK_WORKLOAD=<name> only to override it on the command line.
+BENCHMARK_WORKLOAD   ?=
 BENCHMARK_FORCE      ?= true
 BENCHMARK_MONITORING ?= true
 BENCHMARK_UV         ?= false
 BENCHMARK_SCENARIOS_DIR ?= $(CURDIR)/test/benchmark/scenarios
 BENCHMARK_MODEL_ID   ?= # empty: scenario YAML drives the model; set BENCHMARK_MODEL_ID=<id> to override
+# Optional explicit standup step selection (comma-list or ranges, e.g. "0,3,4,5,7,8,9").
+# Empty = run all steps (today's behavior). Used to skip cluster-scoped/shared steps
+# on shared clusters (see benchmark-standup-shared).
+BENCHMARK_STEPS      ?=
 BENCHMARK_DECODE_REPLICAS ?= 1
 BENCHMARK_KEDA_MIN_REPLICAS ?= 1
 BENCHMARK_KEDA_MAX_REPLICAS ?= 10
@@ -385,7 +391,22 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	@if [ -d "$(BENCHMARK_REPO_DIR)" ]; then \
 		cd $(BENCHMARK_REPO_DIR) && git checkout -- config/scenarios config/specification config/templates 2>/dev/null || true; \
 	fi
-	@$(MAKE) benchmark-install BENCHMARK_REPO_REF=$(BENCHMARK_REPO_REF)
+	@missing=""; \
+	for t in helm kubectl oc helmfile yq kustomize jq crane skopeo; do \
+		command -v $$t >/dev/null 2>&1 || missing="$$missing $$t"; \
+	done; \
+	[ -x "$(LLMDBENCHMARK)" ] || missing="$$missing llmdbenchmark"; \
+	[ -d "$(BENCHMARK_REPO_DIR)/.git" ] || missing="$$missing llm-d-benchmark-clone"; \
+	if [ -z "$$missing" ]; then \
+		echo "All benchmark dependencies present -- skipping benchmark-install (its install.sh runs 'sudo apt-get update' on Ubuntu, which must not run hidden in a non-interactive shell); syncing clone only."; \
+		cd $(BENCHMARK_REPO_DIR) && git fetch --tags origin 2>/dev/null && git checkout $(BENCHMARK_REPO_REF) 2>/dev/null || true; \
+	else \
+		echo "ERROR: benchmark dependencies missing:$$missing"; \
+		echo "These are installed by install.sh using 'sudo' -- it must NOT be run hidden in a background/non-interactive shell."; \
+		echo "Run it yourself in a terminal (it will prompt for your sudo password), then re-run this target:"; \
+		echo "    make benchmark-install BENCHMARK_REPO_REF=$(BENCHMARK_REPO_REF)"; \
+		exit 1; \
+	fi
 	@cd $(BENCHMARK_REPO_DIR) && git reset --hard origin/$(BENCHMARK_REPO_REF) 2>/dev/null || true
 	@if [ -f "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml" ]; then \
 		echo "Copying local scenario: hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml -> $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
@@ -448,6 +469,7 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	$(LLMDBENCHMARK) $(BENCHMARK_CLI_FLAGS) standup \
 		-p $(BENCHMARK_NAMESPACE) \
 		$(if $(BENCHMARK_MODEL_ID),-m $(BENCHMARK_MODEL_ID),) \
+		$(if $(BENCHMARK_STEPS),--step $(BENCHMARK_STEPS),) \
 		$(if $(filter true,$(BENCHMARK_MONITORING)),--monitoring,); \
 	rc=$$?; \
 	mv $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.bak \
@@ -459,6 +481,15 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	fi; \
 	exit $$rc
 
+.PHONY: benchmark-standup-shared
+benchmark-standup-shared: ## Shared-cluster-safe standup: steps 0,3,4,5,7,8,9 (skips only step_02 admin CRDs/SCCs); requires BENCHMARK_NAMESPACE
+	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-standup-shared BENCHMARK_NAMESPACE=<namespace>"; \
+		exit 1; \
+	fi
+	@echo "Shared-cluster standup: steps 0,3,4,5,7,8,9 (skipping only 02 admin-prereqs)."
+	@$(MAKE) benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,8,9
+
 .PHONY: benchmark-run
 benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<namespace>, MODEL_ID=<model>, BENCHMARK_HARNESS=guidellm|inference-perf)
 	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
@@ -466,14 +497,14 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 		exit 1; \
 	fi
 	@mkdir -p "$(BENCHMARK_SCENARIOS_DIR)"
-	@if [ "$(BENCHMARK_DIRECT_KEDA)" = "true" ] && [ -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)" ]; then \
+	@if [ -n "$(BENCHMARK_WORKLOAD)" ] && [ "$(BENCHMARK_DIRECT_KEDA)" = "true" ] && [ -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)" ]; then \
 		echo "Injecting external model endpoint for direct-KEDA mode..."; \
 		sed -i.bak 's|base_url: .*|base_url: http://infra-llmdbench-inference-gateway.$(BENCHMARK_NAMESPACE).svc.cluster.local:80|' \
 			"$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)"; \
 		rm -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).bak"; \
 	fi
 	@# Fetch workload from inference-perf catalog if not found locally and harness is inference-perf
-	@if [ "$(BENCHMARK_HARNESS)" = "inference-perf" ] && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)" ] && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" ]; then \
+	@if [ -n "$(BENCHMARK_WORKLOAD)" ] && [ "$(BENCHMARK_HARNESS)" = "inference-perf" ] && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)" ] && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" ]; then \
 		echo "Fetching $(BENCHMARK_WORKLOAD) from inference-perf workload-catalog..."; \
 		if curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/inference-perf/main/workload-catalog/$(BENCHMARK_WORKLOAD)/inference-perf.yaml" \
 			-o "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)"; then \
@@ -536,7 +567,7 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 	$(LLMDBENCHMARK) $(BENCHMARK_CLI_FLAGS) run \
 		-p $(BENCHMARK_NAMESPACE) \
 		-l $(BENCHMARK_HARNESS) \
-		-w $(BENCHMARK_WORKLOAD).yaml \
+		$(if $(BENCHMARK_WORKLOAD),-w $(BENCHMARK_WORKLOAD).yaml,) \
 		$(if $(BENCHMARK_MODEL_ID),-m $(BENCHMARK_MODEL_ID),) \
 		$(if $(filter true,$(BENCHMARK_MONITORING)),--monitoring,) \
 		--wait-timeout $(BENCHMARK_WAIT_TIMEOUT)
@@ -589,29 +620,24 @@ WVA_CONTROLLER_DEPLOY ?= deploy/workload-variant-autoscaler-controller-manager
 WVA_ROLLOUT_TIMEOUT ?= 120s
 WVA_MONITORING_NAMESPACE ?= workload-variant-autoscaler-monitoring
 
-.PHONY: benchmark-add-variant
-benchmark-add-variant: ## Add a WVA variant to the running benchmark (set BENCHMARK_NAMESPACE=<namespace>, optional VARIANT_CONFIG=<path>, PROMETHEUS_URL=<url>)
+.PHONY: benchmark-configure-variants
+benchmark-configure-variants: ## Configure the WVA variant set from one YAML (set BENCHMARK_NAMESPACE=<namespace>, optional VARIANT_CONFIG=<path>, PROMETHEUS_URL=<url>)
 	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
-		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-add-variant BENCHMARK_NAMESPACE=<namespace>"; \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-configure-variants BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
-	@missing=""; \
-	[ -z "$(ACCELERATOR_NAME)" ] && missing="$$missing ACCELERATOR_NAME"; \
-	[ -z "$(PRIMARY_COST)" ]     && missing="$$missing PRIMARY_COST"; \
-	[ -z "$(PRIMARY_MIN)" ]      && missing="$$missing PRIMARY_MIN"; \
-	[ -z "$(PRIMARY_MAX)" ]      && missing="$$missing PRIMARY_MAX"; \
-	if [ -n "$$missing" ]; then \
-		echo "ERROR: required benchmark .env value(s) unset:$$missing (see hack/benchmark/.env.sample)"; \
+	@if [ -z "$(ACCELERATOR_NAME)" ]; then \
+		echo "ERROR: required benchmark .env value ACCELERATOR_NAME unset (see hack/benchmark/.env.sample)"; \
 		exit 1; \
 	fi
-	python3 $(CURDIR)/hack/benchmark/add_variant.py \
+	python3 $(CURDIR)/hack/benchmark/configure_variants.py \
 		-n $(BENCHMARK_NAMESPACE) \
 		--config $(VARIANT_CONFIG) \
 		--prometheus-url $(PROMETHEUS_URL) \
-		--accelerator-name $(ACCELERATOR_NAME) \
-		--primary-cost $(PRIMARY_COST) \
-		--primary-min $(PRIMARY_MIN) \
-		--primary-max $(PRIMARY_MAX)
+		--accelerator-name $(ACCELERATOR_NAME)
+
+.PHONY: benchmark-add-variant
+benchmark-add-variant: benchmark-configure-variants ## Deprecated alias for benchmark-configure-variants (cost/min/max now live in VARIANT_CONFIG)
 
 .PHONY: benchmark-enable-v2-saturation
 benchmark-enable-v2-saturation: ## Enable WVA saturation V2 analyzer (apply configmap + restart controller)
