@@ -1,0 +1,5 @@
+# generated / regenerable — rebuild with: python run.py && python report.py
+.venv/
+__pycache__/
+out/
+traces/
