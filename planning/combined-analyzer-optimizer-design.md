@@ -19,11 +19,11 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L134:196
 - [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L197:247
 - [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L248:328
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L329:349
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L350:383
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L384:423
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L424:484
-- [Open questions {#open}](#open-questions-open) L485:512
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L329:359
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L360:393
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L394:433
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L434:494
+- [Open questions {#open}](#open-questions-open) L495:532
 
 ## Why this doc exists {#why}
 
@@ -345,6 +345,16 @@ Under the [anchor design](#anchor), the anchor's per-variant PRC is already the 
 anchor is refreshed to the current binding analyzer before each sort. This is the one place the
 per-iteration refresh granularity matters most (see [§ open](#open)).
 
+**Sort cadence — verified 2026-08-03 (resolves open-Q #1).** The sort is already **re-run once per
+(role, allocation iteration)**: both pick functions call `sortByCostEfficiencyAsc(roleVCs)` *inside*
+the `RolePickFn` closure (`cost_aware_optimizer.go:90`, `greedy_score_optimizer.go:408`), and that
+closure is invoked once per role on every turn of the `for anyRoleNeedsScaleUp` loop in
+`allocateForModelPaired`. Today the key `Cost/PRC_sat` is immutable topology, so the re-sort yields
+the identical order every iteration (redundant, harmless). This is exactly the seam the anchor uses:
+once the key becomes the binding cost-efficiency (which shifts as allocation progresses), the
+per-iteration re-sort is *already there* — the per-iteration anchor refresh feeds it with no new
+loop. The sort therefore needs **no** separate binding resolution; per-iteration refresh suffices.
+
 [↑ TOC](#toc)
 
 ## Rescale layer trace {#rescale}
@@ -484,9 +494,10 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
 
 ## Open questions {#open}
 
-1. **Anchor refresh granularity.** *Resolved: refresh each allocation iteration* (Dean, 2026-08-03).
-   Remaining sub-question: does per-role-pick-iteration refresh suffice for the **cost-sort**, or
-   does the sort need its own binding resolution at sort time? ([§ anchor](#anchor), [§ sort](#sort)).
+1. ~~Anchor refresh granularity / does the cost-sort need its own binding resolution?~~ — *Fully
+   resolved 2026-08-03.* Refresh each allocation iteration (Dean); and the sort is already re-run
+   once per (role, iteration) inside the pick closure, so per-iteration refresh feeds it directly —
+   **no separate sort-time binding resolution needed** ([§ sort](#sort) "Sort cadence").
 2. **Relationship to F1 / Half-B.** `wva-analyzer-lifecycle-plan.md` Half-B ("genuinely disable
    saturation") was rejected as unscoped and pointed at F1 "pre-analysis extraction"
    (`multi-analyzer-design.md:506-511`). This doc *is* that missing design. Decide whether Half-B
@@ -503,10 +514,19 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
    sites — `fairShareValue:73`, `fairShareCap:421`, and the scale-down tie-break
    `sortVariantsForScaleDown:168` ([§ bugs](#bugs) #5). Open decision: does the `fsv` rewrite land in
    the same task as the anchor (it re-points `fsv` at the anchor) or as a separate limited-mode commit?
-6. **Should the observability `Utilization` be reconciled to the clean `achieved`?** The V2
-   `Utilization` gauge is `demand/current` (pending-blind, raw demand). Reconciling it to
-   `(current+anticipated)/demand_target` would make the gauge match the decision, but it is a
-   metric-semantics change (dashboards/alerts may depend on the current definition). Decide separately
-   from the scaling work.
+6. **Should the observability `Utilization` be reconciled to the clean `achieved`?** — *Assessed
+   2026-08-03: recommend NO code change.* The `Utilization` gauge (`demand/current`,
+   `saturation_v2/analyzer.go:115/438`) is an **honest current-load** metric. The decision path uses
+   `(current+anticipated)/demand_target` (via RC). They differ **during scale-out by design** — the
+   gauge says "saturated now," the controller says "relief provisioning, no action"; both true.
+   Folding `anticipated` into the gauge would make it read cool the moment replicas are *requested*
+   (before Ready), which would **mask a genuine persisting saturation** if those pending replicas
+   never become Ready (bad image, unschedulable). So current-only is the *safer* gauge. The
+   small-and-clear action is a **doc/comment note** distinguishing "current-load gauge" from
+   "anticipated-coverage decision signal" so a later reader doesn't "fix" the gauge and silently hide
+   saturation; an anticipated-coverage signal, if wanted, belongs in a **separate** gauge, not
+   overloading `Utilization`. (Dean 2026-08-03: "include the observability correction if small and
+   clear" — on inspection it is neither a bug nor small-and-clear as a semantics change; the
+   doc-note is the small-and-clear part.)
 
 [↑ TOC](#toc)
