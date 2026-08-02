@@ -8,22 +8,25 @@
 `main` (the moving ref — `git worktree add … main`, never a pinned SHA). Authored against
 `main@6bfb73e1` (the PR F `#1503` merge commit); re-verify anchors against the branch's actual
 base before coding.
-**Size:** 3 small test-only commits, no production code changes expected · **Reviewer
-session:** standard internal review per CODER-CONVENTIONS §5.4 before any push; low risk
-(additive tests only).
-**Depends on:** nothing. **Not scheduled for 0.9** — this is deferred, optional follow-up work
-with no release deadline; do not open a PR or push to origin without Dean's explicit direction.
+**Size:** 4 small test-only commits (Commits 1–3 landed in round 1; Commit 4 + a one-line
+comment NIT on Commit 2 added in round 2), no production code changes expected · **Reviewer
+session:** internal re-review per CODER-CONVENTIONS §5.4 on the round-2 delta before push; low
+risk (additive tests only).
+**Depends on:** nothing. **Targeting 0.9** (code freeze 2026-08-06) — this small follow-up is now
+slated for 0.9; it becomes a PR once the coder's round-2 edits and an internal re-review are done.
+Still no push to origin without Dean's explicit per-push confirmation.
 
 ## TOC {#toc}
 
-- [Overview {#overview}](#overview-overview) L28:45
-- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L46:64
-- [Background {#background}](#background-background) L65:102
-- [Commit 1 — Inf B rejection in validITLModel {#commit-1}](#commit-1--inf-b-rejection-in-validitlmodel-commit-1) L103:120
-- [Commit 2 — Tier-2 validITLModel rejection in resolveITLModel {#commit-2}](#commit-2--tier-2-validitlmodel-rejection-in-resolveitlmodel-commit-2) L121:173
-- [Commit 3 — computeLocalDemand non-positive-capacity/negative-ITL skips {#commit-3}](#commit-3--computelocaldemand-non-positive-capacitynegative-itl-skips-commit-3) L174:210
-- [If a gap reveals a real bug {#bug-found}](#if-a-gap-reveals-a-real-bug-bug-found) L211:224
-- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L225:241
+- [Overview {#overview}](#overview-overview) L30:47
+- [Scope and non-goals {#scope}](#scope-and-non-goals-scope) L48:66
+- [Background {#background}](#background-background) L67:104
+- [Commit 1 — Inf B rejection in validITLModel {#commit-1}](#commit-1--inf-b-rejection-in-validitlmodel-commit-1) L105:122
+- [Commit 2 — Tier-2 validITLModel rejection in resolveITLModel {#commit-2}](#commit-2--tier-2-validitlmodel-rejection-in-resolveitlmodel-commit-2) L123:182
+- [Commit 3 — computeLocalDemand non-positive-capacity/negative-ITL skips {#commit-3}](#commit-3--computelocaldemand-non-positive-capacitynegative-itl-skips-commit-3) L183:219
+- [Commit 4 — computeVariantSupply non-positive-capacity skip {#commit-4}](#commit-4--computevariantsupply-non-positive-capacity-skip-commit-4) L220:277
+- [If a gap reveals a real bug {#bug-found}](#if-a-gap-reveals-a-real-bug-bug-found) L278:291
+- [Pre-push checklist {#prepush}](#pre-push-checklist-prepush) L292:308
 
 ## Overview {#overview}
 
@@ -46,7 +49,9 @@ bug — see [§ If a gap reveals a real bug](#if-a-gap-reveals-a-real-bug-bug-fo
 ## Scope and non-goals {#scope}
 
 **In scope:**
-- Three additive unit/Ginkgo test cases, one per gap ev-shindin named.
+- Additive unit/Ginkgo test cases: one per gap ev-shindin named (Commits 1–3), plus a
+  `computeVariantSupply` direct-coverage pair surfaced in the round-1 review (Commit 4), plus the
+  Commit-2 comment NIT reword.
 - No dev-guide changes expected — the guards are already documented (Type 4 doc already covers
   `computeLocalDemand`'s guards and the shared validator, added in F's `0c35d717`). Only touch
   the dev guide if a gap turns out to reveal an undocumented behavior.
@@ -54,11 +59,12 @@ bug — see [§ If a gap reveals a real bug](#if-a-gap-reveals-a-real-bug-bug-fo
 **Non-goals:**
 - No production code changes, unless a test exposes a real bug (see
   [§ If a gap reveals a real bug](#if-a-gap-reveals-a-real-bug-bug-found)).
-- No new guards beyond the three named gaps. If you notice other coverage gaps while in this
-  code, note them in your handoff rather than expanding scope.
-- No PR, no push to origin. This work has no 0.9 deadline — implement, get an internal review,
-  leave it committed locally, and write a status file. The planner will decide when/whether to
-  push based on Dean's direction.
+- No new guards, and no `checkVariantGPSMismatch` coverage (deferred — see [§ Commit 4](#commit-4--computevariantsupply-non-positive-capacity-skip-commit-4)).
+  If you notice other coverage gaps while in this code, note them in your handoff rather than
+  expanding scope.
+- No push to origin without Dean's per-push confirmation. This is now targeting 0.9 (freeze
+  2026-08-06): implement the round-2 delta, get an internal re-review, leave it committed locally;
+  the planner will propose the PR/push to Dean once re-review is clean.
 
 [↑ TOC](#toc)
 
@@ -169,6 +175,13 @@ of the default). Only add if it's cheap given the existing `injectWindowObs` hel
 (`analyzer_test.go:505`); skip otherwise — the default-B case above already exercises the
 rejection branch.
 
+**Round-2 fix (review NIT — required).** The inline comment written in round 1 calls the baseline
+"pinned" (*"AvgITL below the pinned baseline (DefaultBaselineITLSec = 0.006)"*). This test runs the
+**default**-baseline path (`hasFittedB=false` → `itlReasonT2Default`), not the `itlReasonT2Pinned`
+path, so "pinned" collides with the label name and could mislead a future reader. Reword to, e.g.:
+*"AvgITL below the constant baseline B (DefaultBaselineITLSec = 0.006, default path) at k=0.5…"*.
+Text-only; no behavioral change; no re-run of the arithmetic needed.
+
 [↑ TOC](#toc)
 
 ## Commit 3 — computeLocalDemand non-positive-capacity/negative-ITL skips {#commit-3}
@@ -205,6 +218,64 @@ change in `shape`/`replicaAt` silently making the fixture no longer exercise the
 plain non-NaN boundary value today (only the NaN case is covered). Add
 `It("skips a replica with zero KvUsageInstant", ...)` if convenient; not one of ev-shindin's
 three named gaps, so skip if it doesn't fit cleanly with the existing fixtures.
+
+[↑ TOC](#toc)
+
+## Commit 4 — computeVariantSupply non-positive-capacity skip {#commit-4}
+
+**File:** `internal/engines/analyzers/throughput/analyzer_test.go` — add a new top-level
+`var _ = Describe("computeVariantSupply", ...)` block (there is none today), mirroring the
+self-contained `Describe("computeLocalDemand", ...)` block at `analyzer_test.go:2063`.
+
+**Why now:** surfaced during the round-1 review. `computeVariantSupply` (`analyzer.go:679`) shares
+the same `TotalKvCapacityTokens <= 0` skip guard (`analyzer.go:683`) that Commit 3 covers for
+`computeLocalDemand`, but on the **supply** path — higher value — and today it has **no direct
+unit test** (only indirect `Analyze`-level coverage via the "excludes booting (KV=0) replicas" test
+at `analyzer_test.go:372`). It has a single per-replica guard and no `itlAtK` guard (`itlSat` is a
+scalar param, not model-derived), so two direct cases fully cover it:
+
+```go
+var _ = Describe("computeVariantSupply", func() {
+    shape := WorkloadShape{KVreq: 1024}
+    const itlSat = 0.05
+
+    replicaWithCap := func(capTokens int64) domain.ReplicaMetrics {
+        return domain.ReplicaMetrics{TotalKvCapacityTokens: capTokens}
+    }
+
+    It("aggregates supply across KV-capable replicas", func() {
+        total, perReplica, nKV := computeVariantSupply(
+            []domain.ReplicaMetrics{replicaWithCap(65536)}, shape, itlSat)
+        Expect(nKV).To(Equal(1))
+        Expect(total).To(BeNumerically(">", 0))
+        Expect(perReplica).To(BeNumerically("~", total, 1e-9)) // single replica → mean == total
+    })
+
+    It("skips a replica with non-positive TotalKvCapacityTokens", func() {
+        total, perReplica, nKV := computeVariantSupply(
+            []domain.ReplicaMetrics{replicaWithCap(0)}, shape, itlSat)
+        Expect(nKV).To(Equal(0))
+        Expect(total).To(Equal(0.0))
+        Expect(perReplica).To(Equal(0.0))
+    })
+})
+```
+
+`itlSat > 0` and `shape.KVreq > 0` keep the first case's `sum = DefaultKSat·kvMax/KVreq / itlSat`
+strictly positive — so the first case proves a healthy replica yields `total > 0` (non-vacuity),
+and `total == 0 && nKV == 0` in the second case genuinely proves the capacity skip fired rather
+than an all-zero fixture. Match the field name of the `int64` capacity param to whatever the
+`domain.ReplicaMetrics` field actually is; avoid the Go builtin name `cap` for the closure param
+(hence `capTokens`).
+
+**Deferred — `checkVariantGPSMismatch` NOT folded in.** The same `TotalKvCapacityTokens <= 0` /
+`itlAtK <= 0` guards also appear in `checkVariantGPSMismatch` (`analyzer.go:770`, guards at
+`:784`/`:788`), which the review flagged as untested. It is **not** in scope here: reaching those
+two clauses requires first satisfying several earlier skip guards (`shape.KVreq > 0`,
+`GenerationTokenRate > 0`, `KvUsageInstant >= DefaultGPSMinKForVerification`), it has no existing
+`Describe` block to extend, and it is diagnostic-only (bool → root-cause logging) — lower value
+than the supply/demand paths. Recorded as a separate future coverage task; do **not** fold it into
+this branch.
 
 [↑ TOC](#toc)
 
