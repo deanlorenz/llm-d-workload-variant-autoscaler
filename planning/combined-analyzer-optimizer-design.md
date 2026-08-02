@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:53
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:97
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L98:130
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L131:176
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L177:227
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L228:273
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L274:294
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L295:328
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L329:362
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L363:423
-- [Open questions {#open}](#open-questions-open) L424:443
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L131:193
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L194:244
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L245:325
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L326:346
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L347:380
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L381:420
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L421:481
+- [Open questions {#open}](#open-questions-open) L482:509
 
 ## Why this doc exists {#why}
 
@@ -149,11 +149,28 @@ as the "binding analyzer" anchor**:
   current binding analyzer (the binding analyzer can change as replicas are added and coverage
   shifts). This is the key subtlety: binding is state-dependent, so the anchor is recomputed, not
   computed once.
-- **Mutability is new state, not the existing struct** (Dean, 2026-08-03). Today the working
-  *counters* (`Remaining`/`Spare`/`RoleSpare`) are mutable, but `Result.VariantCapacities` — where
-  PRC lives — is treated as **immutable topology** ("The original Result values are never mutated,"
-  `optimizer_interfaces.go:20`). The anchor's combined PRC + coverage are **new mutable working
-  fields** refreshed each round; do not overload the immutable topology PRC for this.
+- **The anchor is the *only* mutable cell — and that makes it clean** (Dean, 2026-08-03).
+  **Everything the engine produces is immutable input** — every analyzer entry, *including the
+  anchor's initial value*. The optimizer owns exactly one piece of mutable state: the anchor, which
+  it **recomputes deterministically each iteration**. The bottleneck (binding PRC / demand /
+  coverage per `(role,v)`) is a **pure function of three immutable-or-progress inputs**:
+  1. the immutable analyzer entries (their `rd_i`, `PRC_i`, `demand_i`),
+  2. the current + pending replica counts, and
+  3. the ongoing allocation state (replicas committed so far this pass).
+  Given those three, the anchor is fully determined — no hidden history, no order-dependence. This
+  is why it's *clean*, not a hack: the mutation is a memoized projection of immutable data, not an
+  accumulating side effect. Today `Result.VariantCapacities` (where PRC lives) is already treated as
+  **immutable topology** ("The original Result values are never mutated," `optimizer_interfaces.go:20`);
+  the anchor's combined PRC + coverage are **new mutable working fields** layered on top — do not
+  overload the immutable topology PRC for them.
+- **Refresh timing: before each iteration, including the very first** (Dean, 2026-08-03). Because
+  the anchor is a pure function of allocation progress, it must be refreshed *before* every role-pick
+  iteration — and the first iteration is not special (its "progress so far" is just current+pending,
+  which is exactly the deterministic starting point). Dean considered calling the refresh from
+  *inside* the (renamed) `SatEntry` helper so every read is self-freshening, but that's **overkill** —
+  refreshing once at the top of each iteration is sufficient and cheaper (the helper can stay a plain
+  getter). The single-analyzer no-op property ([§ invariants](#invariants) #7) means this refresh is
+  free in the sat-only case.
 - **Binding resolved per-entry** (Dean, 2026-08-03). The anchor is a *list* of per-variant entries,
   each with its own `Role` — so per (role, variant) binding ([§ combine](#combine)) drops in
   naturally: each entry independently holds its binding analyzer's PRC/coverage. No model-global
@@ -249,25 +266,60 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
    *same* analyzer/unit. Across models bound by different analyzers, the weights are incommensurable.
    Fix: weight by combined demand-in-GPUs (or replicas). See [§ rescale](#rescale).
 
-4. **Anticipated-supply in the denominator — CONFIRMED** (not masked-by-single-analyzer; a genuine
-   bug today). `achieved`/coverage puts `current` supply in the numerator but folds `anticipated`
-   (booting/pending) into the **denominator** via RC, so pending replicas *raise* apparent demand
-   instead of counting as already-serving supply. Per [§ abstraction](#abstraction), pending belongs
-   in the numerator `n = actual+pending`. This is the coordination doc's **D1 / Open-issue #2**
-   ([`optimizer-coordination-design.md`](optimizer-coordination-design.md)): fix = numerator
-   `current + anticipated + committed_so_far`, denominator `desired = demand/threshold` (fixed).
-   Dean (2026-08-03): confirmed, must be solved. Needs the exact call-site trace (where RC folds
-   pending) before we size the fix.
+4. **Anticipated-supply in the denominator — TRACED 2026-08-03; NOT an active *sizing* bug** (the
+   coordination doc's suspicion does **not** hold in the V2 paired path — corrected here after a
+   full trace).
+   - **The scale-up sizing is pending-correct.** `applyUniversalThreshold` computes
+     `RC = max(0, TotalDemand/scaleUp − TotalAnticipatedSupply)` (`engine_v2.go:453`), and
+     `TotalAnticipatedSupply = Σ_v (ReplicaCount + PendingReplicas)·PRC` = **current + pending**
+     (`aggregation.go:81`). So `RC = demand_target − current − pending` — the correct *remaining*
+     demand. The gate `anyRoleNeedsScaleUp(ps)` (`cost_aware_optimizer.go:61`) fires only when
+     `RC > 0`; the loop covers `RC` with new replicas so `target = current + RC/PRC = desired − pending`.
+     Pending is accounted for exactly once, in the right place.
+   - **No code ever divides *by* RC/`Remaining`.** RC is an absolute remaining quantity, held in
+     `pickerState` and decremented directly (`analyzer_helpers.go:142/148/413`); it is never a
+     denominator. So the specific "`current / (demand − anticipated)`" shape the coordination doc
+     hypothesized **does not exist** in code.
+   - **What *is* pending-blind is the observability `Utilization`** — `TotalDemand/TotalSupply`
+     model-level (`saturation_v2/analyzer.go:115`) and `totalDemand/totalCapacity` per-variant
+     (`:438`), both `demand / current-supply` (no pending, and raw demand not `demand_target`). This
+     is a *reporting* ratio only in the V2 path (feeds the three saturation gauges + `decision.Utilization`
+     at `cost_aware_optimizer.go:302`); it does **not** gate or size scaling. Its symptom: the gauge
+     can read "saturated" (`>threshold`) while `RC = 0` (pending covers it) → looks like the analyzer
+     wants to scale while no scale is emitted. Cosmetic/observability inconsistency, not a scaling error.
+   - **Net (Dean, 2026-08-03 asked to re-confirm):** the earlier "CONFIRMED bug" verdict is
+     **downgraded**. The clean `achieved = (current+anticipated)/demand_target` model is still the
+     right *conceptual* target for the coordination-doc rewrite, and the observability `Utilization`
+     should be reconciled to it — but there is no anticipated-in-denominator *scaling* bug to fix in
+     the paired pipeline. Coordination doc **D1 / Open-issue #2**
+     ([`optimizer-coordination-design.md`](optimizer-coordination-design.md)) should be updated to
+     reflect this trace (suspicion not borne out; residual is the observability metric).
 
-5. **`fairShareValue` sums across analyzers instead of maxing** (`greedy_score_optimizer.go:61`).
-   `fsv = priority × Σ_i Score_i × Σ_role ps[i][role]` is the **only** cross-analyzer combine in the
-   codebase that uses `Σ_i`; every other site uses the bottleneck `max_i`/`min_i`. Two independent
-   errors: (a) `ps[i]` is per-analyzer native units → the sum is dimensionally mixed (same as #2);
-   (b) even in common units, summing over-counts vs the binding `max_i` and misorders models
-   ([§ limited](#limited)). Fix: `remaining = priority × Σ_role (desired[role] − current[role])`
-   with `desired = max_i rd_i`. Note the anchor swap does **not** reach this — `fsv` reads
-   `pickerState`, not the anchor. (Contrast `roleAggRemaining` #2, which already uses `max_i` — only
-   its units are wrong; `fsv` has *both* the wrong operator and wrong units.)
+5. **`fairShareValue` sums across analyzers instead of maxing — TRACED 2026-08-03 to three
+   lock-step sites** (limited/fair-share mode only; the cost-aware unlimited path does not use fsv).
+   `fsv = priority × Σ_i Score_i × Σ_role ps[i][role]` (`greedy_score_optimizer.go:61-93`, the sum at
+   `:73`) is a cross-analyzer combine that uses `Σ_i` where the binding rule uses `max_i`. Two
+   independent errors: (a) `ps[i][role]` is per-analyzer native-unit RC → the `Σ_i` is dimensionally
+   mixed (same root as #2); (b) even in common units, summing over-counts vs the binding `max_i` and
+   misorders models. The error **propagates through the whole fair-share chain**, so a fix touches
+   three sites in lock-step:
+   - **(i) `fairShareValue:73`** — replace `Σ_i Score_i × Σ_role ps[i][role]` with a combined
+     replica/GPU-space quantity: `Σ_role (max_i rd_i[role] − current[role])` (× priority, and × Score
+     only if Score is meant to weight budget). *This is where the anchor helps* — the anchor already
+     holds `max_i rd_i` per role, so the fix is to have `fsv` **read the anchor's combined per-role
+     replica-demand instead of iterating per-analyzer `ps`**. Contrast the earlier note "anchor does
+     not reach fsv": correct *as fsv is written today* (it walks `ps`), but the fix is precisely to
+     re-point it at the anchor — so the anchor does cover the numerator once fsv is rewritten.
+   - **(ii) `fairShareRolePick` → `fairShareCap` (`:421`)** — `ceil(target / vc.PerReplicaCapacity)`
+     divides the fsv-unit `target` (`= w.remaining − mean`, `:271`) by topology PRC_sat. Once `target`
+     becomes replica/GPU-space (fix i), this division is wrong (double-converts); the pick must convert
+     GPUs→replicas via `gpusPerReplica`, or use replica-space `target` directly. Must change in the
+     same commit as (i) or the units desync.
+   - **(iii) scale-down tie-break `sortVariantsForScaleDown` (`cost_aware_optimizer.go:161-184`,
+     weighted sum at `:168`)** — a **second** `Σ_i Score_i × PRC_i[v]` site (documented at `:156`).
+     Lower severity: it only orders scale-down candidates within a role (a tie-break), never sizes;
+     but it is the same wrong-operator/mixed-unit pattern and should be swept in the same fix (use the
+     binding `max_i` PRC, or drop the cross-analyzer weight for a topology-only tie-break).
 
 [↑ TOC](#toc)
 
@@ -352,11 +404,17 @@ Confirmed against code (Dean, 2026-08-02):
    combined demand = sat demand, combined coverage = sat coverage, topology unchanged; and the
    per-iteration refresh must be a **no-op** (single analyzer ⇒ binding never shifts ⇒ PRC constant
    across rounds, matching today where VariantCapacities PRC is never mutated). This holds *by
-   construction* but must be **guaranteed and tested** — the risk is entirely in the anchor-building
-   code applying a transform that isn't identity-for-n=1 (e.g. re-deriving coverage with a different
-   numerator than sat-v2 emits today). **Required test:** with only saturation registered, assert
-   `anchor == saturationEntry` field-for-field (PRC, demand, coverage, topology) — before, during,
-   and after allocation iterations.
+   construction* — but **do not rely on the by-construction argument; test it directly** (Dean,
+   2026-08-03). The risk is entirely in the anchor-building code applying a transform that isn't
+   identity-for-n=1 (e.g. re-deriving coverage with a different numerator than sat-v2 emits today), and
+   a by-construction claim is exactly the kind of thing a later refactor silently breaks. **Required
+   direct test** (not an incidental assertion inside a larger scenario): with only saturation
+   registered, assert `anchor == saturationEntry` field-for-field (PRC, demand, coverage, topology) —
+   before, during, and after allocation iterations, and assert the per-iteration refresh is a
+   byte-for-byte no-op. This is the single most important backward-compat guard in the whole change.
+
+   *(Numbering note: Dean referred to this as "invariant 6" on 2026-08-03 — the byte-identical-if-only-one
+   property is this entry regardless of its position in the list.)*
 
 [↑ TOC](#toc)
 
@@ -430,14 +488,22 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
    saturation") was rejected as unscoped and pointed at F1 "pre-analysis extraction"
    (`multi-analyzer-design.md:506-511`). This doc *is* that missing design. Decide whether Half-B
    becomes a task plan derived from this doc.
-3. ~~Anticipated-supply-in-denominator suspicion~~ — *Resolved: CONFIRMED bug* (Dean, 2026-08-03);
-   moved to [§ bugs](#bugs) #4. Still needs the exact call-site trace (where RC folds pending)
-   before sizing the fix.
+3. ~~Anticipated-supply-in-denominator suspicion~~ — *Resolved 2026-08-03: TRACED, verdict
+   DOWNGRADED.* Not an active sizing bug — RC correctly nets out current+pending; the only
+   pending-blind quantity is the observability `Utilization`. Full trace in [§ bugs](#bugs) #4.
+   Follow-up: update coordination-doc D1/#2 to match.
 4. ~~Anchor demand per role vs per (role,variant)?~~ — *Resolved* (Dean, 2026-08-03): binding is
    per (role, variant) and the anchor holds it per-entry ([§ combine](#combine), [§ anchor](#anchor)).
    Store combined PRC + `rd`/coverage per variant entry; role demand once per role.
-5. **Exact locations for the two fixes the anchor does NOT cover.** Bug #4 (RC folds pending) and
-   bug #5 (`fsv` sum) both live outside the anchor's read path. Trace both to precise call sites and
-   decide whether they land in the same task as the anchor or as separate commits.
+5. ~~Exact locations for the two anchor-external fixes~~ — *Resolved 2026-08-03 (traced).* Bug #4 is
+   downgraded (no sizing fix needed; observability-only). Bug #5 (`fsv`) is pinned to three lock-step
+   sites — `fairShareValue:73`, `fairShareCap:421`, and the scale-down tie-break
+   `sortVariantsForScaleDown:168` ([§ bugs](#bugs) #5). Open decision: does the `fsv` rewrite land in
+   the same task as the anchor (it re-points `fsv` at the anchor) or as a separate limited-mode commit?
+6. **Should the observability `Utilization` be reconciled to the clean `achieved`?** The V2
+   `Utilization` gauge is `demand/current` (pending-blind, raw demand). Reconciling it to
+   `(current+anticipated)/demand_target` would make the gauge match the decision, but it is a
+   metric-semantics change (dashboards/alerts may depend on the current definition). Decide separately
+   from the scaling work.
 
 [↑ TOC](#toc)
