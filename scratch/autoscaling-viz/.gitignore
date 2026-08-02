@@ -1,5 +1,5 @@
 # generated / regenerable — rebuild with: python run.py && python report.py
 .venv/
 __pycache__/
-out/
 traces/
+# out/ IS committed (rendered HTML + figures, so the deck is viewable without a Python env)
