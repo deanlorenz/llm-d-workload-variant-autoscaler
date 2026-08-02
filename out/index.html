@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autoscaling Behavioral Demo — Report</title>
+<style>
+:root{--fg:#1f2937;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--sel:#dbeafe;--bg:#fff;}
+*{box-sizing:border-box;}
+body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);}
+header{padding:18px 24px;border-bottom:1px solid var(--line);}
+header h1{margin:0 0 4px;font-size:19px;}
+header p{margin:0;color:var(--muted);font-size:13px;max-width:1000px;}
+.tabs{display:flex;gap:6px;padding:12px 24px 0;border-bottom:1px solid var(--line);}
+.tab{padding:8px 16px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:#f9fafb;cursor:pointer;font-weight:600;font-size:13px;}
+.tab.active{background:var(--bg);color:var(--accent);}
+main{padding:20px 24px 60px;}
+.view{display:none;}.view.active{display:block;}
+.pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+.pick button{padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:#f9fafb;cursor:pointer;font-size:13px;}
+.pick button.sel{background:var(--sel);border-color:var(--accent);color:var(--accent);font-weight:600;}
+/* Compare: two half-width panes side by side, each its own scroll box; JS keeps
+   their scroll positions in lockstep so the shared time axis stays aligned. */
+.cmp{display:flex;gap:18px;align-items:flex-start;}
+.pane{flex:1 1 0;min-width:0;}
+/* grow to the full figure height (no vertical scrollbar); only scroll
+   horizontally when zoomed past fit. overflow-y:hidden with height:auto means
+   the box just expands to the image height. */
+.scroll{overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:6px;background:#fff;}
+.meta{font-size:12px;color:var(--muted);margin:2px 0 8px;min-height:48px;}
+.meta b{color:var(--fg);}
+figure{margin:0;}
+figure img{height:auto;display:block;background:#fff;}
+/* slider row */
+.controls{display:flex;align-items:center;gap:12px;margin-bottom:14px;font-size:13px;color:var(--muted);}
+.controls input[type=range]{width:260px;}
+.controls .lbl{font-weight:600;color:var(--fg);}
+.hint{font-size:12px;color:var(--muted);margin:14px 0 6px;}
+.zoom{font-size:12px;color:var(--accent);text-decoration:none;display:inline-block;margin-top:6px;}
+table.sum{border-collapse:collapse;font-size:13px;}
+table.sum th,table.sum td{border:1px solid var(--line);padding:5px 12px;text-align:right;}
+table.sum th:first-child,table.sum td:first-child{text-align:left;}
+table.sum th.mean,table.sum td.mean{text-align:left;color:var(--muted);font-size:12px;max-width:360px;white-space:normal;}
+table.sum thead th{background:#f3f4f6;}
+table.sum tr.sec td{background:#eef2ff;color:#3730a3;font-weight:700;text-align:left;border-top:2px solid #c7d2fe;}
+dl.gloss{max-width:900px;}
+dl.gloss dt{font-weight:700;margin:16px 0 3px;color:var(--fg);}
+dl.gloss dd{margin:0;color:#374151;font-size:14px;}
+dl.gloss code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12.5px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Autoscaling Behavioral Demo — comparison report</h1>
+  <p>One request trace, several sizing approaches. Every figure is the <b>actual
+     simulated execution</b> (clairvoyant rendering — a policy only changes the
+     supply trace). Compare two approaches side by side, browse one in full, read
+     all approaches as one annotated table, or look up a term in the glossary.</p>
+</header>
+<div class="tabs">
+  <div class="tab active" data-tab="compare">Compare</div>
+  <div class="tab" data-tab="browse">Browse</div>
+  <div class="tab" data-tab="table">Table</div>
+  <div class="tab" data-tab="glossary">Glossary</div>
+</div>
+<main>
+  <section class="view active" id="view-compare">
+    <div class="controls">
+      <span class="lbl">Zoom</span>
+      <span>fit</span>
+      <input type="range" id="zoomer" min="0" max="100" value="0">
+      <span>full detail</span>
+      <span id="zoomval"></span>
+    </div>
+    <div class="cmp">
+      <div class="pane">
+        <div class="pick" data-side="L"></div>
+        <div class="meta" id="meta-L"></div>
+        <div class="scroll" id="scroll-L"><figure><img id="img-L"></figure></div>
+        <a class="zoom" id="zoom-L" target="_blank">open full size &#8599;</a>
+      </div>
+      <div class="pane">
+        <div class="pick" data-side="R"></div>
+        <div class="meta" id="meta-R"></div>
+        <div class="scroll" id="scroll-R"><figure><img id="img-R"></figure></div>
+        <a class="zoom" id="zoom-R" target="_blank">open full size &#8599;</a>
+      </div>
+    </div>
+  </section>
+  <section class="view" id="view-browse">
+    <div class="pick" data-side="B"></div>
+    <div class="meta" id="meta-B"></div>
+    <div class="scroll"><figure><img id="img-B"></figure></div>
+    <a class="zoom" id="zoom-B" target="_blank">open full size &#8599;</a>
+    <p class="hint">latency — per-request time in system (coloured by request size):</p>
+    <div class="scroll"><figure><img id="img-Blat"></figure></div>
+  </section>
+  <section class="view" id="view-table">
+    <table class="sum"><thead><tr><th>metric</th><th>ideal</th><th>setup-lag</th><th>queue-aware</th><th>hpa-queue</th><th>hpa-concurrency</th><th>hpa-combined</th><th class="mean">what it means</th></tr></thead><tbody><tr class="sec"><td colspan="8">Volume &amp; completion</td></tr><tr><td>offered</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td class="mean">every request that arrived — the denominator (guards against survivorship bias)</td></tr><tr><td>completed</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td>7159</td><td class="mean">requests that finished within the run</td></tr><tr><td>completed %</td><td>100.0</td><td>100.0</td><td>100.0</td><td>100.0</td><td>100.0</td><td>100.0</td><td class="mean">completion rate — the 'did it finish at all' number</td></tr><tr><td>unfinished</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="mean">still in system at trace end (permanently stranded)</td></tr><tr class="sec"><td colspan="8">Waiting-time quality mix (% of offered)</td></tr><tr><td>good (≤2s) %</td><td>100.0</td><td>19.7</td><td>28.1</td><td>92.7</td><td>0.0</td><td>92.7</td><td class="mean">share of OFFERED served within 2s of arrival — the scored 'prompt' band</td></tr><tr><td>almost (≤10s) %</td><td>0.0</td><td>5.8</td><td>6.2</td><td>1.6</td><td>0.1</td><td>1.6</td><td class="mean">share of offered served in 2–10s</td></tr><tr><td>bad (≤30s) %</td><td>0.0</td><td>31.3</td><td>43.1</td><td>2.5</td><td>0.7</td><td>2.5</td><td class="mean">share of offered served in 10–30s</td></tr><tr><td>really bad (≤60s) %</td><td>0.0</td><td>42.7</td><td>21.0</td><td>2.7</td><td>10.7</td><td>2.7</td><td class="mean">share of offered served in 30–60s</td></tr><tr><td>failed (&gt;60s) %</td><td>0.0</td><td>0.4</td><td>1.6</td><td>0.4</td><td>88.4</td><td>0.4</td><td class="mean">share of offered that waited over 60s before service (worst band)</td></tr><tr class="sec"><td colspan="8">Waiting time before service (s)</td></tr><tr><td>wait avg (s)</td><td>0.0</td><td>23.3</td><td>18.9</td><td>2.0</td><td>105.6</td><td>2.0</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr><td>wait p50 (s)</td><td>0.0</td><td>28.5</td><td>14.6</td><td>0.0</td><td>115.3</td><td>0.0</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr><td>wait p75 (s)</td><td>0.0</td><td>35.7</td><td>26.1</td><td>0.0</td><td>129.8</td><td>0.0</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr><td>wait p90 (s)</td><td>0.0</td><td>39.6</td><td>50.6</td><td>0.0</td><td>138.8</td><td>0.0</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr><td>wait p95 (s)</td><td>0.0</td><td>42.4</td><td>57.2</td><td>13.2</td><td>141.1</td><td>13.2</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr><td>wait p99 (s)</td><td>0.0</td><td>47.4</td><td>62.4</td><td>47.4</td><td>143.1</td><td>47.4</td><td class="mean">pre-service wait (dispatch − arrival), completed requests only</td></tr><tr class="sec"><td colspan="8">Time per work unit (s/unit) — informational, not scored</td></tr><tr><td>time/work avg (s/u)</td><td>0.01</td><td>0.27</td><td>0.23</td><td>0.03</td><td>1.17</td><td>0.03</td><td class="mean">time-in-system ÷ size (slowdown proxy; informational only, NOT the scored signal)</td></tr><tr><td>time/work p50 (s/u)</td><td>0.01</td><td>0.04</td><td>0.03</td><td>0.01</td><td>0.16</td><td>0.01</td><td class="mean">time-in-system ÷ size (slowdown proxy; informational only, NOT the scored signal)</td></tr><tr><td>time/work p90 (s/u)</td><td>0.01</td><td>0.24</td><td>0.19</td><td>0.01</td><td>1.04</td><td>0.01</td><td class="mean">time-in-system ÷ size (slowdown proxy; informational only, NOT the scored signal)</td></tr><tr><td>time/work p95 (s/u)</td><td>0.01</td><td>0.49</td><td>0.39</td><td>0.03</td><td>2.15</td><td>0.03</td><td class="mean">time-in-system ÷ size (slowdown proxy; informational only, NOT the scored signal)</td></tr><tr><td>time/work p99 (s/u)</td><td>0.01</td><td>2.80</td><td>2.48</td><td>0.23</td><td>13.04</td><td>0.23</td><td class="mean">time-in-system ÷ size (slowdown proxy; informational only, NOT the scored signal)</td></tr><tr class="sec"><td colspan="8">Fleet &amp; cost</td></tr><tr><td>replicas avg</td><td>3.30</td><td>2.56</td><td>2.71</td><td>8.10</td><td>2.00</td><td>8.10</td><td class="mean">ready replica count over the run</td></tr><tr><td>replicas std</td><td>1.37</td><td>1.57</td><td>1.69</td><td>3.83</td><td>1.32</td><td>3.83</td><td class="mean">ready replica count over the run</td></tr><tr><td>replicas max</td><td>5</td><td>5</td><td>5</td><td>10</td><td>4</td><td>10</td><td class="mean">ready replica count over the run</td></tr><tr><td>replica·seconds</td><td>1980</td><td>1536</td><td>1629</td><td>4860</td><td>1200</td><td>4860</td><td class="mean">∫ ready replicas dt — a cost proxy</td></tr></tbody></table>
+  </section>
+  <section class="view" id="view-glossary">
+    <dl class="gloss"><dt>range vs interval</dt><dd>A <b>range</b> is a lookback span (how far back a windowed average reaches, PromQL <code>metric[5m]</code>); an <b>interval</b> is a cadence (how often something recomputes/samples). Independent: average over 60s, decide every 15s.</dd><dt>the three meanings of “rate”</dt><dd><b>service_rate</b> = tokens/s one in-service request advances at (a backend property, fixed). <b>owr</b> (offered-work-rate) = arrival_rate × E[size], a demand ESTIMATE. <b>measured throughput</b> = observed arrival/departure counts per second, a measurement. Only the last keeps the bare word “rate”.</dd><dt>owr (offered work rate)</dt><dd>owr(t) = arrival_rate(t) × E[size], tokens/s. An <b>estimate</b>, not a measurement: arrival count is observable but a request's work (size) is not known at arrival. Valid as a proxy only under the <b>stationary-shape assumption</b> — arrival rate varies over time, the size distribution does not.</dd><dt>C / sat_frac / usable ceiling</dt><dd><b>C</b> = raw per-backend concurrency limit (100 here). <b>sat_frac</b> = usable fraction (0.7); a backend saturates at the <b>usable ceiling</b> ⌊sat_frac·C⌋ = 70 concurrent, a flat stand-in for the way real serving (vLLM) stops gaining goodput as concurrency climbs. Usable per-backend throughput = ⌊sat_frac·C⌋ × service_rate.</dd><dt>headroom</dt><dd>Scale-up utilization target. headroom=1.2 sizes for ~1/1.2 ≈ 83% utilization, leaving slack for noise.</dd><dt>sizing_range / decision_interval / drain_time</dt><dd><b>sizing_range</b> (60s) = the lookback the sizer averages owr over. <b>decision_interval</b> (15s) = how often it recomputes the desired count. <b>drain_time</b> (30s, queue-aware only) = the deadline over which the backlog term aims to clear the current queue.</dd><dt>setup / drain</dt><dd><b>setup</b> = boot lag, start→up (dead time; 90s for the lagged scenarios). <b>drain</b> = drain time, stop→down.</dd><dt>foresight — seeing future arrivals (axis 1)</dt><dd>Whether a sizer can see arrivals that haven't happened yet. A <b>centered</b> window [t−r/2, t+r/2] averages future arrivals into the estimate; a <b>trailing</b> window [t−r, t] sees only the past. This is real foresight, and <b>only the clairvoyant ideal sizer has it</b> — no deployable controller can see the future. This is the one axis that separates the ideal from every real strategy.</dd><dt>setup / dead-time compensation (axis 2 — NOT foresight)</dt><dd>Whether a sizer acts early enough to cover boot lag: it must aim at the demand it will face at t+setup and credit the replicas already booting, so it doesn't re-order the same backlog every interval (integral windup). A <b>real</b> controller does this WITHOUT foresight — by projecting the current queue/backlog trend forward, not by peeking at future arrivals. <b>expQ</b> (anticipatory, to build) is exactly this: no axis-1 foresight, only axis-2 dead-time compensation. Orthogonal to axis 1 — a sizer can have either, both, or neither.</dd><dt>quality bands</dt><dd>Requests are scored by ABSOLUTE pre-service wait (not slowdown ratio): good ≤2s / almost ≤10s / bad ≤30s / really bad ≤60s / failed >60s. Percentages use the OFFERED denominator so bands + unfinished% sum to 100.</dd><dt>goodput</dt><dd>Throughput that actually meets the latency bar. Real serving throughput can keep rising while goodput collapses past a concurrency knee — which is why sat_frac caps the USABLE ceiling below raw C.</dd><dt>HPA/KEDA AverageValue formula</dt><dd>The <code>04/05/06-hpa-*</code> scenarios are the well-lit KEDA path. Each trigger uses <b>metricType: AverageValue</b> (a per-replica target), so <code>desired = ceil(total_metric / per_replica_target)</code> and the current replica count <b>cancels out</b> — the sizer is stateless in n. Queue-depth target 1 → <code>ceil(Q)</code>; running-count target c → <code>ceil(R/c)</code>. These are <b>closed-loop</b>: they read the ACTUAL simulated queue/running signal, trailing-averaged over a 60s window (<code>avg_over_time</code>), decided every 15s — no foresight, purely reactive. Empty signal → <b>hold</b> at current n (cold start → 1); clamped to <b>[minReplicaCount, maxReplicaCount]</b> = [1, 10].</dd><dt>KEDA multi-trigger combine (max)</dt><dd>With multiple triggers KEDA takes the <b>max</b> of each trigger's desired count: scale <b>up on either</b>, <b>down only when both</b> agree lower. This is native behaviour, not custom logic — the <code>06-hpa-combined</code> scenario is exactly <code>max(ceil(Q), ceil(R/c))</code>. It is why the well-lit path pairs a saturation/queue trigger with a running-count trigger: the queue trigger covers the running-count signal's capacity-capped blind spot (see 05).</dd></dl>
+  </section>
+</main>
+<script>
+const SCEN = [{"key": "ideal", "label": "Ideal", "png": "01-ideal.png", "latency": "01-ideal-latency.png", "setup": "setup=0 \u00b7 size to CENTERED offered-work-rate \u00d7 headroom (clairvoyant)", "answers": "what does good look like? \u2192 100% served \u22642s; never queues on a smooth bump"}, {"key": "setup-lag", "label": "Setup lag", "png": "02-setup-lag.png", "latency": "02-setup-lag-latency.png", "setup": "setup=90 \u00b7 the SAME demand-tracking commands as ideal, landing 90s late", "answers": "does a correct policy survive 90s boot lag? \u2192 still completes 100%, but only ~20% served promptly. \u26a0 confound: setup-lag\u2192queue-aware changes TWO things at once (foresight lost, centered\u2192trailing window, AND a backlog-drain term added) \u2014 not a clean A/B on the backlog term alone"}, {"key": "queue-aware", "label": "Queue-aware", "png": "03-queue-aware.png", "latency": "03-queue-aware-latency.png", "setup": "setup=90, drain_time=30 \u00b7 demand-tracking + backlog-drain (reactive, TRAILING)", "answers": "can a reactive backlog term rescue quality? \u2192 only modestly (~28% prompt), and it worsens the tail"}, {"key": "hpa-queue", "label": "HPA queue", "png": "04-hpa-queue.png", "latency": "04-hpa-queue-latency.png", "setup": "KEDA queue-depth \u00b7 AverageValue target=1/replica \u2192 desired=ceil(Q) \u00b7 setup=90, cap 10", "answers": "naive queue-depth scaling (target 1)? \u2192 92.7% prompt, but pins at the maxReplicaCount=10 cap and burns ~2.5\u00d7 the fleet (4860 vs ideal 1980 rep\u00b7s); the cold-start backlog is the only tail"}, {"key": "hpa-concurrency", "label": "HPA concurrency", "png": "05-hpa-concurrency.png", "latency": "05-hpa-concurrency-latency.png", "setup": "KEDA running-count \u00b7 AverageValue target c\u224858/replica \u2192 desired=ceil(R/c) \u00b7 setup=90, cap 10", "answers": "concurrency-only scaling? \u2192 catastrophic: the running-count signal is capacity-capped (R \u2264 n\u00b7usable_C), so it is BLIND to the 2569-deep queue behind it, stalls at 4 replicas, 88% wait >60s. Concurrency alone cannot outrun boot lag"}, {"key": "hpa-combined", "label": "HPA combined", "png": "06-hpa-combined.png", "latency": "06-hpa-combined-latency.png", "setup": "KEDA both triggers \u00b7 desired=max(queue, concurrency) \u00b7 up on either, down on both \u00b7 setup=90, cap 10", "answers": "combining the two triggers (native KEDA max)? \u2192 the queue trigger rescues the concurrency blind spot; matches queue-depth (92.7% prompt, 4860 rep\u00b7s) \u2014 this is the well-lit path's saturation+running pairing"}];
+const FULL_W = 1320;
+const DEFAULTS = {L:"setup-lag", R:"queue-aware", B:"ideal"};
+const state = Object.assign({}, DEFAULTS);
+const byKey = k => SCEN.find(s => s.key === k) || SCEN[0];
+function fillMeta(el, s){ el.innerHTML = "<b>"+s.label+"</b> &mdash; "+s.setup+"<br>answers: "+s.answers; }
+function renderSide(side){
+  const s = byKey(state[side]);
+  const img = document.getElementById("img-"+side);
+  img.src = s.png; img.alt = s.label;
+  const zoom = document.getElementById("zoom-"+side);
+  if (zoom) zoom.href = s.png;
+  const meta = document.getElementById("meta-"+side);
+  if (meta) fillMeta(meta, s);
+  if (side === "B") document.getElementById("img-Blat").src = s.latency || "";
+  document.querySelectorAll('.pick[data-side="'+side+'"] button').forEach(b => {
+    b.classList.toggle("sel", b.dataset.key === state[side]);
+  });
+  applyZoom();
+}
+function buildPickers(){
+  document.querySelectorAll('.pick').forEach(p => {
+    const side = p.dataset.side;
+    SCEN.forEach(s => {
+      const b = document.createElement("button");
+      b.textContent = s.label; b.dataset.key = s.key;
+      b.onclick = () => { state[side] = s.key; renderSide(side); };
+      p.appendChild(b);
+    });
+  });
+}
+// Compare-pane zoom: interpolate each pane image width between "fit to pane"
+// (frac 0 => 100%, no horizontal scroll) and natural full detail (frac 1 => FULL_W).
+function applyZoom(){
+  const frac = (+document.getElementById("zoomer").value) / 100;
+  document.getElementById("zoomval").textContent =
+      frac === 0 ? "(fit)" : Math.round(100 + frac*(FULL_W/ (paneW()||FULL_W) *100 -100)) + "%";
+  ["L","R"].forEach(side => {
+    const img = document.getElementById("img-"+side);
+    const pane = img.closest(".scroll").clientWidth - 2;   // minus border
+    const w = pane + frac * (FULL_W - pane);
+    img.style.width = Math.max(pane, w) + "px";
+  });
+}
+function paneW(){
+  const s = document.getElementById("scroll-L");
+  return s ? s.clientWidth - 2 : 0;
+}
+// Synchronized HORIZONTAL scroll only: the panes have no vertical scrollbar
+// (they grow to full figure height), so mirror scrollLeft to keep the shared
+// time axis aligned when zoomed in.
+function initSync(){
+  const L = document.getElementById("scroll-L");
+  const R = document.getElementById("scroll-R");
+  let lock = false;
+  function mirror(from, to){
+    if (lock) return; lock = true;
+    to.scrollLeft = from.scrollLeft;
+    lock = false;
+  }
+  L.addEventListener("scroll", () => mirror(L, R));
+  R.addEventListener("scroll", () => mirror(R, L));
+}
+function initTabs(){
+  document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('view-'+t.dataset.tab).classList.add('active');
+      if (t.dataset.tab === "compare") applyZoom();
+    };
+  });
+}
+buildPickers(); initTabs(); initSync();
+document.getElementById("zoomer").addEventListener("input", applyZoom);
+window.addEventListener("resize", applyZoom);
+["L","R","B"].forEach(renderSide);
+</script>
+</body>
+</html>
