@@ -14,16 +14,16 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 ## TOC {#toc}
 
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:53
-- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:85
-- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L86:105
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L106:142
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L143:193
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L194:219
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L220:240
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L241:274
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L275:296
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L297:357
-- [Open questions {#open}](#open-questions-open) L358:374
+- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:97
+- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L98:130
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L131:176
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L177:227
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L228:273
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L274:294
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L295:328
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L329:362
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L363:423
+- [Open questions {#open}](#open-questions-open) L424:443
 
 ## Why this doc exists {#why}
 
@@ -73,6 +73,18 @@ actually set PRC = 1 (see [§ invariants](#invariants)) — the point is that th
 role of PRC is the `demand/PRC` and `n·PRC/demand` conversions; anywhere PRC appears standalone in
 sizing/sorting is a smell.
 
+**Coverage is a family, not one number** (Dean, 2026-08-03). `coverage(n) = n·PRC / demand_target
+= n / rd`. The **denominator is always demand** (threshold-folded `demand_target`); only the
+**numerator `n` changes meaning** by call site:
+- initially `n = actual + pending` (current provisioned supply),
+- during allocation `n = achieved-so-far` (current + committed this pass),
+- at the target `n = desired`.
+
+This is the same quantity the coordination doc calls *achieved* (`achieved = supply/demand_target`,
+`remaining = 1 − achieved`); see [`optimizer-coordination-design.md`](optimizer-coordination-design.md)
+§ Supply taxonomy. The **anticipated-supply bug** ([§ bugs](#bugs) #4, CONFIRMED) is exactly a
+numerator that drops `pending` — pending belongs in `n`, never in the denominator.
+
 Legacy-complexity note (Dean): `rd` is **not** a clean matrix. Each `(analyzer, role)` can be a
 completely separate analyzer — the metric need not mean the same thing per role, and its
 computation can differ. The role-combine (coordinated P/D scaling) math is solid and does **not**
@@ -101,6 +113,19 @@ The **binding analyzer** for `(role,v)` is `argmax_i rd_i[role,v]` — the one t
 `safeRemovalReplicasForRole` (`:246`, the `min_i floor`), and
 `needsScaleDownForRole` (`:301`, the all-live-agree veto).
 
+**Binding is per (role, variant) — never model-global** (Dean, 2026-08-03). `demand_i[role]` is
+per (analyzer, role) — the same across variants in a role — but `PRC_i[role,v]` varies by variant,
+so `argmax_i (demand_i/PRC_i[v])` can pick a **different binding analyzer for each variant, and for
+each role**. Prefill vs decode variants (different roles) are bound independently; even two variants
+inside one role can bind to different analyzers. The anchor must therefore resolve binding
+**per-entry** ([§ anchor](#anchor)); any code that assumes a single "binding analyzer" for the whole
+model is wrong.
+
+**⚠ FSV is the one place that sums instead of maxing.** Every combine above is bottleneck
+(`max`/`min`). `fairShareValue` (`greedy_score_optimizer.go:61`) instead does `Σ_i Score_i·…` — a
+Score-weighted **sum** across analyzers, which over-counts (3 analyzers each wanting 5 replicas ⇒
+sum reflects 15, not the correct bottleneck 5). See [§ bugs](#bugs) #5 and [§ limited](#limited).
+
 [↑ TOC](#toc)
 
 ## The binding-analyzer anchor (renamed SatEntry) {#anchor}
@@ -124,6 +149,15 @@ as the "binding analyzer" anchor**:
   current binding analyzer (the binding analyzer can change as replicas are added and coverage
   shifts). This is the key subtlety: binding is state-dependent, so the anchor is recomputed, not
   computed once.
+- **Mutability is new state, not the existing struct** (Dean, 2026-08-03). Today the working
+  *counters* (`Remaining`/`Spare`/`RoleSpare`) are mutable, but `Result.VariantCapacities` — where
+  PRC lives — is treated as **immutable topology** ("The original Result values are never mutated,"
+  `optimizer_interfaces.go:20`). The anchor's combined PRC + coverage are **new mutable working
+  fields** refreshed each round; do not overload the immutable topology PRC for this.
+- **Binding resolved per-entry** (Dean, 2026-08-03). The anchor is a *list* of per-variant entries,
+  each with its own `Role` — so per (role, variant) binding ([§ combine](#combine)) drops in
+  naturally: each entry independently holds its binding analyzer's PRC/coverage. No model-global
+  binding assumption anywhere.
 
 **Why this is attractive:** it localizes the change to (a) how the engine builds the anchor and
 (b) keeping it refreshed in the loop — the dozens of downstream read sites are untouched. It also
@@ -215,6 +249,26 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
    *same* analyzer/unit. Across models bound by different analyzers, the weights are incommensurable.
    Fix: weight by combined demand-in-GPUs (or replicas). See [§ rescale](#rescale).
 
+4. **Anticipated-supply in the denominator — CONFIRMED** (not masked-by-single-analyzer; a genuine
+   bug today). `achieved`/coverage puts `current` supply in the numerator but folds `anticipated`
+   (booting/pending) into the **denominator** via RC, so pending replicas *raise* apparent demand
+   instead of counting as already-serving supply. Per [§ abstraction](#abstraction), pending belongs
+   in the numerator `n = actual+pending`. This is the coordination doc's **D1 / Open-issue #2**
+   ([`optimizer-coordination-design.md`](optimizer-coordination-design.md)): fix = numerator
+   `current + anticipated + committed_so_far`, denominator `desired = demand/threshold` (fixed).
+   Dean (2026-08-03): confirmed, must be solved. Needs the exact call-site trace (where RC folds
+   pending) before we size the fix.
+
+5. **`fairShareValue` sums across analyzers instead of maxing** (`greedy_score_optimizer.go:61`).
+   `fsv = priority × Σ_i Score_i × Σ_role ps[i][role]` is the **only** cross-analyzer combine in the
+   codebase that uses `Σ_i`; every other site uses the bottleneck `max_i`/`min_i`. Two independent
+   errors: (a) `ps[i]` is per-analyzer native units → the sum is dimensionally mixed (same as #2);
+   (b) even in common units, summing over-counts vs the binding `max_i` and misorders models
+   ([§ limited](#limited)). Fix: `remaining = priority × Σ_role (desired[role] − current[role])`
+   with `desired = max_i rd_i`. Note the anchor swap does **not** reach this — `fsv` reads
+   `pickerState`, not the anchor. (Contrast `roleAggRemaining` #2, which already uses `max_i` — only
+   its units are wrong; `fsv` has *both* the wrong operator and wrong units.)
+
 [↑ TOC](#toc)
 
 ## How the cost-efficiency sort changes {#sort}
@@ -291,6 +345,18 @@ Confirmed against code (Dean, 2026-08-02):
    untouched.
 6. **Role-combine (coordinated P/D) math is untouched** — already in replica/coverage space; each
    `(analyzer, role)` may be its own analyzer.
+7. **Sat-v2-only ⇒ anchor is byte-for-byte identical to saturation. ALWAYS.** (Dean, 2026-08-03 —
+   the load-bearing backward-compat invariant.) When saturation is the only active analyzer,
+   `max_i`/`min_i`/`argmax_i` reduce to identity and introduce no rounding (`max` of a single
+   `ceil` = that `ceil`), so every combined field must equal saturation's: binding PRC = PRC_sat,
+   combined demand = sat demand, combined coverage = sat coverage, topology unchanged; and the
+   per-iteration refresh must be a **no-op** (single analyzer ⇒ binding never shifts ⇒ PRC constant
+   across rounds, matching today where VariantCapacities PRC is never mutated). This holds *by
+   construction* but must be **guaranteed and tested** — the risk is entirely in the anchor-building
+   code applying a transform that isn't identity-for-n=1 (e.g. re-deriving coverage with a different
+   numerator than sat-v2 emits today). **Required test:** with only saturation registered, assert
+   `anchor == saturationEntry` field-for-field (PRC, demand, coverage, topology) — before, during,
+   and after allocation iterations.
 
 [↑ TOC](#toc)
 
@@ -357,18 +423,21 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
 
 ## Open questions {#open}
 
-1. **Anchor refresh granularity.** "Anchor always = binding analyzer" is per `(role,v)` and
-   state-dependent. Confirm per-role-pick-iteration refresh suffices for both sizing and the
-   cost-sort, or whether the sort needs its own binding resolution ([§ anchor](#anchor), [§ sort](#sort)).
+1. **Anchor refresh granularity.** *Resolved: refresh each allocation iteration* (Dean, 2026-08-03).
+   Remaining sub-question: does per-role-pick-iteration refresh suffice for the **cost-sort**, or
+   does the sort need its own binding resolution at sort time? ([§ anchor](#anchor), [§ sort](#sort)).
 2. **Relationship to F1 / Half-B.** `wva-analyzer-lifecycle-plan.md` Half-B ("genuinely disable
    saturation") was rejected as unscoped and pointed at F1 "pre-analysis extraction"
    (`multi-analyzer-design.md:506-511`). This doc *is* that missing design. Decide whether Half-B
    becomes a task plan derived from this doc.
-3. **Anticipated-supply-in-denominator suspicion** (from `optimizer-coordination-design.md` Open
-   issues #2) — verify whether anticipated supply is wrongly in the denominator vs. counted toward
-   achieved. Adjacent to this work; trace when tracing the combine.
-4. **Does the anchor hold combined demand per role, or per (role,variant)?** Demand is per-role;
-   `rd`/coverage are per (role, variant). The anchor's `VariantCapacity` list is per-variant, so
-   store combined PRC + combined `rd`/coverage per variant, and role demand once per role.
+3. ~~Anticipated-supply-in-denominator suspicion~~ — *Resolved: CONFIRMED bug* (Dean, 2026-08-03);
+   moved to [§ bugs](#bugs) #4. Still needs the exact call-site trace (where RC folds pending)
+   before sizing the fix.
+4. ~~Anchor demand per role vs per (role,variant)?~~ — *Resolved* (Dean, 2026-08-03): binding is
+   per (role, variant) and the anchor holds it per-entry ([§ combine](#combine), [§ anchor](#anchor)).
+   Store combined PRC + `rd`/coverage per variant entry; role demand once per role.
+5. **Exact locations for the two fixes the anchor does NOT cover.** Bug #4 (RC folds pending) and
+   bug #5 (`fsv` sum) both live outside the anchor's read path. Trace both to precise call sites and
+   decide whether they land in the same task as the anchor or as separate commits.
 
 [↑ TOC](#toc)
