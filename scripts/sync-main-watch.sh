@@ -12,7 +12,6 @@ POLL_SECONDS=60
 STALE_AFTER_SECONDS=150 # ~2.5x poll interval; used by callers checking last_check, not by this script
 
 cd "$MAIN_WORKTREE"
-last=$(git rev-parse upstream/main 2>/dev/null || echo "")
 last_sync="never"
 
 write_status() {
@@ -48,11 +47,17 @@ echo "sync-main watcher started (pid $$), polling upstream/main every ${POLL_SEC
 
 while true; do
   remote=$(git ls-remote upstream main 2>/dev/null | awk '{print $1}')
-  if [ -n "$remote" ] && [ "$remote" != "$last" ]; then
+  # Compare the live remote against the branch we actually maintain (local main),
+  # not a cached baseline or the upstream/main tracking ref. This keeps the
+  # invariant "local main == live upstream tip" self-correcting: if main lags for
+  # any reason (tracking ref advanced without a merge, a prior push failed, etc.),
+  # the next poll notices and re-syncs.
+  localmain=$(git rev-parse main 2>/dev/null || echo "")
+  if [ -n "$remote" ] && [ "$remote" != "$localmain" ]; then
     if git fetch upstream >/tmp/main-sync-fetch.log 2>&1 && git merge --ff-only upstream/main >/tmp/main-sync-merge.log 2>&1; then
       pushout=$(git push origin main 2>&1)
       pushrc=$?
-      prevshort=${last:0:8}
+      prevshort=${localmain:0:8}
       tip=$(git rev-parse --short=8 HEAD)
       last_sync=$(date -Iseconds)
       if [ "$pushrc" -eq 0 ]; then
@@ -66,7 +71,6 @@ while true; do
       write_status "idle" "fetch/ff-only-merge FAILED for new-sha=${remote:0:8}"
       echo "WARN: fetch/ff-only-merge failed for upstream/main new-sha=${remote:0:8} — manual intervention needed (see /tmp/main-sync-fetch.log, /tmp/main-sync-merge.log)"
     fi
-    last=$remote
   else
     write_status "idle" "no change"
   fi
