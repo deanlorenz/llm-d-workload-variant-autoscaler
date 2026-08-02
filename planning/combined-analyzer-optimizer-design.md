@@ -13,17 +13,17 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 
 ## TOC {#toc}
 
-- [Why this doc exists {#why}](#why-this-doc-exists-why) L28:53
-- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:100
-- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L101:133
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L134:196
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L197:247
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L248:328
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L329:359
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L360:393
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L394:433
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L434:494
-- [Open questions {#open}](#open-questions-open) L495:532
+- [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
+- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
+- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:237
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L238:288
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L289:369
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L370:400
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L401:434
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L435:491
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L492:552
+- [Open questions {#open}](#open-questions-open) L553:592
 
 ## Why this doc exists {#why}
 
@@ -48,6 +48,22 @@ sizing** is *saturation-only data*, not combined-across-analyzers data. It is "p
 today" in the multi-analyzer case — masked only because saturation is currently the sole running
 analyzer. The genuinely-combined math (bottleneck / min-removal / veto) already exists and is
 correct, but it sits *beside* the saturation-only proxy instead of *driving* the sizing and sort.
+
+**Ship decision (2026-08-03).** This is not sizing polish — it is a ship-blocker. Because the
+saturation-only proxy corrupts the shared allocation state the moment a second vote joins (bugs
+#1/#2/#3/#5, [§ bugs](#bugs)), **ThroughputAnalyzer cannot be enabled today in any form** — not
+alongside sat-v2, not replacing it, not even experimentally: turning it on destroys the allocation
+math and takes sat-v2 down with it. The only 0.9 posture *without* this change is a docs warning
+("TA must not be enabled by anyone"), which is an admission the feature isn't shipped at all. Dean's
+call (2026-08-03): **do the anchor refactor** — the four bugs are four faces of the same conflation,
+and the anchor dissolves them structurally rather than patching four hot-path sites. TA ships as an
+*enable-able* second analyzer (default stays sat-v2-only; v2 is already default over v1). The
+load-bearing risk control is the **exactly-one-active-vote byte-identity invariant**
+([§ invariants](#invariants) #7): the default config must behave *exactly* as today — and that path
+is the one we *can* fully pin down with deterministic tests, while the opt-in multi-vote path (which
+we may not fully e2e-test) cannot reach anyone who doesn't opt in. Approach: **unified code path,
+single-vote collapses to today by construction (option A)**, not a frozen legacy branch (option B
+rejected — error-prone and silently rotted by any future optimizer PR).
 
 [↑ TOC](#toc)
 
@@ -166,18 +182,43 @@ as the "binding analyzer" anchor**:
   **immutable topology** ("The original Result values are never mutated," `optimizer_interfaces.go:20`);
   the anchor's combined PRC + coverage are **new mutable working fields** layered on top — do not
   overload the immutable topology PRC for them.
-- **Refresh timing: before each iteration, including the very first** (Dean, 2026-08-03). Because
-  the anchor is a pure function of allocation progress, it must be refreshed *before* every role-pick
-  iteration — and the first iteration is not special (its "progress so far" is just current+pending,
-  which is exactly the deterministic starting point). Dean considered calling the refresh from
-  *inside* the (renamed) `SatEntry` helper so every read is self-freshening, but that's **overkill** —
-  refreshing once at the top of each iteration is sufficient and cheaper (the helper can stay a plain
-  getter). The single-analyzer no-op property ([§ invariants](#invariants) #7) means this refresh is
-  free in the sat-only case.
+- **Refresh timing: multi-vote refreshes each iteration; single-vote populates once then disables the
+  refresh** (Dean, 2026-08-03). When **more than one vote** is active the anchor is a pure function of
+  allocation progress, so it must be refreshed *before* every role-pick iteration — and the first
+  iteration is not special (its "progress so far" is just current+pending, the deterministic starting
+  point). When **only one vote** is active the anchor is populated **once and the per-iteration refresh
+  is disabled entirely** — the sole vote is trivially binding and never shifts, so there is nothing to
+  recompute. This is stronger than a no-op: the refresh code is **not executed at all** in the default
+  path ([§ invariants](#invariants) #7). Dean considered calling the refresh from *inside* the
+  (renamed) `SatEntry` helper so every read is self-freshening, but that's **overkill** — refreshing
+  once at the top of each iteration (multi-vote) is sufficient and cheaper (the helper can stay a plain
+  getter).
 - **Binding resolved per-entry** (Dean, 2026-08-03). The anchor is a *list* of per-variant entries,
   each with its own `Role` — so per (role, variant) binding ([§ combine](#combine)) drops in
   naturally: each entry independently holds its binding analyzer's PRC/coverage. No model-global
   binding assumption anywhere.
+- **Anchor population by active-vote set** (Dean, 2026-08-03) — three cases, only one dynamic:
+  - **sat-v2 vote only (default, one vote):** sat-v2 is copied into both its per-analyzer slot and the
+    anchor; the anchor is **static** (= sat-v2, populated once, never refreshed). This is today's
+    `SatEntry` renamed → byte-identical by construction ([§ invariants](#invariants) #7).
+  - **TA vote only (one vote, TA):** sat-v2 **still runs and still produces the metadata** that is
+    copied into the anchor; the TA-only code then **replaces the per-analyzer fields** (PRC / demand /
+    coverage) on top. The anchor is **static all the way** (a sole vote is trivially binding — populate
+    once, refresh disabled).
+  - **both votes:** the anchor is populated **dynamically** with `argmax_i rd_i` per (role, variant),
+    refreshed each iteration. This is the only case that runs the per-iteration refresh.
+  Consequence — **a clean risk gradient:** the dynamic per-iteration refresh (the most novel code) is
+  reached *only* when two votes are active; both single-vote configs populate the anchor once and never
+  refresh. Default = static = identical; TA-only = static + simple; both = dynamic + most opt-in.
+- **sat-v2 always runs and always produces the metadata ⇒ F1 is not needed here** (Dean, 2026-08-03).
+  The anchor's topology metadata is always created by sat-v2's normal run — you **always pay** to run
+  sat-v2 (it is never skipped); the multi-analyzer / TA-only code merely **replaces the per-analyzer
+  PRC/demand fields** layered on top. TA additionally **consumes some of sat-v2's outputs for its own
+  analyzer calculation**, *upstream* of anchor construction — so sat-v2 must run before TA in analyzer
+  order, and TA-alone still relies on sat-v2 running. Consequence: F1 "pre-analysis extraction"
+  (`multi-analyzer-design.md:506-511`) is **not a prerequisite and not a cost saver** here — the
+  metadata is always present because sat-v2 always runs. Both "TA alongside" and "TA replacing the
+  sat-v2 *vote*" are in scope; neither removes the sat-v2 *run*.
 
 **Why this is attractive:** it localizes the change to (a) how the engine builds the anchor and
 (b) keeping it refreshed in the loop — the dozens of downstream read sites are untouched. It also
@@ -414,17 +455,34 @@ Confirmed against code (Dean, 2026-08-02):
    the load-bearing backward-compat invariant.) When saturation is the only active analyzer,
    `max_i`/`min_i`/`argmax_i` reduce to identity and introduce no rounding (`max` of a single
    `ceil` = that `ceil`), so every combined field must equal saturation's: binding PRC = PRC_sat,
-   combined demand = sat demand, combined coverage = sat coverage, topology unchanged; and the
-   per-iteration refresh must be a **no-op** (single analyzer ⇒ binding never shifts ⇒ PRC constant
-   across rounds, matching today where VariantCapacities PRC is never mutated). This holds *by
+   combined demand = sat demand, combined coverage = sat coverage, topology unchanged; and — stronger —
+   the **per-iteration refresh is disabled** for a single vote (populate once, then off; [§ anchor](#anchor)),
+   so there is no per-round recomputation that could drift (matching today, where VariantCapacities PRC
+   is never mutated). This holds *by
    construction* — but **do not rely on the by-construction argument; test it directly** (Dean,
    2026-08-03). The risk is entirely in the anchor-building code applying a transform that isn't
    identity-for-n=1 (e.g. re-deriving coverage with a different numerator than sat-v2 emits today), and
    a by-construction claim is exactly the kind of thing a later refactor silently breaks. **Required
    direct test** (not an incidental assertion inside a larger scenario): with only saturation
    registered, assert `anchor == saturationEntry` field-for-field (PRC, demand, coverage, topology) —
-   before, during, and after allocation iterations, and assert the per-iteration refresh is a
-   byte-for-byte no-op. This is the single most important backward-compat guard in the whole change.
+   before, during, and after allocation iterations, and assert that with one vote the per-iteration
+   refresh is **not invoked** (the anchor is not mutated after initial population). This is the single
+   most important backward-compat guard in the whole change.
+
+   **How we make it "absolutely sure" without e2e** (Dean, 2026-08-03). We have **no reproducible
+   e2e goldens** — only Ofer's cluster runs, which vary with seed. The substitute is **deterministic
+   unit-level characterization** of the optimizer: it is a pure function of (analyzer results,
+   current/pending replicas, costs) — no seed, clock, or cluster — so on frozen inputs its outputs
+   (targets, decisions, sort order, RC/SC) are fully reproducible. Capture today's outputs for a matrix
+   of sat-v2-only scenarios (scale-up, scale-down, veto, P/D disagg, ties, pending) as a **first commit
+   against untouched code** (green), then require **byte-equality after** the refactor. This is the
+   ship gate. It beats a frozen legacy path (option B): a future optimizer PR that shifts behavior
+   *trips* the characterization test (forcing intent) instead of silently rotting an unexercised
+   branch. **Approach: option A** — one unified code path where the single-vote case collapses to today
+   by construction (identity-short-circuited combine ops + a byte-copied, refresh-disabled anchor); the
+   one-vote path performs the *same* float operations as today, so a 1-ULP drift can't flip a
+   ceil/floor boundary. Option B (dual path, legacy verbatim) rejected: error-prone, ships the clean
+   path cold, and any new PR could kill it.
 
    *(Numbering note: Dean referred to this as "invariant 6" on 2026-08-03 — the byte-identical-if-only-one
    property is this entry regardless of its position in the list.)*
@@ -498,10 +556,12 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
    resolved 2026-08-03.* Refresh each allocation iteration (Dean); and the sort is already re-run
    once per (role, iteration) inside the pick closure, so per-iteration refresh feeds it directly —
    **no separate sort-time binding resolution needed** ([§ sort](#sort) "Sort cadence").
-2. **Relationship to F1 / Half-B.** `wva-analyzer-lifecycle-plan.md` Half-B ("genuinely disable
-   saturation") was rejected as unscoped and pointed at F1 "pre-analysis extraction"
-   (`multi-analyzer-design.md:506-511`). This doc *is* that missing design. Decide whether Half-B
-   becomes a task plan derived from this doc.
+2. ~~**Relationship to F1 / Half-B.**~~ — *Resolved 2026-08-03.* This doc **is** the missing Half-B
+   design; Half-B becomes a task plan derived from it (Dean's ship decision — [§ why](#why)). F1
+   "pre-analysis extraction" is **not a prerequisite and not a cost saver**: sat-v2 always runs and
+   always produces the metadata the anchor copies (TA even consumes some sat-v2 outputs for its own
+   calculation), so the metadata is always present without extracting it ([§ anchor](#anchor) "always
+   runs and always produces the metadata"). F1 is simply unnecessary for enabling TA.
 3. ~~Anticipated-supply-in-denominator suspicion~~ — *Resolved 2026-08-03: TRACED, verdict
    DOWNGRADED.* Not an active sizing bug — RC correctly nets out current+pending; the only
    pending-blind quantity is the observability `Utilization`. Full trace in [§ bugs](#bugs) #4.
