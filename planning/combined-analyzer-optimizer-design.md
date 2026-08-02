@@ -22,8 +22,8 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L220:240
 - [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L241:274
 - [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L275:296
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L297:306
-- [Open questions {#open}](#open-questions-open) L307:323
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L297:357
+- [Open questions {#open}](#open-questions-open) L358:374
 
 ## Why this doc exists {#why}
 
@@ -296,11 +296,62 @@ Confirmed against code (Dean, 2026-08-02):
 
 ## Limited-mode (greedy fair-share) path {#limited}
 
-*(To be filled — analyzed last per Dean's instruction. Placeholder for the greedy fair-share
-trace: `GreedyByScoreOptimizer`, `buildScaleUpWork`, `fairShareValue`, `fairShareRolePick`
-(`greedy_score_optimizer.go:396`). Question to answer: does the replica-demand/coverage abstraction
-+ binding anchor cover limited-mode the same way it covers unlimited-mode, or does fair-sharing
-introduce a term that PRC does not cleanly drop out of?)*
+`GreedyByScoreOptimizer` (`greedy_score_optimizer.go`) fair-shares a scarce GPU budget across
+competing models: each model gets a **priority metric** `remaining`, the loop repeatedly grants the
+highest-`remaining` model enough replicas to pull it below the running mean, and stops when the
+budget is spent. Trace under the lens:
+
+**The fair-share metric itself is unit-mixed** (`fairShareValue`, `:61`):
+```
+fsv = priority × Σ_i Score_i × Σ_role pickerState[i][role]
+```
+`pickerState[i][role]` is `initRoleState`'s per-analyzer remaining **in analyzer `i`'s own units**
+(saturation = tokens, throughput = req/s). So `fsv` sums tokens + req/s weighted by Score — the
+**same unit-mixing as `roleAggRemaining`** ([§ bugs](#bugs) #2), but here it drives the *cross-model
+fairness ordering* (`mean`, `sortByRemainingDesc`, `target = remaining − mean`). Two models with
+different analyzer mixes get incomparable `remaining` values, so "who is furthest from satisfied"
+is decided on a meaningless sum. Masked today (saturation-only ⇒ single unit).
+
+**The sizing division is saturation-only** (`fairShareRolePick`, `:421`):
+```
+fairShareCap = ceil(target / vc.PerReplicaCapacity)   // vc from satEntry ⇒ PRC_sat
+```
+`target` is in `fsv` units (priority × weighted mixed-capacity); dividing by a single analyzer's
+PRC_sat to get replicas is dimensionally inconsistent under multi-analyzer. This is the limited-mode
+analog of `costEfficiency`/`fairShareCap` in [§ trace](#trace).
+
+**Does the [binding anchor](#anchor) cover limited-mode?** *Partially.* `fairShareRolePick` reads
+`vc.PerReplicaCapacity` off `satEntry.VariantCapacities`, so an anchor carrying binding PRC fixes the
+**sizing** division automatically (`ceil(target/PRC_binding)`), and `sortByCostEfficiencyAsc` inside
+the pick gets the right ordering — same free ride as unlimited-mode. **But the anchor does NOT fix
+`fsv`:** `fairShareValue` is computed from `pickerState[i][role]` (per-analyzer, via `initRoleState`),
+not from the anchor. So limited-mode needs a **second, separate change** the anchor-swap doesn't give
+you: the fair-share metric must move to a **commensurable unit**.
+
+**What the abstraction says the metric should be.** The scarce resource being fair-shared is GPUs, so
+the consistent metric is **priority-weighted GPU-demand** (or replica-demand):
+```
+remaining = priority × Σ_role ( desired[role] − current[role] ) × gpusPerReplica
+          where desired[role] = max_i ceil(demand_i/PRC_i)   (combined, binding)
+```
+In this form: `remaining`, `mean`, and `target` are all in GPU (or replica) units → comparable across
+models; allocation spends GPUs directly; and `fairShareCap` collapses to `target` replicas (no PRC
+division) — PRC survives **only** in the `demand/PRC` conversion and the cost-efficiency sort, exactly
+as the mental experiment predicts. This is the "simplifies cross-analyzer math" half of the PRC=1
+experiment made concrete.
+
+**Verdict.** The replica-demand/coverage abstraction *does* cover limited-mode, and PRC drops out of
+the fair-share loop the same way — but limited-mode has **two** leak sites, not one: (a) the sizing
+PRC (fixed by the anchor, like unlimited-mode) and (b) the fair-share *metric* `fsv` (needs its own
+move to GPU/replica units; the anchor does not reach it). Fixing (a) without (b) leaves the
+cross-model ordering unit-mixed. So limited-mode is a strictly larger change than unlimited-mode —
+worth calling out for scoping.
+
+Other limited-mode sites checked and **OK**: `anyRoleNeedsScaleUp(ps, roles)` is a per-analyzer OR
+(scale up if *any* analyzer wants more), which equals `max_i rd_i > current` — consistent with the
+combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-commit
+`allocateForModelPaired` carries the same `k`/decrement unit-mismatch as unlimited-mode
+([§ bugs](#bugs) #1) — it is shared code, so one fix covers both modes.
 
 [↑ TOC](#toc)
 
