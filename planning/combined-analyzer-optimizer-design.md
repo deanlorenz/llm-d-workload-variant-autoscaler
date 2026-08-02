@@ -14,16 +14,16 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 ## TOC {#toc}
 
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:53
-- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:97
-- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L98:130
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L131:193
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L194:244
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L245:325
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L326:346
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L347:380
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L381:420
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L421:481
-- [Open questions {#open}](#open-questions-open) L482:509
+- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L54:100
+- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L101:133
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L134:196
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L197:247
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L248:328
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L329:349
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L350:383
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L384:423
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L424:484
+- [Open questions {#open}](#open-questions-open) L485:512
 
 ## Why this doc exists {#why}
 
@@ -82,8 +82,11 @@ sizing/sorting is a smell.
 
 This is the same quantity the coordination doc calls *achieved* (`achieved = supply/demand_target`,
 `remaining = 1 − achieved`); see [`optimizer-coordination-design.md`](optimizer-coordination-design.md)
-§ Supply taxonomy. The **anticipated-supply bug** ([§ bugs](#bugs) #4, CONFIRMED) is exactly a
-numerator that drops `pending` — pending belongs in `n`, never in the denominator.
+§ Supply taxonomy. The clean form keeps `pending` in the numerator `n`, never in the denominator —
+this is the *conceptual* target for the coordination-doc rewrite and for reconciling the
+observability `Utilization`, but note the suspected anticipated-in-denominator *scaling* bug did not
+survive tracing ([§ bugs](#bugs) #4 — downgraded 2026-08-03; the decision path already accounts for
+pending via RC).
 
 Legacy-complexity note (Dean): `rd` is **not** a clean matrix. Each `(analyzer, role)` can be a
 completely separate analyzer — the metric need not mean the same thing per role, and its
