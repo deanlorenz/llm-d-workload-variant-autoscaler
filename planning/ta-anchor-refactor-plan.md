@@ -19,19 +19,20 @@
 
 ## TOC
 
-- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L36:58
-- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L59:98
-- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L99:174
-- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L175:210
-- [§4 Invariant #7 — the byte-identity ship gate](#4-invariant-7--the-byte-identity-ship-gate) L211:230
-- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L231:287
-- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L288:339
-- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L340:393
-- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L394:423
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L424:450
-- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L451:498
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L499:527
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L528:541
+- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:59
+- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L60:99
+- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L100:175
+- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L176:211
+- [§4 Invariant #7 — the byte-identity ship gate](#4-invariant-7--the-byte-identity-ship-gate) L212:231
+- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L232:288
+- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L289:340
+- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L341:394
+- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L395:424
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L425:451
+- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L452:499
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L500:536
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L537:554
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L555:604
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -519,6 +520,14 @@ carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **�
   refresh machinery.
 - **Origin branch:** per convention, `ta-anchor-refactor` needs a matching origin branch at creation
   (`git push -u origin ta-anchor-refactor`) — subject to Dean's per-push confirmation.
+- **The goldens depend on the test-only helper `withSatEntry`** (defined in
+  `internal/engines/pipeline/cost_aware_optimizer_test.go`, *outside* the goldens file). This PR renames
+  `saturationEntry` and touches the optimizer test files (§6), so it can incidentally churn that helper.
+  Do **not** remove or re-signature `withSatEntry` out from under the goldens; if a test-helper refactor
+  would change it, copy the helper into the goldens file instead. A broken helper makes the
+  (already-landed) goldens fail to **compile**, which surfaces as a build error — not a red golden — a
+  *silent* break of the ship gate. Rationale: design doc § Bottom-line invariants, invariant #7
+  test-scaffolding note. (Resolves goldens-review Finding 2.)
 
 [↑ TOC](#toc)
 
@@ -537,5 +546,59 @@ carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **�
 - **DEPRECATED — `saturationEntry` getter + "saturation always first / keeper / special role" role.**
   Intentionally removed; superseded by the anchor/ballot contract. The by-name scan is gone; the
   engine still *names* saturation only to build the anchor and resolve its threshold.
+
+[↑ TOC](#toc)
+
+---
+
+<a id="13-reviewer"></a>
+## §13 Reviewer verification checklist
+
+The internal code reviewer (plan-vs-diff, pre-push) confirms each item below against the branch diff.
+This is the refactor-specific checklist referenced by the reviewer handoff
+(`session/handoffs/review__ta-anchor-refactor-*.md`); it does **not** replace the standard pre-push
+gates (gofmt / `make test` / `make lint` / `go build` / DCO) — those are assumed and item 12 re-asserts
+them.
+
+1. **Ship gate green AND compiling.** The `ta-anchor-goldens` characterization suite runs and passes on
+   the branch tip (decision-SET-identity, keyed by `VariantName`, for the default `[sat-v2]` config).
+   Confirm it *compiles* — `withSatEntry` intact or copied into the goldens file (§11); a build failure
+   here is a silent gate break, not a red golden.
+2. **(a)/(b)/RC-SC split matches §2 exactly.** No field moved across the boundary. The
+   field-classification test (§7 3b) exists and asserts **every** row of Table 1 and Table 2. Anchor's
+   (a) always sourced from sat-v2; (b) copied from `ballot[0]`; RC/SC never written onto the anchor.
+3. **Zero combine-arithmetic change.** The diff touches **none** of: `applyAllocation`,
+   `roleBottleneckReplicas`, `roleAggRemaining`, `fairShareValue`, the combine part of `fairShareCap`,
+   `initRoleState`, the `sortVariantsForScaleDown` tie-break. No new `argmax`/`max` combine, no refresh
+   loop. Bugs #1/#2/#3/#5 remain **unfixed** (deferred to PR-2) — flag any accidental fix.
+4. **Single code path, no name-checks.** The engine builds the ballot as the enabled set — no forced
+   sat-first entry, no `name == SaturationAnalyzerName { continue }` skip; the copy-(b)-from-`ballot[0]`
+   has no name-check; there is **no** `len(ballot) > 1` code fork (a work-skip is fine, but PR-1 builds
+   no refresh). sat-v2 flows through `effectiveEnabled` like every other analyzer (default-on).
+5. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
+   off the ballot, never from the anchor. The "zero the anchor's RC/SC ⇒ decision unchanged" test
+   (§7 3b) exists and passes.
+6. **Anchor (a) sourcing under TA-only.** A test proves TA-only decisions carry `AcceleratorName`/`Cost`
+   from the anchor (sat's (a)) even though the TA vote never sets them (§7 3b, "Anchor (a) sourcing").
+7. **Semantic-pivot grep resolved (§9).** Every stale "always first / keeper / special role" narrative
+   and the `saturationEntry` getter is updated across comments, docstrings, and identifiers — code AND
+   tests. `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
+   list comment updated. Surviving `SaturationAnalyzerName` uses are only the legitimate
+   engine-identifies-sat sites (anchor build / threshold resolve), not the removed special-role narrative.
+8. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
+   commit messages (§4a). Descriptive prose only.
+9. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
+   multi-vote refresh + bugs #1/#2/#3/#5 = DEFERRED to PR-2. Nothing else silently removed.
+10. **Dev-guide reflects code, not plans (§8).** The three enumerated sections of
+    `docs/developer-guide/multi-analyzer-pipeline.md` are updated; no forward-looking PR-2 content;
+    the both-enabled combine is stated as "not yet implemented" on this branch.
+11. **Commit hygiene.** Commits 1 and 2 each keep the goldens green *independently*; Commit 3 is
+    additive. Each commit message matches its diff (no claimed behavior absent from the hunk — the
+    cross-rebase silent-drop hazard). DCO sign-off on every commit.
+12. **Pre-push gates green.** `gofmt -l` clean, `make test` pass, `make lint` clean, `go build ./...`
+    clean, `-race` on the fair-share path.
+13. **Interim-base sanity (§11).** Branch cut off the goldens tip; if #1513 has merged by review time,
+    confirm it was rebased onto the moving `main` tip (not a pinned SHA) and the goldens commits absorbed
+    (the PR diff against `main` shows only PR-1's own commits).
 
 [↑ TOC](#toc)
