@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:295
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L296:346
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L347:427
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L428:458
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L459:492
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L493:560
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L561:621
-- [Open questions {#open}](#open-questions-open) L622:661
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:305
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L306:356
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L357:437
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L438:468
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L469:502
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L503:570
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L571:631
+- [Open questions {#open}](#open-questions-open) L632:671
 
 ## Why this doc exists {#why}
 
@@ -179,6 +179,16 @@ uniformly, and the anchor is just the (a)+(b) carrier the optimizer reads.
 - **Copy (b) from the first ballot entry onto the anchor.** Only the (b) fields; the anchor's (a) stays
   sat-v2's, unchanged.
 - Call `optimize` with the anchor + the ballot (the enabled-analyzer list).
+
+**Enablement contract — opt-in (Dean, 2026-08-03).** "sat-v2 enabled" resolves through the same
+`effectiveEnabled` predicate as every analyzer: enabled by default **only when the `analyzers` list is
+empty** (`ApplyDefaults` supplies sat-v2's entry); once the list is **customized**, membership is
+exactly what it names — a name absent from a non-empty list is off. So a customized `analyzers: [TA]`
+is TA-only ("TA in ⇒ sat-v2's vote out"), **implied by opt-in, not enforced by a mutual-exclusion
+rule**. This is the PR-1 (static) contract; the both-enabled config (`[sat-v2, TA]`) becomes a real
+multi-vote in PR-2. **No `ApplyDefaults` change** re-injects sat-v2 into a customized list (the rejected
+"always-on unless explicitly disabled" option) — the anchor's **(a)** is preserved regardless because
+sat-v2 always runs for the anchor; opt-in governs only whether sat-v2's **(b) vote** joins the ballot.
 
 **Optimizer (only when `len(ballot) > 1`): refresh the anchor's (b).** For each `(role, v)` the refresh
 finds the binding analyzer (`argmax_i rd_i`, [§ combine](#combine)) and **overwrites only the anchor's

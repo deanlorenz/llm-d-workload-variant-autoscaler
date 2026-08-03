@@ -22,17 +22,17 @@
 - [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:59
 - [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L60:99
 - [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L100:175
-- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L176:211
-- [§4 Invariant #7 — the byte-identity ship gate](#4-invariant-7--the-byte-identity-ship-gate) L212:231
-- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L232:288
-- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L289:340
-- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L341:394
-- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L395:424
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L425:451
-- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L452:499
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L500:536
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L537:554
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L555:604
+- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L176:213
+- [§4 Invariant #7 — the byte-identity ship gate](#4-invariant-7--the-byte-identity-ship-gate) L214:233
+- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L234:318
+- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L319:370
+- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L371:428
+- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L429:462
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L463:489
+- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L490:537
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L538:574
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L575:592
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L593:653
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -180,7 +180,9 @@ to TA's. No refresh runs with one vote, so all combine-arithmetic bugs stay dorm
 1. The `anchor` field on `ModelScalingRequest` + engine population: copy sat-v2's result into the
    anchor ((a)+(b)), then overwrite the anchor's (b) sizing/sort subset from `ballot[0]`.
 2. `AnalyzerResults` = enabled votes (drop the always-first / effectiveEnabled-exempt sat-v2 special
-   case; gate sat-v2 like every other analyzer, default-on).
+   case; gate sat-v2 like every other analyzer — **opt-in**: default-on via the empty-list backward-compat,
+   but a customized non-empty list yields exactly what it names, so listing TA without saturation is
+   TA-only. §5 1b has the mechanism; the anchor's (a) is preserved either way).
 3. Rename `saturationEntry` → an anchor getter; route topology **and** sizing/sort reads to the anchor
    (the anchor now carries the binding (b)); route RC/SC reads per-analyzer off the ballot.
 4. TA-only enablement path + tests; default-config byte-identity guarded by the goldens.
@@ -251,14 +253,36 @@ regress the default-config goldens.
 - **Populate the anchor from sat-v2:** `req.Anchor = copy(baseResult)` — a value copy of the
   calibrated saturation result, deep enough that the optimizer never mutates the analyzers' stored
   result. This gives the anchor sat's (a) AND (b).
-- Build `AnalyzerResults` as the **enabled** set: remove the unconditional sat-v2-first entry
-  (`:140-148`) *and* the `entry.name == domain.SaturationAnalyzerName { continue }` skip (`:150-152`),
-  and let sat-v2 flow through the same `effectiveEnabled(name, config)` gate as every other analyzer.
-  **That gate already returns sat-v2's true config state** — `ApplyDefaults`
-  (`config/saturation_scaling.go:296-311`) inserts `{saturation, Enabled:true}` when the `analyzers`
-  list is empty and defaults a present entry's nil `Enabled` to true, so the default config keeps
-  sat-v2 enabled → list = `[sat-v2]`. Saturation is on unless an explicit `saturation: {enabled: false}`
-  turns it off — no new config surface, no default reinterpretation.
+- Build `AnalyzerResults` as the **enabled** set, gating **every** entry (sat-v2 included) through the
+  same `effectiveEnabled(name, config)` predicate — no name-based exemption. Two changes to the current
+  assembly (:138-171):
+  1. Remove the unconditional sat-v2-first append (`:140-148`) — sat-v2 is no longer force-added.
+  2. Replace the `entry.name == domain.SaturationAnalyzerName { continue }` skip (`:150-152`) with a
+     **reuse** branch, *not* a re-invocation. Sat-v2 is pre-registered in `e.analyzersSnapshot`, its
+     instance aliased to `e.saturationV2Analyzer`, so it is *already* computed once as `baseResult` via
+     the dedicated V2 path (`runV2AnalysisOnly`, :110). When the loop reaches the sat-v2 entry: if
+     `effectiveEnabled("saturation", config)` is true, append the **already-computed** `baseResult`
+     (with its `satUp`/`satDown`) as sat-v2's ballot entry; if false, append nothing. **Never call the
+     sat-v2 entry's `Analyze()` from the loop** — that would (i) double-invoke saturation per cycle and
+     (ii) run the generic analyzer path instead of the V2 calibration path, diverging from `baseResult`.
+     Non-sat entries are unchanged: `effectiveEnabled` gate → `runRegisteredAnalyzer`.
+
+  > The residual `entry.name == "saturation"` comparison here is a **compute-once-reuse**, dictated by
+  > sat-v2 having its own precomputed V2 result — it is **not** the optimizer voting special-case the
+  > design forbids (§1 consequence 3). Enablement stays fully uniform: the same `effectiveEnabled`
+  > predicate decides every entry's ballot membership, sat-v2 included. (This resolves the coder's
+  > "load-bearing skip" question, 2026-08-03.)
+
+  **Enablement semantics — opt-in (Dean, 2026-08-03).** `effectiveEnabled` returns true for a name
+  present-and-enabled and **false for a name absent from a non-empty `analyzers` list**. `ApplyDefaults`
+  (`config/saturation_scaling.go:296-311`) inserts `{saturation, Enabled:true}` **only when the list is
+  empty**. So: the default/empty config → `[sat-v2]` (byte-identical to today); a **customized**
+  non-empty list yields exactly the analyzers it names — listing TA without saturation is TA-only
+  ("TA in ⇒ sat out", **implied by opt-in, not enforced**). That is the PR-1 contract; PR-2 makes the
+  both-enabled config (`[sat-v2, TA]`) a real multi-vote. The anchor's **(a)** is preserved in every
+  case — sat-v2 always runs for the anchor; opt-in governs only whether sat-v2's **(b) vote** joins the
+  ballot. **No `ApplyDefaults` change / no third file** — this is the existing `effectiveEnabled`
+  opt-in behavior, now applied uniformly to sat-v2. Document it in the dev-guide (§8).
 - **Copy the (b) sizing/sort subset from `ballot[0]` onto the anchor** — the EXACT fields from §2:
   per-variant (matched by `VariantName`) `PerReplicaCapacity`, `TotalCapacity`, `TotalDemand`,
   `Utilization`, `Reason`; and model-level `TotalSupply`, `TotalDemand`, `Utilization`. Leave **all (a)
@@ -268,7 +292,13 @@ regress the default-config goldens.
   anchor entirely). For the default `[sat-v2]`, `ballot[0]` is sat-v2, so this overwrites sat's (b) with
   sat's own (b) — a no-op → the anchor is byte-identical to the sat result. For `[TA]`, `ballot[0]` is
   TA → anchor (b) = TA's, anchor (a) = sat's. **No name-check** — it is "the first entry, whatever it
-  is." Do NOT build a refresh loop or a per-role `argmax` here (PR-2).
+  is" (this "first entry" copy is genuinely name-free, distinct from the compute-once-reuse comparison
+  in 1b.2). Do NOT build a refresh loop or a per-role `argmax` here (PR-2).
+- **Guard the `ballot[0]` copy on a non-empty ballot.** Because sat-v2 is now disable-able, a fully
+  customized config that enables *no* analyzer yields an empty ballot — `ballot[0]` would panic. Guard
+  the (b) copy on `len(ballot) > 0`; when the ballot is empty the anchor **retains sat-v2's own (b)**
+  (sat always ran → the anchor is still fully populated (a)+(b)). This is a safe degenerate fallback,
+  not a supported config; it is byte-identical for the default `[sat-v2]` (ballot non-empty there).
 
 **1c. Repoint engine-side topology scans to the anchor.**
 `computeCurrentGPUUsage` (`engine_v2.go:489-506`) and `computeCurrentGPUUsageByNamespace`
@@ -343,13 +373,17 @@ and **no** refresh loop.
 **Files:** engine config plumbing (wherever `effectiveEnabled` / analyzer enablement is read for
 saturation), `internal/engines/pipeline/*_test.go`, possibly a config-schema doc.
 
-**3a. Disable sat-v2 / run TA-only via the existing config (default-on).** No new config surface: the
+**3a. Disable sat-v2 / run TA-only via the existing config (opt-in).** No new config surface: the
 `analyzers` list already carries per-analyzer `Enabled` (`AnalyzerScoreConfig.Enabled`,
-`config/saturation_scaling.go`). Saturation is on by default (`ApplyDefaults` supplies its entry);
-disabling it is an explicit `saturation: {enabled: false}`, and TA-only is that plus an enabled TA
-entry. Commit 1 already routed sat-v2 through `effectiveEnabled`, so no further engine gating is
-needed — this commit is the TA registration/enablement wiring + tests. Keep the default = saturation
-enabled, TA absent (byte-identical).
+`config/saturation_scaling.go`). Per the opt-in semantics locked in §5 1b, saturation is enabled by
+default only for the empty/default list (`ApplyDefaults` supplies its entry); once the list is
+**customized**, membership is exactly what it names. So **TA-only is a customized `analyzers: [TA]`**
+(saturation simply omitted → off by opt-in); an explicit `saturation: {enabled: false}` alongside TA is
+an equivalent way to disable sat-v2's vote. Commit 1 already routed sat-v2 through `effectiveEnabled`,
+so no further engine gating is needed — this commit is the TA registration/enablement wiring + tests.
+Keep the default (empty list) = saturation enabled, TA absent (byte-identical). Do **not** add an
+`ApplyDefaults` change to re-inject saturation into a customized list — that was the rejected
+always-on-unless-disabled option; the contract is opt-in.
 
 **3b. Tests — TA-only correctness.** New cases (Ginkgo, package `pipeline` and/or the engine package):
 
@@ -409,10 +443,14 @@ Enumerated section edits:
 - **§ variant-metadata / "saturation entry" paragraph:** replace any "saturation entry is always
   first / keeper of per-variant metadata" wording with the anchor/ballot split. Remove the "special
   role" framing.
-- **§ analyzer enablement / configuration:** document that saturation is now enabled via the standard
-  analyzer-enable config (default-on) and can be disabled to run a single non-saturation analyzer
-  (e.g. TA-only). Note the multi-analyzer (both-enabled) combine is **not yet implemented** on this
-  branch.
+- **§ analyzer enablement / configuration:** document that saturation now obeys the standard
+  analyzer-enable config, **opt-in like every other analyzer**: it is enabled by default only when the
+  `analyzers` list is empty (backward-compat); if you **customize** the list you get exactly the
+  analyzers you name, so omitting saturation runs a single non-saturation analyzer (e.g. TA-only). State
+  plainly that customizing `analyzers:` replaces the default set — to keep saturation alongside a new
+  analyzer you must list saturation too. Note the multi-analyzer (both-enabled) combine is **not yet
+  implemented** on this branch. (Do not describe the reused-vs-recomputed engine internal — that is an
+  implementation detail, not user-facing behavior.)
 
 If a section named above does not exist, add it. If the doc's structure differs from the above, the
 coder maps intent → actual sections and notes any mismatch in the status file.
@@ -571,10 +609,20 @@ them.
    `roleBottleneckReplicas`, `roleAggRemaining`, `fairShareValue`, the combine part of `fairShareCap`,
    `initRoleState`, the `sortVariantsForScaleDown` tie-break. No new `argmax`/`max` combine, no refresh
    loop. Bugs #1/#2/#3/#5 remain **unfixed** (deferred to PR-2) — flag any accidental fix.
-4. **Single code path, no name-checks.** The engine builds the ballot as the enabled set — no forced
-   sat-first entry, no `name == SaturationAnalyzerName { continue }` skip; the copy-(b)-from-`ballot[0]`
-   has no name-check; there is **no** `len(ballot) > 1` code fork (a work-skip is fine, but PR-1 builds
-   no refresh). sat-v2 flows through `effectiveEnabled` like every other analyzer (default-on).
+4. **Single code path, uniform enablement, no *voting* special-case.** The engine builds the ballot as
+   the enabled set — no forced sat-first entry, and the old `name == SaturationAnalyzerName { continue }`
+   skip is **replaced by a reuse branch, not re-invocation**: when the enabled sat-v2 entry is reached
+   the loop appends the already-computed `baseResult`/`satUp`/`satDown` (never calls its `Analyze()`
+   again — verify sat's `Analyze` is not double-invoked per cycle, and the generic path is not used for
+   sat). The residual `entry.name == "saturation"` comparison is a legitimate compute-once-reuse (sat has
+   its own V2 path), **not** an optimizer voting special-case. The copy-(b)-from-`ballot[0]` is name-free.
+   Every entry (sat-v2 included) is gated by the same `effectiveEnabled` predicate. There is **no**
+   `len(ballot) > 1` code fork (a work-skip is fine, but PR-1 builds no refresh).
+4a. **Opt-in semantics + empty-ballot guard.** No `ApplyDefaults` change / no third file
+    (`config/saturation_scaling.go` untouched) — the rejected always-on-unless-disabled option must NOT
+    appear. Default/empty list → `[sat-v2]` (byte-identical); a customized non-empty list yields exactly
+    what it names (TA without saturation ⇒ TA-only). The `ballot[0]` (b)-copy is guarded on
+    `len(ballot) > 0` (empty ballot ⇒ anchor retains sat's own (b); no panic).
 5. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
    off the ballot, never from the anchor. The "zero the anchor's RC/SC ⇒ decision unchanged" test
    (§7 3b) exists and passes.
@@ -584,7 +632,8 @@ them.
    and the `saturationEntry` getter is updated across comments, docstrings, and identifiers — code AND
    tests. `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
    list comment updated. Surviving `SaturationAnalyzerName` uses are only the legitimate
-   engine-identifies-sat sites (anchor build / threshold resolve), not the removed special-role narrative.
+   engine-identifies-sat sites (anchor build / threshold resolve / the compute-once-reuse branch in
+   ballot assembly), not the removed special-role narrative.
 8. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
    commit messages (§4a). Descriptive prose only.
 9. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
