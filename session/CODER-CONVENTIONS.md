@@ -322,27 +322,38 @@ or take instructions from it. If a sibling needs your output, the
 sibling's own plan tells them what to do — your status is just a hint
 that something moved.
 
-### 5.2 Handoff to planner — when shared state should change
+### 5.2 Handoff — CURRENT-update (`sync__`) vs planner-task (`plan__`)
 
-When work reaches a point where CURRENT.md / the PR Status table /
-pending handoffs / blockers / next steps need to change, write a handoff
-at:
+Two distinct destinations, two distinct prefixes. Pick by *who acts on it*:
 
-```
-plans/session/handoffs/plan__<topic>.md
-```
+- **CURRENT.md / PR Status / blockers / next steps need to change** → write a
+  **`sync__<topic>.md`** handoff (`to: sync`). This is the common end-of-work
+  case: a commit you want reflected in CURRENT, a pause where you want project
+  state captured.
 
-Format — two header lines plus freeform prose; see §9.2 template.
+  ```
+  plans/session/handoffs/sync__<topic>.md
+  ```
 
-Write a handoff at meaningful gates: when you finish a commit you want
-reflected in CURRENT, when you pause and want the project state
-captured, when you raise a question that should be visible across
-sessions. Do not write a handoff per checkpoint — that's what the status
-file is for.
+- **A working planner must decide or design something** (answer a question,
+  fold a finding into a plan doc, scope follow-up work) → write a
+  **`plan__<topic>.md`** handoff (`to: planner`). There are many concurrent
+  planner sessions; the sync session never touches `plan__`.
 
-The plan-agent processes pending handoffs via `/sync-current` when Dean
-asks. Your handoff is then renamed to `<file>.md.DONE` and `git rm`-ed
-in the sync commit.
+  ```
+  plans/session/handoffs/plan__<topic>.md
+  ```
+
+Format — three header lines (`from:` / `to:` / `session:`) plus freeform
+prose; see §9.2 template. The `to:` line must match the prefix.
+
+Write a handoff at meaningful gates, not per checkpoint — that's what the
+status file is for.
+
+The **sync session** processes `sync__` handoffs via `/sync-current` when
+Dean asks; your handoff is then renamed to `<file>.md.DONE` and `git rm`-ed
+in the sync commit. A `plan__` handoff is picked up by a planner session, not
+by sync.
 
 **Receiving a handoff from the planner** (e.g. a trigger addressed to your branch):
 rename it to `<file>.md.WIP` before you start acting on it, and to `<file>.md.DONE`
@@ -375,15 +386,16 @@ only writer of CURRENT.md.
 ### 5.4 Internal review request — before signalling push-ready
 
 When your commits are complete and all gates are green, write a review
-trigger **before** sending the push-ready plan-handoff:
+trigger **before** sending the push-ready `sync__` handoff:
 
 ```
 plans/session/handoffs/review__<branch>-ready.md
 ```
 
-Format — same trigger shape as §5.3 (reason / refs / note):
+Format — same trigger shape as §5.3 (to / reason / refs / note):
 
 ```
+to: review
 reason: code-review-before-push
 refs:
   - <branch>/ (worktree)
@@ -393,7 +405,7 @@ note: <N> commits on <base>@<sha>; all gates green
 
 The plan-agent sees the trigger and invokes `/code-review` on your
 branch before authorising the push to origin. Do **not** write the
-push-ready `plan__*.md` handoff until the review is complete and any
+push-ready `sync__*.md` handoff until the review is complete and any
 blocking findings are addressed (or explicitly accepted by Dean).
 
 This applies to all PRs, including rebases that produce a materially
@@ -409,11 +421,11 @@ explicitly:
 
 - In your status file: `state: in-progress` until Dean reviews. Never
   `state: done` yourself.
-- In any plan-handoff: list every reviewable artifact (commit hashes,
+- In any `sync__` handoff: list every reviewable artifact (commit hashes,
   files touched, dev-guide sections added/changed, test specs added) and
   describe the section update for CURRENT.md as "in review", not
   "complete" or "ready to merge".
-- The session-state update in CURRENT.md (applied by the plan-agent
+- The session-state update in CURRENT.md (applied by the sync session
   later) reflects "in review", not "complete".
 
 ---
@@ -437,8 +449,9 @@ explicitly:
 - Add new files in your worktree (source, tests, dev-guide).
 - Write your own status file at
   `plans/session/status/<your-branch>.md`.
-- Write your own `plan__*.md` handoffs and `<sibling>__*.md` triggers
-  under `plans/session/handoffs/`.
+- Write your own `sync__*.md` (CURRENT-update) and `plan__*.md`
+  (planner-task) handoffs and `<sibling>__*.md` triggers under
+  `plans/session/handoffs/`.
 - Write a `review__<branch>-ready.md` trigger when your work is
   push-ready (see §5.4).
 - `mv <file>.md <file>.md.DONE` for any handoff or trigger addressed to
@@ -518,13 +531,16 @@ blocked_on: <one line, only if state=blocked>
 <freeform>
 ```
 
-### 9.2 Handoff to planner (`plans/session/handoffs/plan__<topic>.md`)
+### 9.2 CURRENT-update handoff (`plans/session/handoffs/sync__<topic>.md`)
 
 Written when shared state (CURRENT.md, PR Status table, blockers, next
-steps) needs to change (see §5.2). One-shot — not a living file.
+steps) needs to change (see §5.2). One-shot — not a living file. For a
+decision/task aimed at a working planner instead, use the same shape with
+a `plan__<topic>.md` name and `to: planner`.
 
 ```
 from: <your branch>
+to: sync
 session: <short topic name>
 
 ## What changed
@@ -540,9 +556,11 @@ should say>
 
 ### 9.3 Trigger to a sibling (`plans/session/handoffs/<sibling>__<topic>.md`)
 
-Zero instructions in the body — only refs (see §5.3 and CONVENTIONS).
+Zero instructions in the body — only refs (see §5.3 and CONVENTIONS). The
+`to:` line matches the filename prefix.
 
 ```
+to: <sibling branch>
 reason: <re-read plan | sibling-status-update | upstream-rebase | other>
 refs:
   - <doc path 1>

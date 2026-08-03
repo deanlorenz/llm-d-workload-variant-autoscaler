@@ -146,7 +146,7 @@ agents via handoff files.
 - **Editing lock.** The `session/handoffs/current__editing.md.WIP` sentinel is the gate. The
   dedicated sync session creates it before writing CURRENT.md and renames it to
   `current__editing.md.DONE` after committing. Any session that sees `.WIP` refuses to sync
-  and writes a `plan__*.md` handoff instead.
+  and writes a `sync__*.md` handoff instead.
 
 **Type 6 — review** (`planning/*-review.md`, e.g. `TA-TA3-review.md`)
 Output of the `/design-review` skill. Documents implementation correctness findings: bugs, doc
@@ -311,21 +311,34 @@ notes: <freeform, optional>
 *Handoffs — serialize updates to shared state.* No session edits CURRENT.md, the PR Status
 table, or any other canonical `session/` shared file directly — not coders, not review
 agents, not other planner instances. They write a handoff at
-`session/handoffs/plan__<topic>.md` describing what the dedicated sync session should fold
+`session/handoffs/sync__<topic>.md` describing what the dedicated sync session should fold
 in. The sync session is the single writer; the handoff queue avoids edit conflicts. Handoffs
 need not be committed by the submitting session — all sessions share the `plans/` worktree
 filesystem, so the sync session reads uncommitted handoff files directly and commits/consumes
 them in its batch.
 
+**`sync__` is exclusively for CURRENT-update requests — do not conflate it with `plan__`.**
+A `sync__<topic>.md` handoff asks the sync session to change CURRENT.md / PR Status / shared
+`session/` state; it is the *only* prefix `/sync-current` consumes. A `plan__<topic>.md`
+handoff is a task or decision-request for a **working planner** (fold findings into a plan
+doc, design a workload, answer a feasibility question) — there are many concurrent planner
+sessions, and the sync session must **never** consume `plan__` (doing so robs the intended
+planner of their work item). A *mixed* handoff (planner-task plus suggested CURRENT edits)
+stays `plan__`; the planner re-emits a clean `sync__` after folding, keeping sync
+single-purpose. (Incident 2026-08-03: 16 `plan__` handoffs wrongly consumed as sync input.)
+
 When Dean says "sync state" (or equivalent), the **dedicated sync session** runs
-`/sync-current` from the `plans` worktree. It reads every `plan__*.md`, applies the described
+`/sync-current` from the `plans` worktree. It reads every `sync__*.md`, applies the described
 updates to CURRENT.md, marks each consumed file by renaming it to `<file>.md.DONE`, then
 `git rm`s the .DONE files in its commit. Sync is a deliberate, explicit declaration — not a
 background process, and not something other session types invoke.
 
-Handoff format — two header lines plus freeform prose body:
+Handoff format — three header lines plus freeform prose body (the `to:` line is authoritative
+routing; the filename prefix is just the `ls`-glob convenience — if they disagree the file is
+misfiled, so flag it rather than guess):
 ```
 from: <branch or agent name>
+to: <sync | planner | <branch> | review>
 session: <short topic name>
 
 <freeform: what was completed, what CURRENT should say, new/updated work items,
@@ -338,8 +351,10 @@ agent) wants another to look at something, it writes a trigger at
 `session/handoffs/<recipient>__<topic>.md`. The recipient short token is the agent or
 branch name (`plan` is reserved for the planner; coder branches use the branch name).
 
-**Triggers carry no instructions.** The body has only:
+**Triggers carry no instructions.** The body has only (the `to:` line is authoritative
+routing, matching the filename prefix):
 ```
+to: <branch | review | plan>
 reason: <re-read plan | sibling-status-update | upstream-rebase | other>
 refs:
   - <doc path 1>
@@ -358,13 +373,16 @@ When the recipient starts processing, rename to `<file>.md.WIP`. When done, rena
 *File naming — flat directory, prefix encodes routing:*
 ```
 session/handoffs/
-  plan__threshold-coder-rules-gap.md       # to planner (prose body)
+  sync__anchor-opt-in-decision.md          # to the sync session (CURRENT-update, prose body)
+  plan__threshold-coder-rules-gap.md       # to a working planner (task/decision, prose body)
   optimizer__plan-resume.md                # to multi-analyzer-optimizer coder (no-body trigger)
   threshold__rebase-target-shift.md        # to multi-analyzer-threshold coder (no-body trigger)
 ```
 
 `<recipient>__<topic>.md`. Filter by `ls session/handoffs/<recipient>__*.md`.
-Recipient tokens: `plan` (planner), short branch nicknames for coders.
+Recipient tokens: `sync` (the sync session — CURRENT-update requests only), `plan` (a working
+planner — tasks/decisions), short branch nicknames for coders, `review` for the review agent.
+The prefix must match the `to:` header; if they disagree the file is misfiled.
 
 *State machine — three states, recipient owns all transitions.*
 
@@ -382,7 +400,7 @@ Coders and the planner may write and rename files under `plans/session/handoffs/
 `plans/session/status/` from any worktree — this is the only sanctioned exception to
 "no edits outside your worktree."
 
-*Starting a new session without an existing CURRENT entry:* write a `plan__<topic>.md`
+*Starting a new session without an existing CURRENT entry:* write a `sync__<topic>.md`
 handoff that includes everything needed to create the section — session name, task,
 scope, initial work items. A new session is not structurally different from any other
 shared-state update.
