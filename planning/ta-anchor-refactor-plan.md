@@ -30,8 +30,8 @@
 - [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L394:423
 - [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L424:450
 - [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L451:498
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L499:519
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L520:533
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L499:527
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L528:541
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -505,6 +505,14 @@ carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **�
   gate until #1513 has merged** to the base this branch is cut from. The goldens are a
   characterization/freeze suite scoped to this refactor, not a permanent optimizer contract; their
   relax-or-fold endgame is tracked in [`ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) §4.
+- **Interim base while #1513 is in review (2026-08-03).** Dean launched the PR-1 coder *before* #1513
+  merged, so this branch is cut off the **`ta-anchor-goldens` tip (`a2f49ccf`)**, not bare `main` — the
+  gate is then present and runnable from Commit 1 (otherwise Commit 2 could not be validated until
+  #1513 landed). When #1513 merges, rebase `ta-anchor-refactor` onto the **moving `main`/`upstream/main`
+  tip** (never a pinned SHA); the goldens commits absorb as no-ops (identical content already on `main`),
+  and the PR-1 diff against `main` shows only PR-1's own commits. This changes nothing about the ship
+  gate — the goldens still gate Commit 2. The header's `Base: main@9906dac5` names the logical base
+  (goldens sit on that same commit); the physical cut-point is the goldens tip only so the gate rides along.
 - **PR-2 (`ta-anchor-dynamic-refresh-plan.md`)** is a **dependent** PR that waits until PR-1 lands. It
   adds: the multi-vote refresh of the anchor's (b) (per-role `argmax` binding), the per-iteration
   dynamic refresh, and the #1/#2/#3/#5 fixes + rescale-on multi/TA validation. PR-1 must not build any

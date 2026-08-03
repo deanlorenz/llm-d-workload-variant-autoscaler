@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:237
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L238:288
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L289:369
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L370:400
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L401:434
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L435:491
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L492:552
-- [Open questions {#open}](#open-questions-open) L553:592
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:295
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L296:346
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L347:427
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L428:458
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L459:492
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L493:560
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L561:621
+- [Open questions {#open}](#open-questions-open) L622:661
 
 ## Why this doc exists {#why}
 
@@ -149,25 +149,79 @@ sum reflects 15, not the correct bottleneck 5). See [§ bugs](#bugs) #5 and [§ 
 
 ## The binding-analyzer anchor (renamed SatEntry) {#anchor}
 
-**Dean's proposal (2026-08-02), still under consideration.** Instead of scattering combined-PRC /
-combined-demand through every call site, keep the special entry — but **rename it and repurpose it
-as the "binding analyzer" anchor**:
+**Dean's model (locked 2026-08-03).** The clean way to think about the entry the optimizer reads —
+**renamed and repurposed from `SatEntry` as the "binding analyzer" anchor** — is a split into two data
+categories, **(a)** and **(b)**:
 
-- The engine creates **two copies** before the veto / scale-up/down code:
-  - a **common-scope** entry — always populated (even when sat-v2 disabled) — holding topology
-    (accel, cost, role, replica count) **plus** the *combined* PRC and *combined* demand/coverage
-    per `(role, v)`, i.e. always representing the **binding analyzer's** values. Returned by the
-    (renamed) `SatEntry` helper. It is **not** part of the analyzer voting list.
-  - a **sat-v2-scope** entry — created and populated **only when sat-v2 is enabled** — the actual
-    saturation vote, appended to the voting list like any other analyzer.
-- Because the anchor always carries the *binding* analyzer's PRC/demand per `(role,v)`, **all the
-  existing single-analyzer optimizer logic keeps working as-is** — `costEfficiency`,
-  `fairShareCap`, `roleDemandGPUs`, the utilization write-back all read the anchor and now get the
-  correct combined values instead of saturation-only ones.
-- The anchor is **updated each iteration** of the allocation loop so it always reflects the
-  current binding analyzer (the binding analyzer can change as replicas are added and coverage
-  shifts). This is the key subtlety: binding is state-dependent, so the anchor is recomputed, not
-  computed once.
+- **(a) — common metadata.** Analyzer-independent topology/identity that only **sat-v2** produces
+  (`AcceleratorName`, `Cost`, and the variant identity/state sat establishes). Everyone needs it — the
+  other analyzers, the optimizer, and the engine's GPU accounting. It lives on the anchor, populated
+  **from sat-v2's run**, and is **never overwritten** — not by the first-entry copy, not by any refresh.
+- **(b) — per-analyzer fields.** Quantities that **every** enabled analyzer (sat included) computes for
+  itself; each analyzer's (b) is one **ballot** entry. Two sub-kinds differ in whether they reach the
+  anchor:
+  - **sizing/sort** — `PerReplicaCapacity`, `TotalCapacity`, `TotalDemand`, `Utilization` — **mirrored
+    onto the anchor** as the **binding analyzer's** (trivially the sole analyzer's when only one is
+    enabled), so the many downstream sizing/sort/observability read sites need no change.
+  - **RC/SC** — `RequiredCapacity`, `SpareCapacity`, `RoleCapacities` — **stay per-analyzer**: the
+    cross-analyzer combine (safe-removal `min_i`, veto all-agree) reads them off **every** ballot entry;
+    they are **never combined onto the anchor**.
+
+There is **no special voting code**: the enabled-analyzer list *is* the ballot, every entry votes
+uniformly, and the anchor is just the (a)+(b) carrier the optimizer reads.
+
+**Engine (builds the inputs, in order):**
+- Run **sat-v2**. Populate the anchor with sat-v2's **(a) and (b)**.
+- Put sat-v2's **(b)** on the ballot **only if sat-v2 is enabled** (its vote may be disabled while the
+  analyzer still runs — see the F1 note below).
+- Run **every enabled analyzer, in any order**. Each produces its own **(b)**, and may read the common
+  **(a)** through the known anchor.
+- **Copy (b) from the first ballot entry onto the anchor.** Only the (b) fields; the anchor's (a) stays
+  sat-v2's, unchanged.
+- Call `optimize` with the anchor + the ballot (the enabled-analyzer list).
+
+**Optimizer (only when `len(ballot) > 1`): refresh the anchor's (b).** For each `(role, v)` the refresh
+finds the binding analyzer (`argmax_i rd_i`, [§ combine](#combine)) and **overwrites only the anchor's
+(b) fields** with that analyzer's. **(a) is never touched.** The cross-analyzer combine — safe-removal
+`min_i`, veto all-agree — reads (b) **per-analyzer off the ballot** ([§ combine](#combine),
+[§ invariants](#invariants) #4), not off the anchor.
+
+**Single vote ⇒ no refresh ⇒ the anchor's (b) is the sole analyzer's as-is.** sat-v2 only → anchor (b)
+= sat-v2's (today's `SatEntry`, byte-identical). TA only → anchor (a) = sat-v2's (always), anchor (b) =
+TA's. The `len(ballot) > 1` check is a **work-skip, not a code fork**: with one ballot entry the
+anchor's (b) already equals that entry's, so the refresh would be a no-op and is simply not executed.
+There is **one code path** — no separate one-vote path, and **no assumption** that only one analyzer is
+ever enabled.
+
+Because after the refresh the anchor carries the *binding* analyzer's (b) per `(role,v)`, **all the
+existing optimizer read sites keep working as-is** — `costEfficiency`, `fairShareCap`, `roleDemandGPUs`,
+the utilization write-back all read the anchor and now get the binding (b) instead of saturation-only
+values. The anchor is **refreshed each iteration** of the allocation loop (multi-vote only) so it always
+reflects the current binding analyzer (which can shift as replicas are added and coverage changes);
+binding is state-dependent, so under multi-vote the anchor's (b) is recomputed, not computed once.
+
+**Implementation note (coder-deferred).** The exact partition of the struct's fields into (a) vs (b),
+and the precise copy mechanism, are lower-level decisions left to the coder — "it should be more cleanly
+split, but not now" (Dean). Two equivalent mechanisms produce the same optimizer inputs: (i) put
+sat-v2's (b) on the ballot only when sat-v2 is enabled, then copy the first entry's (b) onto the anchor;
+or (ii) always full-copy sat-v2's (a)+(b) into the anchor, and copy the first entry's (b) only when
+sat-v2 is *not* on the ballot (when it is, its (b) is already the anchor's and it is first). Both yield
+the same end state: **anchor = (a) + (b, the binding analyzer's); ballot = (b) per analyzer.**
+
+**Anchor field contract.** Per `(role, variant)` anchor entry:
+
+| Category | Fields | On the anchor? | Refreshed when `len(ballot) > 1`? |
+|---|---|---|---|
+| (a) common metadata | `AcceleratorName`, `Cost`, variant identity/state | **yes — sat-v2's, always** | **no — never** |
+| (b) sizing/sort | `PerReplicaCapacity`, `TotalCapacity`, `TotalDemand`, `Utilization` | **yes** — first ballot entry (1 vote) / binding analyzer per `(role,v)` (>1) | **yes** |
+| (b) RC/SC | `RequiredCapacity`, `SpareCapacity`, `RoleCapacities` | **no** — read per-analyzer off the ballot (`Remaining`/`Spare`/`RoleSpare`) | n/a (the combine reads every vote) |
+
+(Only the sizing/sort subset of (b) is mirrored onto the anchor — the single *binding* representative
+the sizing/sort/observability sites read. RC/SC never reach the anchor: the cross-analyzer combine
+reads them off every ballot entry directly.)
+
+Further properties of the anchor:
+
 - **The anchor is the *only* mutable cell — and that makes it clean** (Dean, 2026-08-03).
   **Everything the engine produces is immutable input** — every analyzer entry, *including the
   anchor's initial value*. The optimizer owns exactly one piece of mutable state: the anchor, which
@@ -197,41 +251,45 @@ as the "binding analyzer" anchor**:
   each with its own `Role` — so per (role, variant) binding ([§ combine](#combine)) drops in
   naturally: each entry independently holds its binding analyzer's PRC/coverage. No model-global
   binding assumption anywhere.
-- **Anchor population by active-vote set** (Dean, 2026-08-03) — three cases, only one dynamic:
-  - **sat-v2 vote only (default, one vote):** sat-v2 is copied into both its per-analyzer slot and the
-    anchor; the anchor is **static** (= sat-v2, populated once, never refreshed). This is today's
-    `SatEntry` renamed → byte-identical by construction ([§ invariants](#invariants) #7).
-  - **TA vote only (one vote, TA):** sat-v2 **still runs and still produces the metadata** that is
-    copied into the anchor; the TA-only code then **replaces the per-analyzer fields** (PRC / demand /
-    coverage) on top. The anchor is **static all the way** (a sole vote is trivially binding — populate
-    once, refresh disabled).
-  - **both votes:** the anchor is populated **dynamically** with `argmax_i rd_i` per (role, variant),
-    refreshed each iteration. This is the only case that runs the per-iteration refresh.
-  Consequence — **a clean risk gradient:** the dynamic per-iteration refresh (the most novel code) is
-  reached *only* when two votes are active; both single-vote configs populate the anchor once and never
-  refresh. Default = static = identical; TA-only = static + simple; both = dynamic + most opt-in.
+- **Anchor population by active-vote set** (Dean, 2026-08-03) — three cases, only one dynamic. In all
+  three the anchor's **(a)** is sat-v2's, unchanged; the cases differ only in whose **(b)** lands on the
+  anchor and whether the optimizer refreshes it:
+  - **sat-v2 vote only (default, one vote):** anchor (a) = sat-v2, anchor (b) = sat-v2's; one ballot
+    entry ⇒ no refresh. The anchor is **static** and equals today's `SatEntry` renamed → byte-identical
+    by construction ([§ invariants](#invariants) #7).
+  - **TA vote only (one vote, TA):** sat-v2's *vote* is disabled and off the ballot, so the first (and
+    only) ballot entry is TA: anchor (b) = TA's, **as-is**; one entry ⇒ no refresh; **static all the
+    way**. Anchor (a) is **still sat-v2's** — sat-v2 the *analyzer* always runs and always produces the
+    common metadata (see the F1 note), so a TA-only anchor keeps full topology/cost; TA never needs to
+    produce (a).
+  - **both votes:** anchor (a) = sat-v2's, then the optimizer refreshes the anchor's **(b)**
+    **dynamically** with `argmax_i rd_i` per (role, variant), each iteration. This is the only case that
+    runs the per-iteration refresh.
+  Consequence — **a clean risk gradient:** the dynamic per-iteration (b) refresh (the most novel code)
+  is reached *only* when two votes are active; both single-vote configs set the anchor's (b) once and
+  never refresh. Default = static = identical; TA-only = static + simple; both = dynamic + most opt-in.
 - **sat-v2 always runs and always produces the metadata ⇒ F1 is not needed here** (Dean, 2026-08-03).
-  The anchor's topology metadata is always created by sat-v2's normal run — you **always pay** to run
-  sat-v2 (it is never skipped); the multi-analyzer / TA-only code merely **replaces the per-analyzer
-  PRC/demand fields** layered on top. TA additionally **consumes some of sat-v2's outputs for its own
-  analyzer calculation**, *upstream* of anchor construction — so sat-v2 must run before TA in analyzer
-  order, and TA-alone still relies on sat-v2 running. Consequence: F1 "pre-analysis extraction"
-  (`multi-analyzer-design.md:506-511`) is **not a prerequisite and not a cost saver** here — the
-  metadata is always present because sat-v2 always runs. Both "TA alongside" and "TA replacing the
-  sat-v2 *vote*" are in scope; neither removes the sat-v2 *run*.
+  You **always pay** to run sat-v2 the *analyzer* (it is never skipped) — but running it and *voting*
+  are separate: TA-only disables sat-v2's vote yet still runs it. TA **consumes some of sat-v2's
+  outputs for its own analyzer calculation**, *upstream* of anchor construction — so sat-v2 must run
+  before TA in analyzer order, and TA-alone still relies on sat-v2 running. Consequence: F1
+  "pre-analysis extraction" (`multi-analyzer-design.md:506-511`) is **not a prerequisite and not a
+  cost saver** here — the metadata is always present because sat-v2 always runs. Both "TA alongside"
+  and "TA replacing the sat-v2 *vote*" are in scope; neither removes the sat-v2 *run*.
 
-**Why this is attractive:** it localizes the change to (a) how the engine builds the anchor and
-(b) keeping it refreshed in the loop — the dozens of downstream read sites are untouched. It also
-makes the metadata-carrier/vote split fall out naturally (the anchor is the carrier; the vote is a
-list entry).
+**Why this is attractive:** it localizes the change to the engine's one-line (b) copy onto the anchor
+and the optimizer's multi-vote (b) refresh — the dozens of downstream read sites are untouched (they
+just read the anchor). It also makes the (a) metadata-carrier / (b) vote split fall out naturally (the
+anchor carries (a) plus the binding (b); every vote is an ordinary ballot entry contributing its (b)).
 
-**Open risk to resolve before locking:** "always the binding analyzer" is per `(role, v)` and
-per-iteration. A single scalar `PerReplicaCapacity` on one anchor entry can only hold one variant's
-binding PRC at a time; the anchor is a *list* of `VariantCapacity` (one per variant), so per-variant
-binding PRC fits — but the *cost-sort* needs the binding analyzer that would apply *at that
-variant's marginal replica*, which is exactly what the per-iteration refresh provides. Confirm the
-refresh granularity (per role-pick iteration) is enough, or whether the sort needs its own binding
-resolution. See [§ sort](#sort) and [§ open](#open).
+**Resolved risk (was: "resolve before locking"; closed [§ open](#open) #1).** "Always the binding
+analyzer" is per `(role, v)` and per-iteration. A single scalar `PerReplicaCapacity` on one anchor
+entry can only hold one variant's binding PRC at a time; the anchor is a *list* of `VariantCapacity`
+(one per variant), so per-variant binding PRC fits — and the *cost-sort* needs the binding analyzer
+that would apply *at that variant's marginal replica*, which is exactly what the per-iteration refresh
+provides. **Resolved:** the sort is already re-run once per (role, iteration) inside the pick closure,
+so the per-iteration refresh feeds it directly — no separate sort-time binding resolution is needed
+([§ open](#open) #1, [§ sort](#sort) "Sort cadence").
 
 [↑ TOC](#toc)
 
@@ -486,6 +544,17 @@ Confirmed against code (Dean, 2026-08-02):
 
    *(Numbering note: Dean referred to this as "invariant 6" on 2026-08-03 — the byte-identical-if-only-one
    property is this entry regardless of its position in the list.)*
+
+   **Test-scaffolding note (Dean, 2026-08-03).** The characterization gate reuses the package-internal
+   test helper `withSatEntry` (defined in `cost_aware_optimizer_test.go`) to build its fixtures. That
+   reuse is acceptable **precisely because the helper is test-only code** — but the gate must never have
+   a fragile *compile-time* dependency on scaffolding the refactor might churn. Rule: the refactor does
+   **not** remove or re-signature `withSatEntry` out from under the gate; if it genuinely must change,
+   the gate carries its **own copy** of the helper instead. Rationale: a gate that fails to *compile* on
+   the refactor branch is a silent break of the byte-identity property — it reads as "build failure,"
+   not "a decision moved" — so the helper's stability (or a self-contained copy) is part of the gate's
+   contract, not an incidental detail. Dean: "I don't want to rely on `withSatEntry` if we remove it; if
+   it is only test code, we can keep it in."
 
 [↑ TOC](#toc)
 
