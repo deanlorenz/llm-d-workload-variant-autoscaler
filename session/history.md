@@ -14,11 +14,11 @@
 - [PR Status — TA 0.9 stack](#pr-status--ta-09-stack) L23:37
 - [PR Status — TA3 & earlier missions](#pr-status--ta3--earlier-missions) L38:57
 - [PR Status — upstream reviews & proposals](#pr-status--upstream-reviews--proposals) L58:68
-- [Activity log — 2026-07 (TA 0.9 + upstream reviews)](#activity-log--2026-07-ta-09--upstream-reviews) L69:96
-- [Activity log — 2026-06 and earlier](#activity-log--2026-06-and-earlier) L97:120
-- [Mission — TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-16](#mission--ta3-throughputanalyzer--merged-efca1b4c-2026-06-16) L121:132
-- [Mission — Multi-Analyzer](#mission--multi-analyzer) L133:146
-- [Deferred fixes (TA2 / PR-3 follow-ups)](#deferred-fixes-ta2--pr-3-follow-ups) L147:151
+- [Activity log — 2026-07 (TA 0.9 + upstream reviews)](#activity-log--2026-07-ta-09--upstream-reviews) L69:98
+- [Activity log — 2026-06 and earlier](#activity-log--2026-06-and-earlier) L99:122
+- [Mission — TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-16](#mission--ta3-throughputanalyzer--merged-efca1b4c-2026-06-16) L123:134
+- [Mission — Multi-Analyzer](#mission--multi-analyzer) L135:148
+- [Deferred fixes (TA2 / PR-3 follow-ups)](#deferred-fixes-ta2--pr-3-follow-ups) L149:153
 
 ## PR Status — TA 0.9 stack
 
@@ -68,6 +68,8 @@ All six TA-0.9 PRs MERGED 2026-07-30; `main` tip `6bfb73e1`.
 
 ## Activity log — 2026-07 (TA 0.9 + upstream reviews)
 
+- 2026-07-31 — **CURRENT.md / history.md restructuring committed on `plans`.** Landed history extracted from CURRENT.md into this TOC-indexed fetch-on-demand archive (3 PR-Status tables + 2 Activity-log sections + TA3 / Multi-Analyzer / Deferred-fixes Mission blocks, copied verbatim then verified before deletion). CURRENT.md slimmed 301→~181 lines; ripple edits to `session/CONVENTIONS.md` Type-5 § + s-sync-current SKILL Step 3a so landed rows/tail/missions route here going forward.
+- 2026-07-30 — **`ta-testing` integration branch refreshed → `6bfb73e1`** (executes the §4.1 refresh trigger). Repointed to `upstream/main` directly (`git checkout -B`, pointer move — C/D/E/F all upstream now, `db530eed` diverged/not-ff). New signed tag `ta-0.9-test-20260730` **pushed to origin** (historical `ta-0.9-test-20260728` on `db530eed` kept). All gates green (note `pkg/` gone → drop from 3-dir gofmt past this tip). Image `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` **pushed to quay** (local ID `sha256:3d438b65c8…`, registry digest `sha256:80dec0e9728f4e7d1d06a952f43330e8b1ac5f09592284f87c0e9981c05e19ca`, linux/amd64), both Dean-authorized. Integration role now vestigial (a plain `main` checkout has all of C/D/E/F). Cleanup of old tag + stale `origin/ta-testing` + local `ta-model-level-demand` worktree deferred, non-urgent.
 - 2026-07-23→30 — **TA 0.9 fully landed (all six PRs).** A #1478 + A′ #1479 + C #1480 + D #1481 + E #1502 + F #1503 all MERGED; `main` tip `6bfb73e1`; trackers #1495/#1496/#1497 CLOSED. Design reconciliation (demand per-model; supply/k*/PRC arrival-independent; arrival-driven `k_knee` DEFERRED) + EPP-metric fact-find captured in [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md); per-PR detail + merge paths in PR Status rows.
 - 2026-07-22 — **analyzer-metric interface proposal MERGED (PR #1444, `ff3e168b`).** Per-analyzer demand `D` + target `P` (D/P = replicas); expose `wva_analyzer_*` + external PromQL analyzers. Implementation deprioritized → tracking issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455) (Phase 1/2/3). Canonical: `docs/proposals/analyzer-metric-interface.md`; draft [`planning/analyzer-metric-interface-proposal.md`](../planning/analyzer-metric-interface-proposal.md). Archive branch ~2026-08-13.
 - 2026-07-30 — **PR F #1503 (`ta-correctness-guards`) MERGED** (merge `6bfb73e1` on `main`, tip `7bf13b33`) → **TA 0.9 fully landed (all six PRs).** ev-shindin caught + fixed a real bug in F's own per-replica-freshness commit (absent-by-design metrics — EPP arrival w/ no EPP, prefix/cache-config off — falsely won the freshness rollup as `"missing"`, masking a genuinely stale driving metric from the `sanity.go` `== "stale"` gate) via an amended maintainer edit `27523605`→`7bf13b33` (the amend also extracting a `statusStale` const to clear a `goconst` break its new test tripped); resolves the review's non-blocking Finding 1. Formally APPROVED with 3 optional non-blocking test-gap notes (untracked). Planner confirmed the diagnosis/fix inline (verified `sanity.go:53`, ran the new regression tests). See `ta-correctness-guards` PR Status row.

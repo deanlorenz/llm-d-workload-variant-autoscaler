@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-07-31
+**Last updated:** 2026-08-03
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,18 +10,54 @@
 
 **Active (full abstracts) — live WIP only:**
 
-- **2026-07-31 — CURRENT.md / history.md restructuring (this sync session).** Extracted all landed
-  history out of CURRENT.md into a new TOC-indexed, fetch-on-demand archive
-  [`session/history.md`](history.md) (3 *PR Status* tables + 2 *Activity log* sections + TA3 /
-  Multi-Analyzer / Deferred-fixes *Mission* blocks — copied verbatim, verified present before any
-  deletion). CURRENT.md slimmed 301→~181 lines: recent-activity tail → history pointer; PR Status
-  keeps only the 4 open/actionable rows; missions collapsed to a one-line pointer. Ripple edits in
-  the same commit so a future sync won't re-accrete: `session/CONVENTIONS.md` Type-5 § + s-sync-current
-  SKILL Step 3a now direct landed rows/tail/missions into history.md and re-run `toc-refresh.sh`.
-  Committed on `plans`; not pushed (origin/plans several commits behind, awaiting Dean's go-ahead).
+- **2026-08-03 — Anchor-refactor mission (goldens PR #1513 OPEN; PR-1 plan + local worktree; PR-2 stub).**
+  Reshaping the multi-analyzer engine so it builds `anchor = copy(sat-v2 result)` (topology carrier) and
+  passes the enabled-analyzer list as the ballot — "no special voting code" (Dean's corrected model).
+  Three branches: **goldens** `ta-anchor-goldens@a2f49ccf` = **PR [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) OPEN**
+  (characterization gate freezing sat-v2-only decision-SET-identity keyed by VariantName; test-only +409/−0;
+  base `upstream/main@9906dac5`; reviewer ev-shindin; `origin/ta-anchor-goldens` pushed; internal review
+  FINAL — Finding 1 fixed, Finding 2 = `withSatEntry`-stability coordination note carried into the PR-1
+  kickoff; **land-first** decided). **PR-1 static core** `ta-anchor-refactor` = PLAN DRAFT + **LOCAL**
+  worktree off the goldens tip `a2f49ccf` (interim base; rebases onto `main` after #1513); coder launched
+  but **BLOCKED at Commit 1 kickoff** — surfaced 3 findings the plan §5 doesn't address (F1: the loop's
+  saturation name-skip is load-bearing, not dead code — reuse `baseResult` rather than re-`Analyze()`; **F2:
+  sat-v2 default-off gap** — under a uniform `effectiveEnabled` gate, an operator listing `analyzers:` without
+  saturation would silently disable it, since `ApplyDefaults` only backfills when the list is empty; F3:
+  existing fixtures bypass `ApplyDefaults`, mechanical). Dean's direction: hand F2 back to the planner
+  (accept-as-designed + dev-guide note **vs** patch `ApplyDefaults`) — no code written, branch still at
+  `a2f49ccf`, not pushed. **PR-2 dynamic-refresh** `ta-anchor-dynamic-refresh`
+  = PLAN STUB (deferred until PR-1 lands). Open Dean decisions: **F2 sat-v2 default-off (gates Commit 1)** +
+  Mechanism A vs B (§0, before Commit 2) + design-doc §anchor "replace"-wording annotation (§12). Design authority
+  [`planning/combined-analyzer-optimizer-design.md`](../planning/combined-analyzer-optimizer-design.md);
+  plans [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) /
+  [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md).
+- **2026-08-03 — ta-itl-demand-test-gaps → PR #1511 OPEN.** The 3 optional ITL/demand/supply test-gaps
+  ev-shindin flagged in PR F #1503 (plus a folded-in `computeVariantSupply` direct-coverage pair) shipped
+  as **PR [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511)** into upstream
+  `main` (head `ta-itl-demand-test-gaps@96263639`, base `main@6bfb73e1`, 5 test-only commits DCO-signed,
+  reviewer ev-shindin, assignee deanlorenz). Two internal reviews APPROVE; review FINAL
+  [`planning/ta-itl-demand-test-gaps-review.md`](../planning/ta-itl-demand-test-gaps-review.md). Targeting
+  0.9 (freeze 2026-08-06); MERGEABLE, awaiting Evgeny + CI. Deferred: `checkVariantGPSMismatch` diagnostic
+  coverage → separate future test-only task.
+- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap); Dean spawning a separate planner.**
+  Root-caused (not a regression): `saturation/engine_v2.go` unconditionally prepends the saturation result
+  and `effectiveEnabled` skips it by name, so `saturation:{enabled:false}` is a silent no-op — traced to
+  deferred design item F1 "Pre-analysis extraction" ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511).
+  The existing `planning/wva-analyzer-lifecycle-plan.md` Commit-2c "zero-signal" design is **REJECTED by
+  Dean** ("risky hack"; warnings added to the plan, commit `663a9624`) — a real fix must solve
+  `VariantCapacities` sourcing, not fake a neutral result. Dean is spawning a dedicated planner to
+  scope/design it (possibly still in 0.9 — freeze was delayed). Surfaced while the **benchmark TA-lead
+  experiment** coder is holding, blocked on separate planner deliverables (two-phase calibration+trigger
+  workload + a "faster" methodology) plus an open feasibility question (does TA raise RC ahead of
+  `k_sat=0.85`, or key off the same threshold?) — independent thread, do not conflate.
 - **2026-07-15 — optimizer-pd-role-ceiling: code+tests complete; dev-guide edits UNCOMMITTED; clean-design discussion in progress.** All 10 planned tests landed (6 commits, tip `0c33a3eb`, all gates green). **⚠️ Uncommitted state:** the planner (authorized by Dean; coder done) edited the Type 4 dev-guide directly in the worktree — saturation single-source note + worked example + edge-case→test table + why-coupled paragraph — **`M multi-analyzer-pipeline.md`, NOT committed** (pending Dean's review). Separately, Dean opened a design discussion on making the optimizer's data-flow/algorithm doc *clean* (analyzers→utilization desired/achieved; optimizer coordinates AND/OR; constraints); captured in new Type 1 doc [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) — **Phase 1 (discussion) done, Phase 2 (clean design) drafted & awaiting Dean's review of 2 framing questions, Phase 3 (verify code vs. clean model) not started.** Suspected real bug surfaced: anticipated supply is in the denominator, not counted toward achieved (see design doc § Open issues #2 — needs a trace). **Resume 2026-07-16:** answer the 2 Phase-2 questions, lock clean design, do Phase 3, then restructure dev-guide. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 
-**Landed / historical:** the compressed activity tail (TA 0.9 era back through 2026-05) now lives in [`session/history.md`](history.md) → *Activity log* sections. Fetch one section at a time per that file's Reading Protocol — do not inline it here. Most recent landmark: **TA 0.9 fully landed (all six PRs #1478/#1479/#1480/#1481/#1502/#1503) 2026-07-30, `main` tip `6bfb73e1`.**
+**Recently landed (1-liners; fuller entries in [`session/history.md`](history.md) → *Activity log*):**
+
+- 2026-07-30 — `ta-testing` refreshed → `6bfb73e1`; signed tag `ta-0.9-test-20260730` + quay image `:ta-0.9` (registry digest `sha256:80dec0e9728f…`) both pushed (executes the §4.1 refresh trigger).
+- 2026-07-31 — CURRENT.md / history.md restructuring committed on `plans` (landed history extracted to the archive).
+
+**Older / historical:** the compressed activity tail (TA 0.9 era back through 2026-05) lives in [`session/history.md`](history.md) → *Activity log* sections — fetch one section at a time per that file's Reading Protocol, do not inline here. Most recent landmark: **TA 0.9 fully landed (all six PRs #1478/#1479/#1480/#1481/#1502/#1503) 2026-07-30, `main` tip `6bfb73e1`.**
 
 ---
 
@@ -33,10 +69,14 @@ rows stay here.
 
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
-| wva-analyzer-lifecycle | — | **PLAN READY** — config-driven analyzer activation; ManagedAnalyzer lifecycle interface; remove frozen snapshot + startup gate; fix effectiveEnabled. Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
+| wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack; needs F1 "pre-analysis extraction" to solve `VariantCapacities` sourcing; unscoped). Dean spawning a **separate planner** to scope the real sat_v2-disable fix; awaiting his call: carve Half-A-only vs scope Half-B/F1 vs hold. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
+| ta-itl-demand-test-gaps | [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511) | **OPEN** — cover ITL-model / demand / supply guard branches (ev-shindin's PR F #1503 non-blocking notes + folded-in `computeVariantSupply` pair). Head `ta-itl-demand-test-gaps@96263639`, base `main@6bfb73e1`, 5 test-only commits DCO-signed, `origin/ta-itl-demand-test-gaps` pushed. Reviewer ev-shindin, assignee deanlorenz. Two internal reviews APPROVE; review FINAL [`planning/ta-itl-demand-test-gaps-review.md`](../planning/ta-itl-demand-test-gaps-review.md). Targeting 0.9 (freeze 2026-08-06). MERGEABLE; awaiting Evgeny + CI. Plan: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md). | `96263639` |
+| ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN** — characterization "golden" gate (test-only, +409/−0, 1 file) freezing the saturation-only optimizer decision SET (keyed by VariantName; land-first ship gate for the anchor refactor). Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note carried to PR-1 kickoff). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
+| ta-anchor-refactor | — | **PLAN DRAFT + LOCAL worktree — coder BLOCKED at Commit 1 kickoff.** PR-1 static core of the anchor refactor (engine builds `anchor = copy(sat-v2)` + passes enabled-analyzer ballot; zero combine-arithmetic change; byte-identity ship gate via #1513 goldens; TA-only enablement). Worktree cut off goldens tip `a2f49ccf` (interim base; rebases onto `main` after #1513); **no code written — still at `a2f49ccf`**. Coder surfaced 3 findings the plan §5 misses and (per Dean) handed back: **F2 = sat-v2 default-off gap** blocks Commit 1 — needs planner decision (accept opt-in-must-list-all + dev-guide note **vs** patch `ApplyDefaults` to always backfill saturation); F1 = keep the load-bearing sat name-skip as a `baseResult`-reuse guard (not delete); F3 = mechanical fixture fixes. Also open: Mechanism A/B (§0). Not pushed; no PR. Status: `session/status/ta-anchor-refactor.md`. Plan: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md). | `a2f49ccf` (no commits) |
+| ta-anchor-dynamic-refresh | — | **PLAN STUB** — PR-2 dependent (multi-vote combine + per-iteration dynamic refresh + masked-bug fixes #1/#2/#3/#5). Deferred until PR-1 lands; do NOT start until Dean scopes it. Plan: [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md). | — |
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | (upstream) rate-anchored k2 | #1501 | **Reviewed 2026-07-30 — COMMENTED posted** (deanlorenz, 15:54:47Z) — rate-anchored `k2` estimator for saturation-v2 (fixes #1500 shed-to-one on prefill-heavy traffic). 2 non-blocking asks: (1) gate `RegisterRateCapacityQueries` on `EnableRateAnchoredK2` (unconditional registration adds per-cycle Prometheus load in the default TA-off config — load-only, no correctness impact); (2) rebase onto current `main` (#1486 touches the same `NewEngine`). Estimator/tests sound, no blockers. Incoming PR — no worktree. Review FINAL: [`planning/PR1501-review.md`](../planning/PR1501-review.md). | (incoming) |
-| ta-testing (integration) | — | **Local test-only branch** (never an upstream PR) — `db530eed`, tag `ta-0.9-test-20260728` = upstream/main `11d70a8a` + C #1480 + D #1481 via `git merge --no-ff` (one semantic conflict resolved: C's `arrivalRate` param added to D's new test call sites). All gates green incl. `-race`. Image `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` (`sha256:ce5fac61…`, linux/amd64) built. **Branch + tag + image NOT pushed** (Dean-only; needs quay creds). **Note (2026-07-30): stale/moot — all six TA-0.9 PRs now on `main` (`6bfb73e1`)**, so a plain `main` checkout supersedes this pre-merge integration cut; the E/F-land refresh trigger (`planning/ta-pokprod-testing-plan.md` §4.1) is now armed — re-derive Tier-A code-under-test from `main@6bfb73e1` + rebuild/push the controller image (Dean-only; needs quay creds). Remove worktree/branch at Dean's direction. Status: `session/status/ta-testing.md`. | `db530eed` |
+| ta-testing (integration) | — | **REFRESHED 2026-07-30 → tip `6bfb73e1`** (§4.1 trigger EXECUTED). Repointed to `upstream/main` directly (`git checkout -B`, pointer move, no hand-merge) now C/D/E/F all merged. New signed tag `ta-0.9-test-20260730` **pushed to origin** (does not replace the historical `ta-0.9-test-20260728` on `db530eed`). All gates green (`make test`/lint/build; `pkg/` gone → drop from the 3-dir gofmt invocation past this tip). Image `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` **pushed to quay** (local ID `sha256:3d438b65c8…`, registry digest `sha256:80dec0e9728f…`, linux/amd64). **Integration role now vestigial** — a plain `main@6bfb73e1` checkout already has everything C/D/E/F contributed; branch value is just a stable Dean-owned tag/image pipeline name. Cleanup deferred (old tag + stale `origin/ta-testing`@`db530eed` + local `ta-model-level-demand` worktree — non-urgent, at Dean's direction). Status: `session/status/ta-testing.md`. | `6bfb73e1` |
 
 ---
 
@@ -53,18 +93,13 @@ rows stay here.
   detail + roll-up in [`session/history.md`](history.md) (PR Status + Activity log). Trackers #1495/#1496/#1497 CLOSED (C and F
   have none — under the epics). **Remaining follow-ups (all optional / GitHub-write / need Dean's
   direction):** (1) epics #1492/#1493/#1494 + adopted #1005 — decide whether to update/close now all
-  PRs merged; (2) 3 optional test gaps on F — plan ready [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md),
-  deferred/no owner (Dean: "leave as is, just document"); (3) PR #1501 ask-#1 watch (see PR Status row);
+  PRs merged; (2) the 3 optional test gaps on F are now **shipped as PR [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511)** (open, reviewer ev-shindin — see PR Status row); (3) PR #1501 ask-#1 watch (see PR Status row);
   (4) governance retrospective open Q — in [`planning/governance-follow-ups.md`](../planning/governance-follow-ups.md);
-  (5) `ta-testing` branch + local `ta-model-level-demand` worktree are stale/moot (all six PRs on `main`) —
-  raise worktree/branch removal with Dean (see refresh-trigger below + `ta-testing` PR Status row).
-- **TA 0.9 test-branch + controller-image refresh (§4.1 trigger — NOW ARMED).** Dean's directive
-  "once E, F land, update the test code branch and our controller image" (recorded
-  `planning/ta-pokprod-testing-plan.md` §4.1, commit `77bf6f7e`) — **precondition met 2026-07-30: both
-  E #1502 and F #1503 are merged on `main`.** Re-derive the Tier-A code-under-test point from
-  `main@6bfb73e1` (the stale `ta-testing` integration branch/tag/image predate C/D/E/F all landing on
-  main directly) and rebuild + push the controller image. Dean-only (needs quay creds); do not act
-  without Dean's go-ahead.
+  (5) cleanup — old tag `ta-0.9-test-20260728` + stale `origin/ta-testing`@`db530eed` + local `ta-model-level-demand` worktree; non-urgent, raise removal with Dean (see `ta-testing` PR Status row).
+- **TA 0.9 test-branch + controller-image refresh (§4.1 trigger — EXECUTED 2026-07-30).** Done: `ta-testing`
+  repointed to `main@6bfb73e1`, signed tag `ta-0.9-test-20260730` pushed to origin, image `:ta-0.9` (digest
+  `sha256:80dec0e9728f…`) pushed to quay — all Dean-authorized. See the `ta-testing` PR Status row; no
+  outstanding action for this refresh.
 - **TA 0.9 release notes / Highlights — DEFERRED to code freeze.** Mechanism + drafts in
   [`planning/ta-0.9-release-notes.md`](../planning/ta-0.9-release-notes.md): the ` ```release-note ``` `
   PR block is NOT auto-harvested (no `.github/release.yml`); GitHub auto-notes derive from PR
@@ -97,7 +132,36 @@ rows stay here.
 - **TA forward plan — P0 items all DONE** (I-21/22/23 via A #1478, I-5 both halves via A′ #1479 + E #1502).
   Next: review [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) with Dean before coding P1 items
   (collector key unification I-1 = highest-risk correctness; test-rot I-11 unlocks reviewability).
-- **wva-analyzer-lifecycle (PLAN READY):** config-driven analyzer registration, ManagedAnalyzer lifecycle (Activate/Deactivate/Reactivate), live-set refactor, effectiveEnabled fix, remove startup gate. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the `PR1266-fixup-effectiveEnabled.md` stopgap (that plan is now moot — the full fix is in Commit 3g of the lifecycle plan). Pending implementation kick-off.
+- **sat_v2 cannot be disabled via config (F1 gap) — awaiting Dean's separate planner + scope call (2026-08-03).**
+  Root cause: `saturation/engine_v2.go` unconditionally prepends the saturation result and
+  `effectiveEnabled` only skips it by name, so `saturation:{enabled:false}` is a silent no-op. The real
+  fix requires F1 "pre-analysis extraction" ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511)
+  to source `VariantCapacities` independent of the saturation scaling contribution. The
+  `wva-analyzer-lifecycle-plan.md` Commit-2c "zero-signal" design is **REJECTED** (risky hack; warnings
+  committed `663a9624`). Dean is spawning a dedicated planner; do NOT start the real fix until he scopes
+  it. Interacts with the benchmark TA-lead thread below (that coder wants sat_v2 off) — keep separate.
+- **wva-analyzer-lifecycle (PLAN — PARTIALLY REJECTED / re-scoping):** ManagedAnalyzer lifecycle
+  (Activate/Deactivate/Reactivate), config-driven registration, live-set refactor, effectiveEnabled fix,
+  remove startup gate. **Split**: Half A (lifecycle/live-set — Commits 1/3/4/5, low-risk, ~1–2 days; note
+  Commit 3g's effectiveEnabled fix already landed on `main`) vs Half B (disabling saturation — Commit 2c
+  REJECTED, needs the F1 fix above). Awaiting Dean's carve/scope/hold decision (see PR Status row). Plan:
+  [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the
+  `PR1266-fixup-effectiveEnabled.md` stopgap.
+- **anchor-refactor mission (ta-anchor-goldens #1513 → ta-anchor-refactor PR-1 → ta-anchor-dynamic-refresh PR-2):**
+  goldens ship gate is **PR [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513)**
+  (open, reviewer ev-shindin, land-first). PR-1 (`ta-anchor-refactor`) worktree cut off the goldens tip
+  `a2f49ccf` (interim base; rebases onto `main` after #1513 merges). **Coder launched but is BLOCKED at
+  Commit 1 (no code yet)** — needs a **planner decision on Finding 2 (sat-v2 default-off gap):** under the
+  plan's uniform `effectiveEnabled` gate, an operator who lists `analyzers:` without saturation would
+  silently disable it (`ApplyDefaults` only backfills saturation when the list is empty). Choose (a)
+  accept-as-designed (operators must list every analyzer when customizing; consistent with `Merge()`
+  replacing the whole list) + a Commit-4 dev-guide note, or (b) patch `config/saturation_scaling.go`
+  `ApplyDefaults` to always backfill a saturation entry (adds a file not in the plan's Commit-1 list) — then
+  update refactor-plan §5/§7. Also confirm Finding 1's `baseResult`-reuse-guard approach (the sat name-skip
+  is load-bearing, not dead code). Then the open **Mechanism A/B** decision (§0). PR-2 is a deferred stub (do
+  NOT start until PR-1 lands). Carry the `withSatEntry`-stability check (goldens review Finding 2) into PR-1.
+  Plans: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md),
+  [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md).
 - **optimizer-pd-role-ceiling (RESUME 2026-07-16 — clean-design discussion):** code + all 10 tests done (tip `0c33a3eb`); dev-guide edits made-but-UNCOMMITTED in the worktree. Active thread is Dean's clean-design effort in [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md): **(1)** answer the 2 Phase-2 framing questions (see that doc's § Resume), **(2)** lock the clean logical/data-flow, **(3)** Phase 3 — verify code vs. the clean model and resolve open issues 1–4 (notably the suspected anticipated-supply-in-denominator bug), **(4)** restructure the dev-guide into clean-design + implementation sections. Only after that: commit the dev-guide, act on the pending code-review trigger, propose the push. Do NOT commit/push until Dean directs. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 - **analyzer-metric-interface (PR #1444 MERGED → issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)):** enhancement tracked (Phase 1 metric exposure → Phase 2 external PromQL wrapper → Phase 3 polish). **Implementation deprioritized** — do NOT start until higher-priority work clears and Dean scopes Phase 1. **Archive `analyzer-metric-proposal` branch/worktree ~2026-08-13** (`git boidem`), after confirming Evgeny has no further commits.
 - **Issues to file (at Dean's direction — do not file without confirmation):** Q1+Q2 from
@@ -138,6 +202,23 @@ Phase 3 EXECUTED (`dhl-wva-209` created); hazard analysis resolved (live steps `
 review points in the status file. Full detail: [`planning/ta-pokprod-testing-plan.md`](../planning/ta-pokprod-testing-plan.md)
 + [`session/status/benchmark.md`](status/benchmark.md) (state: `blocked`).
 
+**TA-lead experiment — "does ThroughputAnalyzer trigger scale-up faster than saturation?" (setup
+check → planner, 2026-08-03).** Dean's next benchmark: run combined **TA+SAT** and test whether a
+*calibrated* TA raises RequiredCapacity while `k* < k_sat = 0.85` — leading saturation's reactive
+KV-threshold trip. **Coder is HOLDING** (clean baseline on `dhl-wva-209`, no run in flight); the
+setup check went to the **planner**, who owes: (a) a **two-phase workload** (Phase A sub-scale
+calibration sweeping KV util `[0.15, 0.85]` so TA collects ≥10 OLS samples with `KSpread ≥ 0.30`
+and flips `T2-default → OLS-Ready` *without* itself scaling — `wva_sat2_short` jumps straight to
+saturating rates, unsuitable; Phase B trigger step), and (b) a **"faster" methodology** (Δt from a
+fixed reference to HPA `desiredReplicas: 2`, A/B SAT-only vs TA+SAT on identical workload, repeats +
+noise floor). **Open feasibility question the planner must answer before a cluster run:** does TA's
+`Analyze()` actually raise RC ahead of the KV threshold, or does it also key off `k* ≥ k_sat = 0.85`
+(`DefaultKSat = 0.85`, "mirrors" saturation) — if the latter, a lead is impossible by construction
+and the experiment needs reframing. Depends on (but is a **separate thread** from) the sat_v2-disable
+F1 gap in § Next steps — the earlier attempt to isolate TA via `saturation:{enabled:false}` was the
+no-op that surfaced that bug; the TA-lead experiment runs TA+SAT combined, so it does **not** need
+sat_v2 disabled. Setup-check detail in handoff `plan__ta-sat-scaleup-lead-setup.md`.
+
 ---
 
 ## Completed missions (archived)
@@ -169,7 +250,8 @@ Infra / misc (no design-doc home; file as separate issues):
 - **TA forward plan** — 26 internal issues + 5 deferred features (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md).
   - **Deferred features (Group 0)** — code removed during #1250 dev cycle whose design intent is preserved: D-1 ITL knowledge store (historical A,B per variant, warm-up skip), D-2 GPS-mismatch SC gate, D-3 EPP-absent SC gate, D-4 FreshnessStatus staleness gate (dead end-to-end), D-5 `has*` throughput sentinels (nil-vs-zero for 3 fields). None are deprecated — all return in later PRs (D-2/D-3 via #1261, D-4 via I-6, D-5 via #1264, D-1 via I-18).
   - Key issues: collector key unification (I-1, P0 latent bug), gate observability (I-5, P0), dev guide fixes (I-21–23, P0), per-analyzer status return (I-17→#1261), effectiveEnabled (I-16→`planning/PR1266-fixup-effectiveEnabled.md`).
-- **ta-itl-demand-test-gaps** (deferred, no 0.9 deadline, no owner) — 3 optional test-coverage additions for the throughput analyzer's ITL model validator + `computeLocalDemand`, flagged non-blocking by ev-shindin in PR F #1503 review. Plan ready: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md). No branch/worktree cut — create when a coder is assigned.
+- ~~**ta-itl-demand-test-gaps**~~ — **SHIPPED as PR [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511)** (open, reviewer ev-shindin; ITL-model validator + `computeLocalDemand` + folded-in `computeVariantSupply` pair). No longer a backlog item — tracked in PR Status. Plan: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md).
+- **`checkVariantGPSMismatch` test coverage (deferred, no owner)** — split out of #1511 (4 earlier skip guards to satisfy, no existing test block, diagnostic-only). Separate future test task; recorded in the `ta-itl-demand-test-gaps-plan.md` Commit-4 §. Create a branch when assigned.
 - **Prometheus ITL-model gauges** — `wva_throughput_analyzer_itl_model_{a,b}` (labels namespace/model_id/variant/tier); see forward plan I-8.
 - **EPP image version mismatch** — `install.sh` patches EPP v0.7.0 vs local llm-d v0.5.0 (infra bug).
 - **Gateway prompt bug** — `install_core.sh` interactive prompt with `E2E_TESTS_ENABLED=false` despite `INSTALL_GATEWAY_CTRLPLANE=true` (infra bug).
