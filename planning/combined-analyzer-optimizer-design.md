@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:305
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L306:356
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L357:437
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L438:468
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L469:502
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L503:570
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L571:631
-- [Open questions {#open}](#open-questions-open) L632:671
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:306
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L307:357
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L358:438
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L439:469
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L470:503
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L504:571
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L572:632
+- [Open questions {#open}](#open-questions-open) L633:672
 
 ## Why this doc exists {#why}
 
@@ -280,9 +280,10 @@ Further properties of the anchor:
   never refresh. Default = static = identical; TA-only = static + simple; both = dynamic + most opt-in.
 - **sat-v2 always runs and always produces the metadata ⇒ F1 is not needed here** (Dean, 2026-08-03).
   You **always pay** to run sat-v2 the *analyzer* (it is never skipped) — but running it and *voting*
-  are separate: TA-only disables sat-v2's vote yet still runs it. TA **consumes some of sat-v2's
-  outputs for its own analyzer calculation**, *upstream* of anchor construction — so sat-v2 must run
-  before TA in analyzer order, and TA-alone still relies on sat-v2 running. Consequence: F1
+  are separate: TA-only disables sat-v2's vote yet still runs it. TA is an **independent producer**
+  consuming the same raw `AnalyzerInput`; sat-v2 must still run because its `Result` is the **carrier**
+  of the anchor's topology metadata (accel/cost/role/replica-count) — not because TA reads sat-v2's
+  output. There is **no analyzer-ordering constraint**. Consequence: F1
   "pre-analysis extraction" (`multi-analyzer-design.md:506-511`) is **not a prerequisite and not a
   cost saver** here — the metadata is always present because sat-v2 always runs. Both "TA alongside"
   and "TA replacing the sat-v2 *vote*" are in scope; neither removes the sat-v2 *run*.
@@ -638,8 +639,8 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
 2. ~~**Relationship to F1 / Half-B.**~~ — *Resolved 2026-08-03.* This doc **is** the missing Half-B
    design; Half-B becomes a task plan derived from it (Dean's ship decision — [§ why](#why)). F1
    "pre-analysis extraction" is **not a prerequisite and not a cost saver**: sat-v2 always runs and
-   always produces the metadata the anchor copies (TA even consumes some sat-v2 outputs for its own
-   calculation), so the metadata is always present without extracting it ([§ anchor](#anchor) "always
+   always produces the metadata the anchor copies, so the metadata is always present without
+   extracting it ([§ anchor](#anchor) "always
    runs and always produces the metadata"). F1 is simply unnecessary for enabling TA.
 3. ~~Anticipated-supply-in-denominator suspicion~~ — *Resolved 2026-08-03: TRACED, verdict
    DOWNGRADED.* Not an active sizing bug — RC correctly nets out current+pending; the only
