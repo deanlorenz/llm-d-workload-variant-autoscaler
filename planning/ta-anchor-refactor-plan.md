@@ -19,20 +19,20 @@
 
 ## TOC
 
-- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:59
-- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L60:99
-- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L100:175
-- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L176:213
-- [§4 Invariant #7 — the byte-identity ship gate](#4-invariant-7--the-byte-identity-ship-gate) L214:233
-- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L234:318
-- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L319:370
-- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L371:428
-- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L429:462
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L463:489
-- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L490:537
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L538:574
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L575:592
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L593:653
+- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:61
+- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L62:101
+- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L102:177
+- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L178:216
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L217:236
+- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L237:387
+- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L388:467
+- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L468:535
+- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L536:585
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L586:620
+- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L621:685
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L686:724
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L725:742
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L743:823
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -41,16 +41,18 @@ in §2** (Dean, 2026-08-03: "the exact fields need to be listed in the type 3 pl
 test these"). Do NOT re-derive the partition — implement §2's two tables verbatim and assert every row
 in the tests (§7).
 
-One lower-level choice is **deferred to the coder** (byte-identical for the default config; surface the
-outcome in the status file, escalate to a planner handoff only if it turns into a design decision):
-
-- **The copy mechanism.** Two equivalent implementations produce the same optimizer inputs (design doc
-  § anchor "Implementation note"): (i) put sat-v2's (b) on the ballot only when sat-v2 is enabled, then
-  copy the first entry's (b) onto the anchor; or (ii) always full-copy sat-v2's (a)+(b) into the anchor,
-  and copy the first entry's (b) only when sat-v2 is *not* on the ballot. This plan's concrete path is a
-  variant of (ii) — full copy of sat then overwrite the (b) subset (§2) from `ballot[0]`, a no-op for
-  the default `[sat-v2]` config (§5). The coder may pick (i) if cleaner; commit boundaries and the ship
-  gate are unaffected.
+**Resolved 2026-08-04 (coder-executability review, findings E1/E3) — nothing is deferred to the coder
+here anymore.** The copy mechanism is variant (ii) of the design doc's two equivalent implementations
+(§ anchor "Implementation note"): always full-copy sat-v2's (a)+(b) into the anchor, then overwrite the
+anchor's (b) subset (§2) from `ballot[0]` when non-empty. §5-1b now names the exact site (inside
+`runAnalyzersAndScore`, threaded out to `collectV2ModelRequest:607` via a return-signature change — the
+anchor cannot be built at `collectV2ModelRequest` directly because `baseResult` isn't in scope there) and
+a reusable `cloneAnalyzerResult` helper (no `Clone` method exists on `domain.AnalyzerResult`, and `copy()`
+does not compile on a struct — §5-1b gives the exact code and required depth). The helper is deliberately
+general — clone a full result, then separately overwrite its (b) subset from any source — so PR-2's
+per-iteration refresh can call it again each cycle with whatever analyzer is that iteration's binding
+vote (Dean, 2026-08-04: "anchor should ref a different (b) each iteration — the one belonging to the
+binding analyzer"), without redesigning it.
 
 [↑ TOC](#toc)
 
@@ -126,14 +128,14 @@ single-vote). "off ballot" = read per-analyzer from `req.AnalyzerResults[i].Resu
 | `VariantName` | (a) join key | yes (sat's; identical across all votes) | no | the map key everywhere (anchor↔ballot join) |
 | `AcceleratorName` | (a) | yes (sat's, never overwritten) | no | `cost_aware_optimizer.go:283`; GPU accounting `engine_v2.go:489,523` |
 | `Cost` | (a) | yes (sat's, never overwritten) | no | `cost_aware_optimizer.go:284`; `costEfficiency:234` (Cost/PRC) |
-| `Role` | (a) | yes (sat's, never overwritten) | no | role bucketing; `cost_aware_optimizer.go:305` |
+| `Role` | (a) | yes (sat's, never overwritten) | no | role bucketing; `analyzer_helpers.go:229` (`r := vc.Role` in `variantsForRole`) — not `cost_aware_optimizer.go:305`, which reads the *decision's* `state.Role` (`VariantReplicaState`), a different struct |
 | `ReplicaCount` | (a) | yes (sat's, never overwritten) | no | GPU accounting; current-replica reads |
 | `PendingReplicas` | (a) | yes (sat's, never overwritten) | no | GPU accounting; anticipated-supply reads |
 | `PerReplicaCapacity` | (b) sizing/sort | yes (binding vote's) | yes | `buildCapacityMap`, `allocateForModelPaired`, `costEfficiency:234`, `fairShareCap:421` |
 | `TotalCapacity` | (b) sizing/sort | yes (binding vote's) | yes | sizing/observability |
 | `TotalDemand` | (b) sizing/sort | yes (binding vote's) | yes | sizing; rescale demand |
 | `Utilization` | (b) sizing/sort | yes (binding vote's) | yes | `cost_aware_optimizer.go:302` (decision observability, reads the anchor) |
-| `Reason` | (b) sizing/sort (describes PRC) | yes (binding vote's) | yes | `prcForVariant` `analyzer_helpers.go:58` gates `ReasonNoData`/`ReasonError` — read **per-vote** in the combine AND mirrored onto the anchor for the sizing view |
+| `Reason` | (b) sizing/sort (describes PRC) | yes (binding vote's) | yes | `ResultIsInformative` (`analyzer_helpers.go:58`) gates `ReasonNoData`/`ReasonError` for liveness; `prcForVariant` (`:102`) reads `PerReplicaCapacity`, not `Reason` — read **per-vote** in the combine AND mirrored onto the anchor for the sizing view |
 
 **Table 2 — `domain.AnalyzerResult` (model-level; the anchor is one of these):**
 
@@ -149,7 +151,7 @@ single-vote). "off ballot" = read per-analyzer from `req.AnalyzerResults[i].Resu
 | `TotalAnticipatedSupply` | (b) RC/SC family | **no** — off ballot | n/a | consumed by the engine's threshold post-step **upstream** of the optimizer; not an anchor field |
 | `RequiredCapacity` | (b) RC/SC | **no** — off ballot | n/a | `cost_aware_optimizer.go:304`; `initRoleState` `analyzer_helpers.go:142` |
 | `SpareCapacity` | (b) RC/SC | **no** — off ballot | n/a | `cost_aware_optimizer.go:304`; `initRoleState:143` |
-| `RoleCapacities` (map → `RoleCapacity`: `Role`,`TotalSupply`,`TotalDemand`,`TotalAnticipatedSupply`,`RequiredCapacity`,`SpareCapacity`) | (b) RC/SC | **no** — off ballot | n/a | `cost_aware_optimizer.go:309`; `initRoleState:141`; `rescale.go:546` — the whole map and its `RoleCapacity` sub-fields stay per-vote |
+| `RoleCapacities` (map → `RoleCapacity`: `Role`,`TotalSupply`,`TotalDemand`,`TotalAnticipatedSupply`,`RequiredCapacity`,`SpareCapacity`) | (b) RC/SC | **no** — off ballot | n/a | `cost_aware_optimizer.go:309`; `initRoleState:141` — per-vote off the ballot. **Footnote:** `rescale.go:544-547` (`roleDemandGPUs`) has no ballot iteration — it reads this off the single anchor pointer (`req.Anchor.RoleCapacities`), not per-vote. Rescale is off by default (§11); TA-only rescale correctness is PR-2's scope. |
 
 **One-line rule the coder can hold in head:** the anchor carries **(a) = sat-v2's topology/identity
 (never overwritten)** + **(b) sizing/sort = the binding vote's** (per-variant PRC/TotalCapacity/
@@ -188,7 +190,8 @@ to TA's. No refresh runs with one vote, so all combine-arithmetic bugs stay dorm
 4. TA-only enablement path + tests; default-config byte-identity guarded by the goldens.
 
 **PR-1 changes ZERO combine arithmetic and builds NO refresh machinery.** All four masked bugs are
-combine-only (they only manifest with ≥2 votes) and are **deferred to PR-2**:
+combine-only (they only manifest with ≥2 votes) and are **deferred to PR-2** (#4 was traced to a
+non-bug — see PR-2 §2):
 
 - **#1** `allocateForModelPaired` per-replica decrement unit (`k·PRC` uniform across analyzers).
 - **#2** `roleAggRemaining` — `max_i` over mixed-unit raw RC.
@@ -211,7 +214,7 @@ like every other analyzer. The full Activate/Deactivate lifecycle is out of scop
 ---
 
 <a id="4-invariant7"></a>
-## §4 Invariant #7 — the byte-identity ship gate
+## §4 Invariant #7 — the decision-set-identity ship gate
 
 **Ship gate:** for the default config (`enabled = [sat-v2]`), PR-1 produces **decision-set-identical**
 output to `main@9906dac5`. Enforced by the `ta-anchor-goldens` characterization suite.
@@ -234,7 +237,11 @@ regress the default-config goldens.
 ## §5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot
 
 **Files:** `internal/engines/pipeline/optimizer_interfaces.go`,
-`internal/engines/saturation/engine_v2.go`.
+`internal/engines/saturation/engine_v2.go`, `internal/engines/saturation/engine_v2_test.go`,
+`internal/engines/saturation/engine_v2_liveness_test.go`,
+`internal/engines/saturation/engine_v2_demand_liveness_test.go`,
+`internal/engines/saturation/engine_v2_population_test.go`,
+`internal/engines/saturation/engine_v2_quota_test.go`.
 
 **1a. Add the anchor field.** `ModelScalingRequest` (`optimizer_interfaces.go:41-48`):
 
@@ -245,14 +252,27 @@ regress the default-config goldens.
   the enabled ballot; ordering is not significant to correctness (combines are order-independent;
   the engine copies the *first* entry's (b) onto the anchor).
 
-**1b. Build the anchor + ballot in the engine.** `runAnalyzersAndScore`
-(`engine_v2.go:96-178`) — sat-v2 already always runs (`baseResult`, :110). Change the list assembly
-(:138-171):
+**1b. Thread the anchor out of `runAnalyzersAndScore` into `collectV2ModelRequest`.** The anchor cannot
+be built where the request is assembled (`collectV2ModelRequest:581-615`, which has `namedResults` but
+not `baseResult`) or where `baseResult` lives (`runAnalyzersAndScore:96-178`, which has no `req`). Thread
+it through a return-signature change instead:
+
+- Change `runAnalyzersAndScore`'s return type from `([]pipeline.NamedAnalyzerResult, error)` to
+  `([]pipeline.NamedAnalyzerResult, *domain.AnalyzerResult, error)` — the second value is the anchor,
+  built inside the function (below) and returned alongside the ballot.
+- In `collectV2ModelRequest:592`, capture the anchor and set it on the returned struct literal at `:607`:
+  `Anchor: anchor`. **Never** source the anchor from `namedResults[0]` at this site — (a) must always
+  trace to `baseResult`, not to whichever entry happens to be first in the ballot (sourcing it from
+  `namedResults[0]` would silently pull anchor-(a) from TA in the TA-only case, while the default goldens
+  path stays green because ballot[0] is sat there — a silent-correctness landmine, not a compile stall).
+- Update all other call sites of `runAnalyzersAndScore` to the new arity — 18 test calls across 4 files,
+  discarding the new middle value: `engine_v2_test.go` (2 calls), `engine_v2_liveness_test.go` (9),
+  `engine_v2_demand_liveness_test.go` (3), `engine_v2_population_test.go` (4).
+
+**Inside `runAnalyzersAndScore` (`engine_v2.go:96-178`)** — sat-v2 already always runs (`baseResult`,
+:110). Change the list assembly (:138-171) and add the anchor build after it:
 
 - Keep running sat-v2 unconditionally (it produces the anchor's (a)).
-- **Populate the anchor from sat-v2:** `req.Anchor = copy(baseResult)` — a value copy of the
-  calibrated saturation result, deep enough that the optimizer never mutates the analyzers' stored
-  result. This gives the anchor sat's (a) AND (b).
 - Build `AnalyzerResults` as the **enabled** set, gating **every** entry (sat-v2 included) through the
   same `effectiveEnabled(name, config)` predicate — no name-based exemption. Two changes to the current
   assembly (:138-171):
@@ -261,11 +281,16 @@ regress the default-config goldens.
      **reuse** branch, *not* a re-invocation. Sat-v2 is pre-registered in `e.analyzersSnapshot`, its
      instance aliased to `e.saturationV2Analyzer`, so it is *already* computed once as `baseResult` via
      the dedicated V2 path (`runV2AnalysisOnly`, :110). When the loop reaches the sat-v2 entry: if
-     `effectiveEnabled("saturation", config)` is true, append the **already-computed** `baseResult`
-     (with its `satUp`/`satDown`) as sat-v2's ballot entry; if false, append nothing. **Never call the
-     sat-v2 entry's `Analyze()` from the loop** — that would (i) double-invoke saturation per cycle and
-     (ii) run the generic analyzer path instead of the V2 calibration path, diverging from `baseResult`.
-     Non-sat entries are unchanged: `effectiveEnabled` gate → `runRegisteredAnalyzer`.
+     `effectiveEnabled("saturation", config)` is true, append the **already-computed** `baseResult` as
+     the **full 7-field** `NamedAnalyzerResult` the removed literal built — `Name:
+     domain.SaturationAnalyzerName`, `Result: baseResult`, `Score:
+     scoreForAnalyzer(domain.SaturationAnalyzerName, config)`, `Remaining: baseResult.RequiredCapacity`,
+     `Spare: baseResult.SpareCapacity`, `ScaleUpThreshold: satUp`, `ScaleDownBoundary: satDown` —
+     dropping any of the last four fields silently breaks the default goldens (they're read by the
+     combine/liveness paths, not just Name/Result); if false, append nothing. **Never call the sat-v2
+     entry's `Analyze()` from the loop** — that would (i) double-invoke saturation per cycle and (ii) run
+     the generic analyzer path instead of the V2 calibration path, diverging from `baseResult`. Non-sat
+     entries are unchanged: `effectiveEnabled` gate → `runRegisteredAnalyzer`.
 
   > The residual `entry.name == "saturation"` comparison here is a **compute-once-reuse**, dictated by
   > sat-v2 having its own precomputed V2 result — it is **not** the optimizer voting special-case the
@@ -275,36 +300,80 @@ regress the default-config goldens.
 
   **Enablement semantics — opt-in (Dean, 2026-08-03).** `effectiveEnabled` returns true for a name
   present-and-enabled and **false for a name absent from a non-empty `analyzers` list**. `ApplyDefaults`
-  (`config/saturation_scaling.go:296-311`) inserts `{saturation, Enabled:true}` **only when the list is
-  empty**. So: the default/empty config → `[sat-v2]` (byte-identical to today); a **customized**
+  (`internal/config/saturation_scaling.go:296-311`) inserts `{saturation, Enabled:true}` **only when the
+  list is empty**. So: the default/empty config → `[sat-v2]` (byte-identical to today); a **customized**
   non-empty list yields exactly the analyzers it names — listing TA without saturation is TA-only
   ("TA in ⇒ sat out", **implied by opt-in, not enforced**). That is the PR-1 contract; PR-2 makes the
   both-enabled config (`[sat-v2, TA]`) a real multi-vote. The anchor's **(a)** is preserved in every
   case — sat-v2 always runs for the anchor; opt-in governs only whether sat-v2's **(b) vote** joins the
   ballot. **No `ApplyDefaults` change / no third file** — this is the existing `effectiveEnabled`
   opt-in behavior, now applied uniformly to sat-v2. Document it in the dev-guide (§8).
-- **Copy the (b) sizing/sort subset from `ballot[0]` onto the anchor** — the EXACT fields from §2:
+  - **Fixture fallout (this gate is retroactive).** Any existing test that builds a non-empty
+    `config.SaturationScalingConfig.Analyzers` list *without* an explicit saturation entry currently
+    gets saturation for free (today's force-append); under the uniform gate it silently loses saturation
+    unless the list is empty. Confirmed sites: `engine_v2_test.go:375-387` (asserts `HaveLen(3)` —
+    saturation+throughput+slo) and `:413-424` (asserts `HaveLen(1)`, saturation-only after disabling a
+    second analyzer); `engine_v2_liveness_test.go:28`; `engine_v2_demand_liveness_test.go:63-66`. Fix
+    each by adding an explicit `{Name: domain.SaturationAnalyzerName}` entry to the fixture's
+    `Analyzers` list so saturation stays enabled — this preserves each test's original intent and its
+    existing assertions unchanged.
+- **Build the anchor from a clone of `baseResult`, after the ballot is finished.** `domain.AnalyzerResult`
+  has no `Clone` method and `copy()` (the slice builtin) does not compile on a struct — a plain struct
+  assignment would alias `VariantCapacities`/`RoleCapacities` with the analyzer's stored `baseResult`, so
+  the (b)-overwrite below would then mutate it, violating "the anchor never mutates the stored result"
+  (§2). Add a small unexported helper in `engine_v2.go` (reusable as-is by PR-2's per-iteration refresh,
+  which clones and re-overwrites the (b) subset from a different binding analyzer each cycle):
+
+  ```go
+  func cloneAnalyzerResult(r *domain.AnalyzerResult) *domain.AnalyzerResult {
+      clone := *r
+      clone.VariantCapacities = append([]domain.VariantCapacity(nil), r.VariantCapacities...)
+      if r.RoleCapacities != nil {
+          clone.RoleCapacities = make(map[string]domain.RoleCapacity, len(r.RoleCapacities))
+          for k, v := range r.RoleCapacities {
+              clone.RoleCapacities[k] = v
+          }
+      }
+      return &clone
+  }
+  ```
+
+  (`VariantCapacity` and `RoleCapacity` are both fully flat structs — no nested pointers/slices/maps —
+  so this is sufficient depth.) `anchor := cloneAnalyzerResult(baseResult)`.
+- **Copy the (b) sizing/sort subset from `ballot[0]` onto the clone** — the EXACT fields from §2:
   per-variant (matched by `VariantName`) `PerReplicaCapacity`, `TotalCapacity`, `TotalDemand`,
   `Utilization`, `Reason`; and model-level `TotalSupply`, `TotalDemand`, `Utilization`. Leave **all (a)
   fields** untouched (`VariantName`, `AcceleratorName`, `Cost`, `Role`, `ReplicaCount`,
   `PendingReplicas`, `ModelID`, `Namespace`, `AnalyzedAt`, `AnalyzerName`) and **do not touch RC/SC**
   (`RequiredCapacity`, `SpareCapacity`, `RoleCapacities`, `TotalAnticipatedSupply` — they stay off the
-  anchor entirely). For the default `[sat-v2]`, `ballot[0]` is sat-v2, so this overwrites sat's (b) with
-  sat's own (b) — a no-op → the anchor is byte-identical to the sat result. For `[TA]`, `ballot[0]` is
-  TA → anchor (b) = TA's, anchor (a) = sat's. **No name-check** — it is "the first entry, whatever it
-  is" (this "first entry" copy is genuinely name-free, distinct from the compute-once-reuse comparison
-  in 1b.2). Do NOT build a refresh loop or a per-role `argmax` here (PR-2).
-- **Guard the `ballot[0]` copy on a non-empty ballot.** Because sat-v2 is now disable-able, a fully
-  customized config that enables *no* analyzer yields an empty ballot — `ballot[0]` would panic. Guard
-  the (b) copy on `len(ballot) > 0`; when the ballot is empty the anchor **retains sat-v2's own (b)**
+  anchor entirely, though they ride along on the clone since it's a full copy; §7 3b asserts they're
+  unread). For the default `[sat-v2]`, `ballot[0]` is sat-v2, so this overwrites the clone's (b) with
+  sat's own (b) — a no-op → the anchor is field-for-field identical to the sat result. For `[TA]`,
+  `ballot[0]` is TA → anchor (b) = TA's, anchor (a) = sat's. **No name-check** — it is "the first entry,
+  whatever it is" (this "first entry" copy is genuinely name-free, distinct from the compute-once-reuse
+  comparison above). Do NOT build a refresh loop or a per-role `argmax` here (PR-2).
+- **Guard the copy on a non-empty ballot.** Because sat-v2 is now disable-able, a fully customized
+  config that enables *no* analyzer yields an empty ballot — indexing `ballot[0]` would panic. Guard the
+  (b) copy on `len(namedResults) > 0`; when the ballot is empty the anchor **retains sat-v2's own (b)**
   (sat always ran → the anchor is still fully populated (a)+(b)). This is a safe degenerate fallback,
   not a supported config; it is byte-identical for the default `[sat-v2]` (ballot non-empty there).
+- Return `namedResults, anchor, nil`.
+- Add a PR-1 unit assertion: mutate the returned anchor's (b) fields after the call and confirm the
+  analyzer's stored `baseResult` (re-fetch it, or assert against a snapshot taken before the call) is
+  unchanged — proves the clone, not an alias, was mutated.
 
 **1c. Repoint engine-side topology scans to the anchor.**
 `computeCurrentGPUUsage` (`engine_v2.go:489-506`) and `computeCurrentGPUUsageByNamespace`
-(`engine_v2.go:523-545`) scan `AnalyzerResults` by name for the sat entry. Once sat-v2 may be absent
-from the ballot (TA-only), these break. Repoint both to read `req.Anchor.VariantCapacities` (pure (a)
-topology — accel + replica counts). Byte-identical for the default (anchor == sat-v2).
+(`engine_v2.go:523-545`) already take `requests []pipeline.ModelScalingRequest`; each currently scans a
+request's `AnalyzerResults` by name for the sat entry, with an `if satEntry == nil { continue }`
+graceful skip. Once sat-v2 may be absent from the ballot (TA-only), the by-name scan breaks. Repoint both
+to read `req.Anchor.VariantCapacities` (pure (a) topology — accel + replica counts), **keeping** the
+guard, recast as `if req.Anchor == nil { continue }` (defensive; `req.Anchor` is engine-set
+unconditionally for every V2 request, so this never fires in practice — same as today's guard is already
+dead for its real callers). Byte-identical for the default (anchor == sat-v2). The test helper `satReq`
+in `engine_v2_quota_test.go:14-23` builds a `ModelScalingRequest` with `AnalyzerResults` set but no
+`Anchor` — add `Anchor: &domain.AnalyzerResult{Namespace: namespace, VariantCapacities: vcs}` to its
+returned literal (mirrors the `AnalyzerResults` entry's `Result`).
 
 **Update comment** `engine_v2.go:93-95` ("Saturation is always the first entry; it is the keeper of
 per-variant metadata …") → describe the anchor/ballot split in prose (no plans-branch identifiers).
@@ -320,7 +389,9 @@ per-variant metadata …") → describe the anchor/ballot split in prose (no pla
 
 **Files:** `internal/engines/pipeline/analyzer_helpers.go`,
 `cost_aware_optimizer.go`, `greedy_score_optimizer.go`, `rescale.go`,
-`internal/engines/pipeline/analyzer_helpers_test.go` (+ any test referencing `saturationEntry`).
+`internal/engines/pipeline/analyzer_helpers_test.go`, `cost_aware_optimizer_test.go`,
+`greedy_score_optimizer_test.go`, `rescale_optimize_test.go`, `optimizer_equivalence_test.go`
+(+ any other test referencing `saturationEntry`).
 
 The anchor already carries (a) + the binding (b) after Commit 1, so this commit is a **rename + read
 re-routing** — no derived slice, no overlay helper.
@@ -331,29 +402,55 @@ by-name scan and the `TODO: remove the sat_v2 special role` comment (now resolve
 docstring: "returns the binding-analyzer anchor — (a) common metadata plus the binding vote's (b)
 sizing/sort quantities. Read topology and sizing/sort from it; read RC/SC per-analyzer off the ballot."
 
-  - Note: several call-sites pass `req.AnalyzerResults`; they now pass `req` (or `req.Anchor`
-    directly). Adjust signatures at the ~11 call sites in the inventory (§10).
+  - No helper needs a new parameter — `req` is already in scope at every call site. Change each getter
+    *argument* from `req.AnalyzerResults` to `req` at the ~11 call sites in the inventory (§10).
+  - Rename the local/field holders of the getter's return value from `satEntry` → `anchor` throughout
+    §6/§10 (e.g. `modelWork.satEntry` in `greedy_score_optimizer.go` → `modelWork.anchor`) — the
+    semantic-pivot grep (§9) covers these too.
+
+**2a-bis. Fix the test builder — `withSatEntry` must set `Anchor`.** `withSatEntry`
+(`cost_aware_optimizer_test.go:16-27`) is the **only** fixture builder for `ModelScalingRequest.AnalyzerResults`
+across the optimizer test suite (87 call sites: `greedy_score_optimizer_test.go` 49,
+`cost_aware_optimizer_test.go` 24, `rescale_optimize_test.go` 11, `optimizer_equivalence_test.go` 3). It
+currently sets only `req.AnalyzerResults`, never `req.Anchor` — once `bindingAnchor(req)` returns
+`req.Anchor` instead of by-name-scanning `AnalyzerResults`, every one of those fixtures yields a nil
+anchor, the nil-guard skips the request, and ~all optimizer tests **and the #1513 goldens** go red. Fix:
+add `req.Anchor = r` inside `withSatEntry`'s existing `if r != nil` block — no signature change (the
+goldens file keeps compiling per §11's "do not re-signature" note; that note is about keeping the
+*signature* stable for the goldens' compile dependency, and is compatible with this in-body addition).
 
 **2b. Route sizing/sort/observability reads to the anchor** (replace `satEntry.VariantCapacities` with
 `req.Anchor.VariantCapacities` — the shape is unchanged because the anchor now carries the binding (b)):
 
 - `cost_aware_optimizer.go`: `buildCapacityMap` (:54), `allocateForModelPaired` (:62),
-  `scaleDownRoleIterated` (:65), `costEfficiency` (:234, reads `Cost` (a) + `PRC` (b), both on the
-  anchor), the cost sort (`sortByCostEfficiencyAsc` :224).
-- `greedy_score_optimizer.go`: `modelWork.satEntry` → carry `req.Anchor`; `buildCapacityMap`
-  (:149, :164), `scaleDownRoleIterated` (:170), `allocateForModelPaired` (:309), `buildScaleUpWork`
-  (:184-197), `fairShareCap` (:421, reads anchor PRC).
+  `scaleDownRoleIterated` (:65) — take the anchor's `VariantCapacities` in place of the by-name-scan
+  result. `costEfficiency` (:234) and the cost sort (`sortByCostEfficiencyAsc` :224) need **no edit** —
+  they receive `VariantCapacity` by param/closure, so `Cost` (a) + `PRC` (b) arrive automatically once
+  `buildCapacityMap`'s input is repointed.
+- `greedy_score_optimizer.go`: `modelWork.satEntry` field → rename to `modelWork.anchor`, carrying
+  `req.Anchor`; `buildCapacityMap` (:149, :164), `scaleDownRoleIterated` (:170), `allocateForModelPaired`
+  (:309), `buildScaleUpWork` (:184-197) take the anchor. `fairShareCap` (:421) needs **no edit** — same
+  reason as `costEfficiency` above (receives `VariantCapacity` by param; the Σ-combine some readers
+  associate with it actually lives in `fairShareValue`, not here).
 - `rescale.go`: the topology reads (accel/role bucketing) at :225, :342, :465, :486, :589, :604 use
   `req.Anchor`; the demand read `rescale.go:521` `Demand: satEntry.TotalDemand` uses the anchor's
   binding (b) demand. **Rescale is off in the default golden path**; route it consistently for TA-only
   correctness but note rescale-on TA-only is validated in PR-2, not by PR-1 goldens (§11).
 
 **2c. Route decision observability + RC/SC.** `buildDecisionsWithOptimizer`
-(`cost_aware_optimizer.go:243-319`): `AcceleratorName`/`Cost` (:283-284) and `Utilization` (:302) read
-from `req.Anchor` (the binding (b) view). RC/SC (:303-314): read
-`RequiredCapacity`/`SpareCapacity`/`RoleCapacities` **per-analyzer off the ballot** — for a single-vote
-ballot that is `req.AnalyzerResults[0].Result`; RC/SC are never taken from the anchor. Byte-identical
-in the default (sole vote == sat).
+(`cost_aware_optimizer.go:243-319`): **leave `:283` (`AcceleratorName`), `:284` (`Cost`), `:302`
+(`Utilization`) reading `vc.X` exactly as today** — those are `VariantCapacity` fields, not
+`AnalyzerResult` fields (`req.Anchor.AcceleratorName`/`.Cost` do not compile, and `AnalyzerResult`'s own
+`Utilization` is model-level, not per-variant — a different ratio). No edit needed at these three lines;
+they become anchor-sourced automatically once `buildCapacityMap`'s input is repointed (§6-2b). RC/SC
+(:303-314): read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` **per-analyzer off the ballot** — for
+a single-vote ballot that is `req.AnalyzerResults[0].Result`; RC/SC are never taken from the anchor.
+**Restore the guard the rename removes:** today's `satEntry == nil { continue }` (`:48-51`) gracefully
+skips a model with no ballot; after the rename `bindingAnchor(req)` returns the engine-always-set
+(non-nil) `req.Anchor`, so that guard no longer catches an empty ballot, and the unguarded RC/SC read
+would **panic** on one. Add an explicit length guard before the read —
+`if len(req.AnalyzerResults) > 0 && req.AnalyzerResults[0].Result != nil { … }` — restoring the graceful
+skip. Byte-identical in the default (sole vote == sat).
 
 **Do NOT touch** the combine internals: `applyAllocation` (already per-vote), `roleBottleneckReplicas`
 (already per-vote), `roleAggRemaining`, `fairShareValue`, `initRoleState`, `sortVariantsForScaleDown`
@@ -383,7 +480,9 @@ an equivalent way to disable sat-v2's vote. Commit 1 already routed sat-v2 throu
 so no further engine gating is needed — this commit is the TA registration/enablement wiring + tests.
 Keep the default (empty list) = saturation enabled, TA absent (byte-identical). Do **not** add an
 `ApplyDefaults` change to re-inject saturation into a customized list — that was the rejected
-always-on-unless-disabled option; the contract is opt-in.
+always-on-unless-disabled option; the contract is opt-in. **This commit touches no production code
+beyond what Commit 1 already changed** — TA is already config-gated at `cmd/main.go:504-509`; Commit 3
+is test-only for enablement.
 
 **3b. Tests — TA-only correctness.** New cases (Ginkgo, package `pipeline` and/or the engine package):
 
@@ -398,8 +497,16 @@ always-on-unless-disabled option; the contract is opt-in.
   doc's required direct test that the sole vote lands on the anchor "as is" with no refresh.
 - **Field-classification assertion (pins §2's two tables — Dean: "should also test these").** A direct
   unit test on the engine's anchor build, asserting the exact partition so a future refactor cannot
-  silently move a field across the boundary. Use fixtures where the TA vote's fields differ observably
-  from sat-v2's (distinct PRC/Utilization/Reason; TA `AcceleratorName=""`, `Cost=0`; distinct RC/SC):
+  silently move a field across the boundary. **Lives in the `saturation` package** (not `pipeline`) —
+  the only function that builds a `*ModelScalingRequest` at all is `collectV2ModelRequest` (§5-1b), so a
+  pipeline-package test asserting a hand-built fixture would prove nothing about the *engine's* (a)/(b)
+  copy logic. Read the anchor off `collectV2ModelRequest`'s returned request, using the existing
+  `fakeAnalyzerWithResult` / minimal-engine helpers. Use a fixture builder that gives anchor-(a) and
+  anchor-(b) **distinct** sources — the TA vote's fields must differ observably from sat-v2's (distinct
+  PRC/Utilization/Reason; TA `AcceleratorName=""`, `Cost=0`; distinct RC/SC). This is a new builder, not
+  `withSatEntry`: `withSatEntry` sources both from the same result `r`, so anchor == ballot[0] and the
+  classification below would pass **vacuously** (it can't distinguish "(a) comes from sat" from "(a)
+  comes from whatever's on the ballot" when both are the same value):
   - enabled = `[sat-v2]`: assert the anchor equals the sat result on **every** field of Table 1 and
     Table 2 (both (a) and (b)); assert `anchor.AnalyzerName == "saturation"`.
   - enabled = `[TA]`: assert, field by field —
@@ -428,29 +535,45 @@ fair-share path.
 <a id="8-commit4"></a>
 ## §8 Commit 4 — developer-guide
 
-**File:** `docs/developer-guide/multi-analyzer-pipeline.md` (the Type 4 home for the
-engine→optimizer contract). Reflect **actual code on this branch only** — no forward-looking PR-2
+**Files:** `docs/developer-guide/multi-analyzer-pipeline.md` (the Type 4 home for the
+engine→optimizer contract) **and** `docs/developer-guide/saturation-scaling-config.md` (carries its own
+stale narrative — see below). Reflect **actual code on this branch only** — no forward-looking PR-2
 content, no plans-branch identifiers.
 
-Enumerated section edits:
+**`multi-analyzer-pipeline.md` — real headings** (the actual `##` headings in this file: Architecture /
+Components / User configuration / Analyzer implementor guide / Pipeline flow / How results combine /
+Data model / Optimizer internals / Optimizer consumption / Observability):
 
-- **§ "Engine → optimizer contract" (or equivalent):** add the anchor concept — the engine builds a
-  binding-analyzer anchor carrying common metadata (accelerator, cost, role, replica counts) from the
-  always-run saturation result, plus the binding vote's sizing quantities (per-replica capacity,
-  utilization, demand), and passes it alongside the ballot (the list of enabled analyzer results).
-  State that common metadata and sizing/sort quantities read from the anchor, while required/spare
-  capacity read per-analyzer off the ballot.
-- **§ variant-metadata / "saturation entry" paragraph:** replace any "saturation entry is always
-  first / keeper of per-variant metadata" wording with the anchor/ballot split. Remove the "special
-  role" framing.
-- **§ analyzer enablement / configuration:** document that saturation now obeys the standard
-  analyzer-enable config, **opt-in like every other analyzer**: it is enabled by default only when the
-  `analyzers` list is empty (backward-compat); if you **customize** the list you get exactly the
-  analyzers you name, so omitting saturation runs a single non-saturation analyzer (e.g. TA-only). State
-  plainly that customizing `analyzers:` replaces the default set — to keep saturation alongside a new
-  analyzer you must list saturation too. Note the multi-analyzer (both-enabled) combine is **not yet
-  implemented** on this branch. (Do not describe the reused-vs-recomputed engine internal — that is an
-  implementation detail, not user-facing behavior.)
+- **Data model** (L337) and **Optimizer consumption** (L449): add the anchor concept — the engine
+  builds a binding-analyzer anchor carrying common metadata (accelerator, cost, role, replica counts)
+  from the always-run saturation result, plus the binding vote's sizing quantities (per-replica
+  capacity, utilization, demand), and passes it alongside the ballot (the list of enabled analyzer
+  results). State that common metadata and sizing/sort quantities read from the anchor, while
+  required/spare capacity read per-analyzer off the ballot.
+- **The "keeper / always-first / exempt" narrative is spread across ~6 sites, not one paragraph** — the
+  L40 diagram, the L164-166 exemption ("Saturation is exempt from this gate … the engine identifies it
+  by name"), L226, L237, the L330 paragraph, and L455. Replace **all** of them with the anchor/ballot
+  split; remove the "special role"/"exempt" framing everywhere it appears, not just at the first hit.
+- **User configuration** (L127), plus Pipeline-flow step 3 (L225-227) and Components (L107-109):
+  document that saturation now obeys the standard analyzer-enable config, **opt-in like every other
+  analyzer**: it is enabled by default only when the `analyzers` list is empty (backward-compat); if you
+  **customize** the list you get exactly the analyzers you name, so omitting saturation runs a single
+  non-saturation analyzer (e.g. TA-only). State plainly that customizing `analyzers:` replaces the
+  default set — to keep saturation alongside a new analyzer you must list saturation too. Note the
+  multi-analyzer (both-enabled) combine is **not yet implemented** on this branch. (Do not describe the
+  reused-vs-recomputed engine internal — that is an implementation detail, not user-facing behavior.)
+
+**`saturation-scaling-config.md` — two stale sites** (not covered by §9's grep list, so call out
+explicitly):
+
+- **`:266`** — "The V2 saturation analyzer is pre-registered by `NewEngine` … It always runs and drives
+  the optimizer." → "… It always runs; its vote can be disabled like any other analyzer via the standard
+  `analyzers[].enabled` config."
+- **`:255-259`** — the "Scope note" block ("Non-saturation analyzers are registered and invoked, but
+  their results are **not yet consumed** — combine semantics … land in a follow-up PR") is now false for
+  the single-vote case this PR ships (a non-saturation analyzer's result IS consumed when it's the sole
+  enabled vote). Rewrite to state single-vote consumption works today; multi-vote combine remains
+  future work (PR-2).
 
 If a section named above does not exist, add it. If the doc's structure differs from the above, the
 coder maps intent → actual sections and notes any mismatch in the status file.
@@ -467,20 +590,28 @@ This PR changes a behavioral contract (the sat-v2 "always first / keeper" role �
 docstrings, and identifiers — code AND tests:
 
 ```
-grep -rn "saturationEntry\|satEntry\|SaturationAnalyzerName\|saturation entry\|always first\|keeper of per-variant\|special role\|Saturation is exempt\|before effectiveEnabled is ever called" \
+grep -rni "saturationEntry\|satEntry\|SaturationAnalyzerName\|saturation entry\|always first\|keeper of per-variant\|identifies it by name\|Saturation is exempt\|before effectiveEnabled is ever called" \
   internal/ docs/developer-guide/
 ```
 
+(Case-insensitive — a case-sensitive grep for `satEntry` never matches `withSatEntry`, missing the test
+builder that needs the §6-2a-bis fix.)
+
 Expected live-code hits to resolve (see §10 for the full map): `analyzer_helpers.go`,
 `cost_aware_optimizer.go`, `greedy_score_optimizer.go`, `rescale.go`, `engine_v2.go`,
-`optimizer_interfaces.go:44`. `SaturationAnalyzerName` legitimately survives where the engine still
-*identifies* saturation to build the anchor / resolve its threshold (`engine_v2.go:118,141,143`,
-`engine.go`) — those are not stale; the stale ones are the "always first / keeper / special role"
-narrative and the `saturationEntry` getter. **Also stale:** `effectiveEnabled`'s docstring
-(`engine_v2.go:384-385`, "Saturation is exempt … before effectiveEnabled is ever called") — after this
-PR sat-v2 flows *through* `effectiveEnabled`, so rewrite that sentence to state saturation obeys the
-same `Enabled` flag (default-on). Update `optimizer_interfaces.go:44` comment. Any hit the coder cannot
-classify → planner handoff, do not guess.
+`optimizer_interfaces.go:44`. `SaturationAnalyzerName` legitimately survives only where the engine still
+*identifies* saturation to build the anchor / resolve its threshold — `engine_v2.go:118`
+(`resolveThresholds`) on the engine side, and the compute-once-reuse branch in the ballot-assembly loop
+(§5-1b). **Not** at `engine_v2.go:141,143` — those two lines are *inside* the `:140-148` literal §5-1b
+removes; after the refactor sat is named via `entry.name`/`scoreForAnalyzer(entry.name, config)` at new
+line numbers, not the deleted literal. Also survives, untouched by this PR: `engine_queueing_model.go:81`
+— the queueing-model path (disabled; disposition TBD, see F1 discussion) sets `Name:
+domain.SaturationAnalyzerName` on its own result. `withSatEntry` (`cost_aware_optimizer_test.go:16`) is
+now caught by the `-i` flag and needs the `Anchor` fix in §6-2a-bis, not a rename. **Also stale:**
+`effectiveEnabled`'s docstring (`engine_v2.go:384-385`, "Saturation is exempt … before effectiveEnabled
+is ever called") — after this PR sat-v2 flows *through* `effectiveEnabled`, so rewrite that sentence to
+state saturation obeys the same `Enabled` flag (default-on). Update `optimizer_interfaces.go:44` comment.
+Any hit the coder cannot classify → planner handoff, do not guess.
 
 [↑ TOC](#toc)
 
@@ -491,7 +622,14 @@ classify → planner handoff, do not guess.
 
 Verified on `main@9906dac5`. **A** = (a) common metadata (→ anchor), **B** = (b) sizing/sort (→ anchor,
 carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **—** = already vote-sourced
-(no change). Line numbers are as-of-authoring; re-verify on branch base.
+(no change), **consumer, no edit** = receives `VariantCapacity`/`AnalyzerResult` fields by param/closure;
+correct data arrives automatically once its caller's source arg is repointed, no code change here. Line
+numbers are as-of-authoring; re-verify on branch base.
+
+**Naming (E9):** every local/field that today holds `saturationEntry`'s return value is renamed
+`satEntry` → `anchor` (e.g. `modelWork.satEntry` → `modelWork.anchor`) — these are the getter's
+call-site bindings. Per-vote loop variables (`e.Result`, `s[i].Result`, the picker `state`, etc.) are
+**not** renamed — they never held the getter's return and still read the per-analyzer ballot.
 
 **`analyzer_helpers.go`**
 - `:87 saturationEntry` — the getter. **RENAME** → `bindingAnchor(req)` returning `req.Anchor`.
@@ -502,26 +640,36 @@ carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **�
 - `:201 roleAggRemaining` reads picker `state` (from votes) — **—** (combine = PR-2).
 
 **`cost_aware_optimizer.go`**
-- `:48 satEntry` guard — becomes `req.Anchor`.
-- `:54 buildCapacityMap(satEntry.VariantCapacities)` — **A+B** → `req.Anchor.VariantCapacities`.
-- `:62 allocateForModelPaired(..., satEntry.VariantCapacities, ...)` — **A+B** → anchor.
-- `:65 scaleDownRoleIterated(..., satEntry.VariantCapacities, ...)` — **A+B** → anchor.
-- `:89 costGreedyRolePick` iterates `variants` (Cost **A** + PRC **B**) — both on the anchor.
+- `:48 satEntry` guard — rename to `anchor` (`req.Anchor`, engine-always-set for V2, so this guard never
+  fires in practice — it does **not** catch an empty ballot; that's a separate new guard at §6-2c).
+- `:54 buildCapacityMap(anchor.VariantCapacities)` — **A+B** → `req.Anchor.VariantCapacities`.
+- `:62 allocateForModelPaired(..., anchor.VariantCapacities, ...)` — **A+B** → anchor.
+- `:65 scaleDownRoleIterated(..., anchor.VariantCapacities, ...)` — **A+B** → anchor.
+- `:89 costGreedyRolePick` — **consumer, no edit**; iterates `variants` (Cost **A** + PRC **B**), which
+  arrive via the repointed `buildCapacityMap`/`scaleDownRoleIterated` source above.
 - `:161 sortVariantsForScaleDown` sorts `roleVCs` (Cost **A**); tie-break `prcForVariant(e.Result)` **—** per-vote (bug #3(iii) = PR-2).
-- `:234 costEfficiency` `Cost/PRC` — both fields on the anchor.
-- `:256 satEntry` in buildDecisions; `:283 AcceleratorName`/`:284 Cost` **A**; `:302 Utilization` **B** → anchor; `:303-314 RC/SC` → **ballot per-analyzer** (sole vote in single-vote).
+- `:234 costEfficiency` — **consumer, no edit**; `Cost/PRC` arrive via the anchor once repointed above.
+- `:256 anchor` (was `satEntry`) in buildDecisions; `:283 AcceleratorName`/`:284 Cost` **A**; `:302 Utilization`
+  **B** — **leave these three reading `vc.X`, no edit** (they're `VariantCapacity` fields, already
+  anchor-sourced automatically via the repointed `buildCapacityMap`; see §6-2c); `:303-314 RC/SC` →
+  **ballot per-analyzer** (sole vote in single-vote), guarded per §6-2c against an empty ballot.
 
 **`greedy_score_optimizer.go`**
-- `:46 modelWork.satEntry` field — carry `req.Anchor`.
+- `:46 modelWork.satEntry` field — **RENAME** → `modelWork.anchor`, carrying `req.Anchor`.
 - `:125,:158 saturationEntry` — → `req.Anchor`.
-- `:149,:164 buildCapacityMap(satEntry.VariantCapacities)` — **A+B** → anchor.
-- `:170 scaleDownRoleIterated(..., satEntry.VariantCapacities, ...)` — **A+B** → anchor.
-- `:184-197 buildScaleUpWork` plumbing; `:309 allocateForModelPaired(..., w.satEntry.VariantCapacities, ...)` — → anchor.
-- `:61 fairShareValue` `Σ_i` **—** (bug #5(i) = PR-2); `:421 fairShareCap` `vc.PerReplicaCapacity` **B** → anchor.
+- `:149,:164 buildCapacityMap(anchor.VariantCapacities)` — **A+B** → anchor.
+- `:170 scaleDownRoleIterated(..., anchor.VariantCapacities, ...)` — **A+B** → anchor.
+- `:184-197 buildScaleUpWork` plumbing; `:309 allocateForModelPaired(..., w.anchor.VariantCapacities, ...)` — → anchor.
+- `:61 fairShareValue` `Σ_i` **—** (bug #5(i) = PR-2; this is the actual Σ-combine site, not `fairShareCap`).
+- `:421 fairShareCap` — **consumer, no edit**; `vc.PerReplicaCapacity` arrives via the repointed
+  `buildCapacityMap`/`scaleDownRoleIterated` source above (no Σ-combine of its own).
 
 **`rescale.go`** (off by default; route for TA-only correctness, validated in PR-2)
 - `:225,:342,:465,:486,:589,:604 saturationEntry` — topology (**A**) reads → `req.Anchor`; demand (**B**) reads → anchor.
 - `:521 Demand: satEntry.TotalDemand` **B** (bug #3(i) region) — → anchor binding demand.
+- `:544-547 roleDemandGPUs` reads `RoleCapacities` off the single anchor pointer (no ballot iteration
+  here) — this is the one path where `RoleCapacities` is anchor-sourced rather than per-vote; see the
+  §2 Table 2 footnote.
 
 **`engine_v2.go`**
 - `:489-506 computeCurrentGPUUsage` / `:523-545 computeCurrentGPUUsageByNamespace` — **A** → `req.Anchor`.
@@ -556,8 +704,10 @@ carries binding vote), **RC/SC** = required/spare (→ ballot per-analyzer), **�
   adds: the multi-vote refresh of the anchor's (b) (per-role `argmax` binding), the per-iteration
   dynamic refresh, and the #1/#2/#3/#5 fixes + rescale-on multi/TA validation. PR-1 must not build any
   refresh machinery.
-- **Origin branch:** per convention, `ta-anchor-refactor` needs a matching origin branch at creation
-  (`git push -u origin ta-anchor-refactor`) — subject to Dean's per-push confirmation.
+- **Origin branch:** per convention, `ta-anchor-refactor` needs a matching origin branch at creation.
+  **This is a planner/Dean action, not a coder task** — the planner or Dean runs
+  `git push -u origin ta-anchor-refactor` (subject to Dean's per-push confirmation); the coder never
+  pushes.
 - **The goldens depend on the test-only helper `withSatEntry`** (defined in
   `internal/engines/pipeline/cost_aware_optimizer_test.go`, *outside* the goldens file). This PR renames
   `saturationEntry` and touches the optimizer test files (§6), so it can incidentally churn that helper.
@@ -606,47 +756,67 @@ them.
    field-classification test (§7 3b) exists and asserts **every** row of Table 1 and Table 2. Anchor's
    (a) always sourced from sat-v2; (b) copied from `ballot[0]`; RC/SC never written onto the anchor.
 3. **Zero combine-arithmetic change.** The diff touches **none** of: `applyAllocation`,
-   `roleBottleneckReplicas`, `roleAggRemaining`, `fairShareValue`, the combine part of `fairShareCap`,
-   `initRoleState`, the `sortVariantsForScaleDown` tie-break. No new `argmax`/`max` combine, no refresh
-   loop. Bugs #1/#2/#3/#5 remain **unfixed** (deferred to PR-2) — flag any accidental fix.
+   `roleBottleneckReplicas`, `roleAggRemaining`, `fairShareValue`, `fairShareCap`, `initRoleState`, the
+   `sortVariantsForScaleDown` tie-break. (`fairShareCap` has no Σ-combine of its own — the Σ is in
+   `fairShareValue` — so there is no "combine part of `fairShareCap`" to except; the whole function is
+   untouched.) No new `argmax`/`max` combine, no refresh loop. Bugs #1/#2/#3/#5 remain **unfixed**
+   (deferred to PR-2) — flag any accidental fix.
 4. **Single code path, uniform enablement, no *voting* special-case.** The engine builds the ballot as
    the enabled set — no forced sat-first entry, and the old `name == SaturationAnalyzerName { continue }`
    skip is **replaced by a reuse branch, not re-invocation**: when the enabled sat-v2 entry is reached
-   the loop appends the already-computed `baseResult`/`satUp`/`satDown` (never calls its `Analyze()`
-   again — verify sat's `Analyze` is not double-invoked per cycle, and the generic path is not used for
-   sat). The residual `entry.name == "saturation"` comparison is a legitimate compute-once-reuse (sat has
-   its own V2 path), **not** an optimizer voting special-case. The copy-(b)-from-`ballot[0]` is name-free.
-   Every entry (sat-v2 included) is gated by the same `effectiveEnabled` predicate. There is **no**
-   `len(ballot) > 1` code fork (a work-skip is fine, but PR-1 builds no refresh).
-4a. **Opt-in semantics + empty-ballot guard.** No `ApplyDefaults` change / no third file
-    (`config/saturation_scaling.go` untouched) — the rejected always-on-unless-disabled option must NOT
-    appear. Default/empty list → `[sat-v2]` (byte-identical); a customized non-empty list yields exactly
-    what it names (TA without saturation ⇒ TA-only). The `ballot[0]` (b)-copy is guarded on
-    `len(ballot) > 0` (empty ballot ⇒ anchor retains sat's own (b); no panic).
-5. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
+   the loop appends the already-computed `baseResult` as a **full 7-field** `NamedAnalyzerResult`
+   (`Name`/`Result`/`Score`/`Remaining`/`Spare`/`ScaleUpThreshold`/`ScaleDownBoundary` — verify none of
+   the last four are dropped; a partial reconstruction passes compilation but silently breaks the
+   default goldens) — never calls its `Analyze()` again (verify sat's `Analyze` is not double-invoked
+   per cycle, and the generic path is not used for sat). The residual `entry.name == "saturation"`
+   comparison is a legitimate compute-once-reuse (sat has its own V2 path), **not** an optimizer voting
+   special-case. The copy-(b)-from-`ballot[0]` is name-free. Every entry (sat-v2 included) is gated by
+   the same `effectiveEnabled` predicate. There is **no** `len(ballot) > 1` code fork (a work-skip is
+   fine, but PR-1 builds no refresh).
+5. **Opt-in semantics + both empty-ballot guards.** No `ApplyDefaults` change / no third file
+   (`internal/config/saturation_scaling.go` untouched) — the rejected always-on-unless-disabled option
+   must NOT appear. Default/empty list → `[sat-v2]` (byte-identical); a customized non-empty list yields
+   exactly what it names (TA without saturation ⇒ TA-only). **Two distinct guards**, both present: (i)
+   the engine-side (b)-copy is guarded on `len(namedResults) > 0` (empty ballot ⇒ anchor retains sat's
+   own (b); no panic — §5); (ii) the optimizer-side RC/SC read is guarded on
+   `len(req.AnalyzerResults) > 0 && req.AnalyzerResults[0].Result != nil` (empty ballot ⇒ graceful skip,
+   not a panic — §6-2c; this replaces the graceful-skip behavior the `satEntry == nil` guard provided
+   before the rename, since `req.Anchor` is now always non-nil).
+6. **Anchor is a clone, never an alias.** `cloneAnalyzerResult` (or equivalent) gives the anchor its own
+   `VariantCapacities` backing slice and `RoleCapacities` map — a plain struct assignment would alias
+   both with the analyzer's stored `baseResult`. A PR-1 unit test mutates the returned anchor's (b)
+   fields and confirms the analyzer's stored result is unchanged.
+7. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
    off the ballot, never from the anchor. The "zero the anchor's RC/SC ⇒ decision unchanged" test
    (§7 3b) exists and passes.
-6. **Anchor (a) sourcing under TA-only.** A test proves TA-only decisions carry `AcceleratorName`/`Cost`
+8. **Anchor (a) sourcing under TA-only.** A test proves TA-only decisions carry `AcceleratorName`/`Cost`
    from the anchor (sat's (a)) even though the TA vote never sets them (§7 3b, "Anchor (a) sourcing").
-7. **Semantic-pivot grep resolved (§9).** Every stale "always first / keeper / special role" narrative
-   and the `saturationEntry` getter is updated across comments, docstrings, and identifiers — code AND
-   tests. `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
+   The field-classification test (§7 3b) lives in the `saturation` package and uses a fixture where
+   anchor-(a) and anchor-(b) trace to **distinct** results — not `withSatEntry` (single-source, would
+   pass vacuously).
+9. **Semantic-pivot grep resolved (§9), case-insensitive.** Every stale "always first / keeper / special
+   role" narrative and the `saturationEntry` getter is updated across comments, docstrings, and
+   identifiers — code AND tests, including `withSatEntry` (a case-sensitive grep misses it).
+   `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
    list comment updated. Surviving `SaturationAnalyzerName` uses are only the legitimate
-   engine-identifies-sat sites (anchor build / threshold resolve / the compute-once-reuse branch in
-   ballot assembly), not the removed special-role narrative.
-8. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
-   commit messages (§4a). Descriptive prose only.
-9. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
-   multi-vote refresh + bugs #1/#2/#3/#5 = DEFERRED to PR-2. Nothing else silently removed.
-10. **Dev-guide reflects code, not plans (§8).** The three enumerated sections of
-    `docs/developer-guide/multi-analyzer-pipeline.md` are updated; no forward-looking PR-2 content;
-    the both-enabled combine is stated as "not yet implemented" on this branch.
-11. **Commit hygiene.** Commits 1 and 2 each keep the goldens green *independently*; Commit 3 is
+   engine-identifies-sat sites (`engine_v2.go:118` threshold resolve, the compute-once-reuse branch in
+   ballot assembly, `engine_queueing_model.go:81`'s inert impersonation literal), not the removed
+   special-role narrative.
+10. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
+    commit messages (§4a). Descriptive prose only.
+11. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
+    multi-vote refresh + bugs #1/#2/#3/#5 = DEFERRED to PR-2. Nothing else silently removed.
+12. **Dev-guide reflects code, not plans (§8).** The enumerated sections of
+    `docs/developer-guide/multi-analyzer-pipeline.md` **and** the two stale sites in
+    `docs/developer-guide/saturation-scaling-config.md` (`:255-259`, `:266`) are updated; no
+    forward-looking PR-2 content; the both-enabled combine is stated as "not yet implemented" on this
+    branch.
+13. **Commit hygiene.** Commits 1 and 2 each keep the goldens green *independently*; Commit 3 is
     additive. Each commit message matches its diff (no claimed behavior absent from the hunk — the
     cross-rebase silent-drop hazard). DCO sign-off on every commit.
-12. **Pre-push gates green.** `gofmt -l` clean, `make test` pass, `make lint` clean, `go build ./...`
+14. **Pre-push gates green.** `gofmt -l` clean, `make test` pass, `make lint` clean, `go build ./...`
     clean, `-race` on the fair-share path.
-13. **Interim-base sanity (§11).** Branch cut off the goldens tip; if #1513 has merged by review time,
+15. **Interim-base sanity (§11).** Branch cut off the goldens tip; if #1513 has merged by review time,
     confirm it was rebased onto the moving `main` tip (not a pinned SHA) and the goldens commits absorbed
     (the PR diff against `main` shows only PR-1's own commits).
 
