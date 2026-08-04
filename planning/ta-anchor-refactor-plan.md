@@ -22,17 +22,17 @@
 - [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:61
 - [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L62:101
 - [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L102:177
-- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L178:216
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L217:236
-- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L237:387
-- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L388:467
-- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L468:535
-- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L536:585
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L586:620
-- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L621:685
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L686:724
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L725:742
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L743:823
+- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L178:220
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L221:240
+- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L241:448
+- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L449:528
+- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L529:596
+- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L597:646
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L647:683
+- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L684:748
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L749:787
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L788:814
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L815:903
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -188,6 +188,10 @@ to TA's. No refresh runs with one vote, so all combine-arithmetic bugs stay dorm
 3. Rename `saturationEntry` → an anchor getter; route topology **and** sizing/sort reads to the anchor
    (the anchor now carries the binding (b)); route RC/SC reads per-analyzer off the ballot.
 4. TA-only enablement path + tests; default-config byte-identity guarded by the goldens.
+5. Disable the queueing-model optimize path (`engine.go`'s dispatch refuses a configured
+   `wva-queueing-model-config` with an explicit error + safety-net hold — never a silent fallback to
+   sat-v2). It does not implement the multi-analyzer contract (no `Anchor`; self-impersonates as
+   `"saturation"` on its own ballot entry). `engine_queueing_model.go` itself is untouched — see §5 1d.
 
 **PR-1 changes ZERO combine arithmetic and builds NO refresh machinery.** All four masked bugs are
 combine-only (they only manifest with ≥2 votes) and are **deferred to PR-2** (#4 was traced to a
@@ -241,7 +245,7 @@ regress the default-config goldens.
 `internal/engines/saturation/engine_v2_liveness_test.go`,
 `internal/engines/saturation/engine_v2_demand_liveness_test.go`,
 `internal/engines/saturation/engine_v2_population_test.go`,
-`internal/engines/saturation/engine_v2_quota_test.go`.
+`internal/engines/saturation/engine_v2_quota_test.go`, `internal/engines/saturation/engine.go`.
 
 **1a. Add the anchor field.** `ModelScalingRequest` (`optimizer_interfaces.go:41-48`):
 
@@ -374,6 +378,63 @@ dead for its real callers). Byte-identical for the default (anchor == sat-v2). T
 in `engine_v2_quota_test.go:14-23` builds a `ModelScalingRequest` with `AnalyzerResults` set but no
 `Anchor` — add `Anchor: &domain.AnalyzerResult{Namespace: namespace, VariantCapacities: vcs}` to its
 returned literal (mirrors the `AnalyzerResults` entry's `Result`).
+
+**1d. Disable the queueing-model path** (coding-plan review finding; Dean, 2026-08-04: "it should be an
+error rather than switching to sat v2. Do not impersonate."). `optimizeQueueingModel`
+(`engine_queueing_model.go:23-123`) builds each `ModelScalingRequest` with a single ballot entry
+impersonating `Name: domain.SaturationAnalyzerName` (`:81`) and sets **no `Anchor`**. Once Commit 2
+makes `bindingAnchor(req)` return `req.Anchor` instead of by-name-scanning, that impersonation stops
+finding a match and every QM request would silently lose all its decisions (nil-guard skip, no compile
+error, no red golden — QM lives entirely outside the goldens' path). QM does not implement the
+multi-analyzer contract (no `Anchor`, plus the impersonation above), so this PR disables it rather than
+plumbing it through:
+
+- **Leave the selection honest.** `engine.go`'s `optimize` method (`:433-…`) resolves `analyzerName` and
+  dispatches via a `switch` (`:552-559`). Leave `:522-525` as-is — it keeps setting `analyzerName =
+  domain.QueueingModelAnalyzerName` when `wva-queueing-model-config` is present. The engine must still
+  correctly report that QM was configured, not silently re-label the selection.
+- **Refuse at the dispatch, loudly — never a fallback to sat-v2.** Replace the switch's
+  `case domain.QueueingModelAnalyzerName: allDecisions = e.optimizeQueueingModel(ctx, modelGroups, currentAllocations)`
+  with a call to a new `e.refuseQueueingModel(...)`, added to `engine.go`:
+
+  ```go
+  var errQueueingModelUnsupported = errors.New("queueing-model analyzer does not implement the multi-analyzer contract")
+
+  // refuseQueueingModel is invoked instead of optimizeQueueingModel while the queueing-model
+  // analyzer does not implement the multi-analyzer contract (no Anchor; impersonates itself as
+  // "saturation" on its own ballot entry). It errors loudly and holds every model at its current
+  // allocation rather than silently falling back to a different analyzer — an operator who
+  // configured wva-queueing-model-config must not be misled into thinking it took effect.
+  func (e *Engine) refuseQueueingModel(
+      ctx context.Context,
+      modelGroups map[string][]llmdVariantAutoscalingV1alpha1.VariantAutoscaling,
+      currentAllocations map[string]*domain.Allocation,
+  ) []domain.VariantDecision {
+      logger := ctrl.LoggerFrom(ctx)
+      logger.Error(errQueueingModelUnsupported,
+          "wva-queueing-model-config is present but the queueing-model analyzer is currently disabled",
+          "modelCount", len(modelGroups))
+      for _, modelVAs := range modelGroups {
+          e.emitSafetyNetMetrics(ctx, modelVAs, currentAllocations, nil)
+      }
+      return nil
+  }
+  ```
+
+  This reuses the codebase's own graceful-hold idiom for a genuine per-model analysis failure
+  (`emitSafetyNetMetrics`, already called from `optimizeQueueingModel`'s own error paths at
+  `engine_queueing_model.go:56-58,71-74`) — held at current replicas, not scaled, with a loud `Error` log
+  naming exactly what's disabled and why. `errors` is already imported in `engine.go`.
+- **`engine_queueing_model.go` stays 100% untouched.** `optimizeQueueingModel` and its helpers are never
+  called in production after this change, but remain called from `engine_queueing_model_test.go`'s own
+  direct tests — the file compiles and lints clean (no "unused function" hazard), and this is a clean,
+  trivially-reversible DEFERRED boundary (§12): exactly where the file needs to be when QM gets real
+  multi-analyzer-contract support.
+- **Backstop test:** with the QM ConfigMap present, assert decisions come from the safety-net path
+  (`refuseQueueingModel`) — e.g. that no analysis side effect specific to `optimizeQueueingModel` (its
+  liveness update, or a spy on `e.queueingModelAnalyzer`) ever fires.
+- Add `internal/engines/saturation/engine.go` to this commit's Files list (a second, independent
+  engine-side change alongside the `engine_v2.go` anchor work above).
 
 **Update comment** `engine_v2.go:93-95` ("Saturation is always the first entry; it is the keeper of
 per-variant metadata …") → describe the anchor/ballot split in prose (no plans-branch identifiers).
@@ -605,9 +666,11 @@ Expected live-code hits to resolve (see §10 for the full map): `analyzer_helper
 (§5-1b). **Not** at `engine_v2.go:141,143` — those two lines are *inside* the `:140-148` literal §5-1b
 removes; after the refactor sat is named via `entry.name`/`scoreForAnalyzer(entry.name, config)` at new
 line numbers, not the deleted literal. Also survives, untouched by this PR: `engine_queueing_model.go:81`
-— the queueing-model path (disabled; disposition TBD, see F1 discussion) sets `Name:
-domain.SaturationAnalyzerName` on its own result. `withSatEntry` (`cost_aware_optimizer_test.go:16`) is
-now caught by the `-i` flag and needs the `Anchor` fix in §6-2a-bis, not a rename. **Also stale:**
+— the now-disabled queueing-model path (§5 1d; DEFERRED, §12) sets `Name: domain.SaturationAnalyzerName`
+on its own result. `withSatEntry` (`cost_aware_optimizer_test.go:16`) is now caught by the `-i` flag and
+needs the `Anchor` fix in §6-2a-bis, not a rename. **New, not stale:** `engine.go`'s new
+`refuseQueueingModel` and `errQueueingModelUnsupported` (§5 1d) are not part of this grep's scope — they
+are the fix, not leftover narrative. **Also stale:**
 `effectiveEnabled`'s docstring (`engine_v2.go:384-385`, "Saturation is exempt … before effectiveEnabled
 is ever called") — after this PR sat-v2 flows *through* `effectiveEnabled`, so rewrite that sentence to
 state saturation obeys the same `Enabled` flag (default-on). Update `optimizer_interfaces.go:44` comment.
@@ -734,6 +797,15 @@ call-site bindings. Per-vote loop variables (`e.Result`, `s[i].Result`, the pick
 - **DEPRECATED — `saturationEntry` getter + "saturation always first / keeper / special role" role.**
   Intentionally removed; superseded by the anchor/ballot contract. The by-name scan is gone; the
   engine still *names* saturation only to build the anchor and resolve its threshold.
+- **DEFERRED — queueing-model optimize path.** `optimizeQueueingModel` / `engine_queueing_model.go` are
+  disabled (not fixed) by this PR: `engine.go`'s dispatch now refuses a configured
+  `wva-queueing-model-config` with an explicit `Error` log + safety-net hold (§5 1d), instead of routing
+  to it. `engine_queueing_model.go` itself is untouched. Design intent preserved: QM does not yet
+  implement the multi-analyzer contract — it has no `Anchor`, and it self-impersonates as `"saturation"`
+  on its own ballot entry (`:81`) rather than being a genuine second analyzer. It returns as a
+  first-class multi-analyzer participant once that contract work lands (the in-code comment at `:86-90`
+  already frames this). Where: no issue filed yet for the multi-analyzer-contract work — raise with Dean
+  whether to file one.
 
 [↑ TOC](#toc)
 
@@ -773,7 +845,14 @@ them.
    special-case. The copy-(b)-from-`ballot[0]` is name-free. Every entry (sat-v2 included) is gated by
    the same `effectiveEnabled` predicate. There is **no** `len(ballot) > 1` code fork (a work-skip is
    fine, but PR-1 builds no refresh).
-5. **Opt-in semantics + both empty-ballot guards.** No `ApplyDefaults` change / no third file
+5. **Queueing-model path disabled via an explicit error, never a silent fallback.** `engine.go`'s
+   selection (`:522-525`) still honestly sets `analyzerName = domain.QueueingModelAnalyzerName` when
+   `wva-queueing-model-config` is present — it is **not** re-labeled to look like sat-v2 was chosen. The
+   dispatch switch routes that case to `refuseQueueingModel`, which logs an `Error` and holds every
+   model via `emitSafetyNetMetrics` — it never calls `optimizeQueueingModel` or `optimizeV2`.
+   `engine_queueing_model.go` is byte-for-byte untouched (confirm with a diff — its own test file keeps
+   it lint-clean without a production caller). The backstop test (§5 1d) passes.
+6. **Opt-in semantics + both empty-ballot guards.** No `ApplyDefaults` change / no third file
    (`internal/config/saturation_scaling.go` untouched) — the rejected always-on-unless-disabled option
    must NOT appear. Default/empty list → `[sat-v2]` (byte-identical); a customized non-empty list yields
    exactly what it names (TA without saturation ⇒ TA-only). **Two distinct guards**, both present: (i)
@@ -782,41 +861,42 @@ them.
    `len(req.AnalyzerResults) > 0 && req.AnalyzerResults[0].Result != nil` (empty ballot ⇒ graceful skip,
    not a panic — §6-2c; this replaces the graceful-skip behavior the `satEntry == nil` guard provided
    before the rename, since `req.Anchor` is now always non-nil).
-6. **Anchor is a clone, never an alias.** `cloneAnalyzerResult` (or equivalent) gives the anchor its own
+7. **Anchor is a clone, never an alias.** `cloneAnalyzerResult` (or equivalent) gives the anchor its own
    `VariantCapacities` backing slice and `RoleCapacities` map — a plain struct assignment would alias
    both with the analyzer's stored `baseResult`. A PR-1 unit test mutates the returned anchor's (b)
    fields and confirms the analyzer's stored result is unchanged.
-7. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
+8. **RC/SC routing.** Decisions read `RequiredCapacity`/`SpareCapacity`/`RoleCapacities` per-analyzer
    off the ballot, never from the anchor. The "zero the anchor's RC/SC ⇒ decision unchanged" test
    (§7 3b) exists and passes.
-8. **Anchor (a) sourcing under TA-only.** A test proves TA-only decisions carry `AcceleratorName`/`Cost`
+9. **Anchor (a) sourcing under TA-only.** A test proves TA-only decisions carry `AcceleratorName`/`Cost`
    from the anchor (sat's (a)) even though the TA vote never sets them (§7 3b, "Anchor (a) sourcing").
    The field-classification test (§7 3b) lives in the `saturation` package and uses a fixture where
    anchor-(a) and anchor-(b) trace to **distinct** results — not `withSatEntry` (single-source, would
    pass vacuously).
-9. **Semantic-pivot grep resolved (§9), case-insensitive.** Every stale "always first / keeper / special
-   role" narrative and the `saturationEntry` getter is updated across comments, docstrings, and
-   identifiers — code AND tests, including `withSatEntry` (a case-sensitive grep misses it).
-   `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
-   list comment updated. Surviving `SaturationAnalyzerName` uses are only the legitimate
-   engine-identifies-sat sites (`engine_v2.go:118` threshold resolve, the compute-once-reuse branch in
-   ballot assembly, `engine_queueing_model.go:81`'s inert impersonation literal), not the removed
-   special-role narrative.
-10. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
+10. **Semantic-pivot grep resolved (§9), case-insensitive.** Every stale "always first / keeper / special
+    role" narrative and the `saturationEntry` getter is updated across comments, docstrings, and
+    identifiers — code AND tests, including `withSatEntry` (a case-sensitive grep misses it).
+    `effectiveEnabled`'s docstring rewritten (sat obeys the `Enabled` flag). `optimizer_interfaces.go`
+    list comment updated. Surviving `SaturationAnalyzerName` uses are only the legitimate
+    engine-identifies-sat sites (`engine_v2.go:118` threshold resolve, the compute-once-reuse branch in
+    ballot assembly, `engine_queueing_model.go:81`'s inert impersonation literal), not the removed
+    special-role narrative.
+11. **No plans-branch identifiers** in any code-side artifact — comments, identifiers, dev-guide prose,
     commit messages (§4a). Descriptive prose only.
-11. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
-    multi-vote refresh + bugs #1/#2/#3/#5 = DEFERRED to PR-2. Nothing else silently removed.
-12. **Dev-guide reflects code, not plans (§8).** The enumerated sections of
+12. **Deletions classified (§12).** `saturationEntry` getter + special-role narrative = DEPRECATED;
+    multi-vote refresh + bugs #1/#2/#3/#5 + the queueing-model path = DEFERRED to PR-2 (or later, for
+    QM). Nothing else silently removed.
+13. **Dev-guide reflects code, not plans (§8).** The enumerated sections of
     `docs/developer-guide/multi-analyzer-pipeline.md` **and** the two stale sites in
     `docs/developer-guide/saturation-scaling-config.md` (`:255-259`, `:266`) are updated; no
     forward-looking PR-2 content; the both-enabled combine is stated as "not yet implemented" on this
     branch.
-13. **Commit hygiene.** Commits 1 and 2 each keep the goldens green *independently*; Commit 3 is
+14. **Commit hygiene.** Commits 1 and 2 each keep the goldens green *independently*; Commit 3 is
     additive. Each commit message matches its diff (no claimed behavior absent from the hunk — the
     cross-rebase silent-drop hazard). DCO sign-off on every commit.
-14. **Pre-push gates green.** `gofmt -l` clean, `make test` pass, `make lint` clean, `go build ./...`
+15. **Pre-push gates green.** `gofmt -l` clean, `make test` pass, `make lint` clean, `go build ./...`
     clean, `-race` on the fair-share path.
-15. **Interim-base sanity (§11).** Branch cut off the goldens tip; if #1513 has merged by review time,
+16. **Interim-base sanity (§11).** Branch cut off the goldens tip; if #1513 has merged by review time,
     confirm it was rebased onto the moving `main` tip (not a pinned SHA) and the goldens commits absorbed
     (the PR diff against `main` shows only PR-1's own commits).
 
