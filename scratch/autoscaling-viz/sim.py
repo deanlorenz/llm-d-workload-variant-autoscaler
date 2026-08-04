@@ -5,11 +5,20 @@ One-dimensional load, one-dimensional backends, one global FIFO queue.
 Deterministic playback of a *load trace* (requests) and a *supply trace*
 (replica start/up/stop/down events) -> sampled time-series for plotting.
 
-Phase-1 service model: per-request FIXED service_rate. A request completes at
-    dispatch_time + size / service_rate
-independent of how many other requests share the backend, as long as the
-backend's concurrency limit C is respected. Backend total work rate =
-(#in-service) * service_rate, capped at C * service_rate.
+Service model: a per-request decode rate that depends on the pod's concurrency
+(vLLM-style). Each in-service request advances at rate(k) tokens/s, where
+k = in_service / usable_C in [0, 1] is the pod's load fraction; rate(0) =
+rho * service_rate (empty pod, fastest) and rate(1) = service_rate (packed).
+rho >= 1 is the empty/packed speedup ratio. rho = 1 recovers the earlier
+fixed-rate model (rate == service_rate for every k), so it is the default and a
+behaviour-preserving identity. The engine integrates this EXACTLY, per event: on
+any change to a pod's in-service set it advances the batch by dt * rate(k_prev),
+recomputes rate at the new k, and reschedules the pod's next completion (stale
+completion events are filtered by a per-backend generation counter).
+
+The SIZER is unchanged: it still plans on the fixed *saturated* rate
+(service_rate), never crediting the low-load speedup — only the achieved latency
+reflects it. See the design doc, section 2.7 (concurrency-dependent decode rate).
 
 Nothing here is WVA code; it is a standalone teaching model.
 """
@@ -106,7 +115,7 @@ def offered_work_rate(load: dict, grid: list[float], range_s: float) -> list[flo
 
 def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
                        headroom=1.2, sizing_range=5.0, decision_interval=1.0,
-                       sat_frac=1.0) -> dict:
+                       sat_frac=1.0, max_replicas=None) -> dict:
     """Ideal baseline: desired count tracks offered work rate, near-zero setup.
 
     needed(t) = ceil(headroom * offered_work_rate(t) / per_backend); the
@@ -130,11 +139,16 @@ def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
     owr = offered_work_rate(load, [t + half for t in grid], sizing_range)  # low-noise
     per_backend = int(sat_frac * C) * service_rate    # usable, not raw C
     needed = [max(0, math.ceil(headroom * w / per_backend)) for w in owr]
+    if max_replicas is not None:                # optional cap (open-loop sizers
+        needed = [min(n, max_replicas) for n in needed]   # are uncapped by default)
 
     replicas, active, nid = [], [], 0
     free_slots: list[int] = []                  # min-heap of idle slots to reuse
     next_slot = 0
-    for t, n in zip(grid, needed):
+    decisions, prev_n = [], 0                    # log each change in desired count
+    for t, n, w in zip(grid, needed, owr):
+        if n != prev_n:
+            decisions.append({"t": t, "frm": prev_n, "to": n, "owr": w})
         while len(active) < n:                  # scale up: reuse lowest idle slot
             if free_slots:
                 slot = heapq.heappop(free_slots)
@@ -149,6 +163,7 @@ def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
             replicas[rid]["stop"] = t
             replicas[rid]["down"] = t + drain
             heapq.heappush(free_slots, replicas[rid]["slot"])
+        prev_n = n
     end = grid[-1]
     for rid in active:                          # stop leftovers at trace end
         replicas[rid]["stop"] = end
@@ -156,12 +171,13 @@ def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
     return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
                      "drain": drain, "headroom": headroom, "sat_frac": sat_frac,
                      "nslots": next_slot},
-            "replicas": replicas}
+            "replicas": replicas, "decisions": decisions}
 
 
 def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
                            headroom=1.2, sizing_range=30.0, drain_time=30.0,
-                           decision_interval=1.0, sat_frac=1.0) -> dict:
+                           decision_interval=1.0, sat_frac=1.0,
+                           boot_stagger=0.0, max_replicas=None) -> dict:
     """Reactive, QUEUE-AWARE sizing (no look-ahead / no anticipation).
 
     The controller sees only what it could actually measure at time t:
@@ -190,6 +206,7 @@ def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0
     free_slots: list[int] = []                      # min-heap of idle slots to reuse
     next_slot = 0
     backlog = 0.0                                   # fluid work-units estimate
+    decisions, prev_n = [], 0                       # log each change in desired count
 
     def up_capacity(t):                             # work/s from replicas up now
         return sum(per_backend for r in replicas
@@ -198,15 +215,24 @@ def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0
     for t, w in zip(grid, owr):
         target = w + backlog / drain_time           # inflow + backlog-drain
         n = max(0, math.ceil(headroom * target / per_backend))
+        if max_replicas is not None:
+            n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if n != prev_n:
+            decisions.append({"t": t, "frm": prev_n, "to": n,
+                              "owr": w, "backlog": backlog})
+        prev_n = n
+        j = 0                                        # index within THIS tick's batch
         while len(active) < n:                      # scale up: reuse lowest idle slot
             if free_slots:
                 slot = heapq.heappop(free_slots)
             else:
                 slot, next_slot = next_slot, next_slot + 1
-            replicas.append({"id": nid, "slot": slot, "start": t, "up": t + setup,
+            replicas.append({"id": nid, "slot": slot, "start": t,
+                             "up": t + setup + j * boot_stagger,  # cascaded boot
                              "stop": None, "down": None})
             active.append(nid)
             nid += 1
+            j += 1
         while len(active) > n:                       # scale down (LIFO), free the slot
             rid = active.pop()
             replicas[rid]["stop"] = t
@@ -222,7 +248,296 @@ def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0
     return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
                      "drain": drain, "headroom": headroom, "drain_time": drain_time,
                      "sat_frac": sat_frac, "nslots": next_slot},
-            "replicas": replicas}
+            "replicas": replicas, "decisions": decisions}
+
+
+def gen_supply_demand_predict(load: dict, C=4, service_rate=2.0, setup=0.0,
+                              drain=0.0, headroom=1.2, sizing_range=30.0,
+                              drain_time=30.0, decision_interval=1.0,
+                              sat_frac=1.0, anticipation=1.0,
+                              trend_window=None, max_replicas=None) -> dict:
+    """DEFERRED / experimental — DEMAND-prediction sizer (NOT wired into the demo).
+
+    This is a distinct axis from Qexp (gen_supply_queue_aware_exp, which predicts
+    the QUEUE): here the sizer projects DEMAND itself forward by the boot lead
+    time using a trailing linear trend (the simplest of many possible demand
+    models — lots of prior art), so capacity ordered now, landing `setup` s later,
+    is sized for the demand that will exist WHEN IT LANDS. Preserved because it is
+    the promising next step ("pre-order by the full boot lead to hide the boot
+    wall"), but the demand-prediction discussion is deferred: an *ideal* predictor
+    approaches the clairvoyant ideal, and picking a real model deserves its own
+    treatment. Kept out of run.py until then.
+
+    No foresight of future arrivals (axis 1); it only extrapolates the trailing
+    demand trend across the dead time (axis 2, dead-time compensation):
+
+        slope   = (owr(t) - owr(t - trend_window)) / trend_window  # fill rate / dOWR/dt
+        owr_hat = max(0, owr(t) + anticipation * slope * setup)    # demand at t+setup
+        target  = owr_hat + backlog / drain_time
+        needed  = ceil(headroom * target / per_backend)  -> clamp to max_replicas
+
+    `anticipation` in [0,1] is the single anticipation knob (the swept dial):
+      * 0.0  -> owr_hat == owr(t): degenerates to the reactive queue-aware sizer.
+      * 1.0  -> full dead-time lead: order for demand one whole boot ahead.
+    On the up-ramp (slope>0) it orders early, so capacity lands AS demand arrives
+    (the mechanism that can actually move good%); on the down-slope (slope<0) it
+    scales down early, trimming overshoot cost — but if demand turns back up it
+    can under-serve, so more anticipation is not free.
+
+    Note the "don't re-order booting capacity" concern (integral windup) is
+    already handled by the absolute-count target: booting replicas live in the
+    active set, so the while-loop only orders the shortfall (needed - up -
+    booting). The fill-rate term is therefore spent on looking AHEAD, not on
+    discounting in-flight capacity.
+
+    The fluid backlog advances identically to the reactive sizer (under the
+    capacity actually UP), so the two scenarios share the same physics and differ
+    only in how the sizer decides — a clean A/B on anticipation.
+    """
+    duration = load["meta"]["duration"]
+    grid = [i * decision_interval
+            for i in range(int(duration / decision_interval) + 1)]
+    owr = offered_work_rate(load, grid, sizing_range)  # TRAILING -> no peeking ahead
+    per_backend = int(sat_frac * C) * service_rate     # usable, not raw C
+    tw = trend_window if trend_window is not None else sizing_range
+    lag = max(1, int(round(tw / decision_interval)))   # grid steps back for the slope
+
+    replicas, active, nid = [], [], 0
+    free_slots: list[int] = []                      # min-heap of idle slots to reuse
+    next_slot = 0
+    backlog = 0.0                                   # fluid work-units estimate
+    decisions, prev_n = [], 0                       # log each change in desired count
+
+    def up_capacity(t):                             # work/s from replicas up now
+        return sum(per_backend for r in replicas
+                   if r["up"] <= t and (r["stop"] is None or t < r["stop"]))
+
+    for i, (t, w) in enumerate(zip(grid, owr)):
+        w_prev = owr[max(0, i - lag)]                # trailing owr one window back
+        slope = (w - w_prev) / (lag * decision_interval)  # fill rate (tokens/s per s)
+        owr_hat = max(0.0, w + anticipation * slope * setup)  # demand projected fwd
+        target = owr_hat + backlog / drain_time      # projected inflow + backlog-drain
+        n = max(0, math.ceil(headroom * target / per_backend))
+        if max_replicas is not None:
+            n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if n != prev_n:
+            decisions.append({"t": t, "frm": prev_n, "to": n,
+                              "owr": w, "backlog": backlog})
+        prev_n = n
+        while len(active) < n:                       # scale up: reuse lowest idle slot
+            if free_slots:
+                slot = heapq.heappop(free_slots)
+            else:
+                slot, next_slot = next_slot, next_slot + 1
+            replicas.append({"id": nid, "slot": slot, "start": t, "up": t + setup,
+                             "stop": None, "down": None})
+            active.append(nid)
+            nid += 1
+        while len(active) > n:                        # scale down (LIFO), free the slot
+            rid = active.pop()
+            replicas[rid]["stop"] = t
+            replicas[rid]["down"] = t + drain
+            heapq.heappush(free_slots, replicas[rid]["slot"])
+        # advance fluid backlog under the capacity actually UP right now (same
+        # physics as the reactive sizer -- only the DECISION above differs)
+        backlog = max(0.0, backlog + (w - up_capacity(t)) * decision_interval)
+
+    end = grid[-1]
+    for rid in active:
+        replicas[rid]["stop"] = end
+        replicas[rid]["down"] = end + drain
+    return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
+                     "drain": drain, "headroom": headroom, "drain_time": drain_time,
+                     "sat_frac": sat_frac, "anticipation": anticipation,
+                     "trend_window": tw, "nslots": next_slot},
+            "replicas": replicas, "decisions": decisions}
+
+
+# --------------------------------------------------------------------------
+# Shared actuation invariant (holds for EVERY sizer below and the closed-loop
+# controllers): a sizer emits an absolute desired count D; actuation drives the
+# total *commanded* fleet (current-up U + pending-booting P) toward D:
+#     D >= U+P  -> order (D - U - P) new replicas
+#     U < D < U+P -> cancel (U+P - D) PENDING only (never scale down current)
+#     D <= U    -> cancel all pending, then retire (U - D) current, LIFO
+# The inline `while len(active) </> n` loops implement exactly this: `active`
+# holds every non-retired replica in mint order, and a pending replica's start
+# is always more recent than any up replica's (start > t-setup vs <= t-setup),
+# so LIFO pop removes pending before current. A sizer must therefore NEVER
+# discount pending capacity itself (that is actuation's job) — it only decides D.
+# --------------------------------------------------------------------------
+def gen_supply_queue_aware_exp(load: dict, C=4, service_rate=2.0, setup=0.0,
+                               drain=0.0, headroom=1.2, sizing_range=30.0,
+                               drain_time=30.0, decision_interval=1.0,
+                               sat_frac=1.0, proj_setup=None, boot_stagger=0.0,
+                               max_replicas=None) -> dict:
+    """Anticipatory QUEUE-aware sizing ("Qexp") as a PERIODIC control loop.
+
+    Every tick it re-reads the observable state — current backlog level, capacity
+    up now, and the pending replicas already committed (with their land-times) —
+    and sizes to the PEAK of the backlog trajectory it projects forward under that
+    committed schedule, clearing that peak over `drain_time`:
+
+        cap(tau)      = up_capacity(t) + per_backend * (#pending landed by tau)
+        B(tau)        = fluid roll-forward of backlog under cap(tau), clamped >= 0
+        B_peak, t_pk  = max of B(tau) over [t, horizon_end] and when it occurs
+        target        = owr(t) + B_peak / drain_time
+        desired       = ceil(headroom * target / per_backend)  -> clamp max_replicas
+        order         = desired - up - pending   (uniform actuation; never < 0 net)
+
+    Why the PEAK, not the endpoint. The earlier version integrated the deficit to
+    the END of the boot window; as committed pending drained the projected queue,
+    B fell toward the RESIDUAL (often 0), which dropped the drain term and made the
+    sizer CANCEL the very pending it was counting on (self-defeating oscillation).
+    Sizing to the peak keeps the drain term equal to the worst backlog the loop
+    must clear. The peak occurs at a physical land-time (where committed capacity
+    crosses the inflow), so it does NOT drift tick-to-tick — no re-clocking of the
+    deadline, without tracking individual requests.
+
+    Observability. The loop reads only a LEVEL (backlog) plus the pending set +
+    their ETAs — it never needs per-batch departures (which the real system does
+    not expose). Scale-DOWN is driven purely by the OBSERVED backlog dropping.
+
+    Self-correction. `proj_setup` (boot lead the projection ASSUMES; defaults to
+    `setup`) and holding demand at the trailing owr are simplifying PREDICTIONS,
+    not dependencies: if reality diverges (arrivals rise/fall, boots run slow/fast)
+    the next tick re-observes the true backlog and re-sizes. Setting proj_setup !=
+    setup deliberately mis-predicts the boot lead to exercise this.
+
+    `boot_stagger` (u): replicas minted in one tick come up cascaded at
+    t+setup+j*u (j = order within the batch), modelling limited boot concurrency.
+    The projection reads each pending's stored land-time, so the cascade feeds the
+    committed-capacity schedule automatically.
+
+    No foresight of future arrivals and NO demand model (demand held at the
+    trailing owr — demand prediction is the separate gen_supply_demand_predict).
+    The fluid backlog itself advances identically to the reactive sizer (under the
+    capacity actually UP), so the scenarios share physics and differ only in the
+    sizing DECISION — a clean A/B on queue anticipation.
+    """
+    if proj_setup is None:
+        proj_setup = setup
+    duration = load["meta"]["duration"]
+    grid = [i * decision_interval
+            for i in range(int(duration / decision_interval) + 1)]
+    owr = offered_work_rate(load, grid, sizing_range)  # TRAILING -> no peeking ahead
+    per_backend = int(sat_frac * C) * service_rate     # usable, not raw C
+
+    replicas, active, nid = [], [], 0
+    free_slots: list[int] = []                      # min-heap of idle slots to reuse
+    next_slot = 0
+    backlog = 0.0                                   # fluid work-units estimate
+    decisions, prev_n = [], 0                       # log each change in desired count
+
+    def up_capacity(t):                             # work/s from replicas up now
+        return sum(per_backend for r in replicas
+                   if r["up"] <= t and (r["stop"] is None or t < r["stop"]))
+
+    def peak_backlog(t, w, b0):
+        """Roll the fluid backlog forward under the COMMITTED capacity schedule
+        (up now + each pending at its ESTIMATED land-time) and return
+        (B_peak, t_peak): the worst backlog on that trajectory and when it occurs.
+        Sizing to this peak — not the endpoint/residual — is what keeps the drain
+        term from collapsing as pending land. The peak sits at a projected
+        land-time, so it does not drift across ticks (no deadline re-clocking).
+
+        The land-time estimate is start + proj_setup — the projection's SIMPLE
+        model, not reality's r["up"]. That is deliberate: proj_setup is an
+        assumption (defaults to the true `setup`), and the sim may boot faster,
+        slower, or cascaded (boot_stagger). When it diverges, reality lands less
+        capacity than projected, the observed backlog next tick runs higher than
+        expected, and the loop re-sizes — self-correction, not dependence. The
+        pending SET is observable (pod not yet Ready, r["up"] > t); only its ETA
+        is estimated. A pending the projection expected up by now (est < t) is
+        treated as landing imminently (clamped to t)."""
+        ups = sorted(max(t, r["start"] + proj_setup)  # ESTIMATED landings, not r[up]
+                     for r in replicas
+                     if t < r["up"] and (r["stop"] is None or t < r["stop"]))
+        # look at least one boot-lead ahead, and far enough to see every committed
+        # landing (so a heavily-staggered cascade is fully accounted for)
+        horizon_end = t + proj_setup
+        if ups:
+            horizon_end = max(horizon_end, ups[-1])
+        b, cap, prev = b0, up_capacity(t), t
+        b_peak, t_peak = b, t
+        for u in ups:
+            if u > horizon_end:
+                break
+            if w > cap:                             # deficit -> backlog grows
+                b = b + (w - cap) * (u - prev)
+                if b > b_peak:
+                    b_peak, t_peak = b, u
+            else:                                   # surplus -> drains, clamp >= 0
+                b = max(0.0, b + (w - cap) * (u - prev))
+            cap += per_backend                      # this pending replica is now up
+            prev = u
+        if horizon_end > prev and w > cap:          # final growing segment
+            b = b + (w - cap) * (horizon_end - prev)
+            if b > b_peak:
+                b_peak, t_peak = b, horizon_end
+        return b_peak, t_peak
+
+    for t, w in zip(grid, owr):
+        b_peak, t_peak = peak_backlog(t, w, backlog)  # worst queue on committed path
+        target = w + b_peak / drain_time            # inflow + clear the PEAK / drain
+        n = max(0, math.ceil(headroom * target / per_backend))
+        if max_replicas is not None:
+            n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if n != prev_n:
+            decisions.append({"t": t, "frm": prev_n, "to": n, "owr": w,
+                              "backlog": backlog, "b_peak": b_peak, "t_peak": t_peak})
+        prev_n = n
+        j = 0                                        # index within THIS tick's batch
+        while len(active) < n:                       # scale up: reuse lowest idle slot
+            if free_slots:
+                slot = heapq.heappop(free_slots)
+            else:
+                slot, next_slot = next_slot, next_slot + 1
+            replicas.append({"id": nid, "slot": slot, "start": t,
+                             "up": t + setup + j * boot_stagger,  # cascaded boot
+                             "stop": None, "down": None})
+            active.append(nid)
+            nid += 1
+            j += 1
+        while len(active) > n:                        # scale down (LIFO -> pending 1st)
+            rid = active.pop()
+            replicas[rid]["stop"] = t
+            replicas[rid]["down"] = t + drain
+            heapq.heappush(free_slots, replicas[rid]["slot"])
+        # advance fluid backlog under the capacity actually UP right now (same
+        # physics as the reactive sizer -- only the DECISION above differs)
+        backlog = max(0.0, backlog + (w - up_capacity(t)) * decision_interval)
+
+    end = grid[-1]
+    for rid in active:
+        replicas[rid]["stop"] = end
+        replicas[rid]["down"] = end + drain
+    return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
+                     "drain": drain, "headroom": headroom, "drain_time": drain_time,
+                     "sat_frac": sat_frac, "proj_setup": proj_setup,
+                     "boot_stagger": boot_stagger, "nslots": next_slot},
+            "replicas": replicas, "decisions": decisions}
+
+
+def gen_supply_static(load: dict, count: int, C=4, service_rate=2.0, setup=0.0,
+                      drain=0.0, sat_frac=1.0) -> dict:
+    """No-autoscaling baseline: a FIXED fleet of `count` replicas, up for the
+    whole trace. There are no scale decisions — you provision once and leave it.
+
+    Pre-warmed by default (setup=0, up at t=0): the boot is paid for before the
+    run, so the fleet is usable from the first request. This is the classic
+    static-provisioning reference — perfect promptness when `count` covers the
+    peak, at the cost of the full fleet for the full duration (no scale-down in
+    the valleys, so utilisation is whatever the load happens to fill).
+    """
+    duration = load["meta"]["duration"]
+    replicas = [{"id": i, "slot": i, "start": 0.0, "up": setup,
+                 "stop": duration, "down": duration + drain}
+                for i in range(count)]
+    return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
+                     "drain": drain, "headroom": 1.0, "sat_frac": sat_frac,
+                     "nslots": count},
+            "replicas": replicas, "decisions": []}
 
 
 # --------------------------------------------------------------------------
@@ -282,16 +597,31 @@ def make_controller(kind: str, q_target=1.0, conc_target=58.0):
 class Backend:
     id: int
     C: int
-    service_rate: float
+    service_rate: float         # nominal (packed) tokens/s per in-service request
     up: float
     stop: float
     down: float                 # target down time
     usable_C: int = 0           # accepting ceiling = floor(sat_frac*C); 0 => raw C
+    rho: float = 1.0            # empty/packed decode-rate speedup (>=1; 1 = fixed)
     in_service: int = 0
     accepting: bool = False     # up..stop
     alive: bool = False         # up..actual_down
     pending_down: bool = False
     actual_down: float | None = None
+    # concurrency-dependent decode-rate engine state (see module docstring / §2.7)
+    inflight: list = field(default_factory=list)  # Reqs currently served on this pod
+    rate: float = 0.0           # current per-request token rate = rate_at(k)
+    last_update: float = 0.0    # time inflight `remaining` were last advanced
+    comp_seq: int = 0           # generation counter; stale completions are ignored
+
+    def rate_at(self, k: float) -> float:
+        """Per-request decode rate at load fraction k = in_service/usable_C.
+        Linear-ITL form ITL(k) = B + A*k with ITL(1)=1/sr (packed) and
+        ITL(0)=1/(rho*sr) (empty), so rate(k)=1/(B+A*k). rho=1 => rate==sr."""
+        inv = 1.0 / self.service_rate
+        B = inv / self.rho
+        A = inv * (1.0 - 1.0 / self.rho)
+        return 1.0 / (B + A * k)
 
 
 @dataclass
@@ -300,17 +630,18 @@ class Req:
     arrival: float
     size: float
     start: float | None = None
-    done: float | None = None
+    remaining: float = 0.0      # tokens left to decode (set to size at dispatch)
 
 
 class Simulator:
     def __init__(self, load: dict, supply: dict, controller=None,
-                 decision_interval=15.0, metric_window=60.0):
+                 decision_interval=15.0, metric_window=60.0, rho=1.0):
         self.load = load
         self.supply = supply
         self.duration = load["meta"]["duration"]
         m = supply["meta"]
         sat = m.get("sat_frac", 1.0)
+        self.rho = m.get("rho", rho)     # empty/packed decode speedup (>=1; 1=fixed)
         self.backends = {}
         for r in supply["replicas"]:
             cap = r.get("C", m["C"])
@@ -318,7 +649,8 @@ class Simulator:
                 id=r["id"], C=cap,
                 service_rate=r.get("service_rate", m["service_rate"]),
                 up=r["up"], stop=r["stop"], down=r["down"],
-                usable_C=max(1, int(r.get("sat_frac", sat) * cap)))
+                usable_C=max(1, int(r.get("sat_frac", sat) * cap)),
+                rho=self.rho)
         self.queue: deque[Req] = deque()
         # event heap: (time, seq, kind, payload)
         self._seq = 0
@@ -372,6 +704,29 @@ class Simulator:
                     best, best_free = b, free
         return best
 
+    def _advance(self, b, now):
+        """Advance every in-service request on `b` by the tokens decoded since the
+        pod's last state change, at the rate that held over that interval. Call
+        BEFORE mutating in_service so the elapsed span is charged at the old rate."""
+        dt = now - b.last_update
+        if dt > 0.0 and b.rate > 0.0:
+            for r in b.inflight:
+                r.remaining -= dt * b.rate
+        b.last_update = now
+
+    def _reschedule(self, b, now):
+        """Recompute `b`'s decode rate at its current concurrency and push a fresh
+        completion for its earliest-finishing request, bumping the generation so
+        any previously-scheduled completion for `b` is ignored when it pops."""
+        if b.in_service > 0:
+            b.rate = b.rate_at(b.in_service / b.usable_C)
+            rmin = min(r.remaining for r in b.inflight)
+            b.comp_seq += 1
+            self._push(now + max(0.0, rmin) / b.rate, "completion",
+                       (b.id, b.comp_seq))
+        else:
+            b.rate = 0.0
+
     def _dispatch(self, now):
         while self.queue:
             b = self._free_backend()
@@ -379,9 +734,11 @@ class Simulator:
                 break
             req = self.queue.popleft()
             req.start = now
-            req.done = now + req.size / b.service_rate
+            req.remaining = req.size
+            self._advance(b, now)          # charge existing batch at the old rate
+            b.inflight.append(req)
             b.in_service += 1
-            self._push(req.done, "completion", (req, b.id))
+            self._reschedule(b, now)       # higher concurrency -> new (slower) rate
 
     # ----- closed-loop control helpers (only used when self.controller set) ---
     def _trailing_avg(self, key_fn, a, b):
@@ -418,7 +775,7 @@ class Simulator:
         self.backends[rid] = Backend(
             id=rid, C=self.cl_C, service_rate=self.cl_sr,
             up=rec["up"], stop=None, down=None,
-            usable_C=max(1, int(self.cl_sat * self.cl_C)))
+            usable_C=max(1, int(self.cl_sat * self.cl_C)), rho=self.rho)
         self._push(rec["up"], "up", rid)
         self._commanded.append(rid)
         self._n_commanded += 1
@@ -487,8 +844,13 @@ class Simulator:
                     b.actual_down = t
 
             elif kind == "completion":
-                req, bid = payload
+                bid, seq = payload
                 b = self.backends[bid]
+                if seq != b.comp_seq or not b.inflight:
+                    continue                     # stale: superseded by a reschedule
+                self._advance(b, t)              # bring the batch's remaining to now
+                req = min(b.inflight, key=lambda r: r.remaining)  # earliest-finishing
+                b.inflight.remove(req)
                 b.in_service -= 1
                 self.dep_log.append((t, req.size))
                 self.dep_by_backend[bid].append((t, req.size))
@@ -496,11 +858,12 @@ class Simulator:
                     "done": t, "arrival": req.arrival, "size": req.size,
                     "latency": t - req.arrival,          # total time in system
                     "wait": (req.start - req.arrival) if req.start is not None else 0.0,
-                    "service": req.size / b.service_rate})
+                    "service": (t - req.start) if req.start is not None else 0.0})
                 if b.pending_down and b.in_service == 0:
                     b.alive = False
                     b.actual_down = t
                     b.pending_down = False
+                self._reschedule(b, t)           # fewer reqs -> faster; next completion
                 self._dispatch(t)
 
             elif kind == "decide":
@@ -511,8 +874,13 @@ class Simulator:
                 avg_q = self._trailing_avg(lambda s: s["qlen"], a, t)
                 avg_r = self._trailing_avg(
                     lambda s: sum(s["insvc"].values()), a, t)
-                desired = self.controller(avg_q, avg_r, self._n_commanded)
+                prev = self._n_commanded
+                desired = self.controller(avg_q, avg_r, prev)
                 desired = max(self.cl_min, min(self.cl_max, desired))
+                if desired != prev:                 # log each change in desired
+                    self.supply.setdefault("decisions", []).append(
+                        {"t": t, "frm": prev, "to": desired,
+                         "avg_q": avg_q, "avg_r": avg_r})
                 self._reconcile(t, desired)
                 self._dispatch(t)
 
@@ -528,7 +896,8 @@ class Simulator:
 def run_closed_loop(load: dict, kind: str, C=4, service_rate=2.0, setup=0.0,
                     drain=0.0, sat_frac=1.0, decision_interval=15.0,
                     metric_window=60.0, q_target=1.0, conc_target=None,
-                    headroom=1.2, min_replicas=1, max_replicas=10) -> Simulator:
+                    headroom=1.2, min_replicas=1, max_replicas=10,
+                    rho=1.0) -> Simulator:
     """Build + run an HPA/KEDA-style closed-loop scenario end to end.
 
     Unlike gen_supply_* (open-loop pre-passes over the load trace), the
@@ -547,11 +916,12 @@ def run_closed_loop(load: dict, kind: str, C=4, service_rate=2.0, setup=0.0,
                        "drain": drain, "headroom": headroom, "sat_frac": sat_frac,
                        "nslots": 0, "kind": kind, "q_target": q_target,
                        "conc_target": conc_target, "metric_window": metric_window,
-                       "min_replicas": min_replicas, "max_replicas": max_replicas},
+                       "min_replicas": min_replicas, "max_replicas": max_replicas,
+                       "rho": rho},
               "replicas": []}
     sim = Simulator(load, supply, controller=controller,
                     decision_interval=decision_interval,
-                    metric_window=metric_window).run()
+                    metric_window=metric_window, rho=rho).run()
     supply["meta"]["nslots"] = sim._next_slot
     return sim
 
@@ -608,6 +978,14 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     actual = count(lambda b, t: b.up <= t < (b.actual_down or dur))
     draining = count(lambda b, t: (b.stop is not None and b.stop <= t
                                    < (b.actual_down or dur)))
+    # provisioned = everything you are billed for: from the moment a replica is
+    # ORDERED (start) — including the boot window before it accepts (start..up) —
+    # through to full termination (actual_down). = booting + accepting + draining.
+    # The gap provisioned − actual is the boot-lag waste that scaling churn adds:
+    # capacity paid for but not yet (or no longer) usable.
+    provisioned = [sum(1 for r in reps
+                       if r["start"] <= t < (sim.backends[r["id"]].actual_down or dur))
+                   for t in grid]
 
     qlen = _step_lookup(sim.snaps, "qlen", grid, 0)
 
@@ -647,14 +1025,42 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     # slots this equals in_service_total * rate; the demand line (below) is L(t)*rate,
     # so the vertical gap between the stack and demand is the queued (starved) work,
     # and demand poking above capacity_work marks under-provisioning.
+    # Split the per-slot work into ACCEPTING work (rides under the ceiling) and
+    # DRAINING work (a stopped-but-not-yet-down backend still finishing in-flight
+    # requests). Draining work is not usable capacity, so we (a) draw it hatched,
+    # bursting ABOVE the ceiling, and (b) remove it from the demand line — the
+    # ceiling already excludes draining backends, so demand should only reflect
+    # work competing for accepting capacity (accepting-in-service + queued).
     band = {s: [0.0] * len(grid) for s in slot_ids}
+    band_drain = {s: [0.0] * len(grid) for s in slot_ids}
+    drain_work = [0.0] * len(grid)                        # Σ draining in-service·rate
     snap_ts = [s["t"] for s in sim.snaps]
     for k, t in enumerate(grid):
         j = bisect.bisect_right(snap_ts, t) - 1
         cur = sim.snaps[j]["insvc"] if j >= 0 else {}
         for bid, c in cur.items():
-            band[slot_of.get(bid, bid)][k] += c * service_rate
-    demand_work = [n * service_rate for n in nsys]        # work demanded by L(t)
+            b = sim.backends[bid]
+            is_drain = (b.stop is not None and b.stop <= t < (b.actual_down or dur))
+            w = c * service_rate
+            if is_drain:
+                band_drain[slot_of.get(bid, bid)][k] += w
+                drain_work[k] += w
+            else:
+                band[slot_of.get(bid, bid)][k] += w
+    demand_work = [n * service_rate - dw                  # exclude draining in-flight
+                   for n, dw in zip(nsys, drain_work)]
+
+    # per-pod drain-start instants: the moment a backend stops accepting and
+    # begins draining its in-flight work. Only pods that actually had work to
+    # drain (actual_down strictly after stop) get a marker; end-of-trace stops
+    # are excluded. Panel 3 draws a dotted line in the pod's colour here, so the
+    # band lifting above the ceiling is tied to a visible cause.
+    drain_starts = sorted(
+        ({"slot": slot_of.get(b.id, b.id), "t": b.stop}
+         for b in sim.backends.values()
+         if b.stop is not None and b.stop < dur
+         and (b.actual_down or dur) > b.stop + 1e-9),
+        key=lambda d: d["t"])
 
     # cumulative arrivals / departures (Little's Law geometry: vertical gap = L)
     def _cum(log):
@@ -667,28 +1073,77 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     # starts). 0 = best. We deliberately do NOT normalise by request size: a short
     # request that waited 30s is no more "failed" than a long one that waited 30s
     # (the earlier slowdown-ratio model guillotined short requests unfairly).
-    # Thresholds are wall-clock seconds; tune via wait_edges. Default gradient is
-    # anchored so the queue-drain target horizon (~30s) lands in "bad", not "failed".
-    edges = wait_edges if wait_edges is not None else [2.0, 10.0, 30.0, 60.0]
+    # Thresholds are wall-clock seconds; tune via wait_edges. Default pins
+    # good/failed and ramps the middle: instant service (≤2s) is "good", "almost"
+    # extends to ~one clean service time (≤15s) as a reasonable wait, anything past
+    # a minute is "failed", and the 15–60s middle is sliced into a quality gradient
+    # (mediocre ≤30 / meh ≤45 / bad ≤60).
+    edges = wait_edges if wait_edges is not None else [2.0, 15.0, 30.0, 45.0, 60.0]
     band_logs = [[] for _ in range(len(edges) + 1)]
     for r in sim.req_done:
         w = r["wait"]
         band_logs[sum(1 for e in edges if w >= e)].append((r["done"], 1.0))
     gp_bands = [_windowed_rate(sorted(bl), grid, req_range)[0] for bl in band_logs]
-    _names = ["good", "almost", "bad", "really bad", "failed"]
+    _names = ["good", "almost", "mediocre", "meh", "bad", "failed"]
     gp_labels = [f"{_names[i]} (≤{edges[i]:g}s)" for i in range(len(edges))]
     gp_labels.append(f"{_names[len(edges)]} (>{edges[-1]:g}s)")
 
     lat = sorted(sim.req_done, key=lambda r: r["done"])
 
+    # -- decision log: annotate each change in DESIRED count with the "why".
+    # Open-loop sizers logged the offered-work-rate (+backlog); closed-loop
+    # sizers logged the trailing signal averages. Format a compact reason keyed
+    # off the supply kind so the figure can print a numbered decision key, and
+    # tag decisions the [min,max] clamp actually bit.
+    meta = sim.supply["meta"]
+    kind = meta.get("kind")                              # closed-loop only
+    q_t = meta.get("q_target", 1.0) or 1.0
+    c_t = meta.get("conc_target", 1.0) or 1.0
+    cl_min, cl_max = meta.get("min_replicas", 1), meta.get("max_replicas", 10)
+
+    def _clamp_tag(to, raw):
+        if raw > cl_max and to == cl_max:
+            return " (cap)"
+        if raw < cl_min and to == cl_min:
+            return " (min)"
+        return ""
+
+    decisions = []
+    for d in sim.supply.get("decisions", []):
+        to = d["to"]
+        if "owr" in d:                                   # open-loop sizer
+            if d.get("backlog", 0) > 1:
+                why = f"DR {d['owr']:.0f}+bklog {d['backlog']:.0f} ⇒ {to}"
+            else:
+                why = f"DR {d['owr']:.0f} w/s ⇒ {to}"
+        elif kind == "queue":
+            raw = max(1, math.ceil(d["avg_q"] / q_t))
+            why = f"Q̄ {d['avg_q']:.0f} ⇒ ⌈{d['avg_q']:.0f}/{q_t:.0f}⌉={raw}{_clamp_tag(to, raw)}"
+        elif kind == "concurrency":
+            raw = max(1, math.ceil(d["avg_r"] / c_t))
+            why = f"R̄ {d['avg_r']:.0f} ⇒ ⌈R/{c_t:.0f}⌉={raw}{_clamp_tag(to, raw)}"
+        elif kind == "combined":
+            qd = max(1, math.ceil(d["avg_q"] / q_t))
+            cd = max(1, math.ceil(d["avg_r"] / c_t))
+            raw = max(qd, cd)
+            why = (f"Q̄{d['avg_q']:.0f}⇒{qd} · R̄{d['avg_r']:.0f}⇒{cd} "
+                   f"(max {raw}){_clamp_tag(to, raw)}")
+        else:
+            why = f"⇒ {to}"
+        decisions.append({"t": d["t"], "frm": d["frm"], "to": to,
+                          "up": to > d["frm"], "why": why})
+
     return {
         "grid": grid, "req_range": req_range, "work_range": work_range,
         "arr_n": arr_n, "dep_n": dep_n, "arr_w": arr_w, "dep_w": dep_w,
         "desired": desired, "actual": actual, "draining": draining,
-        "accepting": accepting,
+        "provisioned": provisioned,
+        "accepting": accepting, "decisions": decisions,
         "qlen": qlen, "capacity_work": capacity_work, "capacity_slots": capacity_slots,
         "in_service_total": in_service_total, "nsys": nsys,
-        "backend_ids": slot_ids, "backend_work": band, "demand_work": demand_work,
+        "backend_ids": slot_ids, "backend_work": band,
+        "backend_work_drain": band_drain, "drain_starts": drain_starts,
+        "demand_work": demand_work,
         "cum_arr": cum_arr, "cum_dep": cum_dep,
         "gp_bands": gp_bands, "gp_labels": gp_labels, "gp_edges": list(edges),
         "lat_done": [r["done"] for r in lat],
@@ -741,11 +1196,11 @@ def summarize(ts: dict, ps=(50, 75, 90, 95, 99)) -> dict:
     completed = len(ts["req_wait"])
 
     # per-quality-band breakdown, matching panel-1a colours (bands split by
-    # absolute waiting time). Denominator is OFFERED, so the five band %s plus
+    # absolute waiting time). Denominator is OFFERED, so the band %s plus
     # the unfinished % sum to 100 — a stranded request is not silently dropped
     # from the failure accounting the way it is from panel 1a (completed-only).
-    edges = ts.get("gp_edges", [2.0, 10.0, 30.0, 60.0])
-    _names = ["good", "almost", "bad", "really bad", "failed"]
+    edges = ts.get("gp_edges", [2.0, 15.0, 30.0, 45.0, 60.0])
+    _names = ["good", "almost", "mediocre", "meh", "bad", "failed"]
     band_labels = [f"{_names[i]} (≤{edges[i]:g}s)" for i in range(len(edges))]
     band_labels.append(f"{_names[len(edges)]} (>{edges[-1]:g}s)")
     band_counts = [0] * (len(edges) + 1)
@@ -753,6 +1208,28 @@ def summarize(ts: dict, ps=(50, 75, 90, 95, 99)) -> dict:
         band_counts[sum(1 for e in edges if w >= e)] += 1
     band_pct = [(100.0 * c / offered) if offered else float("nan")
                 for c in band_counts]
+
+    # cumulative "served within" view: the empirical wait CDF sampled at each
+    # band edge = share of OFFERED served within Ns. within_pct[i] = P(wait ≤
+    # edges[i]) over the offered denominator (unfinished requests are not in
+    # req_wait, so they correctly count as "not within"). This is the SLO-
+    # attainment reading and pairs 1:1 with the wait-CDF figure. Computed from
+    # raw waits, not by summing rounded band %s, so it stays exact.
+    within_labels = [f"≤{e:g}s" for e in edges]
+    within_pct = [(100.0 * sum(1 for w in ts["req_wait"] if w <= e) / offered)
+                  if offered else float("nan") for e in edges]
+
+    # utilization = work actually delivered ÷ usable throughput-capacity paid
+    # for. Denominator uses ACTUAL replica-seconds (fleet you paid for) times the
+    # usable per-backend throughput ceiling. All policies deliver the same total
+    # work, so this cleanly separates OVER-provisioned (low util: hpa-queue) from
+    # STARVED (util near/above 1 yet high wait: hpa-concurrency) — a small fleet
+    # kept busy still fails on latency, which the % bands then expose.
+    sup = ts.get("meta", {}).get("supply", {})
+    usable_C = max(1, int(sup.get("sat_frac", 1.0) * sup.get("C", 1)))
+    cap_work_time = usable_C * sup.get("service_rate", 1.0) * (sum(actual) * dt)
+    work_done = sum(ts.get("lat_size", []))
+    utilization = (work_done / cap_work_time) if cap_work_time else float("nan")
     return {
         # completion is a headline: wait/tpw percentiles below cover only the
         # COMPLETED requests, so a policy that strands work looks unfairly good
@@ -766,9 +1243,16 @@ def summarize(ts: dict, ps=(50, 75, 90, 95, 99)) -> dict:
         "tpw": dist(ts["req_tpw"]),
         "band_labels": band_labels,          # 6 labels (5 edges' bands, incl. tail)
         "band_pct": band_pct,                # % of OFFERED per band (sums w/ unfinished)
+        "within_labels": within_labels,      # 5 edge labels (≤2s … ≤60s)
+        "within_pct": within_pct,            # cumulative % of OFFERED served ≤ edge (CDF)
         "replicas": {"avg": ra, "std": var ** 0.5,
                      "max": max(actual) if actual else 0,
-                     "rep_seconds": sum(actual) * dt},
+                     "rep_seconds": sum(actual) * dt,
+                     # total billed fleet-time (booting + accepting + draining) and
+                     # the boot-lag waste on top of usable rep_seconds.
+                     "prov_seconds": sum(ts.get("provisioned", actual)) * dt,
+                     "boot_waste": (sum(ts.get("provisioned", actual)) - sum(actual)) * dt},
+        "utilization": utilization,
     }
 
 

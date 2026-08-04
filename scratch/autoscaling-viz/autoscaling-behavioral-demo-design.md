@@ -41,11 +41,20 @@ The teaching arc is deliberately three steps:
    step.
 
 The honest headline is: **on a smooth bump, the reactive backlog term is a modest
-quality-mix shift, not a rescue.** All three scenarios complete 100 %; queue-aware
-barely moves the peak queue depth (~7 %) and actually worsens the tail — its only
+quality-mix shift, not a rescue.** All three teaching steps complete 100 %;
+queue-aware barely moves the peak queue depth (~7 %) and actually worsens the tail — its only
 real win is shifting some waits toward "good." The dramatic "recovers stranded
 work" story requires a sharper or sustained overload, which the smooth bump does
 not produce (see §6.3, §6.5).
+
+**Two baselines frame the arc.** Alongside the three teaching steps the demo now
+renders two reference points, used for cost/quality contrast rather than as steps
+in the argument: a **no-scaling strawman** (a fixed fleet pinned at the max replica
+count for the whole run — 100 % prompt on this bump, but the most expensive fleet
+at the lowest utilisation) and the **KEDA/HPA family** (queue-depth, running-
+concurrency, and their native `max` combination — the off-the-shelf closed-loop
+controllers the arc is ultimately measured against). These are the well-lit path;
+`Qexp` (§3(ii)) is what beats it. See §3 for the sizers and §6 for the numbers.
 
 **Comparison UX (deck).** The deck contrasts any **two** scenarios
 **side-by-side**, with a control to switch which two are shown. The
@@ -54,6 +63,58 @@ in §6's results table). The table is the global picture; the swappable
 side-by-side figures are the two scenarios being actively compared. (Phase-1 static
 figures render one scenario each; the side-by-side pairing + swap control is a
 deck-level feature — see §8.2.)
+
+### 1.1 Design axioms (2026-08-03 discussion — do not lose)
+
+Three constraints now govern the whole tool. They were agreed in discussion and
+supersede any earlier framing they conflict with.
+
+1. **Workload-independence.** Neither the sizing algorithms nor the visualization
+   may depend on the workload shape *in any way*. A workload is pure input data (a
+   trace). Shape logic is confined to the fixture generator
+   (`rate_profile` / `gen_load`); every sizer keys off *measured* demand (DR) and
+   *projected* backlog, and every plot renders whatever trace it is handed. Rule
+   going forward: **a new workload is a new fixture or a loaded trace — never a
+   special case in a sizer or a plot.** (Audited 2026-08-03: currently holds — the
+   only `pattern`/shape references are inside the generator; the sizers' "peak" is
+   the projected *backlog* peak, a computed property of the incoming trace, and
+   `plots.py` reads neither `PEAK_RATE` nor `DURATION`.)
+
+2. **Two traces in (long-run architecture).** The eventual input is two traces:
+   **(a) a workload trace** (arrivals + sizes) and **(b) a scaling trace** (replica
+   count over time). Both can come from a real benchmark. The tool visualizes the
+   *actual* run following (b) and overlays **counterfactual** scaling traces from
+   alternative algorithms run against the same (a). The code is already factored
+   for this — policies are pure `load → supply`; `sample` / `summarize` are pure
+   `supply → timeseries`. Two seams are missing: a **workload-trace loader**
+   (replacing `gen_load` with a benchmark export) and a **replay supply mode** (a
+   "policy" that just follows a given (b) instead of computing one). Deferred — see
+   §8.2.
+
+3. **Autoscaling solves two problems; right-sizing is the headline.**
+   - **(i) Right-sizing** — the steady-state problem, and *the more important one*:
+     over the long run the average is what matters, and paying 2–3× for capacity you
+     don't need is the entire reason to autoscale. The realistic scenarios must
+     therefore contain **steady states (plateaus)** — that is where right-sizing is
+     even visible — and **cost** (`replica·s` / `provisioned·s` vs the static
+     baseline) is the punchline, not a footnote.
+   - **(ii) Handling change** — the transient problem, which the Phase-1 demos have
+     mostly exercised. **Fast, small changes (bursts) cannot be autoscaled at a 90 s
+     boot** — they are absorbed by the **queue** (surfacing as TTFT degradation) and
+     **headroom**. **Slow, large changes are the autoscaler's job**, handled exactly
+     as these experiments show: *overreact until stabilization, then relax to the
+     right size.* Autoscaling runs on a slow timescale — large-but-slow changes are
+     the controller's, small-high-variance changes are the queue's.
+
+**Why TTFT-Pxx alone is not a valid autoscaling metric (time-scaling argument).**
+Extend any run 3× (same transient structure, more steady-state volume): the
+*absolute* penalty is unchanged — the same requests wait during the same
+transitions — but goodput and cost both triple, and **P90 / P95 / P99 wait all
+improve purely because the penalized requests become a smaller fraction of a larger
+denominator.** No algorithm improved. Wait-percentiles are therefore *dilutable and
+framing-dependent*. This is the design argument for the metric choices already in
+the tool: the **offered denominator**, **absolute-wait attainment bands** ("% served
+within Ns"), and **cost foregrounded** — not a TTFT-P90 headline number.
 
 ---
 
@@ -103,16 +164,28 @@ rendering.** You can drop in a new sizer without touching the engine or the plot
 **Why `sat_frac` (usable ceiling).** Real vLLM goodput does not scale to the raw
 concurrency limit — throughput per request degrades and effective goodput rolls
 over well before `C` (we saturate around ~70 concurrent, often lower). Rather
-than model that curve (that is the deferred Phase-2 USL work), Phase 1 uses a
-flat **usable ceiling** `⌊sat_frac · C⌋` with `sat_frac = 0.7` as a lightweight
+than model that curve (that is the §2.7 work, now designed & implemented), Phase 1 uses
+a flat **usable ceiling** `⌊sat_frac · C⌋` with `sat_frac = 0.7` as a lightweight
 stand-in: it caps each replica's usable slots so the fleet is provisioned at a
 realistic granularity. The sizer, the dispatcher, and the panel-5 capacity line
 all use the *usable* ceiling, so they stay consistent.
 
-**Phase 2 (deferred):** the real concurrency-dependent service rate (USL-style) —
-a backend slows *continuously* as it fills, and goodput retrogrades past the
-knee. `sat_frac` is the flat approximation of that; Phase 2 replaces it with the
-curve. Not modeled yet.
+**`sat_frac` is a *soft* saturation indicator, not a hard limit.** It is the
+utilization at which a real router stops sending *new* traffic to a pod — but the
+pod does not fail above it; it just slows (roughly linearly up to ~85 % KV, then
+sharply — "to a crawl" — beyond). The closed-loop dispatcher here **never
+oversubscribes** (it caps `in_service` at `⌊sat_frac·C⌋`), so in-sim a pod never
+runs above target and the crawl regime is unreachable. It becomes relevant only when
+an **imported** request/scaling trace records real per-pod concurrency *above* target
+(a real router making early or mistaken decisions, so queues also form at each vLLM)
+— see §8.2. So `sat_frac` stays the **KV cap**, not a knee to be reinterpreted.
+
+**§2.7 (implemented 2026-08-03):** a concurrency-dependent *decode* rate — a backend
+serves *faster* when lightly loaded and converges to this nominal `service_rate` as it
+packs. It is a **monotone** slowdown below the cap, **not** a full USL retrograde (which
+needs oversubscription past the cap — unreachable here without an imported trace).
+`sat_frac` is **not** replaced or reinterpreted as a knee: it stays the usable / KV cap
+the dispatcher respects. Default `RHO = 2.0`; `RHO = 1` recovers this fixed-rate model.
 
 ### 2.4 Replica lifecycle
 
@@ -120,20 +193,37 @@ curve. Not modeled yet.
 - **Actual / ready**: `up ≤ t < actual_down`. `setup = start → up` is the boot
   lag; `drain = stop → down`.
 - **Draining**: `stop ≤ t < down` — still serving in-flight, not accepting.
+- **Provisioned / billed**: `start ≤ t < actual_down` — the whole footprint you
+  pay for (booting + accepting + draining). `provisioned·seconds` integrates this
+  span; `replica·seconds` integrates only the ready (accepting) span; the
+  difference, **`boot-lag waste` = provisioned − ready**, is capacity billed while
+  booting or draining but never serving (zero when `setup = drain = 0`).
 - **Deferred-down**: a replica commanded down while it still has in-service work
   goes `pending_down` and only truly leaves when it drains.
 - **Resurrection guard**: a replica commanded up and then cancelled mid-boot
   stays gone — the `up` handler only revives if `actual_down is None`.
 
+**Utilization** (a derived cost/quality read, `summarize`): delivered work ÷ usable
+throughput-capacity paid for (`∫ ready · ⌊sat_frac·C⌋ · service_rate dt`). `<1` = an
+idle / over-provisioned fleet; `~1` or above = fully packed — but *packed can still
+fail latency* (a starved small fleet reads ~1, cf. hpa-concurrency at 1.02 while 88 %
+fail), so it must be read **next to the quality bands**, never alone. It can nudge
+just past 1 as a boundary artifact when the delivered-work and ready-replica sample
+windows don't align exactly.
+
 ### 2.5 Model limitations (what it does NOT capture)
 
 Stated plainly, with bias direction, so results aren't over-read:
 
-- **Fixed per-request service rate** (Phase 1; no USL) — once served, latency is
-  **optimistic**; a real backend slows as it fills. The `sat_frac` usable ceiling
-  (§2.3) caps *how many* slots a replica offers (fixing provisioning granularity)
-  but does **not** bend the per-request rate — a served request still runs at full
-  `service_rate`. The latency curve itself is Phase-2 USL work.
+- **Decode rate vs. concurrency** — the per-request rate is now
+  **concurrency-dependent** by default (§2.7, `RHO = 2.0`): a lightly-loaded pod
+  decodes faster, converging down to `service_rate` as it packs. The `sat_frac`
+  usable ceiling (§2.3) still caps *how many* slots a replica offers (provisioning
+  granularity); §2.7 bends the *rate* below that cap. Two limits remain: (i) it is a
+  **monotone slowdown**, not full USL retrograde — throughput never falls, since the
+  in-sim router never oversubscribes past `usable_C` (§8.2); (ii) `RHO` is a single
+  global speedup ratio, not a measured per-model/per-shape slope (§2.7 caveat). Set
+  `RHO = 1` to recover the earlier fixed-rate model.
 - **Clairvoyant rendering** — the plots are post-hoc truth, but the *sizer* still
   only sees windowed data; don't conflate the two.
 - **One global FIFO queue, no load balancer** — head-of-line blocking is
@@ -142,6 +232,13 @@ Stated plainly, with bias direction, so results aren't over-read:
   speed is **optimistic**; no per-step scale caps or node-pool limits.
 - **Single request class, one arrival shape** — illustrative dynamics, **not a
   calibrated benchmark**.
+- **No reneging / abandonment** — requests wait indefinitely and are always
+  eventually served (or counted `unfinished` at trace end); none give up mid-wait.
+  Real clients time out, so a deep queue's true cost is **under-stated** here (a
+  request that waited 5 min and was abandoned still counts as served-late, not
+  lost). Modelling client-side deadlines (drop after a wait threshold, re-count as
+  failure) is a **deferred future test** — it would sharpen the failure accounting
+  for the badly-under-provisioned scenarios (setup-lag, hpa-concurrency).
 
 ### 2.6 Parameters (names, roles, and the two vocabularies)
 
@@ -162,9 +259,10 @@ every 15 s.
 **"rate" is overloaded — three distinct meanings.** Guard against conflating them:
 1. **`service_rate`** — a *backend property*: tokens/s that one in-service request
    advances at (fixed, Phase 1). Not a measured throughput.
-2. **offered-work-rate (`owr`)** — a *demand estimate*: `arrival_rate × E[size]`
-   tokens/s (see §3). An estimate, not a measurement (per-request size isn't known
-   at arrival).
+2. **demand rate (DR)** — a *demand estimate*: `arrival_rate × E[size]` tokens/s
+   (see §3). An estimate, not a measurement (per-request size isn't known at
+   arrival). **DR** is the human-facing name (figures, report, glossary); the code
+   identifier is `owr` (offered-work-rate), kept unchanged in `sim.py`/`run.py`.
 3. **measured request throughput** — the *observed* arrival/departure counts per
    second (`arr_n` / `dep_n`), requests/s. This is a measurement.
    Only the identifiers that mean (3) keep the bare word "rate" in code.
@@ -189,14 +287,33 @@ every 15 s.
 | `setup` | boot lag: `start → up` (dead time) |
 | `drain` | drain time: `stop → down` |
 
-*Sizer (both `gen_supply_perfect` and `gen_supply_queue_aware`)*
+*Open-loop sizer (`gen_supply_perfect`, `gen_supply_queue_aware`, `gen_supply_queue_aware_exp`)*
 
 | Param | Role |
 |---|---|
 | `headroom` | scale-up utilization target (`1.2` ⇒ run at ~83 %) |
 | `sizing_range` | lookback the sizer averages `owr` over |
 | `decision_interval` | how often the sizer recomputes desired count |
-| `drain_time` | (queue-aware only) deadline to drain current backlog |
+| `drain_time` | (queue-aware / Qexp) deadline to drain the current / projected backlog |
+| `proj_setup` | (Qexp only) boot lead the *projection* assumes; distinct from `setup` (the lag the sim applies). Defaults to `setup`. The conservatism dial — see §3(ii) |
+| `boot_stagger` | (queue-aware / Qexp) within-batch cascade: replica `j` of a batch lands at `t + setup + j·boot_stagger`. `0` = all land together. Modelling nuance, deferred — see §3(ii) |
+
+*Closed-loop KEDA/HPA baselines (`run_closed_loop` / `make_controller`)*
+
+| Param | Role |
+|---|---|
+| `kind` | trigger: `queue` (`ceil(Q)`) / `concurrency` (`ceil(R/c)`) / `combined` (`max`) |
+| `metric_window` | trailing `avg_over_time` window the trigger averages its signal over (60 s) |
+| `decision_interval` | reconcile cadence (15 s) — same range/interval split as above |
+| `max_replicas` | KEDA `maxReplicaCount` cap (10); `minReplicaCount` is 1 |
+| `headroom` | reused as the per-replica target scale (e.g. concurrency target `c ≈ ⌊sat_frac·C⌋/headroom`) |
+
+*Static / no-scaling baseline (`gen_supply_static`)*
+
+| Param | Role |
+|---|---|
+| `count` | fixed replica count for the whole run (pinned at `max_replicas`) |
+| `setup`, `drain` | boot/drain lags (0 here — the fleet is pre-warmed and never scales) |
 
 *Sampling / rendering (`sample`)*
 
@@ -206,12 +323,95 @@ every 15 s.
 | `req_range` | lookback for the request-count throughput average (panels 1a/5) |
 | `work_range` | lookback for the work-rate average (Prom-style; panels 1b/3) |
 
+### 2.7 Concurrency-dependent decode rate (designed & implemented 2026-08-03)
+
+Phase 1's per-request rate was **fixed** (§2.3). This model makes the decode rate
+**concurrency-dependent**: a lightly-loaded pod serves *faster* than a packed one,
+converging down to the nominal `service_rate` as it fills. This is real vLLM behavior
+and the single biggest fidelity gain. **Implemented 2026-08-03** in `sim.py` (the exact
+event-driven mechanism below) with `RHO = 2.0` the default in `run.py`; `rho = 1`
+recovers the fixed-rate model as a behaviour-preserving identity.
+
+**Empirical form (decode-only).** Per `planning/TA-supply.md` §2.1, inter-token
+latency below KV saturation is **linear in KV%**: `ITL(k) = A·k + B`, where `k = KV%`,
+`B` is the near-constant hardware floor ("natural ITL" at zero load, ~6 ms) and `A` is
+a load-sensitivity slope that depends on the model **and** the request-size shape (so
+it may vary with the workload). **Prefill is ignored** — the sim has no prefill/decode
+split and shows **wait time + decode-based e2e**, not TTFT. KV% is per-pod and
+proportional to concurrency (`KV ≈ avg_size · in_service`), so it rides `b.in_service`
+— the state the engine already tracks.
+
+**One knob: ρ = rate(empty)/rate(packed) ≥ 1.** Anchor the *packed* pod at today's
+nominal `service_rate` and parameterize the speedup by ρ. With load fraction
+`k = in_service / usable_C ∈ [0,1]` (k=1 = packed):
+
+```
+ITL(k) = B + A·k,   ITL(1) = 1/nominal (packed),   ITL(0) = 1/(ρ·nominal) (empty)
+⟹  B = 1/(ρ·nominal),   A = (1/nominal)(1 − 1/ρ),   rate(k) = 1/(B + A·k)
+```
+
+**Default ρ = 2 (gentle, and self-consistent).** The packed anchor is Ofer's
+~83.3 tok/s ⇒ packed ITL ≈ 12 ms; ρ=2 puts the empty-pod ITL at ≈ 6 ms — exactly the
+`TA-supply.md` §2.1 natural-ITL intercept (`B ≈ 0.006 s`). So the packed pod runs at
+2× its physical floor, and the floor lands on measured hardware. Why *gentle* is right
+here: §2.1's 7–10× ITL swing is measured against a genuinely saturated ~57 ms packed
+ITL; our packed anchor is a much lighter 12 ms, so keeping the same 6 ms floor
+mechanically gives ρ≈2 (ρ=9 against the 83.3 anchor would imply an unphysical ~1.3 ms
+floor). **ρ stays a tunable knob; the real value is workload-dependent and must be
+measured — do not over-read the default.**
+
+**Monotone throughput (guaranteed by the form).** Pod throughput
+`usable_C · k / (B + A·k)` has derivative ∝ `B/(B+A·k)² > 0` in `k` — strictly
+increasing, saturating at the packed ceiling. So more load never *reduces* delivered
+throughput within the operating band; the monotonicity guard is satisfied by
+construction, no clamp needed. **Relationship to USL:** this is the *pre-retrograde*
+branch only — a monotone slowdown up to the cap. Full USL **retrograde** (throughput
+falling past a knee) needs concurrency *above* `usable_C`, which the closed-loop router
+never produces (it caps at `usable_C`); it becomes reachable only with an imported
+over-subscribing trace (§8.2). So §7.1's "USL retrograde" steal stays a separate, later
+thing — this model does not produce it.
+
+**Sizer ↔ engine split (the crux).** Two clean layers:
+- **Sizer: unchanged — sizes on the fixed *saturated* rate.** `per_backend =
+  ⌊sat_frac·C⌋ · service_rate` stays as-is. The sizer plans for the worst case and
+  never gets credit for a lean pod being faster. This preserves workload-independence
+  (§1.1(1)) and the "size for saturation" principle — the sizer stays simple, sees a
+  fixed rate. (Dean: the achievable low-load speedup can't be tracked per-iteration and
+  is workload-dependent, so the sizer can only rely on the worst case; saturation rate
+  is the only number relevant for scaling.)
+- **Engine: models the load-dependent rate.** The reward for slack shows up only in
+  *achieved* e2e, never in the plan.
+
+This gives a **virtuous cycle** that enriches the right-sizing story: a pod sized for
+the saturated rate but running below it clears work *faster* than the sizer assumed →
+queue drains faster → concurrency stays lower → faster still, converging to nominal as
+it packs. So **headroom stops being pure idle cost — it buys *speed*, not just burst
+slack.** That is the payoff that makes over-provisioning legible as a quality lever
+(and couples directly to the headroom sweep, §8.1 item 7(b)).
+
+**Engine mechanism: exact, event-driven (decided — not an estimate).** The thing to
+avoid is per-*token* iteration; per-*event* integration is exact for a
+piecewise-constant rate and cheap at our scale (~2× the request count in events).
+Replace the set-once `req.done` (`_dispatch`, `sim.py`) with `req.remaining` (tokens
+left). On any event that changes a pod's `in_service` (a dispatch or completion on that
+pod): advance its in-service reqs by `Δt · rate(k_prev)`, recompute `rate` at the new
+`k`, reschedule the imminent completion. This handles "survivors speed up when a
+neighbor leaves" exactly and for free. **Bounded change:** confined to `_dispatch` /
+the completion handler / `Backend`+`Req` state in `sim.py` — **no sizer or plot API
+changes.** (The lighter weighted-average-concurrency *estimate* was considered and
+rejected: it reintroduces approximation and the future-dependence problem — you don't
+know a request's average concurrency at dispatch — which the event-driven method
+avoids.)
+
 ---
 
 ## 3. Sizing strategies
 
-The demo compares reactive queue-aware sizing against an ideal baseline, and
-(planned) against a plain HPA-style baseline. Three strategies:
+The demo compares reactive queue-aware sizing against an ideal baseline, against
+the off-the-shelf KEDA/HPA family (now built — §(iii)–(v)), and against a
+no-scaling strawman (§(vi)). The anticipatory sizer (§(ii) `Qexp`) is **now built
+too** — a periodic control loop; all six sizers are implemented. Sizers, in order
+of the argument:
 
 **What "clairvoyant" means — two independent prediction abilities.** Every sizer
 in the demo estimates demand and turns it into a replica count. The strategies
@@ -232,12 +432,13 @@ demand*; "compensates for setup" (axis 2) is about *acting early enough for that
 demand to be met*. A sizer can have either, both, or neither. The **ideal**
 baseline bundles perfect axis-1 (centered) with axis-2-made-moot (`setup=0`).
 
-**`owr` is a demand *estimate*, not a measurement.** Every sizer's rate term is
-the offered-work-rate `owr(t) = arrival_rate(t) × E[size]` (tokens/s). The
+**The demand rate (DR) is a demand *estimate*, not a measurement.** Every sizer's
+rate term is the **demand rate** `DR(t) = arrival_rate(t) × E[size]` (tokens/s;
+code identifier `owr`). The
 arrival *count* is observable, but a request's *work* (its size in tokens) is
 **not** known when it arrives — real serving knows the prefill/input length at
 admission but not the decode/output length. Summing the in-window request sizes
-is a valid proxy for `owr` only under the **stationary-shape assumption**: the
+is a valid proxy for DR only under the **stationary-shape assumption**: the
 arrival *rate* varies over time, but the request-size *distribution* does not, so
 the windowed size-sum equals `measured_arrival_rate × E[size]`. In WVA terms the
 sim collapses prefill-known + decode-unknown into a single unknown `size`; a
@@ -299,36 +500,124 @@ overshoot, then a late over-provisioned tail.
 > that *can't* peek does. Knowing arrivals ahead of time is axis 1 above, and it's
 > precisely the ability the anticipatory sizer adds.)
 
-### (ii) expQ — anticipatory / dead-time-compensated *(to build)*
+### (ii) Qexp — anticipatory / dead-time-compensated *(built)*
 
-The intended fix, "beyond what regular HPA-like autoscalers do." Verbatim
-mechanism from the session:
+`gen_supply_queue_aware_exp`. The fix "beyond what regular HPA-like autoscalers
+do": a **periodic control loop**. Every `decision_interval` it re-reads the
+observable state — backlog level `B`, up-capacity `U`, and the pending replicas
+already ordered with their **estimated** land-times — projects the backlog forward
+under that committed boot schedule, and sizes to the projected **peak**:
 
-> Estimate when replicas we order now will arrive; estimate the gap based on
-> pending replicas and based on queue growth rate; order enough to kill that
-> queue — taking into account the replicas gap at that point in time, namely
-> consider the pending replica that will be ready by then.
+```
+# roll B forward over the committed boot schedule; take the highest point reached
+B_peak, t_peak = peak_backlog(t, owr, B_now)     # peak, not now, not residual
+target_rate    = owr + B_peak / drain_time
+desired        = ceil(headroom · target_rate / per_backend)
+actuate        = desired − up − pending           # uniform: only the shortfall
+```
 
-Concretely: project the queue forward to `t + setup` using its growth rate,
-**credit the in-flight replicas that will be ready by then**, and order only the
-**shortfall**. Crediting pending boots is exactly what kills the windup in (i).
+Two design points make this work where the reactive sizer (i) windup-fails:
 
-> Dean flagged the logic isn't fully pinned down yet ("Not sure I understand your
-> Qexp logic") — treat the mechanism above as the spec to refine, not final.
+- **Size to the PEAK, not the endpoint.** An earlier attempt integrated the
+  projection *to its endpoint* — but under the committed boots the endpoint backlog
+  drains toward its residual (→ 0), which drops the drain term and makes the loop
+  **cancel its own pending** (self-defeating oscillation). Sizing to the peak of
+  the projection fixes this: the peak sits at a physical land-time, so the drain
+  deadline doesn't re-clock every tick and the loop commits to a stable target and
+  **holds through the boot** instead of chasing.
+- **Credit in-flight boots at their estimated land-times.** Pending replicas are
+  counted toward the projected capacity at `max(t, start + proj_setup)`, so the
+  loop orders only the shortfall — exactly what kills the integral windup in (i).
 
-### (iii) HPA-queue — plain queue-ratio baseline *(to build)*
+**The observability wall (why this is a *loop*, not a schedule).** A real system
+exposes only the queue **LEVEL** — depth right now — never per-request departures
+or per-batch drain rates. So a deployable sizer *cannot* track cohorts through the
+queue; it can only read the current level and react. Qexp respects this: the
+projection is a within-tick *prediction* used to size, but scale-down is driven by
+the **observed** backlog dropping, and every tick re-reads the true level. The
+constant-demand and boot-lead assumptions the projection makes are simplifications
+the loop **self-corrects against — it never depends on them being right.** This is
+what keeps Qexp a deployable controller rather than a paper policy that assumes
+information the system can't emit.
 
-`desired = ceil(queue_size / desired_per_replica)` — the standard HPA/KEDA queue
-metric. This is the baseline that **does not solve the problem**: no dead-time
-compensation, reacts to the current metric only. Included to show what off-the-
-shelf autoscaling does under boot lag.
+**`proj_setup` — the conservatism dial (finding).** The projection's assumed boot
+lead (`proj_setup`) is a *separate knob* from the boot lag the sim actually applies
+(`setup`). Sweeping it (sim boots in 90 s regardless):
 
-**Comparison approach:** first compare all three on the **ideal case** (no boot
-lag) via **time-to-clear only**, with **T ≈ 30 s** — the ideal case isolates the
-*sizer math* (no dead time to confound it, so any difference is pure sizing
-policy). The payoff run is then under the **90 s boot lag**, where expQ's
-anticipation is the only thing that can pre-order capacity before the queue
-builds; that is where (ii) is expected to separate from (i) and (iii).
+- **`proj_setup < setup`** (under-predict) → the loop anticipates less and drifts
+  toward the reactive sizer; at `proj_setup ≤ 60` it collapses onto reactive's
+  numbers exactly.
+- **`proj_setup = setup`** (honest, 90) → **good% peaks** (~35 % prompt vs
+  reactive's ~28 %).
+- **`proj_setup > setup`** (over-predict) → orders earlier and the **tail keeps
+  shrinking** (p90 down to ~25 s) at a slight good%/cost penalty.
+
+So over the whole range the loop stays **stable and self-correcting** — `proj_setup`
+tunes *how conservative* it is (promptness vs tail vs cost), not *whether it is
+correct*. Good% peaks at the honest value while tail latency improves monotonically
+with over-prediction: a genuine tuning dial, not a correctness knob.
+
+**`boot_stagger` — cascading boot (modelling nuance, deferred).** Both sizers accept
+`boot_stagger`: replicas minted in one tick land staggered at `t + setup + j·u`
+(`j` = within-batch index) rather than all at once. On loads that mint one replica
+per tick (e.g. `bump`) this is a no-op; on `step`/`spike` (multi-replica batches) it
+bites, and Qexp degrades more gracefully than reactive. **Open question, deferred at
+Dean's direction:** whether the right model is this *within-batch* stagger or a
+*global boot-concurrency pipeline* (a cap on how many replicas can boot at once
+across the whole fleet). Not resolved here.
+
+### (iii) HPA-queue — plain queue-ratio baseline *(built)*
+
+`gen_supply` via `run_closed_loop(kind="queue")`. `desired = ceil(Q)` — KEDA
+`AverageValue` target 1/replica, so the per-replica target makes the current
+replica count cancel out (the sizer is stateless in `n`). Unlike the open-loop
+sizers above these baselines are **closed-loop**: each `decision_interval` (15 s)
+they read the *actual* simulated queue signal, trailing-averaged over a
+`metric_window` (60 s `avg_over_time`), and reconcile the live fleet — no foresight,
+purely reactive. Empty signal → hold at current `n` (cold start → 1); clamped to
+`[minReplicaCount, maxReplicaCount] = [1, 10]`. This is the baseline that **does not
+solve the problem**: no dead-time compensation. Under 90 s boot it sees the whole
+cold-start backlog and orders it as replicas, pinning at the cap — completes and is
+mostly prompt, but over-provisions (~2.5× the ideal fleet).
+
+### (iv) HPA-concurrency — running-count baseline *(built)*
+
+`run_closed_loop(kind="concurrency")`. `desired = ceil(R / c)` — KEDA `AverageValue`
+target `c` running requests/replica. The catch: the running-count signal `R` is
+**capacity-capped** (`R ≤ n · ⌊sat_frac·C⌋`), so it **cannot see the queue behind
+it**. Under 90 s boot it under-provisions badly — it stalls at a few replicas while
+a deep queue builds, and the bulk of requests wait over a minute. The teaching
+point: concurrency alone cannot outrun boot lag, because the very signal it scales
+on is bounded by the capacity it already has.
+
+### (v) HPA-combined — `max(queue, concurrency)` *(built)*
+
+`run_closed_loop(kind="combined")`. Both triggers, native KEDA **`max`** combine:
+scale **up on either**, **down only when both** agree lower —
+`desired = max(ceil(Q), ceil(R/c))`. The queue trigger rescues the concurrency
+signal's capacity-capped blind spot, so it **matches HPA-queue** (same promptness,
+same cost). This is exactly why the well-lit path pairs a saturation/queue trigger
+with a running-count trigger — and the demo shows the pairing is dominated by the
+queue term on this workload.
+
+### (vi) Static — no-scaling strawman *(built)*
+
+`gen_supply_static`: a **fixed** fleet of `count` replicas, pinned at
+`max_replicas` and pre-warmed (`setup = 0`), up for the whole trace, never scaling.
+On this bump it never queues → 100 % prompt, but it pays for peak capacity through
+every valley: the **most expensive** fleet (~3× ideal) at the **lowest utilisation**.
+The "just provision for max" answer, quantified — promptness bought with cost.
+
+**Comparison approach:** the isolating case is the **ideal** (no boot lag) —
+`setup=0` removes the dead time, so any difference is pure sizing math. The payoff
+run is under the **90 s boot lag**, where Qexp's anticipation pre-orders capacity
+before the queue builds. That is exactly where (ii) separates from (i): on the
+canonical `bump` workload Qexp reaches **~35 % prompt vs reactive's ~28 %**, a
+**shorter tail** (wait p90 43 s vs 51 s) and a **lower queue peak** (583 vs 704) —
+at the **same fleet cost** (2130 vs 2169 prov·s). It orders sooner and holds
+through the boot instead of chasing the backlog after it has already piled up.
+Still no axis-1 foresight: Qexp only projects the *current* queue forward
+(axis-2 dead-time compensation), it never sees future arrivals.
 
 ---
 
@@ -344,13 +633,18 @@ How we score request quality. Decisions, all deliberate:
   small requests ahead of large ones. Under FIFO a small request stuck behind a
   big one waits — and we **account** that as failure rather than engineering
   around it. Dean: "I don't want to fix it, just account failure assuming FIFO."
-- **Bands** (edges `[2, 10, 30, 60]` s): good (≤2) / almost (≤10) / bad (≤30) /
-  really bad (≤60) / failed (>60). Colored green → dark red.
+- **Bands** (edges `[2, 15, 30, 45, 60]` s): good (≤2) / almost (≤15) /
+  mediocre (≤30) / meh (≤45) / bad (≤60) / failed (>60). `good` and `failed` are
+  pinned; the 2–60s middle is an even quality ramp. Colored on an even green →
+  red gradient. **Two presentations of the same bands:** the panel-1a stacked figure
+  shows the *exclusive* per-band shares (departures colored by band); the comparison
+  table (§6.3) and the CDF overlay (§5) show them *cumulatively* — "% served within
+  Ns" = the wait CDF sampled at these edges. Same underlying model, two reads.
 - **Survivorship bias is corrected.** Percentiles over completed-only requests
   flatter any policy that strands work, so:
   - **completion rate is a headline number** (offered / completed / completed % /
     unfinished).
-  - band %s use the **offered** denominator, so the five bands + unfinished% sum
+  - band %s use the **offered** denominator, so the six bands + unfinished% sum
     to 100.
 - **`time/work` rows are secondary, not the scored signal.** The comparison table
   still prints `time/work (s/u)` percentiles (the old slowdown-ratio metric). They
@@ -368,9 +662,16 @@ instant reads across all panels (`plots.render`):
 1. **1a — request throughput + goodput quality**: departure rate stacked by
    waiting-time band; arrival rate overlaid (heavy line) so the gap is visible.
 2. **1b — work throughput**: offered vs completed work rate + capacity ceiling
-   (Prometheus-style windowed rates).
+   (Prometheus-style windowed rates). The **purple fill** between the completed-work
+   line and the ceiling is *unused capacity* — fleet you paid for that no work
+   occupied (the visual twin of a low `utilization` number).
 3. **2 — desired vs actual replicas**: stepped, with a draining band. Tiny y-
-   offsets so equal desired/actual don't hide each other.
+   offsets so equal desired/actual don't hide each other. Two "took-effect" marker
+   sets make the boot/drain lag legible: **purple dotted** verticals where a boot
+   completes (a replica's `start+setup` — the moment it joins the actual line), and
+   **grey dash-dot** verticals where a drain completes (a stopped replica's
+   `actual_down`). The gap between a desired step-up and its purple marker *is* the
+   boot lag, drawn to scale.
 4. **3 — work delivered per backend (stacked) vs demand & capacity**: each slot's
    band is its **instantaneous** delivered work `in_service × service_rate` —
    visible from the first dispatch, *not* a windowed completion rate — so the stack
@@ -382,10 +683,15 @@ instant reads across all panels (`plots.render`):
    This is the work-space twin of panel 5 (request-space): panel 3 ≈ panel 5 ×
    `service_rate`. Identical backends read as one pool via a small cycling shade
    palette; slot-pool reuse (LIFO free list + min-heap) keeps the band set small and
-   stable (fixed the "57 bands for ~11 backends" problem).
+   stable (fixed the "57 bands for ~11 backends" problem). A draining backend's
+   in-flight work rides **above** the ceiling with a thin **dark solid outline**, so
+   drain work reads as distinct from usable capacity (position, not just colour);
+   a dotted vertical in the pod's shade marks the instant each pod began draining.
 5. **4 — global queue depth.**
-6. **5 — concurrency L(t)**: in-system vs being-served vs slot capacity; the
-   shaded gap between them is the queued count (Little's Law, L = λ·W).
+6. **5 — concurrency L(t)**: in-system vs being-served vs slot capacity. The
+   **purple fill** between being-served and slot capacity is *unused slots* (idle
+   capacity paid for — matches panel 1b's unused-capacity fill); the fill between
+   in-service and in-system is the queued (waiting) count (Little's Law, L = λ·W).
 
 Plus two standalone/auxiliary figures:
 
@@ -394,6 +700,27 @@ Plus two standalone/auxiliary figures:
   gap = wait, area between = total time-in-system. **Deferred**: only legible
   zoomed-in / at low N. Revisit as an **animated zoom** that follows the other
   panels' timeline. (Kept in code, disabled.)
+
+**Cross-policy comparison figures** (`plots.py`) — unlike the per-scenario panels
+above, these put every policy on one shared axis; the report's *Tradeoffs* tab embeds
+them:
+
+- `render_wait_cdf` → **09-wait-cdf.png** — every policy's waiting-time CDF overlaid:
+  y = % of *offered* served within *t* (a policy that strands work asymptotes below
+  100 %). Vertical guides mark the band edges [2, 15, 30, 45, 60] s, and each legend
+  entry carries the policy's billed `prov·s` cost, so promptness and cost read
+  together. The continuous view of the §6.3 cumulative rows (same numbers, sampled at
+  the edges).
+- `render_cost_quality` → **10-cost-quality.png** — cost–quality **Pareto frontier**:
+  x = billed fleet-time (`prov·s`), y = promptness (% served ≤15 s). One labelled
+  point per policy; the clairvoyant **ideal** is a separate reference star (not
+  deployable), and the dashed frontier is computed over the *deployable* policies — a
+  point below-and-right of it is dominated. Where "same cost, better quality" (qexp vs
+  queue-aware) becomes visible.
+- `render_sweep` → **11-sweep-setuplag / 12-sweep-drain / 13-sweep-qexp.png** —
+  two-panel parameter sweeps (Panel A: good % solid + wait p90 dashed on a twin axis;
+  Panel B: `prov·s` cost), with a dotted baseline guide at the canonical knob value.
+  Driven by `sweep.py`; tables mirror to `out/sweep.md`.
 
 ---
 
@@ -404,13 +731,23 @@ Plus two standalone/auxiliary figures:
 > `out/summary.md` and `traces/supply-*.json`; every claim is checked against that
 > output, not carried over from an earlier draft. The headline **changed** under
 > this calibration — see §6.3 "Reading it."
+>
+> **Updated 2026-08-02** — added the *static / no-scaling* strawman and the three
+> closed-loop *HPA/KEDA* baselines (queue, concurrency, combined), plus the
+> `provisioned·seconds` / `boot-lag waste·s` / `utilization` cost rows.
+>
+> **Updated 2026-08-03** — the report now runs **8 scenarios**: added the
+> anticipatory **Qexp** periodic-loop sizer (§3(ii)) between queue-aware and the
+> HPA baselines, and the quality-band edges moved to **[2, 15, 30, 45, 60] s**.
+> §6.2–§6.4 below cover all eight; the table is the current `out/summary.md`
+> verbatim.
 
 ### 6.1 Global parameters (held constant)
 
-All three scenarios share one workload and one fleet; only the per-scenario knobs
-(setup, sizer, `drain_time`) vary — so any difference in the figures is
-attributable to the policy, not the load. Provenance: anchored to a real WVA
-decode-heavy benchmark (peak ~24 req/s, ~1000-token mean work, C=100,
+All eight scenarios share one workload and one fleet; only the per-scenario knobs
+(setup, sizer/policy, `drain_time`, fleet size) vary — so any difference in the
+figures is attributable to the policy, not the load. Provenance: anchored to a real
+WVA decode-heavy benchmark (peak ~24 req/s, ~1000-token mean work, C=100,
 `service_rate ≈ 1000/12` tokens/s, ~90 s boot).
 
 - **Load:** `bump` pattern, duration **600 s**, peak **24 req/s**, mean size
@@ -419,83 +756,148 @@ decode-heavy benchmark (peak ~24 req/s, ~1000-token mean work, C=100,
   concurrent, `service_rate ≈ 83.3` tokens/s → usable per-backend ≈ **5833
   tokens/s** (≈ **5.83 req/s** at the 1000-token mean); scale-up headroom **1.2**.
 - **Sizer:** `sizing_range` 60 s, `decision_interval` 15 s, `drain_time` 30 s
-  (queue-aware only).
-- **Boot:** `setup` 90 s (setup-lag + queue-aware; ideal uses 0).
+  (queue-aware + Qexp). Qexp `proj_setup` = `setup` (90, the honest value).
+- **HPA/KEDA baselines:** `metric_window` **60 s** (trailing `avg_over_time`),
+  `max_replicas` **10** (KEDA `maxReplicaCount`), same `decision_interval` 15 s.
+- **Static baseline:** fixed fleet pinned at **10** (= `max_replicas`), pre-warmed
+  (`setup = 0`).
+- **Boot:** `setup` 90 s (setup-lag + queue-aware + all three HPA baselines; ideal
+  and static use 0).
 - **Sampling:** dt 0.25 s, `req_range` 15 s, `work_range` 60 s.
-- **Quality bands:** pre-service wait edges [2, 10, 30, 60] s.
+- **Quality bands:** pre-service wait edges [2, 15, 30, 45, 60] s (§4).
 
 ### 6.2 Scenarios under test
 
+> **Note (2026-08-03).** The eight rows below are all driven by a single **crafted**
+> workload — the symmetric triangular `bump`. Per §1.1(3) these are being reframed
+> as **teaching aids** (they isolate algorithm differences), *not* the focus. A
+> **realistic** workload set (trapezoid + level-shift up/down, on a nonzero baseline)
+> is planned to become the primary demo — see §8.1. The *scenarios* (policy columns)
+> stay the same; only the *workload* driving them changes. Nothing here special-cases
+> the workload shape (§1.1(1)).
+
 |  | Assumptions | Policy | Settings | What it answers |
 |---|---|---|---|---|
-| **ideal** | supply materializes instantly | size to **centered** offered-work-rate × headroom | setup=0, drain=0, sizing_range=60 | "what does good look like?" |
+| **ideal** | supply materializes instantly | size to **centered** demand rate (DR) × headroom (clairvoyant) | setup=0, drain=0, sizing_range=60 | "what does good look like?" |
+| **static** | no autoscaler | **fixed** fleet pinned at the ceiling, pre-warmed | count=10, setup=0 | what does "just provision for max" cost? (100% prompt, most expensive, lowest util) |
 | **setup-lag** | 90 s boot lag | **same** demand-tracking commands as ideal | setup=90, sizing_range=60 | does a correct policy survive real boot lag? (no — quality collapses) |
 | **queue-aware** | 90 s boot lag | demand-tracking **+ backlog/`drain_time`** drain term; reactive (trailing), no look-ahead | setup=90, sizing_range=60, drain_time=30 | can a reactive backlog term rescue quality? (only modestly — and it worsens the tail) |
+| **qexp** | 90 s boot lag | anticipatory: **periodic loop** sizing to the projected backlog **peak** over the committed boot schedule; reads only queue LEVEL | setup=90, drain_time=30, proj_setup=90 | does anticipating the boot-window pile-up help? (yes — ~35% prompt, shorter tail, same cost) |
+| **hpa-queue** | 90 s boot lag | closed-loop KEDA on queue depth, `desired = ceil(Q)` | setup=90, metric_window=60, cap=10 | what does off-the-shelf queue autoscaling do? (prompt, but ~2.5× over-provisioned) |
+| **hpa-concurrency** | 90 s boot lag | closed-loop KEDA on running count, `desired = ceil(R/c)`; capacity-capped signal | setup=90, metric_window=60, cap=10 | can concurrency alone outrun boot lag? (no — 88% fail; blind to the queue behind it) |
+| **hpa-combined** | 90 s boot lag | closed-loop KEDA `max(queue, concurrency)`; up-on-either, down-on-both | setup=90, metric_window=60, cap=10 | does pairing the triggers help? (matches hpa-queue — queue term dominates) |
 
 ### 6.3 Results table (`out/summary.md`)
 
-| metric              | ideal | setup-lag | queue-aware |
-|---------------------|------:|----------:|------------:|
-| offered             |  7159 |      7159 |        7159 |
-| completed           |  7159 |      7159 |        7159 |
-| completed %         | 100.0 |     100.0 |       100.0 |
-| unfinished          |     0 |         0 |           0 |
-| good (≤2s) %        | 100.0 |      19.7 |        28.1 |
-| almost (≤10s) %     |   0.0 |       5.8 |         6.2 |
-| bad (≤30s) %        |   0.0 |      31.3 |        43.1 |
-| really bad (≤60s) % |   0.0 |      42.7 |        21.0 |
-| failed (>60s) %     |   0.0 |       0.4 |         1.6 |
-| wait p50 (s)        |   0.0 |      28.5 |        14.6 |
-| wait p90 (s)        |   0.0 |      39.6 |        50.6 |
-| wait p99 (s)        |   0.0 |      47.4 |        62.4 |
-| replicas avg        |  3.30 |      2.56 |        2.71 |
-| replicas max        |     5 |         5 |           5 |
-| replica·seconds     |  1980 |      1536 |        1629 |
-| peak queue depth    |     0 |       756 |         704 |
+| metric              | ideal | static | setup-lag | queue-aware |  qexp | hpa-queue | hpa-concurrency | hpa-combined |
+|---------------------|------:|-------:|----------:|------------:|------:|----------:|----------------:|-------------:|
+| offered             |  7159 |   7159 |      7159 |        7159 |  7159 |      7159 |            7159 |         7159 |
+| completed           |  7159 |   7159 |      7159 |        7159 |  7159 |      7159 |            7159 |         7159 |
+| completed %         | 100.0 |  100.0 |     100.0 |       100.0 | 100.0 |     100.0 |           100.0 |        100.0 |
+| unfinished          |     0 |      0 |         0 |           0 |     0 |         0 |               0 |            0 |
+| ≤2s %               | 100.0 |  100.0 |      19.7 |        28.1 |  34.6 |      92.7 |             0.0 |         92.7 |
+| ≤15s %              | 100.0 |  100.0 |      29.7 |        52.3 |  75.0 |      95.2 |             0.3 |         95.2 |
+| ≤30s %              | 100.0 |  100.0 |      56.8 |        77.4 |  82.9 |      96.8 |             0.9 |         96.8 |
+| ≤45s %              | 100.0 |  100.0 |      98.4 |        87.3 |  93.3 |      98.8 |             6.1 |         98.8 |
+| ≤60s %              | 100.0 |  100.0 |      99.6 |        98.4 |  98.8 |      99.6 |            11.6 |         99.6 |
+| failed (>60s) %     |   0.0 |    0.0 |       0.4 |         1.6 |   1.2 |       0.4 |            88.4 |          0.4 |
+| wait avg (s)        |   0.0 |    0.0 |      23.3 |        18.9 |  11.9 |       2.0 |           105.6 |          2.0 |
+| wait p50 (s)        |   0.0 |    0.0 |      28.5 |        14.6 |   3.4 |       0.0 |           115.3 |          0.0 |
+| wait p90 (s)        |   0.0 |    0.0 |      39.6 |        50.6 |  43.0 |       0.0 |           138.8 |          0.0 |
+| wait p95 (s)        |   0.0 |    0.0 |      42.4 |        57.2 |  55.4 |      13.2 |           141.1 |         13.2 |
+| wait p99 (s)        |   0.0 |    0.0 |      47.4 |        62.4 |  62.4 |      47.4 |           143.1 |         47.4 |
+| replicas avg        |  3.30 |  10.00 |      2.56 |        2.71 |  2.77 |      8.10 |            2.00 |         8.10 |
+| replicas max        |     5 |     10 |         5 |           5 |     5 |        10 |               4 |           10 |
+| replica·seconds     |  1980 |   6002 |      1536 |        1629 |  1665 |      4860 |            1200 |         4860 |
+| provisioned·seconds |  1980 |   6002 |      1986 |        2169 |  2130 |      5760 |            1635 |         5760 |
+| boot-lag waste·s    |     0 |      0 |       450 |         540 |   465 |       900 |             435 |          900 |
+| utilization         |  0.62 |   0.20 |      0.80 |        0.75 |  0.74 |      0.25 |            1.02 |         0.25 |
 
-*(`peak queue depth` and per-scenario replica lifecycles are read from the traces,
-not `summary.md`; see §6.4. `time/work` percentiles are in the file but omitted
-here — informational only, see §4.)*
+*(Quality rows are the **cumulative** wait CDF sampled at each band edge — "% of
+offered served within Ns" — matching `out/summary.md`. `failed (>60s) %` = 100 − ≤60s
+(unfinished = 0 here); it is shown for the headline even though `summary.md` derives
+rather than prints it. Per-scenario replica lifecycles / peak-queue depths are read
+from the traces, not `summary.md`; see §6.4. `time/work` percentiles are in the file
+but omitted here — informational only, see §4.)*
 
 **Metrics** (one line each): **offered** — arrival denominator (every request that
 appeared; anti-survivorship). **completed / %** — did it finish at all.
-**unfinished** — stranded, never served. **good…failed %** — share of *offered* by
-pre-service wait band (5 bands + unfinished% = 100) — **this is the scored signal.**
-**wait pNN** — pre-service wait (dispatch − arrival) over completed requests.
+**unfinished** — stranded, never served. **≤Ns %** — cumulative share of *offered*
+served within N s (the wait CDF sampled at each band edge; monotonic down the rows) —
+**this is the scored signal**; `failed (>60s) %` = 100 − ≤60s. (Exclusive per-band
+shares still drive the panel-1a stacked figure, §5.)
+**wait avg/pNN** — pre-service wait (dispatch − arrival) over completed requests.
 **replicas avg/max** — ready count. **replica·seconds** — ∫ ready dt, a cost proxy.
+**provisioned·seconds** — total *billed* fleet-time incl. the boot window
+(start..up) and draining tail — the number the invoice reflects. **boot-lag waste·s**
+— `provisioned − ready` = fleet-time paid for while replicas were still booting (not
+yet serving). **utilization** — delivered work ÷ usable throughput-capacity paid
+for; <1 = idle/over-provisioned, ~1 or above = fully packed (which can *still* fail
+latency — see hpa-concurrency — so read it next to the % bands, never alone).
 
 **Reading it — the honest headline (this is the B1 story):**
 
-Under this calibration the smooth bump is **gentle enough that all three complete
-100 %** — nobody is *permanently* stranded, even at 90 s boot. So the story is
-**not** "completion rescue" and it is **not** "peak-queue reduction." The whole
-difference lives in **when** work is served (the waiting-quality mix) and in the
-**tail**:
+Under this calibration the smooth bump is **gentle enough that every scenario
+completes 100 %** — nobody is *permanently* stranded, even at 90 s boot. So the
+story is **not** "completion rescue." Every difference lives in **when** work is
+served (the waiting-quality mix), in the **tail**, and in the **price** paid for
+promptness (cost + utilisation):
 
-- **Ideal**: 100 % served in ≤2 s, peak queue **0**. The centered clairvoyant
-  window provisions *ahead* of the ramp, so on a smooth bump it never queues. What
-  good looks like.
+- **Ideal**: 100 % served in ≤2 s, peak queue **0**, at the smallest scaling fleet
+  (peak 5, 1980 replica·s, util 0.62). The centered clairvoyant window provisions
+  *ahead* of the ramp, so on a smooth bump it never queues. What good looks like.
+- **Static (no scaling)**: also 100 % prompt — but it pins **10** replicas for the
+  whole run, so it pays **6002 replica·s** (~3× ideal) at util **0.20** — the
+  *most expensive, least efficient* way to be prompt. The "just provision for max"
+  answer, quantified.
 - **Setup-lag**: still 100 % complete, but the 90 s boot runs the up-ramp
-  under-provisioned, so only **19.7 %** are served promptly (≤2 s) and the mass
-  falls into **bad (31.3 %) / really-bad (42.7 %)** — 30–60 s waits. The bump
-  recedes before the backlog turns terminal, so only **0.4 %** cross 60 s. Same
-  commands as ideal, each landing 90 s late: **correct policy, fatal timing.**
-- **Queue-aware**: the backlog term pulls scale-ups **earlier** and holds an extra
-  replica, which lifts prompt service to **28.1 %** and roughly **halves the median
-  wait** (28.5 → 14.6 s). But the replica it orders late — reacting to a backlog
-  that is *already* being addressed by in-flight boots — arrives *after* the peak
-  has passed, so it **worsens the tail**: p90 **50.6** vs 39.6, p99 **62.4** vs
-  47.4, failed **1.6 %** vs 0.4 %, at **+93 replica·seconds** (1629 vs 1536) and one
-  extra lifecycle replica. **Peak queue barely moves (756 → 704, ~7 %).**
+  under-provisioned, so only **19.7 %** are served promptly (≤2 s) and just **29.7 %
+  within 15 s**; the mass only clears later — **56.8 % by 30 s, 98.4 % by 45 s**.
+  Only **0.4 %** cross 60 s. Same commands as ideal, each landing 90 s late:
+  **correct policy, fatal timing.**
+- **Queue-aware**: the backlog term lifts prompt service to **28.1 %** (≤2 s) and
+  **52.3 % within 15 s** (vs setup-lag's 29.7 %), roughly **halving the median wait**
+  (28.5 → 14.6 s), but the late-ordered replica arrives
+  after the peak, so it **worsens the tail** (p90 **50.6** vs 39.6, failed 1.6 % vs
+  0.4 %) at +93 replica·s. A modest shift toward "good," paid for with a heavier
+  tail — not a rescue.
+- **qexp**: the anticipatory periodic loop. Sizing to the *projected* backlog peak
+  (and crediting in-flight boots) lets it order sooner and hold, so it beats
+  reactive queue-aware on **every** axis at once: **34.6 % prompt** (≤2 s, vs 28.1 %),
+  **75.0 % within 15 s** (vs 52.3 %), median wait **3.4 s** (vs 14.6),
+  **shorter tail** (p90 **43.0** vs 50.6), and a **lower queue peak** (583 vs 704)
+  — all at **essentially the same cost** (1665 replica·s / 2130 prov·s vs 1629 /
+  2169, same peak-5 fleet). This is the payoff of dead-time compensation *without*
+  foresight: it never sees future arrivals, it just stops chasing a backlog that
+  its own pending boots are already about to clear.
+- **hpa-queue**: off-the-shelf KEDA on queue depth. Reactive, no dead-time
+  compensation — but on a queue signal it sees the whole cold-start backlog and
+  orders it, pinning at the cap. Result: **92.7 % prompt** (near-ideal quality!)
+  — but at **4860 replica·s** and util **0.25**, i.e. it buys promptness by
+  **over-provisioning ~2.5× the ideal fleet**. Prompt, but wasteful.
+- **hpa-concurrency**: KEDA on running-count only. The signal is **capacity-capped**
+  (`R ≤ n·usable_C`), so it cannot see the queue behind it — it stalls at **4**
+  replicas while a deep queue builds and **88.4 % of requests fail (>60 s)**, avg
+  wait **105.6 s**. Its util reads **1.02** — *fully packed and still failing*, the
+  single sharpest lesson in the deck: **high utilisation is not success.**
+  Concurrency alone cannot outrun boot lag.
+- **hpa-combined**: `max(queue, concurrency)`. The queue trigger rescues
+  concurrency's blind spot, so it is **identical to hpa-queue** (92.7 % prompt,
+  4860 replica·s, util 0.25) — the queue term dominates on this workload. This is
+  why the well-lit path pairs the two triggers.
 
-So the honest takeaway is subtle, and deliberately so: on a smooth bump a reactive
-backlog term buys a **modest shift of the waiting-mix toward "good," paid for with
-a heavier tail and a bit more cost** — not a dramatic rescue. The dramatic
-"recovers stranded work" story needs a load where setup-lag actually strands work
-(sharper or sustained overload); the smooth bump does not produce it. This is why
-the demo does **not** claim queue-aware "fixes" the problem — it motivates
-anticipation (expQ, §3(ii)), which is the sizer that can order *before* the queue
-builds instead of chasing it.
+So the honest takeaway is a **two-axis** one: promptness and cost are separate
+dials, and no *reactive* policy here gets both. Static and hpa-queue/combined buy
+promptness with 2.5–3× the fleet; hpa-concurrency is cheap and catastrophic;
+queue-aware nudges the mix but worsens the tail. The dramatic "recovers stranded
+work" story needs a sharper/sustained overload the smooth bump doesn't produce.
+This is exactly what **anticipation** (Qexp, §3(ii)) delivers: it is the only sizer
+here that is *both* prompt *and* lean — best-in-class quality among the lag-90
+sizers at the leanest fleet, because it orders *before* the queue builds and stops
+chasing once its pending boots are committed, instead of over-buying (static,
+hpa-*) or chasing after the fact (queue-aware). It gets there **without foresight**
+— axis-2 dead-time compensation alone. The one axis it still cannot cross is axis-1
+(seeing future arrivals), which is why even Qexp trails the clairvoyant ideal.
 
 **Why even the *ideal* sizer eventually fails (the §6.5 stress point).** Ideal's
 peak queue is 0 here only because the bump varies *slowly relative to the sizing
@@ -520,13 +922,40 @@ start = a scale-up command, a distinct stop = a scale-down):
   window lets the queue build — and, because it does **not credit replicas already
   booting**, orders one replica more than needed, which lands after the peak. This
   is the *residual* of the integral windup (much milder here than under a sharper
-  load), and the visual motivation for expQ: credit in-flight boots and even that
-  one-replica overshoot disappears.
+  load), and the visual motivation for Qexp: credit in-flight boots and that
+  late-ordered overshoot moves to where it helps.
+- **qexp** — also **6** lifecycle replicas and peak ordered **5**, but the boots are
+  **front-loaded** relative to queue-aware: scale-ups fire at t≈15/60/90/120 (vs
+  queue-aware's 15/75/105/135), so capacity is committed *earlier* into the boot
+  window. Because the loop **credits in-flight boots at their projected land-times**,
+  it doesn't windup-order; instead it commits to the peak target, holds, and then
+  **retires on the observed backlog clearing** (one early retire at t≈195 as the
+  queue drains, the rest from t≈390). The visible payoff vs queue-aware is a **lower
+  queue peak (583 vs 704)** for the same peak-5 fleet — anticipation spends the same
+  replicas *sooner*, where they suppress the pile-up instead of chasing it.
+- **static** — **no** scale commands: 10 replicas up at t=0, down at end. Flat
+  desired == actual == 10 across the whole trace (setup=0, pre-warmed). The panel-2
+  line is a plateau — the visual "no autoscaler" contrast to every other panel's
+  staircase.
+- **hpa-queue** — closed-loop, decisions every 15 s off the trailing-60 s queue
+  average. During the boot window the queue signal is large (nothing is serving
+  yet), so it ramps hard and **pins at the cap (10)** through the ramp, then drains
+  as the trailing average falls. Peak actual **10** vs ideal's 5 — the
+  over-provisioning is visible as a panel-2 plateau twice ideal's height.
+- **hpa-concurrency** — closed-loop off running-count. The signal saturates at
+  `n·usable_C`, so `ceil(R/c)` never asks for more than a handful: peak actual
+  **4**, held flat while panel-4 shows a queue climbing past 700 and panel-5 shows
+  L far above the usable-slot ceiling. The panels make the capacity-capped blind
+  spot literal — a small flat fleet under a mountain of backlog.
+- **hpa-combined** — **identical trace to hpa-queue** (same 10-replica pin, same
+  drain schedule): the `max` picks the queue term at every decision, so the
+  concurrency trigger never binds. Two policies, one supply trace — the visual proof
+  that the queue term dominates.
 
 ### 6.5 Stress experiment — making even the ideal sizer queue (B2)
 
 A separate, standalone experiment (`stress_ideal.py` → `out/stress-ideal-spike.png`),
-**not wired into the three-way report**. Its only job is to make one teaching point
+**not wired into the multi-scenario report**. Its only job is to make one teaching point
 that the smooth bump can't: *perfect future knowledge is not enough if you compress
 it into a windowed average to size a fixed replica count.*
 
@@ -623,8 +1052,9 @@ are real sources with reusable visuals — kept here so we don't re-run this sea
 - **Steal #4 (throughput vs goodput)** = a cheap SLO overlay on panel 1a; we have
   per-request latency. Sharpest scaling-signal argument for a WVA audience.
 - **Steal #3 (continuous batching) & #5 (USL retrograde)** = **phase-2 only** — they
-  need the concurrency-dependent service model (§2.3 deferred), which is exactly
-  what makes the USL rollover real instead of synthetic.
+  need the concurrency-dependent service model (§2.7). Note #3 (batching speed-up)
+  *is* the §2.7 model; #5 (retrograde) needs oversubscription past the cap, which
+  §2.7 does not produce on its own — that stays a synthetic/imported-trace extension.
 
 > Two interactive pages (an LLM-serving explainer at mbrenndoerfer.com and a couple
 > vendor blogs) **403'd automated fetch** — described from snippets; worth a manual
@@ -632,12 +1062,35 @@ are real sources with reusable visuals — kept here so we don't re-run this sea
 
 ### 7.2 Anticipation / control-theory prior art — **NOT YET RUN**
 
-Distinct from §7.1. This is the search for the *sizing-math* regime behind expQ —
+Distinct from §7.1. This is the search for the *sizing-math* regime behind Qexp —
 dead-time compensation, feed-forward, anti-windup, and the exact KEDA/HPA queue
-formula. **Not done.** Any control-theory framing (e.g. Smith predictor,
+formula. **Not done** (Qexp is built from first principles; this validates the
+*naming*, not the mechanism). Any control-theory framing (e.g. Smith predictor,
 anti-windup, Erlang-C) is a **hypothesis to verify against a real source**, not an
 established citation — do not write it up as fact until searched. This is
 next-step (1) in §8.1.
+
+### 7.3 Workload / benchmarking prior art — **NOT YET RUN** (2026-08-03)
+
+Before implementing more workloads (§8.1), survey how the field actually drives
+autoscaling evaluation, so our "realistic" shapes are grounded rather than invented:
+
+1. **Inference-benchmarking workloads used for autoscaling evaluation** — what
+   arrival patterns / traces does the literature and the llm-d / vLLM ecosystem use
+   when they measure autoscaling (not just steady-state throughput)? Look for
+   published traces, level-shift/diurnal profiles, and any standard "burst" fixtures.
+2. **`guidellm` and `inference-perf` generation capabilities** — what arrival
+   processes can each actually emit? Constant-rate, Poisson, ramps, traces-from-file?
+3. **Known gap to confirm.** Most tools drive a **homogeneous Poisson process at a
+   constant rate**, which produces **large traffic spikes** (high variance) rather
+   than the *smooth mean signal + bounded noise* we want (§1.1(3): slow-large for the
+   controller, small-high-variance for the queue). Confirm which tools — if any —
+   support a controlled mean profile with separately-bounded noise, vs only raw
+   Poisson. This shapes whether our realistic fixtures can be reproduced by a real
+   benchmark tool later (the two-trace ingestion of §1.1(2)).
+
+This is a prior-art investigation, deferred; do not block workload implementation's
+*design* on it, but run it before finalizing the realistic fixtures.
 
 ---
 
@@ -649,37 +1102,151 @@ next-step (1) in §8.1.
    scan is already done (§7.1); this remaining one covers the *sizing math* only.
    Run it *before* writing any control-theory framing into §3. Verify or drop
    Smith-predictor / anti-windup / KEDA-HPA-formula / Erlang-C against real sources.
-2. [ ] **Pin down the expQ logic precisely** (Dean's open question, §3(ii)) —
-   agree the projection-to-`t+setup` + credit-in-flight-boots + size-the-shortfall
-   formulation and confirm it with Dean **before** coding the sizer.
-3. [ ] **Implement expQ sizer** (§3(ii)) — anticipatory, credits in-flight boots
-   (approach (a): time-to-clear, T≈30 s).
-4. [ ] **Implement HPA-queue sizer** (§3(iii)) — plain `ceil(queue/target)`
-   baseline.
-5. [ ] **Three-way comparison** — first on the ideal case (isolates sizer math),
-   then under the 90 s boot lag (where expQ should separate). See §3 comparison
-   approach.
+   **Still open** — Qexp is implemented from first principles; the control-theory
+   *naming* of what it does (dead-time compensation, anti-windup) is unverified.
+2. [x] **Pin down the Qexp logic precisely** (§3(ii)) — settled as a **periodic
+   control loop** that sizes to the projected backlog **peak** and credits in-flight
+   boots at their estimated land-times. The earlier "project to `t+setup`, size the
+   shortfall" framing was refined: sizing to the *endpoint* self-cancels pending
+   (windup in reverse), so the loop sizes to the peak instead. **Done.**
+3. [x] **Implement Qexp sizer** (§3(ii)) — `gen_supply_queue_aware_exp`;
+   periodic loop, credits in-flight boots, `proj_setup` conservatism dial + optional
+   `boot_stagger`. **Done** — scenario `08-queue-aware-exp` in the report (§6).
+4. [x] **Implement HPA baselines** (§3(iii)–(vi)) — closed-loop KEDA queue /
+   concurrency / combined (`run_closed_loop`) plus the static no-scaling strawman
+   (`gen_supply_static`). **Done** — all four are in the 8-scenario report (§6).
+5. [x] **Qexp comparison** — under the 90 s boot lag Qexp separates cleanly from the
+   reactive baselines: best quality among the lag-90 sizers at the leanest fleet
+   (§6.3). The `proj_setup` sweep (`sweep.py`, Sweeps tab) shows it stays stable and
+   self-correcting across the dial. **Done.**
+6. [ ] **Resolve the cascade-boot model** (deferred at Dean's direction, §3(ii)) —
+   decide whether the boot cascade is best modelled as the current *within-batch*
+   `boot_stagger` (replica `j` lands at `t+setup+j·u`) or a *global boot-concurrency
+   pipeline* (a cap on simultaneous boots across the whole fleet). Only the latter
+   bites on loads that mint one replica per tick; the two differ on step/spike. Not
+   yet decided.
 
    *(The earlier "centered-rate fix for `gen_supply_queue_aware`" item was
    removed: its trailing window is intentional — it's the reactive baseline, which
    by definition cannot peek at future arrivals. Centering is the ideal sizer's
-   ability, and adding look-ahead is exactly what expQ does. See §3(i) note.)*
+   ability, and adding look-ahead is exactly what Qexp does. See §3(i) note.)*
+
+7. [~] **Knob exploration (2026-08-03) — GATES item 8; (a) landed, (b) built (framing OPEN), (c) parked.**
+   Dean wants to try more model capabilities/knobs before the realistic workloads.
+   Three, in priority order:
+   - **(a) Concurrency-dependent decode rate** → **IMPLEMENTED 2026-08-03** per **§2.7**
+     (linear-ITL, `RHO = 2.0` default in `run.py`, sizer↔engine split, exact
+     event-driven mechanism in `sim.py`; `rho = 1` = fixed-rate identity). *Observed at
+     `headroom = 1.2`:* replica·seconds ↓ / utilization ↑ where pods have slack + drain
+     (ideal, setup-lag, queue-aware, Qexp); wait tails ~unchanged (heavy queueing occurs
+     while pods are packed, where ρ gives no speedup); static & hpa-concurrency unchanged
+     (no drain to accelerate / packed at k≈1). This is why (b) is the payoff — more
+     headroom lowers k and makes "headroom buys speed" visible.
+   - **(b) Per-replica headroom sweep.** `headroom` is already the fleet-level sizing
+     multiplier (§2.6) and the per-replica-slack dial; add it as a **sweep axis** in
+     `sweep.py` (esp. alongside queue-aware and Qexp), plus a **2-D sweep**
+     (`headroom × drain_time`, `headroom × proj_setup`) to show how much *dynamic*
+     reaction can substitute for *static* margin. Richer once (a) lands: lean pods are
+     then also *faster*, so headroom trades cost for both slack **and** speed (§2.7
+     virtuous cycle).
+     - **BUILT 2026-08-03** in `sweep.py`: RHO threaded through (fixes the stale ρ=1
+       `sweep.md`); headroom 1-D sweep on queue-aware + Qexp (fig 14); 2-D
+       `headroom × drain` (fig 15) and `headroom × proj_setup` (fig 16). The **capacity**
+       role is strong and monotone (Qexp good% 23→80 % across headroom 1.0→2.0, `prov·s`
+       1784→3050; the substitution surfaces show aggression/anticipation buying back
+       *some* margin at their own boot-lag cost).
+     - **⚠ OPEN — sleeping on it (2026-08-03; Dean's call, do not resolve unilaterally).**
+       The "headroom buys speed" half of the claim above **does not appear on the
+       wait-based quality metric**: `good%`/`wait_p90` are byte-identical at ρ=1 vs ρ=2
+       for every headroom (only `prov·s` moves, via a shorter drain tail). Structural, not
+       a bug — the bands key on *waiting* time, and a backlog keeps pods **packed at
+       `usable_C` (k≈1)** where `rate = service_rate`; the ρ speed-up only fires
+       *under-full* (k<1), exactly when wait≈0 already. So these sweeps isolate headroom's
+       **capacity** role; ρ's benefit is a *service-latency* effect (in `time/work`, not
+       plotted). Recorded as a "ρ note" at the foot of `out/sweep.md`.
+       - *Dean's real-system connection (2026-08-03):* in production a pod is **probed
+         while load is low** (so you observe the *fast* rate), and the **saturation rate
+         is guesstimated** — which reframes ρ as a *sizing-uncertainty* source
+         (probe-low-k → extrapolate the packed rate the sizer needs), not just a runtime
+         speed-up. Possibly a stronger use of the ρ knob than the virtuous-cycle framing.
+       - **Options to decide:** (1) accept as-is — sweeps = capacity role; amend §2.7 to
+         say the speed benefit is service-latency-only / invisible under backlog; (2) add a
+         `time/work`-p90 panel to `render_sweep` so ρ *does* show; (3) reframe §2.7 around
+         sizing uncertainty (Dean's probe-at-low-load point). §2.7 / this item's
+         virtuous-cycle wording left untouched pending the ruling.
+   - **(c) Little's law (L = λ·W) — parked.** We already plot L(t) and title panel 5
+     `L = λ·W` (§5), but do not *demonstrate* the identity. If surfaced, do it as a
+     **steady-state annotation on a plateau** ("L ≈ X = λ(Y)·W(Z)"), never a
+     per-instant `λ(t)·W̄` overlay (it diverges on transients — looks broken).
+     Naturally downstream of the realistic plateaus (item 8). Note: with (a), W becomes
+     load-dependent — a nice teaching point that Little assumes nothing about a constant
+     service rate.
+8. [ ] **Realistic workload set** (§1.1(3), §6.2) — **GATED on item 7 (knob
+   exploration); do not implement until Dean gives the go-ahead.** Add
+   fixtures to `rate_profile` for shapes that contain steady states so right-sizing
+   is visible:
+   - **Trapezoid** — baseline → ramp → **hold peak** → ramp → baseline (full
+     lifecycle: right-size at both plateaus; overreact-then-relax on each transition).
+   - **Level-shift up** — hold `lo` → slow ramp → **hold `hi`** (purest right-sizing
+     story: converge to `hi`, relax off the overreaction; static pays `hi` throughout).
+   - **Level-shift down** — hold `hi` → slow ramp → **hold `lo`** (scale-down /
+     stop-paying; minimal boot-lag waste).
+
+   All on a **nonzero baseline** (prod is never idle); the existing Poisson thinning
+   supplies the small high-variance noise the queue absorbs. **Levels decided:**
+   `lo ≈ 8`, `hi = 24` req/s (a 3× surge; `hi` matches today's peak so the calibration
+   and capacity numbers carry over). Crafted shapes (`bump`, `spike`, `step`) are kept
+   but **demoted to teaching aids** (secondary), not removed. Must not special-case
+   the workload in any sizer or plot (§1.1(1)).
+9. [ ] **Two-level scenario chooser in the HTML** (decision-2, 2026-08-03) — once
+   *all* scenarios (teaching + realistic) are generated, `report.py`'s viewer needs a
+   selector: **first pick a category, then the particular workload.** Category names
+   **TBD** — "teaching" vs "real" are placeholders Dean wants improved. Open design;
+   affects `out/index.html` construction in `report.py` only.
 
 ### 8.2 Later (deferred — do not start without direction)
 
 **Model / sizing:**
-- [ ] Phase 2: concurrency-dependent service rate (USL).
+- [x] Phase 2: concurrency-dependent **decode** rate — **designed & IMPLEMENTED
+      2026-08-03 in §2.7** (§8.1 item 7(a)). Monotone below the cap, not full USL.
+- [ ] **USL retrograde** (throughput *falling* past a knee) — a separate, later
+      extension beyond §2.7: it requires concurrency *above* `usable_C`, which the
+      closed-loop router never produces. Only reachable with an oversubscribing
+      imported trace (below) — the path into the >85 % slowdown / "crawl" regime the
+      in-sim dispatcher never enters (§2.3).
 - [ ] Setup-time noise: boot lag is a **constant** now; add jitter/noise to
       `setup` (and later `drain`) to test robustness to non-uniform boot times.
+
+**Two-trace / real-benchmark ingestion (§1.1(2), decision-3 = later):**
+- [ ] **Workload-trace loader** — read arrivals + sizes from a real benchmark export
+      (guidellm / inference-perf; see §7.3) instead of `gen_load`. The rest of the
+      pipeline is unchanged (policies are pure `load → supply`). Such a trace may also
+      record real **per-pod concurrency above `sat_frac`** (a real router making
+      early/mistaken decisions, so queues form at each vLLM) — the only path into the
+      above-target slowdown / >85 % crawl regime the closed-loop sim never reaches
+      (§2.3), and the input that would make USL retrograde real rather than synthetic.
+- [ ] **Replay supply mode** — a "policy" that *follows a given scaling trace (b)*
+      rather than computing one, so the **actual** benchmark run renders beside the
+      **counterfactual** algorithm traces on the same workload (a). This is the seam
+      that turns the closed simulator into the two-trace comparator of §1.1(2).
 
 **Visualization / delivery:**
 - [x] **Static comparison viewer** (`report.py` → `out/index.html`) — self-contained
       vanilla HTML/CSS/JS over the rendered PNGs: **Compare** (two half-width panes,
       side-by-side, synchronized scroll, with a fit↔full-detail slider), **Browse**
       (one scenario wide + its latency scatter), **Table** (all strategies as columns
-      from `summary.md`, each row annotated with what it means), and a **Glossary**
-      tab (the parameter/term definitions from §2.6/§3). Realizes the §1 comparison
-      UX for the Phase-1 static figures. Open directly (`file://`); no server.
+      from `summary.md`, each row annotated with what it means; sticky header row),
+      and a **Glossary** tab (the parameter/term definitions from §2.6/§3). The table
+      and header carry shared narrative prose (intro / story / per-policy readings)
+      rendered from single source constants in `report.py`. Realizes the §1
+      comparison UX for the Phase-1 static figures. Open directly (`file://`); no
+      server.
+- [x] **Generated `REPORT.md`** — `report.py` also emits a standalone markdown
+      report (`build` → `REPORT.md`) from the **same** sources as the HTML
+      (`out/summary.md` + the scenario/glossary/prose constants), so it has
+      **identical scope** to `index.html` — all 7 scenarios, all rows, the same
+      narrative prose. Data-driven, not hand-maintained. *(A short/curated
+      few-scenario report version is deferred until the full data set settles.)*
 - [ ] **Fillable parameter form** (deferred): a form in the viewer that lets a user
       set the run.py GLOBALS (workload / fleet / sizer / sampling knobs) and
       re-generate the figures — turns the static viewer into an interactive
@@ -697,13 +1264,21 @@ next-step (1) in §8.1.
 
 ## 9. Files
 
-- `sim.py` — load/supply generators, `Simulator` engine, `sample`, `summarize`.
+- `sim.py` — load/supply generators (`gen_supply_perfect`, `gen_supply_queue_aware`,
+  `gen_supply_static`, `run_closed_loop`), `Simulator` engine, `sample`, `summarize`.
 - `plots.py` — `render` (6 panels), `render_latency`, `render_cumulative`.
-- `run.py` — three scenarios + comparison `report` → `out/summary.md`.
-- `report.py` — builds `out/index.html` (comparison viewer) from the PNGs +
-  `summary.md`; read-only over the sim.
+- `run.py` — **7** scenarios (ideal, static, setup-lag, queue-aware, hpa-queue,
+  hpa-concurrency, hpa-combined) + comparison `report` → `out/summary.md`.
+- `report.py` — builds `out/index.html` (comparison viewer) **and** `REPORT.md`
+  (standalone markdown, identical scope) from the PNGs + `summary.md` + shared
+  narrative prose constants; read-only over the sim.
+- `stress_ideal.py` — standalone B2 stress experiment (§6.5); not in the report.
+- `diag_decisions.py` — throwaway per-decision sizer-state dump for the queue-aware
+  run (when/why `desired` changes); not wired into `run.py`.
 - `traces/*.json` — generated load/supply traces.
 - `out/*.png`, `out/summary.md` — rendered figures + table.
 - `out/index.html` — self-contained comparison viewer (open with `file://`).
+- `REPORT.md` — generated standalone markdown report (regenerated by `report.py`).
 
-Run: `./.venv/bin/python run.py` (python3.12 venv; prefer `uv` for new deps).
+Run: `./.venv/bin/python run.py` then `./.venv/bin/python report.py` (python3.12
+venv; prefer `uv` for new deps).

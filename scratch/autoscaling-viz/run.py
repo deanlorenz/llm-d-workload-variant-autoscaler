@@ -11,8 +11,10 @@ import json
 import os
 
 from sim import (gen_load, gen_supply_perfect, gen_supply_queue_aware,
-                 run_closed_loop, Simulator, sample, summarize)
-from plots import render, render_latency, render_cumulative
+                 gen_supply_queue_aware_exp, gen_supply_static, run_closed_loop,
+                 Simulator, sample, summarize)
+from plots import (render, render_latency, render_cumulative,
+                   render_wait_cdf, render_cost_quality)
 
 OUT = "out"
 TR = "traces"
@@ -27,6 +29,10 @@ C = 100                       # per-backend concurrency limit
 SERVICE_RATE = 1000.0 / 12.0  # tokens/s per in-service request (~83.3)
 SAT_FRAC = 0.7                # usable concurrency = floor(0.7*C); vLLM goodput ceiling
 HEADROOM = 1.2
+RHO = 2.0                     # empty/packed decode speedup: a lightly-loaded pod
+                              # decodes ~RHO× faster than a packed one (batching-ITL,
+                              # design §2.7). Sizer ignores this; only achieved
+                              # latency reflects it. RHO=1 => fixed-rate model.
 SIZING_RANGE = 60.0           # sizer's estimation range (Prom range-vector)
 DECISION_INTERVAL = 15.0      # how often the sizer recomputes desired count
 DRAIN_TIME = 30.0             # queue-aware backlog-drain deadline
@@ -53,7 +59,7 @@ def scenario_ideal():
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
     json.dump(supply, open(f"{TR}/supply-perfect.json", "w"))
 
-    ts = sample(Simulator(load, supply).run(), sample_interval=SAMPLE_INTERVAL,
+    ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
     render(ts, "Ideal baseline — near-perfect scaling (setup≈0, drain≈0)",
            f"{OUT}/01-ideal.png")
@@ -80,7 +86,7 @@ def scenario_setup_lag():
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
     json.dump(supply, open(f"{TR}/supply-setup90.json", "w"))
 
-    ts = sample(Simulator(load, supply).run(), sample_interval=SAMPLE_INTERVAL,
+    ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
     render(ts, "Setup lag — demand-tracking commands, 90s boot (reactive timing)",
            f"{OUT}/02-setup-lag.png")
@@ -107,13 +113,69 @@ def scenario_queue_aware():
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
     json.dump(supply, open(f"{TR}/supply-qaware90.json", "w"))
 
-    ts = sample(Simulator(load, supply).run(), sample_interval=SAMPLE_INTERVAL,
+    ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
     render(ts, "Queue-aware fix — 90s boot, size for backlog-drain (reactive)",
            f"{OUT}/03-queue-aware.png")
     render_latency(ts, "Queue-aware fix — per-request time in system",
                    f"{OUT}/03-queue-aware-latency.png")
     print(f"[qaware90] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+          f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
+          f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
+    return ts
+
+
+def scenario_queue_aware_exp():
+    """Fix step 2: anticipatory QUEUE-aware sizing ("Qexp"), a periodic control
+    loop. Same 90s boot and same backlog-drain idea as reactive queue-aware, but
+    it sizes to the PEAK of the backlog it PROJECTS forward under the committed
+    boot schedule (up now + pending at their estimated land-times), not the
+    backlog measured now. It reads only the observable queue LEVEL each tick, so
+    scale-down follows the real drain; the projection's constant-demand + boot
+    assumptions are simplifications it self-corrects against, never depends on.
+    Anticipating the queue that WILL pile up during the boot lets it order sooner
+    and hold through the boot instead of chasing the backlog after the fact."""
+    load = _load()
+    supply = gen_supply_queue_aware_exp(load, C=C, service_rate=SERVICE_RATE,
+                                        setup=SETUP, drain=0.0, headroom=HEADROOM,
+                                        sizing_range=SIZING_RANGE,
+                                        drain_time=DRAIN_TIME,
+                                        decision_interval=DECISION_INTERVAL,
+                                        sat_frac=SAT_FRAC)
+    json.dump(load, open(f"{TR}/load-bump.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-qexp90.json", "w"))
+
+    ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
+                req_range=REQ_RANGE, work_range=WORK_RANGE)
+    render(ts, "Anticipatory queue-aware (Qexp) — 90s boot, size for projected peak",
+           f"{OUT}/08-queue-aware-exp.png")
+    render_latency(ts, "Anticipatory queue-aware (Qexp) — per-request time in system",
+                   f"{OUT}/08-queue-aware-exp-latency.png")
+    print(f"[qexp90] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+          f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
+          f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
+    return ts
+
+
+def scenario_static():
+    """No autoscaling: a fixed fleet pinned at the ceiling for the whole run
+    (KEDA maxReplicaCount here). Never scales, so it never queues on this bump —
+    100% prompt — but pays for the full fleet the entire time (the most expensive
+    policy, and the lowest utilisation). The 'just provision for max' strawman."""
+    load = _load()
+    supply = gen_supply_static(load, count=MAX_REPLICAS, C=C,
+                               service_rate=SERVICE_RATE, setup=0.0, drain=0.0,
+                               sat_frac=SAT_FRAC)
+    json.dump(load, open(f"{TR}/load-bump.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-static.json", "w"))
+
+    ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
+                req_range=REQ_RANGE, work_range=WORK_RANGE)
+    render(ts, "No scaling — fixed fleet pinned at max (always-on, no autoscaler)",
+           f"{OUT}/07-static.png")
+    render_latency(ts, "No scaling — per-request time in system",
+                   f"{OUT}/07-static-latency.png")
+    print(f"[static] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
@@ -128,7 +190,7 @@ def _hpa_scenario(kind, num, slug, title, latency_title):
                           drain=0.0, sat_frac=SAT_FRAC,
                           decision_interval=DECISION_INTERVAL,
                           metric_window=METRIC_WINDOW, headroom=HEADROOM,
-                          max_replicas=MAX_REPLICAS)
+                          max_replicas=MAX_REPLICAS, rho=RHO)
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
     json.dump(sim.supply, open(f"{TR}/supply-hpa-{kind}.json", "w"))
 
@@ -179,10 +241,12 @@ _ROWS = [
     ("completed",           lambda s: f"{s['completed']:d}"),
     ("completed %",         lambda s: f"{s['completed_pct']:.1f}"),
     ("unfinished",          lambda s: f"{s['unfinished']:d}"),
-    # quality mix (panel-1a colours): % of OFFERED per waiting-time band.
-    # These five + (unfinished/offered) sum to 100. Inserted at render time so
-    # the labels/edges follow whatever wait_edges the run used.
-    ("__bands__",           None),
+    # quality mix as the CUMULATIVE wait CDF sampled at each band edge: each row
+    # is "% of OFFERED served within Ns", plus a derived "failed (>last-edge) %"
+    # tail row. Inserted at render time so the labels/edges follow whatever
+    # wait_edges the run used. (Exclusive per-band shares still live in the
+    # panel-1a stacked figure.)
+    ("__within__",          None),
     ("wait avg (s)",        lambda s: f"{s['wait']['avg']:.1f}"),
     ("wait p50 (s)",        lambda s: f"{s['wait']['p50']:.1f}"),
     ("wait p75 (s)",        lambda s: f"{s['wait']['p75']:.1f}"),
@@ -198,21 +262,38 @@ _ROWS = [
     ("replicas std",        lambda s: f"{s['replicas']['std']:.2f}"),
     ("replicas max",        lambda s: f"{s['replicas']['max']:d}"),
     ("replica·seconds",     lambda s: f"{s['replicas']['rep_seconds']:.0f}"),
+    # total billed fleet-time incl. the boot window (start..up) and draining tail,
+    # plus the boot-lag waste it adds over the usable replica·seconds above.
+    ("provisioned·seconds", lambda s: f"{s['replicas']['prov_seconds']:.0f}"),
+    ("boot-lag waste·s",    lambda s: f"{s['replicas']['boot_waste']:.0f}"),
+    # delivered work ÷ usable throughput-capacity paid for. <1 = over-provisioned
+    # (idle fleet); ~1 or above = fully packed (a small fleet kept busy — which can
+    # still fail latency, cf. hpa-concurrency, so read it next to the % bands).
+    ("utilization",         lambda s: f"{s['utilization']:.2f}"),
 ]
 
 
 def _expand_rows(summaries: dict):
-    """Materialise _ROWS, replacing the __bands__ placeholder with one row per
-    waiting-time quality band (labels taken from the first summary)."""
+    """Materialise _ROWS, replacing the __within__ placeholder with one row per
+    band edge: the cumulative "served within Ns" share (labels from the first
+    summary's within_labels)."""
     first = next(iter(summaries.values()))
-    band_rows = [
-        (f"  {lbl} %", (lambda i: lambda s: f"{s['band_pct'][i]:.1f}")(i))
-        for i, lbl in enumerate(first["band_labels"])
+    within_rows = [
+        (f"  {lbl} %", (lambda i: lambda s: f"{s['within_pct'][i]:.1f}")(i))
+        for i, lbl in enumerate(first["within_labels"])
     ]
+    # derived tail of the CDF: completed but slower than the last band edge.
+    # failed = completed% − (served within last-edge %); unfinished is its own
+    # row above, so this is the "finished, but too late" share on the OFFERED
+    # denominator. Reported explicitly so the slow tail stays visible.
+    last_edge = first["within_labels"][-1].lstrip("≤")           # e.g. "60s"
+    within_rows.append(
+        (f"  failed (>{last_edge}) %",
+         lambda s: f"{s['completed_pct'] - s['within_pct'][-1]:.1f}"))
     rows = []
     for label, fn in _ROWS:
-        if label == "__bands__":
-            rows.extend(band_rows)
+        if label == "__within__":
+            rows.extend(within_rows)
         else:
             rows.append((label, fn))
     return rows
@@ -245,12 +326,28 @@ def report(summaries: dict, md_path=f"{OUT}/summary.md"):
 
 
 if __name__ == "__main__":
-    sums = {
-        "ideal": summarize(scenario_ideal()),
-        "setup-lag": summarize(scenario_setup_lag()),
-        "queue-aware": summarize(scenario_queue_aware()),
-        "hpa-queue": summarize(scenario_hpa_queue()),
-        "hpa-concurrency": summarize(scenario_hpa_concurrency()),
-        "hpa-combined": summarize(scenario_hpa_combined()),
+    # Keep each scenario's sampled timeseries (ts) around: the comparison table
+    # needs only the summaries, but the cross-policy CDF overlay needs the raw
+    # per-request waits, so run each scenario once and reuse the result.
+    runs = {
+        "ideal": scenario_ideal(),
+        "static": scenario_static(),
+        "setup-lag": scenario_setup_lag(),
+        "queue-aware": scenario_queue_aware(),
+        "qexp": scenario_queue_aware_exp(),
+        "hpa-queue": scenario_hpa_queue(),
+        "hpa-concurrency": scenario_hpa_concurrency(),
+        "hpa-combined": scenario_hpa_combined(),
     }
+    sums = {k: summarize(v) for k, v in runs.items()}
     report(sums)
+
+    # Cross-policy comparison figures (the per-scenario PNGs above can't show
+    # policies on a shared axis). Cost is billed provisioned·seconds.
+    costs = {k: s["replicas"]["prov_seconds"] for k, s in sums.items()}
+    render_wait_cdf(runs, costs,
+                    "Waiting-time CDF — all policies (share of offered served within t)",
+                    f"{OUT}/09-wait-cdf.png")
+    render_cost_quality(sums,
+                        "Cost vs quality — fleet-time vs promptness (Pareto frontier)",
+                        f"{OUT}/10-cost-quality.png")
