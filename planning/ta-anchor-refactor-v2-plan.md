@@ -1,6 +1,6 @@
 # TA Anchor Refactor v2 — TA-0.9 critical enablement (self-contained)
 
-**Type:** 3 (task plan) · **Status:** DRAFT
+**Type:** 3 (task plan) · **Status:** FINAL (Review Round 2 folded in 2026-08-05 — V8/V9/V10/V11; coder-ready)
 **Design authority:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md) (Type 1)
 **Spec source:** [`ta-anchor-refactor-review.md`](ta-anchor-refactor-review.md) **Part 2** (§2.1–§2.7) — the corrected two-phase mechanism
 **Current-code map:** [`multi-analyzer-dataflow-map.md`](multi-analyzer-dataflow-map.md) (base `9906dac5`; §8 = reviewer annotations)
@@ -28,44 +28,44 @@
   - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L145:167
   - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L168:186
   - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L187:225
-- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L226:278
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L279:294
-- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L295:374
-  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L302:322
-  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L323:362
-  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L363:374
-- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L375:531
-  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L385:421
-  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L422:439
-  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L440:459
-  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L460:473
-  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L474:493
-  - [2f. Tests (this commit)](#2f-tests-this-commit) L494:531
-- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L532:608
-  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L538:577
-  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L578:593
-  - [7c-tests (this commit)](#7c-tests-this-commit) L594:608
-- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L609:728
-  - [The gap](#the-gap) L616:624
-  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L625:676
-  - [Why TA emits PRC only (and the resulting known limitation)](#why-ta-emits-prc-only-and-the-resulting-known-limitation) L677:692
-  - [Interaction with the `[sat,TA]` bit-identity gate (Test 9)](#interaction-with-the-satta-bit-identity-gate-test-9) L693:707
-  - [Test (this commit)](#test-this-commit) L708:728
-- [§7c Partial scale-from-zero under `[TA]`-only / `[sat,TA]` — covered via §7b; sat-only deferred](#7c-partial-scale-from-zero-under-ta-only--satta--covered-via-7b-sat-only-deferred) L729:784
-- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L785:827
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L828:854
-- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L855:943
-  - [Struct / field](#struct--field) L861:869
-  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L870:880
-  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L881:889
-  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L890:899
-  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L900:909
-  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L910:920
-  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L921:930
-  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L931:943
-- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L944:975
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L976:1020
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1021:1048
+- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L226:282
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L283:298
+- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L299:378
+  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L306:326
+  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L327:366
+  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L367:378
+- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L379:540
+  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L389:430
+  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L431:448
+  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L449:468
+  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L469:482
+  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L483:502
+  - [2f. Tests (this commit)](#2f-tests-this-commit) L503:540
+- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L541:617
+  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L547:586
+  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L587:602
+  - [7c-tests (this commit)](#7c-tests-this-commit) L603:617
+- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L618:742
+  - [The gap](#the-gap) L625:633
+  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L634:685
+  - [Why TA emits PRC only (and the resulting known limitation)](#why-ta-emits-prc-only-and-the-resulting-known-limitation) L686:701
+  - [Interaction with the `[sat,TA]` bit-identity gate (Test 9)](#interaction-with-the-satta-bit-identity-gate-test-9) L702:716
+  - [Test (this commit)](#test-this-commit) L717:742
+- [§7c Partial scale-from-zero — `[TA]`-only via §7b; `[sat,TA]` via sat's own emission; sat-only deferred](#7c-partial-scale-from-zero--ta-only-via-7b-satta-via-sats-own-emission-sat-only-deferred) L743:807
+- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L808:850
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L851:877
+- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L878:966
+  - [Struct / field](#struct--field) L884:892
+  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L893:903
+  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L904:912
+  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L913:922
+  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L923:932
+  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L933:943
+  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L944:953
+  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L954:966
+- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L967:998
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L999:1045
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1046:1073
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -259,8 +259,12 @@ from sat when sat is enabled; yields PRC=0 under `[TA]`-only).
 - **Partial scale-from-zero for `[saturation]`-only (TA absent)** — the pre-existing sat-v2 gap (sat's
   own `aggregateByVariant` not backfilling a per-variant cost for zero-replica variants) is NOT fixed
   here (Dean 2026-08-05: fix `[TA]`-only / `[sat,TA]` now, open an issue on sat-only later — §12). The
-  TA-enabled configs **are** handled in this PR via §7b (all-variants fallback), without any picker code
-  change; only the TA-absent path is deferred. See §7c.
+  TA-enabled configs **are** handled in this PR without any picker code change, but the
+  proactive-selectability *source* differs by config: under **`[TA]`-only** it is §7b (TA emits its
+  persisted per-replica capacity — previously-live PRC-only emission — so a returning variant stays
+  selectable); under **`[sat,TA]`** sat binds the anchor, so selectability comes from **sat's own**
+  zero-replica emission, and §7b's role there is only to feed the *combine-demand* side (not picker
+  selectability). Only the TA-absent path is deferred. See §7c.
 - **`AnalyzerName` validation gap** (§2.3-3) — the unconstrained `AnalyzerName` field + the silent
   `default:`→`optimizeV1` dispatch fallback ([engine.go:557](../../Main/internal/engines/saturation/engine.go#L557)).
   Separate small standalone PR, not a 0.9 requirement. Recorded in §12.
@@ -408,8 +412,13 @@ read site. This is the largest commit; the read-site inventory is §10.
      - else → **return nil** (no binding vote → the optimizer holds for this model; §7 liveness).
   3. **Build the merged anchor** per §2: fresh `*domain.AnalyzerResult`, model-level fields per
      Table 2, `VariantCapacities` by iterating `satNR`'s variant list and merging (a) from sat + (b)
-     from binding per `VariantName`, with the per-variant fallback to sat's own (b) when binding lacks
-     that variant. Recompute `TotalCapacity`. **Build fresh literals — never mutate `satNR.Result`,
+     from binding per `VariantName`. Where the binding analyzer lacks a variant, apply the
+     **enablement-gated** per-variant (b)-fallback (per the §2 table): use sat's own (b) **only when
+     `satNR.Enabled`** (`satNR.Enabled` is in scope here — this is the `[saturation]`-only / `[sat,TA]`
+     case, where sat's demand *and* PRC are both sat-sourced, so the pair stays consistent); under
+     `[TA]`-only (sat present as the (a) carrier but `!satNR.Enabled`) a variant the binding analyzer
+     omits, with no persisted TA PRC, gets **PRC = 0** — **not** sat's (b) — and is not proactively
+     selectable (§2). Recompute `TotalCapacity`. **Build fresh literals — never mutate `satNR.Result`,
      `binding.Result`, or their `VariantCapacities` slices/elements** (the aliasing guard; test 3).
   4. Return the fresh anchor.
 
@@ -520,8 +529,8 @@ test intends to vote. This is the complete fixture scope — a handful of lines,
   green at every commit, and if a later change perturbs the `[sat,TA]` combine it fails loudly. Build
   the expectation from the **current (pre-refactor) main** behavior for the same fixture so it is a
   true characterization, not a re-blessing of the refactored output. **Fixture constraint: every
-  variant must be live (≥1 replica)** so the §7b all-variants fallback (Commit 4) is a no-op for this
-  fixture — otherwise Commit 4 legitimately adds zero-replica candidates to TA's ballot and would break
+  variant must be live (≥1 replica)** so the §7b previously-live PRC-only emission (Commit 4) is a no-op
+  for this fixture — otherwise Commit 4 legitimately adds a previously-live-now-zero candidate to TA's ballot and would break
   the bit-identity this test freezes (see §7b "Interaction with the `[sat,TA]` bit-identity gate").
 - **Test 8 — goldens (#1513) green.** Run after this commit.
 
@@ -707,15 +716,20 @@ it must not silently change the frozen `[sat,TA]` decisions.
 
 ### Test (this commit)
 
-- **Test 7 — TA-side PRC-only self-fallback + eviction.** (a) a **previously-live** variant now at
+- **Test 7 — TA-side PRC-only self-fallback + eviction.** *(Harness: analyzer layer — the `throughput`
+  package, `internal/engines/analyzers/throughput`; drive `Analyze()` and assert on the emitted
+  `VariantCapacity` set directly.)* (a) a **previously-live** variant now at
   zero → TA emits a `VariantCapacity` whose `PerReplicaCapacity` is the persisted `lastPerReplicaSupply`
   and which carries **no** TA-sourced `Cost`/`AcceleratorName` (those are (a) from sat via the merge —
   assert TA does not set them). (b) a **never-seen** variant (no persisted PRC) → TA emits **nothing**
   for it (assert no capacity is produced; under `[TA]`-only its effective PRC is 0 → not selectable).
   Plus eviction: after the `2×DefaultObservationMaxAge` (~60 min) idle window the persisted entry is
   gone and a previously-live variant degrades to the never-seen (no-emission) case on its own.
-- **Test 10 — scale-from-zero selection under `[TA]`-only.** End-to-end proof that scale-from-zero
-  *functions*: a model with unmet demand and a **previously-live-now-zero** variant (persisted
+- **Test 10 — scale-from-zero selection under `[TA]`-only.** *(Harness: optimizer-selection layer — the
+  `pipeline` package, exercising the `cost_aware_optimizer` picker path — `buildCapacityMap` →
+  `costGreedyRolePick` — end-to-end through selection, not the analyzer emission alone.)* End-to-end
+  proof that scale-from-zero *functions*: a model with unmet demand and a **previously-live-now-zero**
+  variant (persisted
   `lastPerReplicaSupply` > 0) as the viable capacity source → the optimizer selects it and raises its
   replica count above zero (PRC > 0 keeps it a candidate). Complements Test 7 (which proves the
   *emission*); Test 10 proves the *picker acts on it*. Note the §7c cost-priority caveat (the returning
@@ -726,12 +740,20 @@ it must not silently change the frozen `[sat,TA]` decisions.
 
 ---
 
-## §7c Partial scale-from-zero under `[TA]`-only / `[sat,TA]` — covered via §7b; sat-only deferred
+## §7c Partial scale-from-zero — `[TA]`-only via §7b; `[sat,TA]` via sat's own emission; sat-only deferred
 
-Scale-from-zero and partial scale-from-zero **are addressed in this PR for the configs that enable TA**
-(`[TA]`-only and `[sat,TA]`), per Dean (2026-08-05) — via the §7b complement, **not** via any picker
-code change (the picker is unmodified; the fix is upstream — TA now emits a complete, non-inverting
-(PRC, cost) for every variant).
+Scale-from-zero and partial scale-from-zero **are addressed in this PR for the configs that enable TA**,
+per Dean (2026-08-05) — **without** any picker code change (the picker is unmodified; the fix is
+upstream, in what the analyzers emit). The proactive-selectability *source* differs by config:
+
+- **`[TA]`-only:** §7b is the proactive complement. TA emits its persisted per-replica capacity
+  (PRC-only, and only for previously-live-now-zero variants — never a fabricated baseline) so a
+  returning variant stays a selectable candidate.
+- **`[sat,TA]`:** sat binds the anchor, so proactive selectability comes from **sat's own** zero-replica
+  emission (`aggregateByVariant`'s stored-capacity / compatible-sibling estimate), **not** from §7b's
+  TA PRC. §7b's role under `[sat,TA]` is only to feed the *combine-demand* side of TA's ballot entry —
+  it does not drive picker selectability there. (Using TA's own (b) for selectability while sat is
+  present would be per-analyzer dynamic re-binding — PR-2 territory; see §12.)
 
 - **Previously-live variants get a real-PRC fallback.** §7b's second loop iterates
   `input.VariantStates` (the full VA list from `BuildVariantStates`, zero-replica variants included) and
@@ -744,7 +766,8 @@ code change (the picker is unmodified; the fix is upstream — TA now emits a co
   `Cost=0` bug — §12, *not ours*), a returning previously-live variant has
   `costEfficiency = 0/PRC = 0` and ranks **cheapest**, so the picker chooses it first on scale-up. This
   is the *same* mis-ranking `[sat]`-only already has (Dean 2026-08-05: "same limit until the bug is
-  fixed"). Net effect:
+  fixed") — and, because `Cost` is always sat's (a), it affects **every** config with a returning
+  zero-replica variant, `[sat,TA]` included (§12 records the full blast radius). Net effect:
   - **Scale-from-zero still functions** — the variant *is* selected (in fact eagerly). §7b's core value
     (proactive return of a previously-live variant) is intact; only cost-*priority* is affected.
   - **Flap** — if load then dips to create spare, scale-down sheds the most-expensive first (now the
@@ -998,7 +1021,9 @@ classified so a future session can recover the intent.
   even though the correct spec cost already exists one call up in `prepareModelData`'s `variantCosts` map
   ([`saturation/engine.go` ~:1490-1520](../../Main/internal/engines/saturation/engine.go)). Because
   `Cost` is the anchor's (a) from sat, this bug surfaces under **every** config with a returning
-  zero-replica variant — `[saturation]`-only always, and now `[TA]`-only too (§7c known limitation).
+  zero-replica variant — all three sat/TA configs: `[saturation]`-only always, `[sat,TA]` (sat binds,
+  so a returning zero-replica variant gets Cost=0 from sat's (a) + PRC>0 from sat's own emission → same
+  mis-ranking), and now `[TA]`-only too (§7c known limitation).
   This PR neither fixes nor works around it (no sentinel, no TA-side cost plug — that would be the "hack
   to bypass an existing bug" Dean rejected). Dean (2026-08-05): "completely separate … pops here too but
   unchanged. A separate PR — small, but not ours. Create a separate plan for it later." File as its own
