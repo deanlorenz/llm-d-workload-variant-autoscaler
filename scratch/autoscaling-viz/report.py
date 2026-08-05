@@ -41,23 +41,25 @@ SCENARIOS = [
                 "AND a backlog-drain term added) — not a clean A/B on the backlog term alone"},
     {"key": "queue-aware", "label": "Queue-aware",
      "png": "03-queue-aware.png", "latency": "03-queue-aware-latency.png",
-     "setup": "setup=90, drain_time=30 · demand-tracking + backlog-drain (reactive, TRAILING)",
-     "answers": "can a reactive backlog term rescue quality? → only modestly (~28% prompt), and it worsens the tail "
+     "setup": "setup=90, drain_time=20 (tuned — the Pareto-frontier near-free point over 30) · "
+              "demand-tracking + backlog-drain (reactive, TRAILING)",
+     "answers": "can a reactive backlog term rescue quality? → ~35% prompt, and it still worsens the tail "
                 "(chases the backlog after it has already piled up during the boot) — motivates anticipation, see Qexp"},
     {"key": "qexp", "label": "Qexp (anticipatory)",
      "png": "08-queue-aware-exp.png", "latency": "08-queue-aware-exp-latency.png",
      "setup": "setup=90, drain_time=30 · anticipatory: a PERIODIC control loop that sizes to the backlog PEAK "
               "projected over the committed boot schedule (up now + pending at their estimated land-times). Reads only "
               "the observable queue LEVEL — no foresight of arrivals",
-     "answers": "does anticipating the boot-window pile-up help? → yes: ~35% prompt vs reactive's ~28%, tail p90 43s "
-                "vs 51s, and a lower queue peak (583 vs 704) — at the SAME fleet cost (2130 vs 2169 prov·s). It orders "
-                "sooner and HOLDS through the boot instead of chasing the queue after the fact. Still no foresight — "
-                "it only projects the CURRENT queue forward (axis-2 dead-time compensation, not axis-1)"},
+     "answers": "does anticipating the boot-window pile-up help? → both now hit ~35% prompt (queue-aware's own "
+                "drain retune closed most of that gap), but Qexp gets there CHEAPER and with a shorter tail: "
+                "p90 43s vs 46s, a lower queue peak (583 vs 687), and less fleet cost (2043 vs 2139 prov·s). It "
+                "orders sooner and HOLDS through the boot instead of chasing the queue after the fact. Still no "
+                "foresight — it only projects the CURRENT queue forward (axis-2 dead-time compensation, not axis-1)"},
     {"key": "hpa-queue", "label": "HPA queue",
      "png": "04-hpa-queue.png", "latency": "04-hpa-queue-latency.png",
      "setup": "KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, cap 10",
      "answers": "naive queue-depth scaling (target 1)? → 92.7% prompt, but pins at the maxReplicaCount=10 cap and "
-                "burns ~2.5× the fleet (4860 vs ideal 1980 rep·s); the cold-start backlog is the only tail"},
+                "burns ~2.6× the fleet (4860 vs ideal 1858 rep·s); the cold-start backlog is the only tail"},
     {"key": "hpa-concurrency", "label": "HPA concurrency",
      "png": "05-hpa-concurrency.png", "latency": "05-hpa-concurrency-latency.png",
      "setup": "KEDA running-count · AverageValue target c≈58/replica → desired=ceil(R/c) · setup=90, cap 10",
@@ -144,8 +146,10 @@ GLOSSARY = [
     ("sizing_range / decision_interval / drain_time",
      "<b>sizing_range</b> (60s) = the lookback the sizer averages DR over. "
      "<b>decision_interval</b> (15s) = how often it recomputes the desired count. "
-     "<b>drain_time</b> (30s, queue-aware only) = the deadline over which the "
-     "backlog term aims to clear the current queue."),
+     "<b>drain_time</b> = the deadline over which the backlog term aims to clear "
+     "the current queue; used by both backlog-drain sizers, tuned separately: "
+     "<b>20s</b> for queue-aware (Pareto-frontier retune), <b>30s</b> for Qexp "
+     "(its own drain=20 is a regression — not a transferable win)."),
     ("setup / drain",
      "<b>setup</b> = boot lag, start→up (dead time; 90s for the lagged scenarios). "
      "<b>drain</b> = drain time, stop→down."),
@@ -253,14 +257,15 @@ READINGS = (
     "burns ~3× the ideal fleet at the lowest utilisation — promptness bought by paying "
     "for peak through every valley. **Setup-lag → queue-aware → Qexp** is the "
     "deployable-sizer progression under 90s boot: a correct policy landing 90s late is "
-    "only ~20% prompt; a reactive backlog term lifts that to ~28% but worsens the tail "
-    "(it chases the queue after the pile-up); **Qexp** — the anticipatory periodic loop "
-    "that sizes to the projected backlog peak — reaches ~35% prompt with a shorter tail "
-    "(p90 43s vs 51s) and a lower queue peak, at the SAME fleet cost. **hpa-queue** and "
-    "**hpa-combined** are prompt (~93% good) at ~2.5× the ideal fleet. "
-    "**hpa-concurrency** is catastrophic — 88% wait over a minute — because its signal "
-    "is capacity-capped and blind to the queue. **hpa-combined = hpa-queue**: the queue "
-    "trigger dominates the KEDA `max`, rescuing concurrency's blind spot."
+    "only ~20% prompt; a reactive backlog term (queue-aware, tuned to drain_time=20) "
+    "lifts that to ~35% but still worsens the tail (it chases the queue after the "
+    "pile-up); **Qexp** — the anticipatory periodic loop that sizes to the projected "
+    "backlog peak — matches that ~35% prompt rate but gets there CHEAPER and with a "
+    "shorter tail (p90 43s vs 46s) and a lower queue peak, at LOWER fleet cost. "
+    "**hpa-queue** and **hpa-combined** are prompt (~93% good) at ~2.6× the ideal "
+    "fleet. **hpa-concurrency** is catastrophic — 88% wait over a minute — because its "
+    "signal is capacity-capped and blind to the queue. **hpa-combined = hpa-queue**: "
+    "the queue trigger dominates the KEDA `max`, rescuing concurrency's blind spot."
 )
 # Compact "story in one table" row subset (exact labels as they appear in
 # summary.md). The quality rows are now the CUMULATIVE "served within Ns" CDF
@@ -433,6 +438,9 @@ SWEEP_FIGS = {
     "setup (boot lag) sweep": "11-sweep-setuplag.png",
     "drain_time aggression": "12-sweep-drain.png",
     "proj_setup dial": "13-sweep-qexp.png",
+    "headroom — static per-replica margin": "14-sweep-headroom.png",
+    "headroom × drain_time": "15-sweep-headroom-drain.png",
+    "headroom × proj_setup": "16-sweep-headroom-proj.png",
 }
 
 
@@ -550,8 +558,9 @@ TRADEOFF_FIGS = [
      "<b>deployable</b> policies — anything below-and-right of it is dominated "
      "(something is both cheaper AND prompter). <b>ideal</b> is drawn apart as the "
      "clairvoyant reference (not deployable). This is where “same cost, better "
-     "quality” becomes literal: Qexp sits on the frontier, queue-aware just inside it "
-     "at ~the same cost."),
+     "quality” becomes literal: Qexp sits on the frontier; queue-aware is now "
+     "dominated by it (same ≤15s% at higher cost — its own drain retune closed the "
+     "quality gap but not the cost gap)."),
 ]
 
 
@@ -630,7 +639,13 @@ def render_markdown(out_dir=OUT) -> str:
     # Parameter-sweep line-plots (full numeric tables stay in out/sweep.md).
     sweep_figs = [("Setup-lag — quality collapse & cost vs boot time", "11-sweep-setuplag.png"),
                   ("Queue-aware — aggression vs quality & cost", "12-sweep-drain.png"),
-                  ("Qexp — assumed boot lead vs quality & cost", "13-sweep-qexp.png")]
+                  ("Qexp — assumed boot lead vs quality & cost", "13-sweep-qexp.png"),
+                  ("Headroom — static margin vs quality & cost (queue-aware, Qexp)",
+                   "14-sweep-headroom.png"),
+                  ("Headroom × drain — aggressive reaction vs static margin (queue-aware)",
+                   "15-sweep-headroom-drain.png"),
+                  ("Headroom × anticipation — look-ahead vs static margin (Qexp)",
+                   "16-sweep-headroom-proj.png")]
     if any(os.path.exists(os.path.join(out_dir, p)) for _, p in sweep_figs):
         md.append("## Parameter sweeps\n")
         md.append("Trend + calibration line-plots (full numeric tables in "

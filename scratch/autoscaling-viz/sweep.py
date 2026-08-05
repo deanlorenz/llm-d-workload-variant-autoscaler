@@ -9,10 +9,13 @@ baseline knobs reproduces the matching scenario's summary row exactly.
 Grids (baselines are the canonical run's values, marked * in the tables):
   1. setup-lag   : setup ∈ {30, 60, 90*}   — cost of boot lag (context; setup=90 is
                    the real vLLM boot time and stays the demo baseline)
-  2. queue-aware : setup ∈ {60, 90*} × drain_time ∈ {3,5,8,10,15,20,30*}
+  2. queue-aware : setup ∈ {60, 90*} × drain_time ∈ {3,5,8,10,15,20*,30}
                    — aggression curve. Shorter drain_time = size for MORE replicas
                    to clear the backlog faster (the one quality lever we can push
                    without foresight). Two setups show the coupling to boot lag.
+                   NOTE: queue-aware's canonical drain (20, near-free Pareto win)
+                   now differs from Qexp's (30, tested — Qexp's own drain=20 is a
+                   regression). The two sizers do NOT share one drain_time baseline.
   3. qexp        : proj_setup ∈ {45..180} — assumed boot lead (self-correcting).
   4. headroom    : headroom ∈ {1.0..2.0} on queue-aware AND Qexp — the STATIC
                    per-replica margin dial (§2.6). More margin = more slots = less
@@ -47,7 +50,10 @@ RHO = run.RHO                    # concurrency-dependent decode speedup (§2.7);
 
 # Canonical baselines (the values the 7 scenarios use) — flagged in the tables.
 BASE_SETUP = run.SETUP            # 90
-BASE_DRAIN = run.DRAIN_TIME       # 30
+BASE_DRAIN = run.DRAIN_TIME       # 30 — Qexp's canonical drain (unchanged)
+QAWARE_BASE_DRAIN = run.QAWARE_DRAIN_TIME   # 20 — queue-aware's own tuned drain; NOTE this now
+                                            # differs from Qexp's BASE_DRAIN (30) — don't assume
+                                            # the two sizers share one canonical drain_time.
 BASE_HR = HR                      # headroom baseline (1.2)
 BASE_CONC = max(1.0, int(SAT * C) / HR)   # run_closed_loop's default (~58)
 
@@ -169,7 +175,9 @@ def main():
           "Metrics per run: `good%` (≤2s, pinned), `failed%` (>60s, pinned), "
           "`wait_p90` (s), `rep_max` (peak fleet), `rep·s` (usable replica-seconds), "
           "`prov·s` (billed incl. boot/drain), `util` (delivered ÷ usable capacity "
-          "paid for). `*` = the canonical scenario baseline (setup=90, drain=30).\n"]
+          "paid for). `*` = each section's own canonical baseline (setup=90; drain=20 "
+          "for queue-aware, drain=30 for Qexp — the two sizers do NOT share one "
+          "canonical drain_time, see the queue-aware section's own note).\n"]
 
     # 1 — setup-lag: pure cost of boot lag on the clairvoyant demand-tracker.
     # Context only — setup=90 is the real vLLM boot time and stays the baseline.
@@ -192,7 +200,7 @@ def main():
     qa_colors = {60: "#2563eb", 90: "#dc2626"}
     for s in q_setups:
         metrics = [run_qaware(s, d) for d in drains]
-        qa_rows.extend(([_star(s, BASE_SETUP), _star(d, BASE_DRAIN)], m)
+        qa_rows.extend(([_star(s, BASE_SETUP), _star(d, QAWARE_BASE_DRAIN)], m)
                        for d, m in zip(drains, metrics))
         qa_groups.append(_group(f"setup={s}", qa_colors.get(s, "#6b7280"), metrics))
     _emit("queue-aware — drain_time aggression curve (setup 60 vs 90)",
@@ -204,7 +212,7 @@ def main():
     render_sweep("Queue-aware sweep — aggression (shorter drain) vs quality & cost",
                  "backlog-drain deadline, drain_time (s)  — shorter = more aggressive",
                  drains, qa_groups, f"{run.OUT}/12-sweep-drain.png",
-                 xmark=BASE_DRAIN, mark_label="baseline")
+                 xmark=QAWARE_BASE_DRAIN, mark_label="baseline")
 
     # 3 — Qexp proj_setup dial: how much boot lead the ANTICIPATORY sizer assumes,
     # while the sim always boots in BASE_SETUP (90). proj_setup < 90 under-predicts
@@ -234,12 +242,14 @@ def main():
     # this WAIT metric (backlog keeps pods packed at k≈1, rate=service_rate); see the
     # ρ note appended below. This isolates headroom's pure CAPACITY role.
     headrooms = [1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0]
-    hr_qa = [run_qaware(BASE_SETUP, BASE_DRAIN, hr) for hr in headrooms]
+    hr_qa = [run_qaware(BASE_SETUP, QAWARE_BASE_DRAIN, hr) for hr in headrooms]
     hr_qx = [run_qexp(BASE_SETUP, hr) for hr in headrooms]
     hr_rows = ([(["qaware", _star(hr, BASE_HR)], m) for hr, m in zip(headrooms, hr_qa)]
                + [(["qexp", _star(hr, BASE_HR)], m) for hr, m in zip(headrooms, hr_qx)])
     _emit("headroom — static per-replica margin (queue-aware vs Qexp)",
-          "Static margin dial (§2.6) at the real 90s boot / 30s drain. More headroom "
+          "Static margin dial (§2.6) at the real 90s boot (qaware at its own tuned "
+          "drain=20; qexp at drain=30 — see the module note on why they differ). "
+          "More headroom "
           "= more replicas = fewer requests per pod = shorter queue = less wait, "
           "monotonically, for more prov·s. This is headroom's CAPACITY role; its §2.7 "
           "speed role does not appear on the wait metric (see ρ note below). `*` = "
@@ -260,7 +270,7 @@ def main():
     hd_groups, hd_rows = [], []
     for hr in hrs2d:
         metrics = [run_qaware(BASE_SETUP, d, hr) for d in drains]
-        hd_rows.extend(([_star(hr, BASE_HR), _star(d, BASE_DRAIN)], m)
+        hd_rows.extend(([_star(hr, BASE_HR), _star(d, QAWARE_BASE_DRAIN)], m)
                        for d, m in zip(drains, metrics))
         hd_groups.append(_group(f"hr={hr}", HR_COLORS.get(hr, "#6b7280"), metrics))
     _emit("headroom × drain_time (queue-aware) — static margin vs dynamic aggression",
@@ -272,7 +282,7 @@ def main():
     render_sweep("Headroom × drain — can aggressive reaction replace static margin? (queue-aware)",
                  "backlog-drain deadline, drain_time (s)  — shorter = more aggressive",
                  drains, hd_groups, f"{run.OUT}/15-sweep-headroom-drain.png",
-                 xmark=BASE_DRAIN, mark_label="baseline")
+                 xmark=QAWARE_BASE_DRAIN, mark_label="baseline")
 
     # 6 — substitution surface II: headroom × proj_setup (Qexp). One line per
     # headroom over the anticipation axis. "How much STATIC margin can more

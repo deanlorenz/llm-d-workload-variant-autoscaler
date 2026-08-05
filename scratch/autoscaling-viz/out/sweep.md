@@ -1,6 +1,6 @@
 # Parameter sweeps — trends & calibration
 
-Metrics per run: `good%` (≤2s, pinned), `failed%` (>60s, pinned), `wait_p90` (s), `rep_max` (peak fleet), `rep·s` (usable replica-seconds), `prov·s` (billed incl. boot/drain), `util` (delivered ÷ usable capacity paid for). `*` = the canonical scenario baseline (setup=90, drain=30).
+Metrics per run: `good%` (≤2s, pinned), `failed%` (>60s, pinned), `wait_p90` (s), `rep_max` (peak fleet), `rep·s` (usable replica-seconds), `prov·s` (billed incl. boot/drain), `util` (delivered ÷ usable capacity paid for). `*` = each section's own canonical baseline (setup=90; drain=20 for queue-aware, drain=30 for Qexp — the two sizers do NOT share one canonical drain_time, see the queue-aware section's own note).
 
 ### setup-lag — setup (boot lag) sweep
 
@@ -23,15 +23,15 @@ Reactive backlog-drain sizer, NO upper cap. `drain_time` is the deadline to clea
 | 60 | 8 | 49.8 | 0.1 | 20.5 | 5 | 1636 | 1981 | 0.75 |
 | 60 | 10 | 49.8 | 0.1 | 20.5 | 5 | 1636 | 1951 | 0.75 |
 | 60 | 15 | 38.7 | 0.1 | 27.0 | 5 | 1606 | 1936 | 0.76 |
-| 60 | 20 | 38.7 | 0.1 | 27.0 | 5 | 1606 | 1921 | 0.76 |
-| 60 | 30* | 32.4 | 0.1 | 27.0 | 5 | 1584 | 1884 | 0.77 |
+| 60 | 20* | 38.7 | 0.1 | 27.0 | 5 | 1606 | 1921 | 0.76 |
+| 60 | 30 | 32.4 | 0.1 | 27.0 | 5 | 1584 | 1884 | 0.77 |
 | 90* | 3 | 50.8 | 1.2 | 29.8 | 6 | 1689 | 3849 | 0.73 |
 | 90* | 5 | 27.8 | 1.2 | 30.9 | 5 | 1551 | 3036 | 0.79 |
 | 90* | 8 | 36.1 | 1.2 | 35.1 | 5 | 1592 | 2687 | 0.77 |
 | 90* | 10 | 26.4 | 1.2 | 35.1 | 5 | 1551 | 2526 | 0.79 |
 | 90* | 15 | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2214 | 0.77 |
-| 90* | 20 | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2139 | 0.77 |
-| 90* | 30* | 28.1 | 1.6 | 50.6 | 5 | 1544 | 2084 | 0.79 |
+| 90* | 20* | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2139 | 0.77 |
+| 90* | 30 | 28.1 | 1.6 | 50.6 | 5 | 1544 | 2084 | 0.79 |
 
 ### qexp — proj_setup dial (sim boots in 90s regardless)
 
@@ -50,17 +50,17 @@ Anticipatory Qexp sizing to the projected backlog peak. `proj_setup` is the boot
 
 ### headroom — static per-replica margin (queue-aware vs Qexp)
 
-Static margin dial (§2.6) at the real 90s boot / 30s drain. More headroom = more replicas = fewer requests per pod = shorter queue = less wait, monotonically, for more prov·s. This is headroom's CAPACITY role; its §2.7 speed role does not appear on the wait metric (see ρ note below). `*` = canonical baseline (1.2).
+Static margin dial (§2.6) at the real 90s boot (qaware at its own tuned drain=20; qexp at drain=30 — see the module note on why they differ). More headroom = more replicas = fewer requests per pod = shorter queue = less wait, monotonically, for more prov·s. This is headroom's CAPACITY role; its §2.7 speed role does not appear on the wait metric (see ρ note below). `*` = canonical baseline (1.2).
 
 | sizer | headroom | good% | failed% | wait_p90 | rep_max | rep·s | prov·s | util |
 |---|---|---|---|---|---|---|---|---|
-| qaware | 1.0 | 22.1 | 3.5 | 56.8 | 5 | 1466 | 1916 | 0.84 |
-| qaware | 1.1 | 21.1 | 1.6 | 50.6 | 4 | 1471 | 1981 | 0.83 |
-| qaware | 1.2* | 28.1 | 1.6 | 50.6 | 5 | 1544 | 2084 | 0.79 |
-| qaware | 1.35 | 38.3 | 1.6 | 45.7 | 5 | 1670 | 2255 | 0.73 |
-| qaware | 1.5 | 64.5 | 1.6 | 45.7 | 6 | 1876 | 2461 | 0.65 |
-| qaware | 1.75 | 69.8 | 1.6 | 45.7 | 7 | 2122 | 2856 | 0.58 |
-| qaware | 2.0 | 75.6 | 1.2 | 43.0 | 7 | 2234 | 3074 | 0.55 |
+| qaware | 1.0 | 22.9 | 1.6 | 50.6 | 4 | 1432 | 1867 | 0.86 |
+| qaware | 1.1 | 28.7 | 1.6 | 45.7 | 4 | 1516 | 2026 | 0.81 |
+| qaware | 1.2* | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2139 | 0.77 |
+| qaware | 1.35 | 41.2 | 1.6 | 45.7 | 5 | 1712 | 2387 | 0.72 |
+| qaware | 1.5 | 65.7 | 1.6 | 45.7 | 6 | 1862 | 2612 | 0.66 |
+| qaware | 1.75 | 76.9 | 1.2 | 35.1 | 7 | 2162 | 2898 | 0.57 |
+| qaware | 2.0 | 76.9 | 1.2 | 35.1 | 7 | 2264 | 3164 | 0.54 |
 | qexp | 1.0 | 22.9 | 1.2 | 43.4 | 4 | 1424 | 1784 | 0.86 |
 | qexp | 1.1 | 28.7 | 1.2 | 43.0 | 4 | 1515 | 1935 | 0.81 |
 | qexp | 1.2* | 34.6 | 1.2 | 43.0 | 5 | 1578 | 2043 | 0.78 |
@@ -80,29 +80,29 @@ Static margin dial (§2.6) at the real 90s boot / 30s drain. More headroom = mor
 | 1.0 | 8 | 23.5 | 1.2 | 43.0 | 6 | 1498 | 2593 | 0.82 |
 | 1.0 | 10 | 23.2 | 1.6 | 45.7 | 6 | 1533 | 2568 | 0.80 |
 | 1.0 | 15 | 17.3 | 1.6 | 45.7 | 5 | 1475 | 2255 | 0.83 |
-| 1.0 | 20 | 22.9 | 1.6 | 50.6 | 4 | 1432 | 1867 | 0.86 |
-| 1.0 | 30* | 22.1 | 3.5 | 56.8 | 5 | 1466 | 1916 | 0.84 |
+| 1.0 | 20* | 22.9 | 1.6 | 50.6 | 4 | 1432 | 1867 | 0.86 |
+| 1.0 | 30 | 22.1 | 3.5 | 56.8 | 5 | 1466 | 1916 | 0.84 |
 | 1.2* | 3 | 50.8 | 1.2 | 29.8 | 6 | 1689 | 3849 | 0.73 |
 | 1.2* | 5 | 27.8 | 1.2 | 30.9 | 5 | 1551 | 3036 | 0.79 |
 | 1.2* | 8 | 36.1 | 1.2 | 35.1 | 5 | 1592 | 2687 | 0.77 |
 | 1.2* | 10 | 26.4 | 1.2 | 35.1 | 5 | 1551 | 2526 | 0.79 |
 | 1.2* | 15 | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2214 | 0.77 |
-| 1.2* | 20 | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2139 | 0.77 |
-| 1.2* | 30* | 28.1 | 1.6 | 50.6 | 5 | 1544 | 2084 | 0.79 |
+| 1.2* | 20* | 34.6 | 1.6 | 45.7 | 5 | 1584 | 2139 | 0.77 |
+| 1.2* | 30 | 28.1 | 1.6 | 50.6 | 5 | 1544 | 2084 | 0.79 |
 | 1.5 | 3 | 66.2 | 1.2 | 19.6 | 6 | 1847 | 3557 | 0.66 |
 | 1.5 | 5 | 82.2 | 1.2 | 29.8 | 6 | 1923 | 3183 | 0.64 |
 | 1.5 | 8 | 80.1 | 1.2 | 35.1 | 6 | 1922 | 2927 | 0.64 |
 | 1.5 | 10 | 78.2 | 1.2 | 35.1 | 6 | 1911 | 2796 | 0.64 |
 | 1.5 | 15 | 72.7 | 1.2 | 35.1 | 6 | 1844 | 2580 | 0.67 |
-| 1.5 | 20 | 65.7 | 1.6 | 45.7 | 6 | 1862 | 2612 | 0.66 |
-| 1.5 | 30* | 64.5 | 1.6 | 45.7 | 6 | 1876 | 2461 | 0.65 |
+| 1.5 | 20* | 65.7 | 1.6 | 45.7 | 6 | 1862 | 2612 | 0.66 |
+| 1.5 | 30 | 64.5 | 1.6 | 45.7 | 6 | 1876 | 2461 | 0.65 |
 | 2.0 | 3 | 85.9 | 1.2 | 16.0 | 7 | 2282 | 4517 | 0.54 |
 | 2.0 | 5 | 84.6 | 1.2 | 25.4 | 7 | 2352 | 3852 | 0.52 |
 | 2.0 | 8 | 80.8 | 1.2 | 29.8 | 7 | 2288 | 3533 | 0.54 |
 | 2.0 | 10 | 81.0 | 1.2 | 30.9 | 7 | 2313 | 3483 | 0.53 |
 | 2.0 | 15 | 78.5 | 1.2 | 35.1 | 7 | 2254 | 3244 | 0.54 |
-| 2.0 | 20 | 76.9 | 1.2 | 35.1 | 7 | 2264 | 3164 | 0.54 |
-| 2.0 | 30* | 75.6 | 1.2 | 43.0 | 7 | 2234 | 3074 | 0.55 |
+| 2.0 | 20* | 76.9 | 1.2 | 35.1 | 7 | 2264 | 3164 | 0.54 |
+| 2.0 | 30 | 75.6 | 1.2 | 43.0 | 7 | 2234 | 3074 | 0.55 |
 
 ### headroom × proj_setup (Qexp) — static margin vs dynamic anticipation
 

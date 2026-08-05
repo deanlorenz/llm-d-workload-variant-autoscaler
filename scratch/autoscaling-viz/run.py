@@ -35,7 +35,10 @@ RHO = 2.0                     # empty/packed decode speedup: a lightly-loaded po
                               # latency reflects it. RHO=1 => fixed-rate model.
 SIZING_RANGE = 60.0           # sizer's estimation range (Prom range-vector)
 DECISION_INTERVAL = 15.0      # how often the sizer recomputes desired count
-DRAIN_TIME = 30.0             # queue-aware backlog-drain deadline
+DRAIN_TIME = 30.0             # Qexp's backlog-drain deadline (its own drain=20 regresses
+                              # good%/cost — tested, not a transferable win from qaware below)
+QAWARE_DRAIN_TIME = 20.0      # queue-aware's tuned drain — Pareto-frontier near-free win over
+                              # 30 (good% 28.1->34.6, wait_p90 50.6->45.7, cost +2.6% only)
 SETUP = 90.0                  # replica boot lag (setup-lag + queue-aware)
 METRIC_WINDOW = 60.0          # HPA/KEDA metric avg_over_time window (trailing)
 MAX_REPLICAS = 10             # KEDA maxReplicaCount (guide example: MAXPODS 10)
@@ -107,7 +110,7 @@ def scenario_queue_aware():
     supply = gen_supply_queue_aware(load, C=C, service_rate=SERVICE_RATE,
                                     setup=SETUP, drain=0.0, headroom=HEADROOM,
                                     sizing_range=SIZING_RANGE,
-                                    drain_time=DRAIN_TIME,
+                                    drain_time=QAWARE_DRAIN_TIME,
                                     decision_interval=DECISION_INTERVAL,
                                     sat_frac=SAT_FRAC)
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
