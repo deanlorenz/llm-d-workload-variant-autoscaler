@@ -22,49 +22,50 @@
 
 ## TOC
 
-- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L69:100
-- [§1 Mission & the corrected model](#1-mission--the-corrected-model) L101:137
-- [§2 The (a)/(b) split + the per-variant merge](#2-the-ab-split--the-per-variant-merge) L138:207
-  - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L144:166
-  - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L167:185
-  - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L186:207
-- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L208:255
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L256:271
-- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L272:351
-  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L279:299
-  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L300:339
-  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L340:351
-- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L352:505
-  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L362:398
-  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L399:416
-  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L417:436
-  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L437:450
-  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L451:470
-  - [2f. Tests (this commit)](#2f-tests-this-commit) L471:505
-- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L506:582
-  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L512:551
-  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L552:567
-  - [7c-tests (this commit)](#7c-tests-this-commit) L568:582
-- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L583:667
-  - [The gap](#the-gap) L590:598
-  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L599:641
-  - [The ranking-inversion guard (MANDATORY — the corrected bug)](#the-ranking-inversion-guard-mandatory--the-corrected-bug) L642:654
-  - [Test (this commit)](#test-this-commit) L655:667
-- [§7c Partial scale-from-zero — documentation only, no code](#7c-partial-scale-from-zero--documentation-only-no-code) L668:693
-- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L694:736
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L737:763
-- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L764:852
-  - [Struct / field](#struct--field) L770:778
-  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L779:789
-  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L790:798
-  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L799:808
-  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L809:818
-  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L819:829
-  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L830:839
-  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L840:852
-- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L853:884
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L885:915
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L916:939
+- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L70:101
+- [§1 Mission & the corrected model](#1-mission--the-corrected-model) L102:138
+- [§2 The (a)/(b) split + the per-variant merge](#2-the-ab-split--the-per-variant-merge) L139:208
+  - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L145:167
+  - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L168:186
+  - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L187:208
+- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L209:259
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L260:275
+- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L276:355
+  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L283:303
+  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L304:343
+  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L344:355
+- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L356:512
+  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L366:402
+  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L403:420
+  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L421:440
+  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L441:454
+  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L455:474
+  - [2f. Tests (this commit)](#2f-tests-this-commit) L475:512
+- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L513:589
+  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L519:558
+  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L559:574
+  - [7c-tests (this commit)](#7c-tests-this-commit) L575:589
+- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L590:720
+  - [The gap](#the-gap) L597:605
+  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L606:666
+  - [The ranking-inversion guard (MANDATORY — the corrected bug)](#the-ranking-inversion-guard-mandatory--the-corrected-bug) L667:683
+  - [Interaction with the `[sat,TA]` bit-identity gate (Test 9)](#interaction-with-the-satta-bit-identity-gate-test-9) L684:697
+  - [Test (this commit)](#test-this-commit) L698:720
+- [§7c Partial scale-from-zero under `[TA]`-only / `[sat,TA]` — covered via §7b; sat-only deferred](#7c-partial-scale-from-zero-under-ta-only--satta--covered-via-7b-sat-only-deferred) L721:755
+- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L756:798
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L799:825
+- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L826:914
+  - [Struct / field](#struct--field) L832:840
+  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L841:851
+  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L852:860
+  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L861:870
+  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L871:880
+  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L881:891
+  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L892:901
+  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L902:914
+- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L915:946
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L947:986
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L987:1013
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -213,8 +214,9 @@ the binding analyzer is missing a variant, proving the fallback still resolves f
 - Phase-2 `bindingAnchor` getter + per-variant merge + `votingResults` combine-ballot prune +
   repointing every read site (Commit 2, §6).
 - QM-as-error dispatch refusal + liveness/do-nothing policy (Commit 3, §7).
-- TA-side proactive complement — persist `lastPerReplicaSupply` + `Cost` + `AcceleratorName`
-  (Commit 4, §7b).
+- TA-side proactive complement — persist `lastPerReplicaSupply` + `Cost` + `AcceleratorName`, and give
+  **every** variant a fallback (previously-live → persisted; never-seen → baseline PRC + a MAX-like cost
+  sentinel), so scale-from-zero works under `[TA]`-only / `[sat,TA]` (Commit 4, §7b).
 - Developer-guide updates (Commit 5, §8).
 
 **Explicitly NOT in scope (deferred / separate — do not design into a commit):**
@@ -235,9 +237,11 @@ the binding analyzer is missing a variant, proving the fallback still resolves f
     not the goldens.
   - **`[TA]`-only path:** the only config where the combine *set* differs from main (sat is pruned out
     of the ballot) — new capability, not a goldens regression.
-- **Partial scale-from-zero picker changes** (§2.4 of the review) — §7c documents the reliance on the
-  existing `scalefromzero` reactive net + the §7b proactive complement; the cost-efficiency picker is
-  NOT made "trustworthy for zero-replica candidates" in this PR. Documentation only.
+- **Partial scale-from-zero for `[saturation]`-only (TA absent)** — the pre-existing sat-v2 gap (sat's
+  own `aggregateByVariant` not backfilling a per-variant cost for zero-replica variants) is NOT fixed
+  here (Dean 2026-08-05: fix `[TA]`-only / `[sat,TA]` now, open an issue on sat-only later — §12). The
+  TA-enabled configs **are** handled in this PR via §7b (all-variants fallback), without any picker code
+  change; only the TA-absent path is deferred. See §7c.
 - **`AnalyzerName` validation gap** (§2.3-3) — the unconstrained `AnalyzerName` field + the silent
   `default:`→`optimizeV1` dispatch fallback ([engine.go:557](../../Main/internal/engines/saturation/engine.go#L557)).
   Separate small standalone PR, not a 0.9 requirement. Recorded in §12.
@@ -496,7 +500,10 @@ test intends to vote. This is the complete fixture scope — a handful of lines,
   else proves the `[sat,TA]` path is bit-identical to main. This test is that proof — it must stay
   green at every commit, and if a later change perturbs the `[sat,TA]` combine it fails loudly. Build
   the expectation from the **current (pre-refactor) main** behavior for the same fixture so it is a
-  true characterization, not a re-blessing of the refactored output.
+  true characterization, not a re-blessing of the refactored output. **Fixture constraint: every
+  variant must be live (≥1 replica)** so the §7b all-variants fallback (Commit 4) is a no-op for this
+  fixture — otherwise Commit 4 legitimately adds zero-replica candidates to TA's ballot and would break
+  the bit-identity this test freezes (see §7b "Interaction with the `[sat,TA]` bit-identity gate").
 - **Test 8 — goldens (#1513) green.** Run after this commit.
 
 [↑ TOC](#toc)
@@ -624,10 +631,16 @@ gets cleared" is `lastFittedB` (~:37-40). Extend the **same** pattern:
            continue // has live replicas — the existing loop covered it
        }
        key := variantKey(input.Namespace, input.ModelID, vs.VariantName)
-       prc := 1.0                 // baseline for a never-seen variant
-       cost := 0.0                // see the ranking guard below
+       // NEVER-SEEN fallback (Dean 2026-08-05, "plug max"): a positive baseline PRC
+       // so the variant stays a *selectable* scale-from-zero candidate, plus a large
+       // MAX-like cost sentinel so it ranks LAST (never cheapest). Every variant in
+       // input.VariantStates therefore leaves this loop with a usable, non-inverting
+       // (PRC, cost) — that is the "all variants have fallback" guarantee.
+       prc := 1.0                       // baseline fallback PRC for a never-seen variant
+       cost := fallbackVariantCost      // large finite sentinel — see the guard below
        accel := ""
        if st, ok := a.variantStates[key]; ok && st.lastPerReplicaSupply > 0 {
+           // PREVIOUSLY-LIVE: use the persisted last-good values instead of the sentinel.
            prc = st.lastPerReplicaSupply
            cost = st.lastCost            // MANDATORY: fall back together with prc
            accel = st.lastAcceleratorName
@@ -636,6 +649,18 @@ gets cleared" is `lastFittedB` (~:37-40). Extend the **same** pattern:
        //                        Cost: cost, AcceleratorName: accel, ...}
    }
    ```
+3. **The `fallbackVariantCost` sentinel.** Add a package-level constant (name TBD, e.g.
+   `fallbackVariantCost`) — a **large finite** value chosen to exceed any realistic per-replica cost so
+   `costEfficiency = cost/prc` always sorts the never-seen variant **last**, while staying finite. Do
+   **not** use `math.MaxFloat64` directly (`MaxFloat64 / prc` overflows to `+Inf` for `prc < 1`); a
+   large constant like `1e12` is ample. This is Dean's "plug max" for now — a safe default for a
+   genuinely-unknown variant, **not** a fabricated value for known data. The real per-variant CRD-spec
+   cost is deliberately **not** plumbed here (see §12: the VA CRD is being deprecated, cost sourcing is
+   unrelated to TA support, and accelerator-type config lookup already supplies it when configured).
+4. **All variants covered.** `input.VariantStates` is built by `BuildVariantStates`
+   ([`saturation/engine.go:1064`](../../Main/internal/engines/saturation/engine.go#L1064)), which
+   enumerates the **full** VA list — zero-replica variants included. So this second loop reaches *every*
+   variant of the model, which is what makes "all variants have a fallback" a guarantee, not best-effort.
 
 [↑ TOC](#toc)
 
@@ -645,36 +670,73 @@ gets cleared" is `lastFittedB` (~:37-40). Extend the **same** pattern:
 `math.MaxFloat64` only when `PerReplicaCapacity <= 0`). If you default `PerReplicaCapacity` but leave
 `Cost = 0`, `costEfficiency = 0/PRC = 0.0` — ranking the variant **cheapest**, ahead of every real
 paying-cost variant, every cycle. That is the opposite of safe. Therefore **`Cost` and
-`AcceleratorName` must fall back together with `PerReplicaCapacity`** — never default PRC alone. A
-genuinely-never-seen variant (no persisted state) still has `Cost=0`; that is out of this fix's scope
-(the same pre-existing sat-v2 `aggregateByVariant` gap, §12) — this fix covers *previously-live*
-variants, which is the scope Dean set.
+`AcceleratorName` must fall back together with `PerReplicaCapacity`** — never default PRC alone. Two
+cases, both non-inverting: a **previously-live** variant uses its persisted
+`lastCost`/`lastAcceleratorName`; a **genuinely-never-seen** variant uses the `fallbackVariantCost`
+sentinel (baseline PRC + MAX-like cost → ranks last, still selectable). Neither ever yields
+`Cost=0 ⇒ costEfficiency=0`. This closes the never-seen gap **for the TA-emitted ballot** under
+`[TA]`-only and `[sat,TA]` — the scope Dean set (2026-08-05). The distinct **sat-only** gap (sat's own
+`aggregateByVariant` never backfilling a real per-variant cost for zero-replica variants when TA is
+absent) is **not** fixed here — deferred to a separate GitHub issue (§12).
+
+[↑ TOC](#toc)
+
+### Interaction with the `[sat,TA]` bit-identity gate (Test 9)
+
+The second loop only emits for variants **absent from `byVariant`** — i.e. variants at **zero live
+replicas** this cycle. Under `[sat,TA]`, those emissions enter TA's ballot entry and thus the combine.
+To keep Test 9 (§2f — `[sat,TA]` bit-identical to main) valid, **Test 9's fixture must have every
+variant live (≥1 replica)**, so this loop `continue`s all of them and emits nothing extra → the combine
+ballot is unchanged → bit-identity holds. The new scale-from-zero behavior (a zero-replica variant
+entering the ballot with the sentinel cost) is exercised by the dedicated scale-from-zero test below
+(Test 10), **not** by Test 9. **Coder gate:** run Test 9 after this commit — if it goes red, the fixture
+has a zero-replica variant and either the fixture must be made all-live or the perturbation investigated;
+it must not silently change the frozen `[sat,TA]` decisions.
 
 [↑ TOC](#toc)
 
 ### Test (this commit)
 
-- **Test 7 — TA-side self-fallback with the Cost/ranking guard + eviction.** A previously-live
-  variant now at zero → TA emits a `VariantCapacity` whose `PerReplicaCapacity` is the persisted
-  `lastPerReplicaSupply` (or `1` baseline for never-seen) **and** whose `Cost`/`AcceleratorName` are
-  persisted. Assert `costEfficiency` is **not** the inverted `Cost=0 ⇒ 0.0` value. Plus the eviction
-  behavior: after the `2×DefaultObservationMaxAge` (~60 min) idle window the entry is gone and the
-  fallback degrades to baseline on its own.
+- **Test 7 — TA-side self-fallback with the Cost/ranking guard + eviction.** Cover both fallback
+  branches: (a) a **previously-live** variant now at zero → TA emits a `VariantCapacity` whose
+  `PerReplicaCapacity` is the persisted `lastPerReplicaSupply` **and** whose `Cost`/`AcceleratorName`
+  are the persisted values; (b) a **never-seen** variant → TA emits baseline PRC (`1`) + the
+  `fallbackVariantCost` sentinel. Assert `costEfficiency` is **not** the inverted `Cost=0 ⇒ 0.0` value
+  in either branch, and that the never-seen sentinel sorts the variant **last** (highest
+  `costEfficiency`), not cheapest. Also assert **every** variant in `input.VariantStates` gets an
+  emitted capacity (the all-variants-fallback guarantee). Plus the eviction behavior: after the
+  `2×DefaultObservationMaxAge` (~60 min) idle window the persisted entry is gone and the fallback
+  degrades to the never-seen sentinel on its own.
+- **Test 10 — scale-from-zero selection under `[TA]`-only.** End-to-end proof that "scale-from-zero
+  works": a model with unmet demand and a **zero-replica** variant as the only viable capacity source →
+  the optimizer selects it and raises its replica count above zero (the sentinel cost ranks it last but
+  does **not** exclude it — PRC > 0 keeps it a candidate). Complements Test 7 (which proves the
+  *emission*); Test 10 proves the *picker acts on it*. Distinct from Test 9 (all-live, no
+  scale-from-zero event).
 
 [↑ TOC](#toc)
 
 ---
 
-## §7c Partial scale-from-zero — documentation only, no code
+## §7c Partial scale-from-zero under `[TA]`-only / `[sat,TA]` — covered via §7b; sat-only deferred
 
-Captures the review's §2.4 finding as a dev-guide/plan note (folded into Commit 5's dev-guide, §8) —
-**no picker code changes in this PR.**
+Scale-from-zero and partial scale-from-zero **are addressed in this PR for the configs that enable TA**
+(`[TA]`-only and `[sat,TA]`), per Dean (2026-08-05) — via the §7b complement, **not** via any picker
+code change (the picker is unmodified; the fix is upstream — TA now emits a complete, non-inverting
+(PRC, cost) for every variant).
 
-- The existing `scalefromzero` engine already covers scale-from-zero *reactively* today (per-VA
-  `isInactive` check, no model-level pre-filter). It is orthogonal to the anchor mechanism.
-- The §7b TA-side complement is the *proactive* path for previously-live variants.
-- The cost-efficiency picker is **not** made trustworthy for genuinely-never-seen zero-replica
-  candidates in this PR (that is the sat-v2 `aggregateByVariant` gap, §12).
+- **All variants get a fallback.** §7b's second loop iterates `input.VariantStates` (the full VA list
+  from `BuildVariantStates`, zero-replica variants included), so every variant leaves TA with a usable
+  capacity: **previously-live** → persisted `lastPerReplicaSupply`/`lastCost`/`lastAcceleratorName`;
+  **never-seen** → baseline PRC + the `fallbackVariantCost` MAX sentinel (ranks last, still selectable).
+  The cost-efficiency picker can therefore scale any variant up from zero under TA.
+- **`scalefromzero` remains the reactive net.** The existing `scalefromzero` engine still covers
+  scale-from-zero *reactively* today (per-VA `isInactive` check, no model-level pre-filter); it is
+  orthogonal to the anchor mechanism and unchanged. §7b is the *proactive* complement.
+- **Sat-only is explicitly out of scope.** When TA is **absent** (`[saturation]`-only), the pre-existing
+  sat-v2 gap (sat's own `aggregateByVariant` not backfilling a per-variant cost for zero-replica
+  variants) is **not** fixed here — Dean: "It does not have to fix the problem that were already in sat
+  only. We can later open an issue on the latter." Deferred to a separate GitHub issue (§12).
 
 **Tracked follow-ups (visible, not silently dropped — Dean: "proceed now, track as follow-ups"):**
 
@@ -900,11 +962,20 @@ classified so a future session can recover the intent.
 - **AnalyzerName validation gap → separate standalone PR.** Unconstrained `AnalyzerName` +
   silent `default:`→`optimizeV1` fallback ([engine.go:557](../../Main/internal/engines/saturation/engine.go#L557)).
   Not a 0.9 requirement. File as its own small PR/issue.
-- **sat-v2 `aggregateByVariant` Cost/`AcceleratorName` no-persistence bug → separate small fix.**
-  Pre-existing in sat, independent of TA/this refactor: `variantCost`/`variantAccel` are rebuilt fresh
-  each cycle from that cycle's metrics, so a zero-replica variant gets no `Cost`/`AcceleratorName`
-  backfill even in sat's own estimate branches. This is why the §7b never-seen-variant case still has
-  `Cost=0`. Flag to the planner as its own item.
+- **sat-only zero-replica cost gap → deferred to a separate GitHub issue.** Pre-existing in sat,
+  independent of TA/this refactor: `variantCost`/`variantAccel` are rebuilt fresh each cycle from that
+  cycle's metrics, so when **TA is absent** a zero-replica variant gets no `Cost`/`AcceleratorName`
+  backfill even in sat's own estimate branches. This PR fixes the TA-enabled configs (§7b gives
+  never-seen variants the `fallbackVariantCost` sentinel), so the §7b never-seen case is **no longer
+  `Cost=0`**; only the `[saturation]`-only path remains. Dean (2026-08-05): "open an issue on the
+  latter." File as its own issue; do not fix in this PR.
+- **Real per-variant CRD-spec cost NOT plumbed into `VariantReplicaState` → decided against (2026-08-05).**
+  An alternative to the `fallbackVariantCost` sentinel was to add `Cost`/`AcceleratorName` to
+  `domain.VariantReplicaState` and fill them in `BuildVariantStates` from `va.Spec.VariantCost` (every
+  variant would then carry its true spec cost, no sentinel). **Rejected by Dean:** the VA CRD is being
+  deprecated, cost sourcing is unrelated to TA support, and accelerator-type config lookup already
+  supplies the value when config populates it — so no new plumbing mechanism. "For now, plug max."
+  Recorded so a future session doesn't re-propose it without the deprecation context.
 - **Partial-scale-from-zero picker trustworthiness → deferred (documented in §7c).** Under discussion
   in the review (§2.4); this PR relies on `scalefromzero` (reactive) + §7b (proactive) and does not
   change the picker for never-seen zero-replica candidates.
@@ -928,7 +999,10 @@ Internal plan-vs-diff review before push (this is the internal review, not the G
 - [ ] Empty/no-live ballot → no panic, no decision, `NumReplicas` preserved, metric emitted (test 4).
 - [ ] QM enabled → explicit Error + hold, never silent V1 fallback (test 5).
 - [ ] TA complement: `Cost`/`AcceleratorName` fall back **together** with `PerReplicaCapacity`;
-      `costEfficiency` not inverted to 0.0 (test 7); eviction degrades to baseline.
+      never-seen variant gets baseline PRC + the `fallbackVariantCost` MAX sentinel (ranks last, not
+      `Cost=0`-cheapest); **every** variant in `VariantStates` gets a fallback (test 7); a zero-replica
+      variant is still selectable when scale-from-zero is warranted (test 10); eviction degrades to the
+      sentinel.
 - [ ] Fixture scope is the 3 central builders + audited inline literals — **not** an 87-site churn
       (E2 confirmed moot).
 - [ ] Semantic-pivot grep (§9) returns zero stale hits in code **and** dev-guide.
