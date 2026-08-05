@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:311
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L312:362
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L363:443
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L444:474
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L475:508
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L509:576
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L577:637
-- [Open questions {#open}](#open-questions-open) L638:677
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:316
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L317:367
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L368:448
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L449:479
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L480:513
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L514:581
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L582:642
+- [Open questions {#open}](#open-questions-open) L643:682
 
 ## Why this doc exists {#why}
 
@@ -214,8 +214,13 @@ binding is state-dependent, so under multi-vote the anchor's (b) is recomputed, 
 The anchor is **derived on demand** by a Phase-2 getter (`bindingAnchor`, successor to `saturationEntry`)
 that builds a fresh `*AnalyzerResult` **merged per variant, keyed by `VariantName`** — (a) identity fields
 from saturation's entry for that name, (b) sizing fields from the binding analyzer's entry for that same
-name, with a per-variant fallback to saturation's own (b) when the binding analyzer omits a variant (and
-that fallback runs *before* any non-voting entry is pruned from the combine ballot). The end state is
+name, with a per-variant fallback for a variant the binding analyzer omits: saturation's own (b) is
+used as the fallback sizing source **only when saturation is enabled** (and it runs *before* any
+non-voting entry is pruned from the combine ballot). Under `[TA]`-only, saturation is the (a)-identity
+carrier but **not** a (b) source — a variant the binding analyzer omits, with no persisted TA
+per-replica-capacity, therefore yields **PRC = 0** (not proactively selectable; the reactive
+scale-from-zero engine covers genuine cold-start), keeping the (demand, PRC) pair single-sourced
+(Dean, 2026-08-05 — see [`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md) §2). The end state is
 unchanged — **anchor = (a) + (b, the binding analyzer's); ballot = (b) per analyzer** — only the
 materialization differs: it is recomputed at each read site rather than stored on the request. (An earlier
 draft of this note described two equivalent stored-field "copy mechanisms" (i)/(ii) plus a positional
