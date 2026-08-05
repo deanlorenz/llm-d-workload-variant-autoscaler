@@ -138,7 +138,15 @@ def main():
           "req/s) so the fleet never fully drains. A knob **HOLDS** for a shape if "
           f"the canonical value's `good%` is within {TOL_PP:g} pp of that shape's "
           "best swept `good%`; otherwise **FLAG**. Divergence is surfaced, not "
-          "silently re-tuned.\n"]
+          "silently re-tuned.\n",
+          "**Uncapped by design.** This sweep measures each sizer's *knob response* "
+          "— does `proj_setup=120` / `drain=20` / `headroom=1.3` hold as the shape "
+          "changes? — so it applies **no max-replica cap**. The actuated demo "
+          "(`run.py`/`index.html`) caps every sizer at 10; capping here would "
+          "confound the knob signal. The `rep_max` column below therefore reports "
+          "*pre-cap desired* replicas (e.g. `qexp` peaks at 15 on `stepdown`), which "
+          "is expected to exceed the demo's actuated ceiling — an intentional, "
+          "informative difference, not a discrepancy.\n"]
 
     proj_verdicts, drain_verdicts, hr_notes = [], [], []
 
