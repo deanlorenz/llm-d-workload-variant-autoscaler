@@ -10,31 +10,41 @@
 
 **Active (full abstracts) — live WIP only:**
 
-- **2026-08-03 — Anchor-refactor mission (goldens PR #1513 OPEN; PR-1 plan + local worktree; PR-2 stub).**
-  Reshaping the multi-analyzer engine so it builds `anchor = copy(sat-v2 result)` (topology carrier) and
-  passes the enabled-analyzer list as the ballot — "no special voting code" (Dean's corrected model).
-  Three branches: **goldens** `ta-anchor-goldens@a2f49ccf` = **PR [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) OPEN**
+- **2026-08-05 — Anchor-refactor mission (goldens PR #1513 OPEN; PR-1 REDESIGNED as `ta-anchor-refactor-v2`,
+  reviewed APPROVE; PR-2 stub).** Reshaping the multi-analyzer engine so it builds the anchor (topology
+  carrier) and passes the enabled-analyzer list as the ballot — "no special voting code" (Dean's corrected
+  model). **goldens** `ta-anchor-goldens@a2f49ccf` = **PR [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) OPEN**
   (characterization gate freezing sat-v2-only decision-SET-identity keyed by VariantName; test-only +409/−0;
   base `upstream/main@9906dac5`; reviewer ev-shindin; `origin/ta-anchor-goldens` pushed; internal review
   FINAL — Finding 1 fixed, Finding 2 = `withSatEntry`-stability coordination note carried into the PR-1
-  kickoff; **land-first** decided). **PR-1 static core** `ta-anchor-refactor` = **PLAN REVIEWED &
-  FOLDED-IN** (2026-08-04, commits `68bda1a1`/`192ae06b`) + **LOCAL** worktree off the goldens tip
-  `a2f49ccf` (interim base; rebases onto `main` after #1513). The two PR-1 questions the coder raised are
-  **resolved** (Dean, 2026-08-03; plan commit `500f08d8`): sat-v2 enablement is **opt-in** — a customized
-  non-empty `analyzers:` list yields exactly what it names (`[TA]` alone ⇒ TA-only; no `ApplyDefaults`
-  change) — and the ballot-build **reuses the precomputed saturation result** rather than re-invoking
-  `Analyze()` (the load-bearing sat name-skip is kept as a reuse guard, not deleted). A subsequent
-  coding-plan review (`planning/ta-anchor-refactor-review.md`, still DRAFT) found 2 MAJOR correctness
-  findings + 5 coder-executability blockers + minor polish; **all folded into the plan** — notably the
-  **queueing-model path is now disabled via an explicit-error dispatch refusal** (never a silent fallback
-  to sat-v2; classified DEFERRED §12, not deprecated) and the **Mechanism A/B copy-mechanism choice is
-  resolved** (§0: variant (ii) — always full-copy sat-v2's (a)+(b) into the anchor, overwrite (b) from
-  `ballot[0]` when non-empty). Plan doc now internally consistent and coder-executable. **No code written
-  yet** — branch still at `a2f49ccf`, not pushed. **PR-2 dynamic-refresh** `ta-anchor-dynamic-refresh` =
-  PLAN STUB (deferred until PR-1 lands). Still open: mark the review FINAL (review agent/Dean's call) +
-  design-doc §anchor "replace"-wording annotation (§12). Design authority
+  kickoff; **land-first** decided). **PR-1 mechanism REDESIGNED 2026-08-05** — the review agent found the
+  stored-`ModelScalingRequest.Anchor` design (the Aug-4 fold-in, commits `68bda1a1`/`192ae06b`, and the
+  abandoned branch commit `34055d77`) unnecessarily complex and **superseded** it with a no-stored-field
+  two-phase mechanism. `planning/ta-anchor-refactor-review.md` restructured into Part 1 (review of the
+  now-**SUPERSEDED** `ta-anchor-refactor-plan.md`) / Part 2 (redesign spec) / Part 3 (review of the new
+  plan) — doc still DRAFT. **Live PR-1 plan is `planning/ta-anchor-refactor-v2-plan.md`** (DRAFT, committed
+  `b95b2e35`): Phase-1 `runAnalyzersAndScore` tags every ballot entry `Enabled` (+ existing `Live`), makes
+  no decisions; Phase-2 `bindingAnchor` derives the anchor **on demand** by a per-variant merge keyed by
+  `VariantName` ((a) identity from saturation, (b) sizing from the binding analyzer). Reviewed — **verdict
+  APPROVE**, zero MAJOR findings; 5 non-blocking notes V1/V3/V4/V5 folded in + Test 9 added (`9936b481`).
+  **Scale-from-zero cost/PRC design resolved** (Dean, 2026-08-05, commit `2e83c7fe` — supersedes the interim
+  MAX-sentinel version `2ccf51b7`): TA emits PRC only (no Cost/AcceleratorName persistence); the (b)-sizing
+  fallback is **enablement-gated** (valid only when saturation is enabled); `[TA]`-only zero-replica
+  variants get PRC=0 (suppressed — reactive `scalefromzero` covers cold-start), with a documented (not
+  gated) known-limitation that `[TA]`-only then cost-mis-ranks like `[sat]`-only until a separate
+  pre-existing sat `Cost=0` bug is fixed (out of scope here). **No code written; worktree/branch
+  `ta-anchor-refactor-v2` off the goldens tip not yet created** (git op for Dean/coder — do NOT start until
+  Dean gives the go-ahead). Old branch `ta-anchor-refactor@34055d77` left unpushed, for Dean to
+  `git boidem` at his convenience. Out-of-scope/deferred for PR-1: QM path (explicit-error refusal,
+  DEFERRED §12), §2.4 partial scale-from-zero picker, AnalyzerName validation (separate PR), the sat
+  `Cost=0`-for-zero-replica bug (separate fix). Dean plans a **second review round** on the updated plan
+  (not auto-armed); mark the review FINAL only after that. **PR-2 dynamic-refresh**
+  `ta-anchor-dynamic-refresh` = PLAN STUB (deferred until PR-1 lands; forward-note updated for the
+  no-stored-field design, commit `99dc04c9`). Open GitHub-issue questions (Dean's call, none filed yet):
+  the QM multi-analyzer-contract work, and the sat-v2 zero-replica `Cost=0` bug. Design authority
   [`planning/combined-analyzer-optimizer-design.md`](../planning/combined-analyzer-optimizer-design.md);
-  plans [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) /
+  plans [`planning/ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md) (live) /
+  [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) (SUPERSEDED) /
   [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md).
 - **2026-08-03 — ta-itl-demand-test-gaps → PR #1511 OPEN.** The 3 optional ITL/demand/supply test-gaps
   ev-shindin flagged in PR F #1503 (plus a folded-in `computeVariantSupply` direct-coverage pair) shipped
@@ -77,7 +87,8 @@ rows stay here.
 | wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack; needs F1 "pre-analysis extraction" to solve `VariantCapacities` sourcing; unscoped). Dean spawning a **separate planner** to scope the real sat_v2-disable fix; awaiting his call: carve Half-A-only vs scope Half-B/F1 vs hold. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 | ta-itl-demand-test-gaps | [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511) | **OPEN** — cover ITL-model / demand / supply guard branches (ev-shindin's PR F #1503 non-blocking notes + folded-in `computeVariantSupply` pair). Head `ta-itl-demand-test-gaps@96263639`, base `main@6bfb73e1`, 5 test-only commits DCO-signed, `origin/ta-itl-demand-test-gaps` pushed. Reviewer ev-shindin, assignee deanlorenz. Two internal reviews APPROVE; review FINAL [`planning/ta-itl-demand-test-gaps-review.md`](../planning/ta-itl-demand-test-gaps-review.md). Targeting 0.9 (freeze 2026-08-06). MERGEABLE; awaiting Evgeny + CI. Plan: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md). | `96263639` |
 | ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN** — characterization "golden" gate (test-only, +409/−0, 1 file) freezing the saturation-only optimizer decision SET (keyed by VariantName; land-first ship gate for the anchor refactor). Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note carried to PR-1 kickoff). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
-| ta-anchor-refactor | — | **PLAN REVIEW FOLD-IN COMPLETE (2026-08-04) + LOCAL worktree — not started.** PR-1 static core of the anchor refactor (engine builds `anchor = copy(sat-v2)` + passes enabled-analyzer ballot; zero combine-arithmetic change; decision-set-identity ship gate via #1513 goldens; opt-in enablement). Worktree cut off goldens tip `a2f49ccf` (interim base; rebases onto `main` after #1513); **no code written — still at `a2f49ccf`**. The coder's 2 PR-1 questions are **resolved** (Dean, 2026-08-03; plan commit `500f08d8`): (1) sat-v2 enablement is **opt-in** — a customized non-empty `analyzers:` list is taken literally (`[TA]` ⇒ TA-only), no `ApplyDefaults` change; (2) the ballot-build **reuses the precomputed saturation result** (load-bearing name-skip kept as a reuse guard, not deleted). A coding-plan review (`planning/ta-anchor-refactor-review.md`, still DRAFT) found 2 MAJOR + 5 coder-executability + minor findings; **all folded into the plan** (commits `68bda1a1`/`192ae06b`) — the **queueing-model path is disabled via an explicit-error dispatch refusal** (never a silent sat-v2 fallback; DEFERRED §12) and the **Mechanism A/B copy-mechanism choice is resolved** (§0: variant (ii)). Plan doc now internally consistent and coder-executable. Not pushed; no PR. Status: `session/status/ta-anchor-refactor.md`. Plan: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md). | `a2f49ccf` (no commits) |
+| ta-anchor-refactor | — | **SUPERSEDED (2026-08-05) by `ta-anchor-refactor-v2`** — see that row. Stored-`ModelScalingRequest.Anchor` design (Aug-4 review fold-in `68bda1a1`/`192ae06b`) found unnecessarily complex; superseded by a no-stored-field two-phase redesign. Plan doc header marked `Status: SUPERSEDED` (commit `9721b587`); kept for history (Part 1 subject of `planning/ta-anchor-refactor-review.md`). Branch commit `34055d77` left unpushed; Dean to `git boidem` at his convenience. Plan: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) (superseded). | `34055d77` (unpushed, superseded) |
+| ta-anchor-refactor-v2 | — | **PLAN REVIEWED (verdict APPROVE) — no code written; worktree/branch not yet created.** Live PR-1 plan: no-stored-field two-phase anchor mechanism (Phase-1 tags ballot entries `Enabled`; Phase-2 `bindingAnchor` derives the anchor on demand, per-variant merge keyed by `VariantName`). Committed `b95b2e35` on `plans` (DRAFT); reviewed as Part 3 of `planning/ta-anchor-refactor-review.md` (still DRAFT) — zero MAJOR findings, 5 non-blocking notes V1/V3/V4/V5 folded in + Test 9 added (`9936b481`). Scale-from-zero cost/PRC design resolved (`2e83c7fe`, supersedes the interim MAX-sentinel version `2ccf51b7`): TA emits PRC only, (b)-fallback enablement-gated, `[TA]`-only zero-replica suppressed to PRC=0 with a documented (not gated) known-limitation. Scope: 5 commits (Phase-1 / Phase-2 / QM-as-error+liveness-noop / TA-PRC-only complement / dev-guide); zero combine-arithmetic change; decision-SET-identity ship gate via #1513 goldens; opt-in enablement. Deferred/out-of-scope: QM path (DEFERRED §12), §2.4 partial scale-from-zero picker, AnalyzerName validation, sat `Cost=0`-for-zero-replica bug. **Next:** Dean's second review round (not auto-armed) → mark review FINAL → create worktree/branch off goldens tip `a2f49ccf` (git op for Dean/coder, subject to no-push-without-confirmation) → coding starts only after Dean's go-ahead. Plan: [`planning/ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md). | `b95b2e35` (plan only, no code) |
 | ta-anchor-dynamic-refresh | — | **PLAN STUB** — PR-2 dependent (multi-vote combine + per-iteration dynamic refresh + masked-bug fixes #1/#2/#3/#5). Deferred until PR-1 lands; do NOT start until Dean scopes it. Plan: [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md). | — |
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | (upstream) rate-anchored k2 | #1501 | **Reviewed 2026-07-30 — COMMENTED posted** (deanlorenz, 15:54:47Z) — rate-anchored `k2` estimator for saturation-v2 (fixes #1500 shed-to-one on prefill-heavy traffic). 2 non-blocking asks: (1) gate `RegisterRateCapacityQueries` on `EnableRateAnchoredK2` (unconditional registration adds per-cycle Prometheus load in the default TA-off config — load-only, no correctness impact); (2) rebase onto current `main` (#1486 touches the same `NewEngine`). Estimator/tests sound, no blockers. Incoming PR — no worktree. Review FINAL: [`planning/PR1501-review.md`](../planning/PR1501-review.md). | (incoming) |
@@ -152,22 +163,25 @@ rows stay here.
   REJECTED, needs the F1 fix above). Awaiting Dean's carve/scope/hold decision (see PR Status row). Plan:
   [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the
   `PR1266-fixup-effectiveEnabled.md` stopgap.
-- **anchor-refactor mission (ta-anchor-goldens #1513 → ta-anchor-refactor PR-1 → ta-anchor-dynamic-refresh PR-2):**
+- **anchor-refactor mission (ta-anchor-goldens #1513 → ta-anchor-refactor-v2 PR-1 → ta-anchor-dynamic-refresh PR-2):**
   goldens ship gate is **PR [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513)**
-  (open, reviewer ev-shindin, land-first). PR-1 (`ta-anchor-refactor`) worktree cut off the goldens tip
-  `a2f49ccf` (interim base; rebases onto `main` after #1513 merges); **not started (no code yet)**. The
-  coder's 2 PR-1 questions are **resolved** (Dean, 2026-08-03; plan commit `500f08d8`): (1) **opt-in**
-  enablement — a customized non-empty `analyzers:` list is taken literally (`[TA]` ⇒ TA-only), no
-  `ApplyDefaults` change; (2) reuse the precomputed saturation result in the ballot-build (the load-bearing
-  sat name-skip stays as a reuse guard, not deleted). A coding-plan review
-  (`planning/ta-anchor-refactor-review.md`, still DRAFT) is **folded into the plan** (2026-08-04, commits
-  `68bda1a1`/`192ae06b`): the queueing-model path is disabled via an explicit-error dispatch refusal
-  (DEFERRED §12, not a silent fallback) and the **Mechanism A/B** copy-mechanism choice is resolved (§0).
-  The `withSatEntry`-stability concern (goldens review Finding 2) is fixed in the same fold-in. Still
-  open: mark the review FINAL (review agent/Dean's call); the design-doc §anchor "replace"-wording
-  annotation (§12); and whether to file a GitHub issue for the queueing-model multi-analyzer-contract
-  work (§12 DEFERRED bullet flags this — not blocking PR-1). PR-2 is a deferred stub (do NOT start until
-  PR-1 lands). Plans: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md),
+  (open, reviewer ev-shindin, land-first). **PR-1 was redesigned 2026-08-05**: the review agent found the
+  stored-`.Anchor` design (Aug-4 fold-in `68bda1a1`/`192ae06b`, abandoned branch commit `34055d77`)
+  superseded by a simpler no-stored-field two-phase mechanism — old plan `ta-anchor-refactor-plan.md` now
+  `Status: SUPERSEDED`; live plan is **`planning/ta-anchor-refactor-v2-plan.md`** (DRAFT, committed
+  `b95b2e35`). Reviewed (Part 3 of `planning/ta-anchor-refactor-review.md`, still DRAFT) — **verdict
+  APPROVE**, 5 non-blocking notes V1–V5 all folded in (`9936b481`, incl. Test 9). Scale-from-zero
+  cost/PRC design resolved (`2e83c7fe`; supersedes the interim MAX-sentinel version `2ccf51b7`): TA emits
+  PRC only, (b)-fallback enablement-gated, `[TA]`-only zero-replica suppressed to PRC=0 (documented, not
+  gated, known-limitation — resolved later by a separate sat `Cost=0` fix). **No code written;
+  worktree/branch `ta-anchor-refactor-v2` off the goldens tip `a2f49ccf` not yet created** (git op for
+  Dean/coder — do NOT start coding until Dean gives the go-ahead). Old branch
+  `ta-anchor-refactor@34055d77` left unpushed for Dean to `git boidem`. Still open: **Dean's second
+  review round** on the updated plan (not auto-armed) → then mark the review FINAL; two GitHub-issue
+  questions (Dean's call, none filed): QM multi-analyzer-contract work, sat-v2 zero-replica `Cost=0` bug.
+  PR-2 is a deferred stub (forward-note updated for the no-stored-field design, `99dc04c9`; do NOT start
+  until PR-1 lands). Plans: [`planning/ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md)
+  (live), [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) (superseded),
   [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md).
 - **optimizer-pd-role-ceiling (RESUME 2026-07-16 — clean-design discussion):** code + all 10 tests done (tip `0c33a3eb`); dev-guide edits made-but-UNCOMMITTED in the worktree. Active thread is Dean's clean-design effort in [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md): **(1)** answer the 2 Phase-2 framing questions (see that doc's § Resume), **(2)** lock the clean logical/data-flow, **(3)** Phase 3 — verify code vs. the clean model and resolve open issues 1–4 (notably the suspected anticipated-supply-in-denominator bug), **(4)** restructure the dev-guide into clean-design + implementation sections. Only after that: commit the dev-guide, act on the pending code-review trigger, propose the push. Do NOT commit/push until Dean directs. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 - **analyzer-metric-interface (PR #1444 MERGED → issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)):** enhancement tracked (Phase 1 metric exposure → Phase 2 external PromQL wrapper → Phase 3 polish). **Implementation deprioritized** — do NOT start until higher-priority work clears and Dean scopes Phase 1. **Archive `analyzer-metric-proposal` branch/worktree ~2026-08-13** (`git boidem`), after confirming Evgeny has no further commits.
