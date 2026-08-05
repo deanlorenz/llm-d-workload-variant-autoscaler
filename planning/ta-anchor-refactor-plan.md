@@ -1,6 +1,15 @@
 # TA Anchor Refactor — PR-1 (static core)
 
-**Type:** 3 (task plan) · **Status:** DRAFT
+**Type:** 3 (task plan) · **Status:** SUPERSEDED
+> **SUPERSEDED (2026-08-05) by [`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md).**
+> A design-review pass ([`ta-anchor-refactor-review.md`](ta-anchor-refactor-review.md) Part 2) found a
+> structurally simpler, more correct mechanism: **no stored `ModelScalingRequest.Anchor` field** — the
+> anchor is derived on demand by a Phase-2 getter that per-variant-merges by `VariantName` ((a) identity
+> from saturation, (b) sizing from the binding analyzer), instead of the stored-field + positional
+> "first enabled ballot entry" copy this plan (and the abandoned commit `34055d77`) implemented. This
+> doc is kept for history only; it is the "Part 1" subject of the review. **Do not implement against
+> it** — use `ta-anchor-refactor-v2-plan.md`.
+
 **Design authority:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md) (Type 1)
 **Base:** `main@9906dac5` (same base as the `ta-anchor-goldens` branch)
 **Branch (to cut):** `ta-anchor-refactor` (not yet created)
@@ -19,20 +28,20 @@
 
 ## TOC
 
-- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L37:61
-- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L62:101
-- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L102:177
-- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L178:220
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L221:240
-- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L241:448
-- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L449:528
-- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L529:596
-- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L597:646
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L647:683
-- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L684:748
-- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L749:787
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L788:814
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L815:903
+- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L46:70
+- [§1 Mission & the corrected model (Dean, verbatim)](#1-mission--the-corrected-model-dean-verbatim) L71:110
+- [§2 The (a)/(b) split — why the anchor is required](#2-the-ab-split--why-the-anchor-is-required) L111:186
+- [§3 Scope & non-goals — what PR-1 does NOT touch](#3-scope--non-goals--what-pr-1-does-not-touch) L187:229
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L230:249
+- [§5 Commit 1 — engine: build anchor ((a)+(b)) + enabled ballot](#5-commit-1--engine-build-anchor-ab--enabled-ballot) L250:457
+- [§6 Commit 2 — optimizer: rename getter + route reads to the anchor](#6-commit-2--optimizer-rename-getter--route-reads-to-the-anchor) L458:537
+- [§7 Commit 3 — TA-only enablement + tests](#7-commit-3--ta-only-enablement--tests) L538:605
+- [§8 Commit 4 — developer-guide](#8-commit-4--developer-guide) L606:655
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L656:692
+- [§10 Read-site inventory (the full map)](#10-read-site-inventory-the-full-map) L693:757
+- [§11 Coordination — goldens branch & PR-2 dependency](#11-coordination--goldens-branch--pr-2-dependency) L758:796
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L797:823
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L824:912
 
 ## §0 Deferred coder decisions (non-blocking)
 
