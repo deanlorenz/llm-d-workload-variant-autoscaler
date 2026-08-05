@@ -56,6 +56,29 @@ def rate_profile(pattern: str, t: float, duration: float, peak: float) -> float:
         base = 0.4 * peak
         c = 0.5 * duration
         return 3.0 * peak if (c - 3.0 <= t <= c + 3.0) else base
+    # --- realistic demand shapes for workload-STABILITY sweeps (2026-08-05) ---
+    # All three share a nonzero floor lo = peak/3 and a top hi = peak (with
+    # peak=24 → lo≈8, hi=24 req/s), so the fleet works in the same 2→5-backend
+    # band as the canonical bump but the fleet NEVER fully drains to baseline —
+    # exactly the case the triangular bump does not exercise. Used only by
+    # stability.py to test whether (drain, headroom, sat_frac, proj_setup) hold
+    # across shapes; the canonical run.py demo stays on "bump".
+    if pattern == "trapezoid":                   # lo → ramp up → hi plateau → ramp down → lo
+        lo, hi = peak / 3.0, peak
+        r1, r2, r3, r4 = 0.20 * duration, 0.60 * duration, 0.80 * duration, duration
+        if t < r1:
+            return lo + (hi - lo) * (t / r1)
+        if t < r2:
+            return hi
+        if t < r3:
+            return hi - (hi - lo) * ((t - r2) / (r3 - r2))
+        return lo
+    if pattern == "stepup":                      # persistent level-shift UP (lo → hi, stays)
+        lo, hi = peak / 3.0, peak
+        return hi if t >= 0.4 * duration else lo
+    if pattern == "stepdown":                    # persistent level-shift DOWN (hi → lo, stays)
+        lo, hi = peak / 3.0, peak
+        return lo if t >= 0.4 * duration else hi
     raise ValueError(f"unknown pattern {pattern!r}")
 
 

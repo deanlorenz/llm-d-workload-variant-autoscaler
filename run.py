@@ -27,19 +27,31 @@ PEAK_RATE = 24.0
 SIZE_MEAN = 1000.0            # tokens per request (mean; expo)
 C = 100                       # per-backend concurrency limit
 SERVICE_RATE = 1000.0 / 12.0  # tokens/s per in-service request (~83.3)
-SAT_FRAC = 0.7                # usable concurrency = floor(0.7*C); vLLM goodput ceiling
-HEADROOM = 1.2
+SAT_FRAC = 0.85               # usable concurrency = floor(0.85*C); vLLM goodput ceiling
+                              # (raised 0.70->0.85 2026-08-05: pack pods closer to the KV
+                              # ceiling; raw-hw utilization ~= sat_frac/headroom, so this +
+                              # the leaner headroom below lift utilization ~52%->~65%)
+HEADROOM = 1.3               # unified static per-replica margin, used by EVERY sizer so the
+                             # policies compare on a level field (cost is ~linear in headroom;
+                             # picked at the steepest part of the headroom sweep — max marginal
+                             # quality per unit margin, §8.1 item 10(b))
 RHO = 2.0                     # empty/packed decode speedup: a lightly-loaded pod
                               # decodes ~RHO× faster than a packed one (batching-ITL,
                               # design §2.7). Sizer ignores this; only achieved
                               # latency reflects it. RHO=1 => fixed-rate model.
 SIZING_RANGE = 60.0           # sizer's estimation range (Prom range-vector)
 DECISION_INTERVAL = 15.0      # how often the sizer recomputes desired count
-DRAIN_TIME = 30.0             # Qexp's backlog-drain deadline (its own drain=20 regresses
-                              # good%/cost — tested, not a transferable win from qaware below)
-QAWARE_DRAIN_TIME = 20.0      # queue-aware's tuned drain — Pareto-frontier near-free win over
-                              # 30 (good% 28.1->34.6, wait_p90 50.6->45.7, cost +2.6% only)
+DRAIN_TIME = 20.0             # backlog-drain deadline — SHARED by BOTH Q sizers (queue-aware +
+                              # Qexp), a standing rule (2026-08-05): the two always use the same
+                              # drain_time so they compare on a level field. 20 is queue-aware's
+                              # Pareto-frontier value; Qexp is held to it too even though its own
+                              # optimum differs (level field beats Qexp's absolute numbers).
 SETUP = 90.0                  # replica boot lag (setup-lag + queue-aware)
+QEXP_PROJ_SETUP = 120.0       # Qexp-only: boot lead the PROJECTION assumes (true boot is SETUP=90;
+                              # 120 deliberately over-anticipates). Swept-best at HEADROOM=1.3 —
+                              # good% 70.7→78.0, wait_p90 30.7→17.6 for +3% cost vs the naive
+                              # proj=setup value. Beyond ~135 the projection orders too early and
+                              # flaps (proj=180 collapses to 35%). Re-derive if HEADROOM changes.
 METRIC_WINDOW = 60.0          # HPA/KEDA metric avg_over_time window (trailing)
 MAX_REPLICAS = 10             # KEDA maxReplicaCount (guide example: MAXPODS 10)
 SAMPLE_INTERVAL = 0.25        # plot-grid resolution
@@ -50,6 +62,28 @@ WORK_RANGE = 60.0            # work-rate averaging range (Prom-style, panel 1b)
 def _load():
     return gen_load(pattern="bump", duration=DURATION, peak_rate=PEAK_RATE,
                     size_mean=SIZE_MEAN, size_dist="expo", seed=1)
+
+
+def _headroom_point(sizer, hr):
+    """(prov·s, served≤15s%) for a Q sizer at an off-baseline headroom — feeds the
+    cost-quality frontier's extra points. Mirrors the canonical scenario exactly;
+    only `headroom` varies (qexp holds its operating QEXP_PROJ_SETUP)."""
+    load = _load()
+    if sizer == "qaware":
+        supply = gen_supply_queue_aware(load, C=C, service_rate=SERVICE_RATE,
+                                        setup=SETUP, drain=0.0, headroom=hr,
+                                        sizing_range=SIZING_RANGE, drain_time=DRAIN_TIME,
+                                        decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC)
+    else:
+        supply = gen_supply_queue_aware_exp(load, C=C, service_rate=SERVICE_RATE,
+                                            setup=SETUP, drain=0.0, headroom=hr,
+                                            sizing_range=SIZING_RANGE, drain_time=DRAIN_TIME,
+                                            proj_setup=QEXP_PROJ_SETUP,
+                                            decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC)
+    s = summarize(sample(Simulator(load, supply, rho=RHO).run(),
+                         sample_interval=SAMPLE_INTERVAL, req_range=REQ_RANGE,
+                         work_range=WORK_RANGE))
+    return s["replicas"]["prov_seconds"], s["within_pct"][1]
 
 
 def scenario_ideal():
@@ -110,7 +144,7 @@ def scenario_queue_aware():
     supply = gen_supply_queue_aware(load, C=C, service_rate=SERVICE_RATE,
                                     setup=SETUP, drain=0.0, headroom=HEADROOM,
                                     sizing_range=SIZING_RANGE,
-                                    drain_time=QAWARE_DRAIN_TIME,
+                                    drain_time=DRAIN_TIME,
                                     decision_interval=DECISION_INTERVAL,
                                     sat_frac=SAT_FRAC)
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
@@ -143,6 +177,7 @@ def scenario_queue_aware_exp():
                                         setup=SETUP, drain=0.0, headroom=HEADROOM,
                                         sizing_range=SIZING_RANGE,
                                         drain_time=DRAIN_TIME,
+                                        proj_setup=QEXP_PROJ_SETUP,
                                         decision_interval=DECISION_INTERVAL,
                                         sat_frac=SAT_FRAC)
     json.dump(load, open(f"{TR}/load-bump.json", "w"))
@@ -351,6 +386,21 @@ if __name__ == "__main__":
     render_wait_cdf(runs, costs,
                     "Waiting-time CDF — all policies (share of offered served within t)",
                     f"{OUT}/09-wait-cdf.png")
+    # Extra frontier points: how much further up the cost-quality plane each Q
+    # sizer climbs as static headroom grows past the 1.3 operating point (same
+    # sizer colour, headroom in the label). Puts "how high can qaware go" right
+    # on the frontier, not only in the sweep tables. Only headroom varies —
+    # everything else (drain=20, sat_frac, qexp's proj_setup) is the operating
+    # config, so these are apples-to-apples with the baseline (1.3) points.
+    extra_pts = []
+    for hr in (1.5, 2.0):
+        c, q = _headroom_point("qaware", hr)
+        extra_pts.append((f"qaware({hr})", c, q, "queue-aware"))
+        c, q = _headroom_point("qexp", hr)
+        extra_pts.append((f"qexp({hr})", c, q, "qexp"))
     render_cost_quality(sums,
                         "Cost vs quality — fleet-time vs promptness (Pareto frontier)",
-                        f"{OUT}/10-cost-quality.png")
+                        f"{OUT}/10-cost-quality.png",
+                        extra_points=extra_pts,
+                        label_overrides={"queue-aware": "qaware(1.3)",
+                                         "qexp": "qexp(1.3)"})

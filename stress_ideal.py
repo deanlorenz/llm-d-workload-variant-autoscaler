@@ -47,7 +47,7 @@ def stress_ideal():
                 sample_interval=run.SAMPLE_INTERVAL,
                 req_range=run.REQ_RANGE, work_range=run.WORK_RANGE)
     render(ts, "STRESS: ideal sizer, sub-window spike — even clairvoyance queues "
-               "(setup=0, headroom=1.2)", f"{OUT}/stress-ideal-spike.png")
+               f"(setup=0, headroom={run.HEADROOM:g})", f"{OUT}/stress-ideal-spike.png")
     s = summarize(ts)
     print(f"[stress-ideal] reqs={len(load['requests'])} "
           f"replicas={len(supply['replicas'])} "
