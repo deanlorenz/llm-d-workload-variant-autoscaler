@@ -1,0 +1,44 @@
+from: reviewer (ta-veto-liveness)
+session: ta-veto-liveness round-3 review complete — push-ready
+
+## What changed
+`ta-veto-liveness` (PR #1481) round-3 review is complete: **APPROVE, no outstanding findings.**
+Branch is push-ready pending Dean's force-push.
+
+Current branch facts (supersede the stale CURRENT.md PR-Status row, which still shows
+6 commits / tip `19c9a122` off `827c8542`):
+- Base: `upstream/main@dfc21e2c` (rebased since the last sync).
+- 8 commits total, tip **`c32235be`**, unpushed. DCO 8/8.
+- Round-3 folds D.1/D.2/D.3 added (per the locked triage in
+  `plan__ta-cd-review-triage.md`):
+  - **D.1** `61060530` — no-data/error reason sentinels promoted to exported
+    `pipeline.ReasonNoData`/`pipeline.ReasonError`; `saturation_v2` aliases them (no import
+    cycle, behaviour-preserving).
+  - **D.2** — `pruneLastGoodAnalysis(activeKeys)` in `optimizeV2` evicts departed-model
+    liveness state; empty-set + nil-map guards; keyed identically to the writer.
+  - **D.3** — `detectDemandLiveness(...)` warn-only detector (never sets `Live`/`RoleSpare`,
+    never gates a decision); NUL-delimited synthetic demand-latch key; cold-start seeded so no
+    false-positive.
+  - D.2/D.3 landed in `5d324b36`, then **amended to `c32235be`** to fold the three round-3 NTH
+    fixes (prune table test; §4a comment + commit-body reword; dev-guide `TotalDemand == 0`
+    predicate). No logic changed in the amend.
+- Gates re-run at `c32235be` (coder status `session/status/ta-veto-liveness.md`): gofmt clean,
+  `go build ./...` OK, `go vet` OK, `make test` no failures, `make lint` 0 issues, `-race` PASS.
+- Review doc (Type 6, Status: DRAFT until Dean finalizes):
+  `planning/ta-veto-liveness-review.md` § Round-3 — verdict APPROVE, all 3 NTH resolved/verified.
+
+## Update CURRENT.md
+- **PR Status row for `ta-veto-liveness` / #1481:** update to base `upstream/main@dfc21e2c`,
+  8 commits, tip **`c32235be`**, internal review round-3 **APPROVE (no outstanding findings)**,
+  gates green, DCO 8/8, **push-ready pending Dean's force-push** (still OPEN, awaiting
+  ev-shindin). Note the round-3 D.1/D.2/D.3 folds landed.
+- **Next steps / TA 0.9 line:** D is push-ready (was "OPEN awaiting review"); the remaining
+  action is Dean's `--force-with-lease` push to origin (warn-before-push applies — PR #1481 is
+  OPEN) and then watching for ev-shindin review.
+
+## Open questions / follow-ups
+- **Push is Dean's action** (planner will push per Dean's direction this session). Force-push
+  with `--force-with-lease` (history rewritten by rebase + amend); warn-before-push applies as
+  #1481 is an open PR.
+- One accepted residual from round 1 (unchanged): the F-B1 QM test builds its own `Live:true`
+  result, so it won't guard a future deletion of that static assignment. Documented, non-blocking.

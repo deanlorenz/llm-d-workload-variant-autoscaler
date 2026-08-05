@@ -1,0 +1,52 @@
+from: ta-model-level-demand
+session: PR C round-2 — C.0 rebase + C.1/C.2 review comments
+
+## What changed
+Processed the `ta-model-level-demand__review-comments` trigger (re-read plan §followups) and
+completed all three coder items in the plan's "Review follow-ups (ev-shindin PR #1480 comments)"
+section. All work in the `ta-model-level-demand` worktree; NOT pushed.
+
+**C.0 — rebase (Dean-authorized target dfc21e2c).** The plan authorized rebase onto upstream/main;
+the plan named 28a58b77 but upstream had advanced to dfc21e2c (adds #1491 utils-split). Dean chose
+dfc21e2c (current main) at decision time this session. Rebased 25f09a87 (base 11d70a8a) ->
+dfc21e2c cleanly (no manual conflicts). Upstream gap absorbed: #1473 Makefile, #1450
+saturation->saturationv1, #1448 pkg->internal/queueing, #1487 GLOBAL_OPT_INTERVAL, #1491 utils
+split. My hunks touch no import lines so the path churn resolved automatically. Ran the full
+CONVENTIONS non-trivial-rebase discipline (pre-rebase plan in my status file; per-file diff
+inventory; per-commit message-vs-diff) — all four original C behaviors verified present, none dropped.
+
+**C.1 + C.2 — comment-only, one new commit 94accd09.** Landed on top rather than squashed into the
+mid-stack decode-demand commit (lower risk on a just-rebased stack; maps 1:1 to the two review
+comments). C.1: zero/absent arrival is safe (permits but never forces scale-down, never drives
+scale-up, intentionally not floored). C.2: RequestRate (completion rate, non-zero during drain) is
+deliberately not a broken-arrival cross-check; the temporal detector lives in the engine liveness
+path. Both current-code prose, no plans-branch/PR identifiers (§4a).
+
+**Post-rebase commit stack (dfc21e2c..HEAD), tip 94accd09:**
+- 94accd09 throughput: document zero-arrival safety + why RequestRate is not an arrival cross-check
+- 4fb1b659 docs(multi-analyzer-pipeline): add ArrivalRate to AnalyzerInput field table
+- b0257e59 throughput: weight model-level avgOL by replica count
+- 55b0507f throughput: compute decode demand from model-level arrival rate
+- a1446aa8 collector: add model-level request arrival rate for the throughput analyzer
+
+SHA map: 7851cb33->a1446aa8, 66fde352->55b0507f, 0eb46e77->b0257e59, 25f09a87->4fb1b659.
+
+Gates (all green): go build, go vet, gofmt (internal/+cmd/), make test (throughput 92.1%,
+saturation 67.4%), make lint (0 issues), DCO on all 5 commits.
+
+## Update CURRENT.md
+- PR C (#1480) row: tip now **94accd09** on base **dfc21e2c** (upstream/main, incl. #1491
+  utils-split). Round-2 complete: C.0 rebase (Dean-authorized to dfc21e2c) + C.1/C.2 comment-only
+  additions closing ev-shindin's two PR #1480 comments. All gates green; review FINAL, no
+  outstanding findings. **NOT pushed** — force-push (history rewrite, --force-with-lease) awaits
+  Dean's explicit confirmation at push time; #1480 is OPEN so warn-before-push applies.
+- Next-steps note: C.0/C.1/C.2 done; only remaining action for PR C is the Dean-authorized
+  force-push, then ev-shindin re-review.
+
+## Open questions / follow-ups
+- Force-push to origin (fork) for PR #1480: `git push --force-with-lease origin ta-model-level-demand`
+  moving 4a816dde/25f09a87 history -> 94accd09 on dfc21e2c. Awaiting Dean's explicit go-ahead; I
+  have not pushed.
+- Note the base is now dfc21e2c, which differs from sibling C/D branches if they rebased to a
+  different tip — planner may want to reconcile the four TA-0.9 branches onto a common base before
+  merge ordering.

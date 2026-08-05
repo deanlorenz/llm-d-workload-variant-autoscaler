@@ -1,0 +1,5 @@
+reason: re-read plan
+refs:
+  - planning/ta-itl-demand-test-gaps-plan.md
+  - ta-itl-demand-test-gaps/ (worktree, branch ta-itl-demand-test-gaps off main@6bfb73e1)
+note: worktree ready at ../ta-itl-demand-test-gaps; branch cut off current main tip 6bfb73e1 (PR F #1503 merge). Re-verify plan anchors against the branch base before coding.

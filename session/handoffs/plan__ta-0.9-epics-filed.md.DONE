@@ -1,0 +1,63 @@
+from: plans (planner — TA 0.9 release-notes + epics session)
+session: ta-0.9-epics-filed
+
+## What changed (2026-07-29)
+
+Filed six GitHub issues on `llm-d/llm-d-workload-variant-autoscaler` organizing the 0.9
+(and carried-forward 0.8) analyzer / optimizer / observability work into epics. All labeled
+`triage/accepted` + `release/v0.9`; `needs-triage` auto-stamp removed. Children assigned to
+deanlorenz; epics unassigned (Epic D deliberately NOT assigned to shuynh2017).
+
+New issues:
+- **#1492** — [Epic] Multi-analyzer pipeline: pluggable analyzers feeding one optimizer *(new epic; prior art #408 closed)*
+- **#1493** — [Epic] P/D-aware optimizer: role capacity aggregation & paired allocation *(new epic)*
+- **#1494** — [Epic] WVA observability: scaling-decision visibility (metrics, logs, alerts) *(new epic; successor to closed #911)*
+- **#1495** — engine: analyzer participation is opt-in *(child of #1492; fixed by PR #1479, merged)*
+- **#1496** — engine: gate scale-down veto on per-analyzer liveness *(child of #1492; tracked by PR #1481, open)*
+- **#1497** — engine: warn when runtime ConfigMap analyzer-enable requires a controller restart *(child of #1492; planned "PR E", no PR yet)*
+
+Epic **B = existing #1005** (ThroughputAnalyzer) — adopted, not re-filed. Its 0.9 children
+(#1480, #1478) were NOT filed as separate issues this pass ("new epics only" per Dean).
+Shipped-0.8 children (#1225/#1228/#1246/#1266 under A; #1237/#1036/#994 under C; #1318/#1328/#1190
+under D) are recorded as checklists in the epic bodies, not as retro issues (decision 4).
+No trackers filed for any other-author work (A7 #1442, C1 #1237, D2 #1328, excluded bug fixes) —
+Dean alerts those authors directly.
+
+## Update CURRENT.md
+
+**Recent activity — add a head/tail entry (2026-07-29):**
+> TA 0.9 project bookkeeping — filed 4-epic structure on upstream. New epics **#1492** (multi-analyzer
+> pipeline & lifecycle), **#1493** (P/D optimizer math), **#1494** (observability; successor to closed
+> #911); existing epic **#1005** adopted for ThroughputAnalyzer. Dean-owned child trackers filed:
+> **#1495** (opt-in participation ← #1479), **#1496** (veto liveness ← #1481), **#1497** (runtime
+> ConfigMap-restart warning ← planned PR E). All `triage/accepted` + `release/v0.9`; children assigned
+> deanlorenz. No trackers for other-author work (Dean pings authors directly); other-author work still
+> credited in release Highlights. Bookkeeping doc: `planning/ta-0.9-epic-issues.md`. Release-note
+> drafts: `planning/ta-0.9-release-notes.md`. Slack drafts (unsent, local): `scratch/slack-maintainer-0.9-epics.md`,
+> `scratch/slack-highlights-0.9.md`.
+
+**Issues to Open — resolve/annotate:**
+- The "TA forward plan internal issues I-1..I-25" bullet: I-5 (gate observability) is now filed as
+  **#1497** (A8). I-16 (effectiveEnabled) shipped via #1479, tracked by **#1495** (A5).
+- No new "issues to file" created by this session beyond the six above; the remaining forward-plan
+  items are unchanged.
+
+**Next steps — add:**
+- **TA 0.9 release notes + Highlights: DEFERRED to code freeze.** Full release-note mechanism +
+  drafts in `planning/ta-0.9-release-notes.md`. Key facts: the ` ```release-note ``` ` PR block is
+  NOT auto-harvested (no `.github/release.yml`); GitHub auto-notes come from PR *titles* in the
+  `v0.8.0..v0.9.0` range; the only editorial lever is a hand-written `## Highlights` block prepended
+  at release. Highlights draft (Part B) + a Slack-formatted version are ready but held until code
+  freeze — Dean will send via Slack to the release manager then. Do NOT create an in-repo
+  `docs/CHANGELOG-v0.9.0.md`.
+- **Slack notes POSTED by Dean 2026-07-29** — both the epics summary
+  (`scratch/slack-maintainer-0.9-epics.md`) and the Highlights (`scratch/slack-highlights-0.9.md`)
+  were copied and posted manually. No further send action. Drafts kept for reference.
+- **Design-docs PR (item 5) — still DEFERRED** to post-code-freeze.
+
+## Notes / follow-ups
+- #1496 closes when #1481 merges; #1495 already satisfied by merged #1479 (can be closed on the
+  epic checklist, kept open as the tracker if preferred).
+- Committed on the plans branch this session: `planning/ta-0.9-epic-issues.md`,
+  `planning/ta-0.9-release-notes.md`, `scratch/slack-maintainer-0.9-epics.md`,
+  `scratch/slack-highlights-0.9.md`.

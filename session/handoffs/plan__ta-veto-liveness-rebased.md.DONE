@@ -1,0 +1,54 @@
+from: ta-veto-liveness
+session: ta-veto-liveness forward-rebase onto 11d70a8a (#1479 A′ merge)
+
+## What changed
+Forward-rebased PR #1481 (ta-veto-liveness) from base 827c8542 onto current upstream/main
+11d70a8a (the #1479 "A′ registration-safety" merge). Command: `git rebase 11d70a8a`.
+
+- Pre-rebase tip: 19c9a122
+- New tip:        b3f75650
+- Base:           11d70a8a (confirmed via git merge-base)
+- Rebase completed CLEANLY — exit 0, zero conflicts. A′ and D touch disjoint regions of the
+  three shared files (engine_v2.go, engine_v2_test.go, multi-analyzer-pipeline.md), so git's
+  three-way merge auto-resolved with no manual intervention.
+
+New 6-commit stack (11d70a8a..HEAD), all DCO-signed:
+- e9215e98 saturation: track per-analyzer liveness (last informative analysis)
+- 76578a2a saturation: exclude non-live analyzers from the scale-down veto
+- 185d9965 docs: document the analyzer liveness gate in the multi-analyzer pipeline guide
+- 857e0738 saturation: keep the queueing-model path always-live under the new gate
+- 3d944257 test: make the per-model liveness keying test actually discriminate
+- b3f75650 docs: clarify liveness persistence-window, demand scope, and QM exception
+
+## Silent-hunk-drop verification (CONVENTIONS non-trivial-rebase discipline)
+Per-file diff inventory `git diff 19c9a122 HEAD` shows the old->new delta is EXACTLY A′'s change
+set folded in — nothing of D's dropped. All 6 D behaviors confirmed present:
+1. Liveness tracking (analyzerLivenessStaleCycles, updateLivenessAndSetLive, lastGoodAnalysis map,
+   NamedAnalyzerResult.Live) — PRESENT.
+2. Non-live veto exclusion + safety floor (analyzer_helpers.go, 2 `if !e.Live` sites) — PRESENT.
+3. Liveness dev-guide section — PRESENT (now sits alongside A′'s new opt-in paragraph; consistent).
+4. QM always-live carve-out (`Live: true` in engine_queueing_model.go + its new test) — PRESENT.
+5. Discriminating per-model keying test (no-data model-a step) — PRESENT.
+6. Doc clarifications + lastGoodAnalysis/applyDeallocationForRole comments — PRESENT.
+Per-commit message-vs-diff check: all 6 commit diffs non-empty and match their subjects.
+
+## Gates — all green
+- make test — PASS (saturation ran fresh; no failures anywhere)
+- gofmt -l internal pkg cmd — clean
+- make lint — 0 issues
+- go build ./... — clean
+- go test ./internal/engines/pipeline/... ./internal/engines/saturation/... -race -count=1 — PASS
+- DCO sign-off on all 6 commits
+
+## Update CURRENT.md
+- PR Status row `ta-veto-liveness` (#1481): update tip 19c9a122 -> b3f75650; note it is
+  forward-rebased 827c8542 -> 11d70a8a (onto the #1479 merge), clean (per-file diff inventory
+  verified no dropped hunks), all gates green incl. -race; still OPEN, mergeable, awaiting
+  ev-shindin review. This is push-ready pending Dean's force-push (warn-before-push: PR #1481 OPEN).
+- Recent-activity: the TA 0.9 head abstract can note D was re-rebased onto 11d70a8a after #1479
+  merged; C (#1480) still on 7aec2645 base 827c8542 and may need the same forward-rebase.
+
+## Open questions / follow-ups
+- Push is NOT done. Requires Dean's explicit force-push confirmation (`git push --force-with-lease`
+  to origin fork) — PR #1481 is OPEN, so warn-before-push applies.
+- No GitHub artifact touched.

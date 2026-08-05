@@ -488,6 +488,21 @@ floor` / `staleness`):
 ## Pre-push checklist {#prepush}
 
 Run in order (per CONVENTIONS pre-push checklist):
+0. **Re-rebase onto the current `main` tip** (moving ref, never a pinned SHA). History so far:
+   this branch was rebased onto `f9f04d81` (C `#1480`'s merge) and opened as **PR #1503**
+   (reviewer+assignee ev-shindin); upstream then merged **#1486** (ScalingPolicy Phase 1),
+   putting #1503 into `CONFLICTING`/`DIRTY`. Rebase onto the current `upstream/main` tip. Expected
+   conflict surface (do not treat as exhaustive — re-derive against the actual tip):
+   - **`internal/config/config.go`** — real textual conflict: #1486 rewrote large parts of this
+     file; this branch's shared `validITLModel` change touches it. Resolve keeping both. While here,
+     if #1486 introduced `EffectiveType()`-based analyzer matching, sanity-check that this branch's
+     touched code uses the same accessor rather than a stale `aw.Name ==` comparison.
+   - `internal/engines/saturation/engine_v2.go` may also need attention (#1486 and Commit 5 both
+     touch it).
+   After rebasing, run the CONVENTIONS non-trivial-rebase verification (per-file diff inventory
+   confirming all 7 guards survive + per-commit message-vs-diff check). Do **not** push — #1503 is a
+   live PR branch; signal review-ready via the trigger and the planner force-pushes #1503 with
+   Dean's confirmation.
 1. `git branch --show-current` — confirm `ta-correctness-guards`.
 2. `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
 3. `make test` — all pass (new I-2/I-3/I-4/I-6 tests included).

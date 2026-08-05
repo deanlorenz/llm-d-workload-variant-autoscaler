@@ -1,0 +1,119 @@
+from: review agent (design-review continuation)
+to: planner
+session: ta-anchor-refactor mechanism redesign — supersedes the earlier F1/F2/E1-E5 fold-in
+
+## What this is
+
+A parallel comprehension deep-dive (`planning/multi-analyzer-dataflow-map.md`,
+`planning/scale-from-to-zero-analysis.md`) surfaced a substantially simpler, more correct mechanism
+for the anchor/binding design than what's currently in `planning/ta-anchor-refactor-plan.md` — and
+than what's already partially implemented on the branch (see "Branch state" below). This is fully
+written up as a new section, **"Design correction (2026-08-04)"**, appended to
+`planning/ta-anchor-refactor-review.md`, with two follow-on subsections ("Partial scale-from-zero
+under `[TA]`-alone" and "TA-side proactive complement"). This handoff asks the planner to fold that
+section into the plan doc. I have not edited the plan doc myself (out of my write scope) and the
+review doc stays DRAFT.
+
+## Branch state — context for your decision, not mine to make
+
+`ta-anchor-refactor` (worktree) currently has one commit beyond the goldens tip:
+`34055d77 engine: build binding-analyzer anchor and gate saturation via effectiveEnabled`, authored
+by Dean, 2026-08-03 21:50:24. Reading its message precisely, it implements a **stored**
+`ModelScalingRequest.Anchor` field, with `(a)` from the always-run saturation result and `(b)` from
+**"the first enabled ballot entry"** (positional binding, whole-`AnalyzerResult`-level copy — not
+per-variant merge). This predates both the Aug 4 17:39 fold-in (`68bda1a1`/`192ae06b` — added
+`cloneAnalyzerResult`, threaded the anchor from `runAnalyzersAndScore` to `collectV2ModelRequest`,
+fixed `withSatEntry` across ~87 call sites; also a stored-field, positional design, with the
+aliasing bug fixed) and everything in the new Design correction section (order-independent ballot,
+per-entry status tags, no stored field at all, per-variant merge keyed by `VariantName`, uniform
+Phase-1 loop). Nothing has been committed since `34055d77` — it's the current branch tip.
+
+There's also a stale-looking coder trigger, `session/handoffs/ta-anchor-refactor__kickoff.md.WIP`
+(2026-08-03 19:06), predating all three mechanism states — I can't tell from the file alone whether
+that coder session is still active; flagging its existence rather than assuming either way.
+
+Dean's own tentative read, for your consideration: "since the change is big, we may need to start
+on a fresh branch." Whether to rework `34055d77` in place, discard it, or start fresh is your call
+once you've absorbed the full scope below — the coder follows whatever the plan ends up saying, so
+the plan is the thing to get right first.
+
+## What changed, and why it supersedes the existing plan draft
+
+Full detail and code citations are in the review doc's new section — summary here:
+
+- **Phase 1 (generation) — call every analyzer, tag status, never decide.** Every registered
+  analyzer is called unconditionally (sat included, no special-casing). Every call produces one
+  ballot entry; **order does not matter** (retracts positional binding). Each entry carries an
+  explicit status (enablement + error condition). The engine may validate ("no `(a)` anywhere?",
+  "no live+enabled `(b)` anywhere?") but makes no decisions from that.
+- **Phase 2 (the binding/anchor getter, successor to `saturationEntry`) — interpret, decide,
+  build.** Check statuses → find the binding analyzer → generate the anchor's `VariantCapacities`
+  **merged per variant, matched by `VariantName`** (`(a)` fields from sat's entry for that name,
+  `(b)` fields from the binding analyzer's entry for that same name; model-level PRC/RC/SC always
+  from the binding analyzer) → remove disabled/non-live results (done here, not at Phase-1
+  packaging — safer). **No analyzer-level sort needed at this stage** — confirmed nothing sorts the
+  ballot slice itself, only per-variant lists, which already key off `PerReplicaCapacity`/`Cost`
+  and read correctly once the anchor is built.
+- **No stored `.Anchor` field at all** — this is the single biggest structural difference from both
+  existing designs (the committed code and the Aug 4 fold-in). The anchor is derived on demand,
+  which is also why `withSatEntry` likely doesn't need the 87-site fix the Aug 4 fold-in added —
+  needs confirming once implementation starts, not asserted as certain.
+
+## Specific asks for the plan doc
+
+1. Commit 1 (`engine_v2.go`): replace with the uniform Phase-1 loop above — no anchor-building code
+   in the engine at all, no `effectiveEnabled`-gated ballot-entry exclusion at generation time.
+2. Commit 2 (binding function): replace `saturationEntry`'s successor with the Phase-2 getter above,
+   per-variant merge, positional-binding language removed.
+3. QM: option (b) — make it an error to enable QM under the new code. Test blast radius checked —
+   no test found that exercises `optimizeQueueingModel` end-to-end, so no test carnage expected; an
+   e2e-test sweep is still owed (see Open items). Note: the Aug 4 fold-in already designed a
+   `refuseQueueingModel` dispatch-refusal using the existing `emitSafetyNetMetrics` idiom — check
+   whether that design already satisfies this ask or needs adjusting for the new mechanism.
+4. Liveness/failure policy: "no live analyzers → do nothing" as the base behavior; do not kill WVA
+   for this (confirmed no existing code does today); reuse `emitSafetyNetMetrics`
+   (`engine.go:1828+`, "Strategy 1: use previous desired-replicas value if available") as the
+   primitive, rather than inventing something new.
+5. `AnalyzerName` validation gap (unconstrained field, silent fallback to deprecated V1 on any
+   typo) — flag as a candidate follow-up issue; separate, small, standalone PR; not part of this
+   plan.
+6. Partial scale-from-zero under `[TA]`-alone: document the finding that the existing
+   `scalefromzero` engine already, incidentally, covers this (per-VA `isInactive` check, no
+   model-level pre-filter) — recommend relying on it as the reactive safety net. Recommend the
+   TA-side proactive complement (persist `lastPerReplicaSupply` *and* `Cost`/`AcceleratorName` on
+   `variantState`, same eviction window as `lastFittedB`) as the proper proactive fix — note the
+   corrected version (an earlier draft of this idea had a ranking bug: defaulting only `PRC` while
+   leaving `Cost` at zero makes `costEfficiency = 0/PRC = 0`, ranking the variant *cheapest*, not
+   safely last — both fields need the fallback together).
+7. rescale.go: add the per-variant-merge correctness requirement as an explicit test case — a
+   `[TA]`-only ballot with rescale enabled, asserting `AcceleratorName` resolves via the anchor even
+   though TA's own result leaves it empty.
+
+## Open items still needing resolution (flagged, not resolved by me)
+
+- e2e-test sweep for the QM "make it an error" decision (unit-test sweep done, e2e not yet).
+- Targeted check on whether a "do nothing" cycle actually leaves
+  `Status.DesiredOptimizedAlloc.NumReplicas` untouched at its last-good value.
+- Flapping-risk check: could the normal engine's own decision, on the cycle right after
+  `scalefromzero`'s direct actuation, see stale/estimate-based state and scale back down? Not
+  traced.
+- A **newly-found, pre-existing bug in sat-v2 itself**, independent of this refactor: sat's own
+  `aggregateByVariant` rebuilds its `variantCost`/`variantAccel` maps fresh every cycle from that
+  cycle's `ReplicaMetrics` only — so sat's P0-store/compatible-sibling branches (which do estimate
+  `PerReplicaCapacity` for a zero-replica variant) never backfill `Cost`/`AcceleratorName` for that
+  same variant. Worth a standalone fix, not part of this plan — flagging so it doesn't get lost.
+
+## Refs
+
+- `planning/ta-anchor-refactor-review.md` — "Design correction (2026-08-04)" section (primary
+  content for this fold-in) plus its two follow-on subsections.
+- `planning/multi-analyzer-dataflow-map.md` — §8, the comprehension work that led here.
+- `planning/scale-from-to-zero-analysis.md` — companion investigation (scale-from/to-zero
+  mechanisms, independent of the anchor).
+- `planning/ta-anchor-refactor-plan.md` — the plan doc to update.
+- `ta-anchor-refactor/` (worktree) — branch state, commit `34055d77`.
+
+## Out of scope for me (review agent)
+
+Everything above is uncommitted. I have not touched the plan doc, the branch, or any code — only
+the review doc. Ask if you want the review doc or this handoff committed to the `plans` branch.

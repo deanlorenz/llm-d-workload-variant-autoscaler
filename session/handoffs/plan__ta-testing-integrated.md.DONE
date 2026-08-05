@@ -1,0 +1,27 @@
+from: ta-testing
+session: ta-testing integration build (TA 0.9 = main + C #1480 + D #1481)
+
+## What changed
+Assembled the code-under-test integration branch `ta-testing` off upstream/main `11d70a8a` using `git merge --no-ff` (Dean's chosen mechanic, preserves per-PR commit provenance). DCO-signed merge commits.
+
+- **C merge `1904306c`** — `git merge --no-ff ta-model-level-demand` (PR C #1480, model-level decode demand; source tip `25f09a87`). Clean auto-merge.
+- **D merge `db530eed` (= integration HEAD)** — `git merge --no-ff ta-veto-liveness` (PR D #1481, per-analyzer liveness scale-down veto; source tip `b3f75650`). Textually auto-merged with no reported conflicts, but a **semantic** conflict surfaced at `go vet`: C had added an `arrivalRate float64` parameter to `runAnalyzersAndScore`, and D's new whole-file test `engine_v2_liveness_test.go` (no textual conflict → not flagged by git) called the pre-C signature. Resolved by adding the trailing `arrivalRate=0` argument to all 6 call sites in that test; fix folded into the D merge commit and documented in its message. No production-code change beyond the two parents.
+
+## Integration HEAD + tag
+- Integration HEAD: **`db530eed`** on branch `ta-testing`.
+- Local annotated tag: **`ta-0.9-test-20260728`** on `db530eed` — "TA 0.9 integration test build: main(11d70a8a) + C #1480 + D #1481". NOT pushed.
+
+## Both feature sets verified present (silent-hunk-drop discipline)
+- **C**: `AnalyzerInput.ArrivalRate` field; `CollectModelArrivalRate`/`QueryModelArrivalRate`; nKV-weighted `avgOL` (`totalDecodeKV`). All grep-confirmed.
+- **D**: `updateLivenessAndSetLive`; `lastGoodAnalysis` (field+init in engine.go); two `if !e.Live` veto sites (pipeline/analyzer_helpers.go) + safety floor; QM `Live: true` carve-out. All grep-confirmed.
+- `git diff 11d70a8a HEAD -- internal/engines/saturation/engine_v2.go` shows 7 C arrival-rate lines + 13 D liveness lines added — both families folded in.
+
+## Gates — all green
+make test PASS; gofmt clean; make lint 0 issues; go build clean; `-race` on saturation + pipeline PASS.
+
+## Remaining Dean-only steps (NOT done — outside coder scope)
+1. Push branch `ta-testing` + tag `ta-0.9-test-20260728` to origin fork.
+2. Build + push image `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`.
+
+## CURRENT.md
+No canonical-state change required (test-only integration branch, never an upstream PR). Optional: note that a `ta-testing` worktree exists with the TA 0.9 integration build (`db530eed`, tag `ta-0.9-test-20260728`) for image-based cluster testing of C #1480 + D #1481 together.

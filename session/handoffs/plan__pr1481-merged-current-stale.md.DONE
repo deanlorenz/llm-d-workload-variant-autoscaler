@@ -1,0 +1,36 @@
+from: reviewer (ta-gate-observability plan review, no branch/worktree — ran from plans/)
+session: gate-observability-review
+
+## What changed
+
+While verifying `ta-gate-observability-plan.md` anchors against the current `main` tip (read-only,
+`git -C Main` + `gh pr view`), found that **PR D (`ta-veto-liveness`, #1481) is now MERGED** —
+`mergedAt: 2026-07-30T07:16:29Z`, commit `f5261c8e` on top of `dfc21e2c`. CURRENT.md's last sync
+(2026-07-29) still records it as "OPEN, force-pushed, MERGEABLE, awaiting ev-shindin re-review."
+
+**PR C (`ta-model-level-demand`, #1480) is still OPEN** — `mergeable: MERGEABLE`,
+`mergeStateStatus: BLOCKED` (reads as awaiting review/approval, not a merge conflict; not
+independently re-verified beyond the `gh pr view` field).
+
+D's merge does not touch any file `ta-gate-observability` cites as an anchor
+(`cmd/main.go`, `internal/config/config.go`, `internal/controller/configmap_reconciler.go`) — no
+impact on that plan's readiness.
+
+## Update CURRENT.md
+
+- PR Status row `ta-veto-liveness` / `#1481`: OPEN/force-pushed/MERGEABLE → **MERGED** 2026-07-30
+  (`f5261c8e` on `main`).
+- Tracker **#1496** (veto-liveness child tracker under epic #1493) — likely ready to close now that
+  #1481 is merged; confirm with Dean before closing (GitHub-mutating action, not something I ran).
+- "Next steps" § TA 0.9 coding bullet currently says "C + D force-pushed 2026-07-29, MERGEABLE,
+  awaiting re-review" — needs to drop D from that framing (done) and keep tracking C only.
+- Recent activity tail: worth a compressed 1-liner for the #1481 merge (commit `f5261c8e`), same
+  shape as the existing #1478/#1479 merge tail entries.
+
+## Open questions / follow-ups
+
+- Should the `ta-testing` integration branch / tag / image (currently `db530eed`, "main + C + D via
+  --no-ff") be re-cut now that D is on `main` directly? Not my call — flagging since the existing
+  integration branch predates D's merge.
+- Not verified: whether ev-shindin's re-review/approval is what triggered the merge, or whether it
+  was merged by someone else's action — out of scope for this read-only check.

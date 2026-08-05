@@ -1,0 +1,43 @@
+from: plans (0.9 planner)
+session: TA 0.9 — C/D reviewer replies posted + #1498 expanded
+
+## What changed (GitHub writes, Dean-authorized 2026-07-29)
+
+Reviewer replies to ev-shindin's round-1 COMMENTED reviews on C #1480 and D #1481 are now
+**POSTED** (were held/unposted). Each reply points the reviewer at the specific commits that
+addressed each point:
+
+- **PR C #1480** — [issuecomment-5123171764](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1480#issuecomment-5123171764).
+  Point 1 (no-EPP/arrival=0 → scale-down): intentional + safe (zero demand only *permits*
+  scale-down; all-live-agree gate governs); in-code reasoning documented in `94accd09`; operator
+  hard-requirement tracked by expanding #1498 (see below). Point 2 (broken-query vs idle):
+  RequestRate is a completion rate not arrival, so the instantaneous cross-check would
+  false-positive on ramp-down — documented in `94accd09`; the sound temporal signal ships as the
+  observability-only WARN in D `c32235be`.
+- **PR D #1481** — [issuecomment-5123171907](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1481#issuecomment-5123171907).
+  Point 1 (duplicated sentinels): fixed in `61060530` (exported `pipeline.ReasonNoData`/`ReasonError`).
+  Point 2 (`lastGoodAnalysis` eviction): fixed in `c32235be` (selective per-cycle prune of departed
+  models). `AnalyzedAt` aside acknowledged (contract noted in liveness comments `33226cd4`/`c32235be`).
+
+- **Issue #1498** body expanded from two to **three** operator-doc requirements — added:
+  "The ThroughputAnalyzer must not be enabled without EPP arrival metrics present" (busy model
+  reads as idle → spurious scale-down). Raised by the C #1480 review. Title unchanged. Doc change
+  itself still lands as a PR against llm-d/llm-d (out of WVA-repo scope; #1498 is the tracker).
+
+## Update CURRENT.md
+
+- In the 2026-07-29 C+D tail entry (and the "TA 0.9 coding" Next-steps item): the "Reviewer replies
+  drafted … held, unposted (need Dean's per-comment approval + explicit gh)" clause is now stale —
+  replace with: **reviewer replies POSTED 2026-07-29** (C issuecomment-5123171764,
+  D issuecomment-5123171907), each pointing ev-shindin to the addressing commits; C/D remain OPEN,
+  MERGEABLE, awaiting ev-shindin re-review.
+- Issues-to-file / #1498 references: note #1498 now carries a **third** requirement (TA requires EPP
+  arrival metrics), added from the C review.
+- No PR Status tip changes (no new commits; C `b2acffd6` / D `c32235be` unchanged).
+
+## Notes
+
+Reply/issue bodies saved under `scratch/` (`reply-c-1480.md`, `reply-d-1481.md`,
+`issue-1498-body.md`) for the record. No coder action; no push. Remaining planner follow-ups
+unchanged: watch for ev-shindin re-review on C/D; PR E worktree/kickoff (pending Dean go-ahead);
+PR F plan authoring.

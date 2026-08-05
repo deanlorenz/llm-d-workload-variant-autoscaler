@@ -1,0 +1,49 @@
+from: ta-correctness-guards
+session: PR F implementation
+
+## What changed
+All 4 planned guards (I-2/I-3/I-4/I-6) implemented per planning/ta-correctness-guards-plan.md,
+plus a dev-guide commit. 5 commits on `ta-correctness-guards`, base `main@f5261c8e` (moving ref,
+not stacked on PR C #1480 which was OPEN at every check during this session):
+
+- `101e64ae` — fix(throughput): reject NaN k in ObservationWindow.Add (I-3)
+- `3b0b5cdf` — fix(collector): wire real per-replica metric freshness (I-6)
+- `b9670047` — refactor(throughput): share one ITL-model validator across both fit tiers (I-2)
+- `d2618824` — fix(throughput): reject NaN/out-of-range KV usage in computeLocalDemand (I-4)
+- `0e4f496c` — docs(throughput): dev-guide updates for the above
+
+Tip: `0e4f496c`.
+
+Gates: `make test` full-repo PASS, `gofmt -l internal cmd` clean, `make lint` 0 issues,
+`go build ./...` clean, DCO 5/5 signed, §4a plans-identifier scan clean across diff/commit
+messages/dev-guide.
+
+Deletion classification: none of the 4 commits delete any file, function, struct, or code
+block — all are additive guards or a refactor that preserves semantics identically (I-2's
+`FitITLModel` inline guards moved into `validITLModel` unchanged). No DEPRECATED/DEFERRED
+items to record.
+
+Per CODER-CONVENTIONS §5.4, filed `review__ta-correctness-guards-ready.md` — work is **not**
+push-ready until that internal review completes.
+
+## Update CURRENT.md
+Suggest updating the `ta-correctness-guards (PR F)` PR Status row from "PLANNED — plan doc not
+yet authored" to something like: "5 commits implemented (I-2/I-3/I-4/I-6 + dev-guide), all gates
+green, awaiting internal code review before push. Tip `0e4f496c`, base `main@f5261c8e` (not
+stacked on PR C #1480, still OPEN)." Not yet pushed to origin.
+
+## Open questions / follow-ups
+- PR C (#1480) was still OPEN at every check during this session (before Commit 3, before
+  Commit 4, and again at the end). No rebase was needed. Worth re-checking again before the
+  eventual push, per the plan's stated risk (if C merges, F needs one ordinary rebase — the
+  plan's C-overlap analysis says the conflict surface is small since C never touches
+  `computeLocalDemand`'s or `resolveITLModel`'s bodies).
+- One plan-suggested optional test (a `resolveITLModel` Tier-2 case that would previously have
+  accepted a degenerate A and now rejects it) was omitted after confirming algebraically it's
+  infeasible: Tier-2 only accepts A>0 with both possible B sources always positive, so
+  `A*DefaultKSat+B>0` always holds — old and new accept criteria are identical for every
+  reachable input. Noted in the status file in case a reviewer wants to double-check this
+  reasoning.
+- No cross-package collector→sanity end-to-end test was added for I-6; used the plan's own
+  stated fallback ("collector-level test suffices") to avoid a throughput-package test
+  dependency from the collector package.

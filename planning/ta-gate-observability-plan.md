@@ -304,6 +304,28 @@ TA is opt-in and restart-required"*, filed 2026-07-29). The coder does **not** t
 ## Pre-push checklist {#prepush}
 
 Run in order (per CONVENTIONS pre-push checklist):
+0. **Re-rebase onto the current `main` tip** (moving ref, never a pinned SHA). History so far:
+   this branch was first rebased onto `f9f04d81` (C `#1480`'s merge) and opened as **PR #1502**
+   (reviewer+assignee ev-shindin); upstream then merged **#1486** (ScalingPolicy Phase 1),
+   advancing `main` and putting #1502 into `CONFLICTING`/`DIRTY`. Rebase onto the current
+   `upstream/main` tip and resolve two things:
+   - **`cmd/main.go` — real textual conflict.** This branch's Commit 1 extracted
+     `ThroughputAnalyzerEnabled` out of `cmd/main.go`; #1486 also edited that file. Resolve keeping
+     both changes.
+   - **`internal/config/config.go` — SILENT semantic fix (will NOT surface as a conflict).** This
+     branch's new `(*Config).ThroughputAnalyzerEnabled` compares `aw.Name == throughputAnalyzerName`
+     (~L377). #1486 changed the sibling comparisons in `engine_v2.go`
+     (`scoreForAnalyzer`/`resolveThresholds`/`effectiveEnabled`) from `aw.Name ==` to
+     `aw.EffectiveType() ==`. The three-way merge cannot catch this (it is new code on this branch
+     that #1486's diff never touches). Apply the same change here by hand:
+     `aw.Name == throughputAnalyzerName` → `aw.EffectiveType() == throughputAnalyzerName`, so the
+     startup registration gate matches the rest of the analyzer-matching logic (accepts
+     `- type: throughput`, not only `- name: throughput`). Add/adjust a test asserting the gate
+     honors `type:`.
+   After rebasing, run the CONVENTIONS non-trivial-rebase verification (per-file diff inventory +
+   per-commit message-vs-diff check + full gate re-run: test/lint/gofmt/build/DCO + §4a grep).
+   Do **not** push — #1502 is a live PR branch; signal review-ready via the standing review trigger
+   and the planner force-pushes #1502 with Dean's confirmation.
 1. `git branch --show-current` — confirm `ta-gate-observability`.
 2. `gofmt -l ./internal/... ./pkg/... ./cmd/...` — empty.
 3. `make test` — all pass (include the new reconciler + config tests).

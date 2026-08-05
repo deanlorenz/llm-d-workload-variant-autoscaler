@@ -1,0 +1,6 @@
+reason: code-review-before-push
+refs:
+  - ta-gate-observability/ (worktree)
+  - planning/ta-gate-observability-plan.md
+  - session/status/ta-gate-observability.md
+note: re-rebased onto upstream/main da58c0e0 (#1486 ScalingPolicy Phase 1) to unblock PR #1502, which had gone CONFLICTING; new tips 5614afb4 (Commit 1, amended message) + 1a6d2fd3 (Commit 2); this rebase carries a real logic change (aw.Name -> aw.EffectiveType() in ThroughputAnalyzerEnabled, +2 tests) so it is not covered by the prior "ready to push" verdict; all gates green

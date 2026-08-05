@@ -1,0 +1,22 @@
+# Handoff → planner: review benchmark fork patches + longer-term items
+
+Dean's directive (2026-07-30): "planner should check what we did so far" + hand off fact-finding / uncertain longer-term items.
+
+## What was done this session (please review)
+Full detail in `plans/session/status/benchmark.md` (top section, 2026-07-30 16:15). Summary:
+
+1. **Two DCO-signed commits pushed to `origin/wva-ta-benchmark`** (deanlorenz fork):
+   - `e88b882` — Bucket 1 "should-have" gates: presence-gate step_07 gateway-provider helmfile (mirrors step_02's own gate) + wva.py thanos-querier ClusterRole apply. Both no-op on a fresh cluster.
+   - `963bb00` — Bucket 2 "fork-only safety net": step_03 skips cluster-monitoring-config apply when UWM already enabled.
+   - Categorization follows Dean's Turn-3 framing: safety-net (never upstream, target must not rely on it) vs should-have (eventual upstream issue/PR, not priority).
+2. **Makefile (Tier-B WVA code, uncommitted in benchmark worktree):** `BENCHMARK_STEPS` passthrough + `benchmark-standup-shared` target (`--step 0,3,4,5,7,9`, skips step_02 admin CRDs/SCCs + step_08 GAIE router).
+3. Charts verified present at OCI (WVA 0.8.0-rc5, prometheus-adapter 5.2.0). Live command fully expanded and safety-audited (ClusterRole-stub block gated off; only namespace-scoped mutation is the UWM label on dhl-wva-209). Awaiting Dean's FINAL go before any live standup.
+
+## Longer-term / fact-finding items for planner
+1. **Upstreaming the "should-have" gates (NOT priority).** Per Dean: "If it works then we bother opening issues. We do not push anything to upstream or wait for it." After a successful live run proves them out, decide whether to file upstream issues/PRs to `llm-d/llm-d-benchmark` for: (a) step_07 gateway-provider presence gate (consistency with step_02); (b) wva.py thanos ClusterRole idempotency. Bucket-2 (cluster-monitoring-config) is fork-only and should NOT be upstreamed.
+2. **docker.io vLLM image.** The scenario resolves `VLLM_IMAGE_REPO/TAG` to `docker.io/vllm/vllm-openai:v0.14.0` (set in hack/benchmark/.env). AGENTS.md discourages docker.io for e2e (rate limits / registry-default policy). Not a blocker for a one-off benchmark run, but flag for cleanup — and confirm v0.14.0 is a real published tag before relying on it broadly.
+3. **Prior write-questions handoff** (`plan__benchmark-standup-shared-write-questions.md`, now .DONE): the two items were (a) how Ofer avoided the step_03 shared cluster-monitoring-config write; (b) modelservice+istio detected-vs-hardcoded. Bucket-2's UWM-probe guard effectively resolves (a) defensively regardless of the answer. Confirm whether planner still wants a definitive answer or considers it closed.
+4. **Public end-user path (from memory `project_ta3_benchmark_pokprod`):** longer-term goal is a public-code makefile target + end-user TA benchmarking guide. `benchmark-standup-shared` is the current-run scaffold ("run first, cleanup later" per Dean); the generalized public target is separate future work.
+
+## State
+Blocked only on Dean's FINAL go on the exact live command. No open questions block the coder; these are for planner awareness + longer-term planning.

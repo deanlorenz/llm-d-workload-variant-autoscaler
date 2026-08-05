@@ -1,0 +1,53 @@
+from: ta-gate-observability
+session: ta-gate-observability implementation (PR E)
+
+## What changed
+
+Worktree/branch `ta-gate-observability` (already existed off `main@f5261c8e`, includes merged
+A' #1479 + D #1481). Implemented the full plan (`planning/ta-gate-observability-plan.md`) in 2
+commits:
+
+- `033b0529` refactor(config): extract ThroughputAnalyzerEnabled onto config.Config — pure
+  refactor, moves the enablement predicate from package `main` to `(*Config).ThroughputAnalyzerEnabled()`;
+  migrated `TestThroughputAnalyzerEnabled` to `internal/config` as `TestConfig_ThroughputAnalyzerEnabled`;
+  deleted `cmd/main_test.go` (its only test moved).
+- `67ac0476` feat(controller): warn when a live ConfigMap edit can't change TA registration —
+  adds `ConfigMapReconciler.ThroughputRegistered` field, captured once in `cmd/main.go` from the
+  same value used for the startup registration gate; `handleSaturationConfigMap`'s global path now
+  emits a K8s Warning event (reason `ThroughputAnalyzerRestartRequired`, new constant in
+  `internal/constants/constants.go`) + a restart-instruction log line when live TA-enablement
+  diverges from the frozen startup decision, in both directions. Namespace-local ConfigMaps are
+  explicitly out of scope (non-goal, confirmed by test).
+
+All gates green: `make test` (full suite incl. `internal/controller` envtest suite, 35/35 specs),
+`make lint` (0 issues), `gofmt` clean, `go build ./...` clean, DCO signed on both commits, §4a
+plans-branch-identifier grep clean. Dev-guide (`docs/developer-guide/throughput-analyzer.md`)
+updated with the new Warning-event/restart-log behavior and the namespace-local limitation,
+framed as current behavior (no forward-looking "pending PR" language).
+
+Full detail in `session/status/ta-gate-observability.md`, including two coder-judgment notes
+worth preserving: (1) splitting the plan's 2-commit structure required staging + stashing +
+rebuilding each commit's isolated tree, since both commits touch the same `cmd/main.go` call
+site; (2) fixed a test-isolation collision the new reconciler tests introduced (added
+`DeferCleanup` rather than changing the pre-existing test).
+
+Written a `review__ta-gate-observability-ready.md` trigger per CODER-CONVENTIONS §5.4 — internal
+review has not yet run. Per §5.4, **not** requesting push authorization in this handoff; that
+follows once the review closes clean.
+
+## Update CURRENT.md
+
+PR Status row `ta-gate-observability (PR E)`: change from "PLAN READY — ... No worktree/branch/PR
+yet — awaiting Dean's go-ahead" to something like "**IMPLEMENTED, gates green, awaiting internal
+review** — 2 commits (`033b0529` refactor, `67ac0476` behavior) off `main@f5261c8e`. Tip
+`67ac0476`. Not pushed; no PR yet." Tip column → `67ac0476`.
+
+"Next steps" § TA 0.9 remaining code work: PR E is no longer "awaiting Dean's go-ahead to create
+worktree" — that already happened before this session and is stale in the doc. Update to reflect:
+implementation done, review pending, no push yet.
+
+## Open questions / follow-ups
+
+None outstanding from the plan itself. The plan's cross-repo companion item (#1498) and the
+`wva-analyzer-lifecycle` future-work pointer (removing the frozen-registration gate) are already
+captured in the plan doc and CURRENT.md's Issues to Open — no new items to add.

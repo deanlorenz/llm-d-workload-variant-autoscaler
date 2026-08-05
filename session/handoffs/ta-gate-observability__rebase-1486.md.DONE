@@ -1,0 +1,4 @@
+reason: upstream-rebase
+refs:
+  - planning/ta-gate-observability-plan.md
+note: PR #1502 is open but CONFLICTING — upstream merged #1486 (ScalingPolicy Phase 1); plan Pre-push step 0 rewritten for the re-rebase (cmd/main.go conflict + config.go aw.Name→aw.EffectiveType semantic fix).

@@ -1,0 +1,53 @@
+from: benchmark (tester/coder)
+session: TA benchmark on pokprod — controlled-setup methodology pivot
+
+## What changed (Dean redirection, 2026-07-30)
+
+The pokprod TA benchmark methodology has pivoted away from running llm-d-benchmark's full
+`make benchmark-standup` / full-teardown flow. `planning/ta-pokprod-testing-plan.md` §6/§7 are now
+materially out of date and need a planner revision. Requesting that revision + capture of new goals.
+
+### The pivot (facts established by read-only recon of the embedded clone)
+- **Shared-cluster constraint:** pokprod has a shared Prometheus+operator, shared KEDA, and a shared
+  router control plane (GAIE). We must NOT touch any of them. Our project only enables UWM collection
+  for our-NS metrics and consumes them (setup handles access keys). KEDA used in our NS only.
+- **Danger steps in Ofer's flow (must be skipped):**
+  - standup `step_02_admin_prerequisites` → installs cluster-scoped Gateway API CRDs + inference-ext
+    CRDs + OpenShift SCCs (+ optional Prom CRDs). ALL already present on pokprod (verified) → skip.
+  - standup `step_08_deploy_gaie` → router control plane → skip.
+  - teardown `step_04_clean_cluster_roles` → deletes cluster-scoped ClusterRoles/Bindings → NEVER run
+    full teardown. Clean up between runs (run-phase `step_01_cleanup_previous`), namespace-scoped only.
+- **All llmdbenchmark invocations must target our NS** via `-p dhl-wva-209` (notorious default-NS
+  overwrites; confirm each step honors it).
+- **Control knobs:** `standup -s/--step` takes comma-list OR ranges; per-step `should_skip(context)`;
+  `--no-monitoring`; scenario config `inferenceExtension` / `monitoring.installPrometheusCrds`.
+- **Packaging:** install is editable (`pip install -e .`) → our fork edits take effect; risky applies
+  live in editable clone steps; remote `llm-d-planner@v0.1.0` is validation-only (no cluster writes).
+
+### MECHANISM (Dean, important — differs from my earlier lean)
+- The **end-user makefile target must NOT depend on our fork.** It enumerates the specific safe
+  `--step`s and runs **standard PUBLIC** llm-d-benchmark. Our fork is a **testing safety net only**
+  (we may patch it to make the skips fail-safe while we test).
+- **Dependency to note:** the two-variant scenario is NOT in public llm-d-benchmark yet (lives on
+  Ofer's `feat/multi-variant-benchmark`). The public-code end-user path depends on Ofer's work landing
+  upstream first — sequencing this is a planning concern.
+
+### Longer-term goals to record in the plan
+1. Ofer able to run with OUR controller image — already achievable via the `WVA_IMAGE_REPO/TAG` .env
+   seam; no code change (worth stating explicitly).
+2. An end-user **TA guide** in the spirit of the existing WVA guides on llm-d/llm-d.
+3. A **Makefile target** + setup env that lets an end user safely test TA — using public benchmark
+   code with an explicit safe step list (not our fork).
+
+## Requested planner action
+- Revise `planning/ta-pokprod-testing-plan.md` §6 (setup) and §7 (scenarios) for the controlled flow:
+  our-NS-only, skip 02/08, no full teardown, cleanup-between-runs.
+- Add a goals section for the 3 long-term items above, and the "public-code not fork" deliverable
+  constraint + the Ofer-upstream sequencing dependency.
+- Supersede/absorb the deferred make-target note (project_benchmark_makefile_two_variant_todo).
+
+## Notes
+- Coder is proceeding (Dean-directed) with local fork setup in the embedded clone
+  (benchmark/llm-d-benchmark → deanlorenz/llm-d-benchmark); push held for Dean's explicit per-command OK.
+- Full current state + recon details: plans/session/status/benchmark.md.
+- No CURRENT.md edits from me (coder scope).

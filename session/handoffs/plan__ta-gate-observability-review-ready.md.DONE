@@ -1,0 +1,40 @@
+from: reviewer (ta-gate-observability)
+session: gate-observability-review
+
+## What changed
+
+Completed the internal code review triggered by `review__ta-gate-observability-ready.md` (now
+`.DONE`). Full review (plan-accuracy pass done earlier + code-vs-plan pass) is in
+[`planning/ta-gate-observability-review.md`](../../planning/ta-gate-observability-review.md).
+
+**Verdict: no findings, ready to push** (pending Dean's explicit push confirmation per
+CONVENTIONS — that has not been sought/given yet). Independently re-verified (not just trusting
+the coder's status file): `gofmt`, `go build ./...`, `go test` on the touched packages,
+`golangci-lint run` on the touched packages, DCO on both commits, exactly 2 commits ahead of a
+clean merge-base at `upstream/main@f5261c8e`, §4a grep clean, no stale references to the deleted
+`throughputAnalyzerEnabled`/`TestThroughputAnalyzerEnabled` names. Both NTH nits from the earlier
+plan-only pass (event-reason constant home; nil-guard framing) were already resolved correctly in
+the actual implementation.
+
+## Update CURRENT.md
+
+PR Status row `ta-gate-observability (PR E)`: change from "PLAN READY... No worktree/branch/PR
+yet" (stale — a worktree/branch already existed and has since been implemented) to something like:
+"**IMPLEMENTED, reviewed, ready to push** — 2 commits (`033b0529` refactor, `67ac0476` behavior)
+off `upstream/main@f5261c8e`. Tip `67ac0476`. Review FINAL, no findings:
+[`planning/ta-gate-observability-review.md`](../planning/ta-gate-observability-review.md). Not
+pushed; no PR yet — awaiting Dean's push confirmation." Tip column → `67ac0476`.
+
+"Next steps" § TA 0.9 remaining code work: PR E entry is stale in two ways — (1) it still frames
+this as "awaiting Dean's go-ahead to create worktree/kickoff" when implementation is already done;
+(2) it doesn't yet reflect the review outcome. Update to: implementation done, reviewed clean,
+awaiting push confirmation.
+
+Also unresolved from my earlier handoff `plan__pr1481-merged-current-stale.md`: PR D (#1481)
+merged 2026-07-30 (`f5261c8e`) but CURRENT.md still shows it OPEN/awaiting-re-review as of the
+2026-07-29 sync. `ta-gate-observability`'s branch base already includes that merge.
+
+## Open questions / follow-ups
+
+None from the review itself. Push timing/confirmation is Dean's call, not mine to request or
+assume.

@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/ta-gate-observability-plan.md
+note: New worktree/branch ta-gate-observability cut from main@f5261c8e (includes merged A′ #1479 and D #1481). Plan anchors re-verified against f5261c8e 2026-07-30 — all intact. Read the plan's TOC first, then fetch sections on demand.

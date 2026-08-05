@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/ta-pokprod-testing-plan.md#73-inference-perf-load-gen-fix--a-first-does-ta-do-anything-workload-2026-07-31-corrects-a-prior-handoff
+note: corrects the guidellm-vs-inference-perf diagnosis (Ofer uses inference-perf; the Makefile's unconditional -w flag is the real root cause, not the local-.in branch); adds ta_calibration_probe.yaml.in workload design.

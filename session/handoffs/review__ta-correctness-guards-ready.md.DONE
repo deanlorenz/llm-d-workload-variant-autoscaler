@@ -1,0 +1,6 @@
+reason: code-review-before-push
+refs:
+  - ta-correctness-guards/ (worktree)
+  - planning/ta-correctness-guards-plan.md
+  - planning/ta-correctness-guards-review.md
+note: Second rebase onto upstream/main (da58c0e0, PR #1486's merge) per the plan's new Pre-push step 0. New tip 021b6f8d (old tip abeb048f superseded). This branch is now the open PR #1503, which went CONFLICTING/DIRTY when #1486 merged; not pushed by this session — the plan's step 0 says the planner force-pushes #1503 with Dean's confirmation. One real conflict in internal/config/config.go (#1486 removed SetLimiterForTest/ReloadQuotaForTest; kept only this branch's unrelated SetOptimizationIntervalForTest, confirmed zero remaining callers of the removed pair anywhere upstream). engine_v2.go auto-merged with no conflict (confirmed clean per the plan's EffectiveType() sanity-check item). All gates re-verified green post-rebase (gofmt, build, vet, make test full-repo, make lint, DCO 7/7, widened §4a scan).

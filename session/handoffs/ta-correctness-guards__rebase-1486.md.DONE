@@ -1,0 +1,4 @@
+reason: upstream-rebase
+refs:
+  - planning/ta-correctness-guards-plan.md
+note: PR #1503 is open but CONFLICTING — upstream merged #1486 (ScalingPolicy Phase 1); plan Pre-push step 0 added for the re-rebase (config.go conflict; engine_v2.go may also need attention).

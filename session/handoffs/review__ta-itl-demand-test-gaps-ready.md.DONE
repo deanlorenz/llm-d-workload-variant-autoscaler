@@ -1,0 +1,5 @@
+reason: code-review-before-push
+refs:
+  - ta-itl-demand-test-gaps/ (worktree)
+  - planning/ta-itl-demand-test-gaps-plan.md
+note: round-2 delta (2 commits: Commit 2 comment NIT + new Commit 4 computeVariantSupply coverage) on top of round-1's 3 commits; tip 96263639; all gates green incl. -race on the touched package

@@ -1,0 +1,1 @@
+Thanks for the careful review — the bootstrap-window bug is a real one, and gating on `ConfigMapsBootstrapComplete()` is the right fix (glad that mechanism was already there to hang it on). Happy to keep `552fda63` as-is on this branch rather than splitting it out — no need to back it out. Appreciate the structured-logging cleanup and the constant-drift guard test too.

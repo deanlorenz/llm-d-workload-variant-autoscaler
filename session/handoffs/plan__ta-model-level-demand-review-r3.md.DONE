@@ -1,0 +1,60 @@
+from: reviewer (ta-model-level-demand)
+session: PR C round-3 re-review — post-rebase + C.1/C.2 + §4a re-scan
+
+## What changed (review side only — no code touched)
+
+Re-reviewed PR C (`ta-model-level-demand`) at tip `94accd09` on base `dfc21e2c`, covering the
+round-2 work: the C.0 rebase (`11d70a8a`→`dfc21e2c`) and the C.1/C.2 comment-only commit
+(`94accd09`). Updated `planning/ta-model-level-demand-review.md` — Status flipped DRAFT, added a
+"## Round 3" section. **The prior "ready to push" verdict is superseded.**
+
+## The result: one new blocking finding, F3 (§4a)
+
+**F3 — plans-branch identifier leaks in code comments + a test description (§4a), 7 sites:**
+- `analyzer.go:178,238,596` — `decision #1` (plan Decisions section)
+- `analyzer.go:333,399` — `review finding F1` (references this review doc's finding number)
+- `analyzer_test.go:1445` — `Decision #4`
+- `analyzer_test.go:1467` — `It("… (review finding F1)", …)` test description
+
+Introduced in the **round-1/round-2 commits** (`55b0507f` = the `decision #`s; `b0257e59` = the
+three `review finding F1`s — the F1-fix commit cited the review's own finding number in code). The
+new C.1/C.2 commit `94accd09` is itself §4a-clean. **Both prior review rounds (mine) missed these**
+— the earlier §4a check only scanned the dev-guide doc text, not code comments / test descriptions.
+I own that gap.
+
+Severity: mechanical, no behavioral impact, but §4a is a hard "must not" and this diff goes to
+ev-shindin on the upstream PR, where `decision #1` / `review finding F1` are unresolvable.
+Required fix = expand each to descriptive prose (examples in the review doc's F3 section), re-run
+gofmt. Ultimate disposition is Dean's.
+
+**NTH-1 (non-blocking) — C.1/C.2 comments forward-reference PR D.** They describe an "all-**live**-
+agree gate" and "engine liveness path observability warning"; on this branch the gate is
+`needsScaleDownForRole` (all-**agree**, no liveness) and the demand-liveness detector (D.3) lives
+in the sibling PR D (#1481), not here. Per the C/D triage handoff this cross-reference was the
+planner's deliberate design, so it's a sequencing/accuracy call for you/Dean — soften to
+"all-agree" until D lands, or accept the forward reference on the expectation C+D merge together.
+
+## Verified green (round 3, re-run fresh, not trusting status file)
+
+`go build ./...` clean; `gofmt -l` on changed `.go` files clean; `go test -count=1` on
+throughput/collector/saturation packages all pass; DCO on all 5 commits. Rebase preserved all four
+core behaviors (nKV-weighted avgOL, arrival demand, collector plumbing, F1 test) — verified in the
+current tree, not just from the coder's inventory.
+
+## Update CURRENT.md
+
+- PR C (#1480) row: round-3 re-review found a blocking §4a finding (F3 — 7 plans-branch identifier
+  leaks in round-1/round-2 code comments + a test description). Prior "ready to push" superseded.
+  **Not ready to force-push until F3 fixed.** NTH-1 (comments forward-reference PR D's liveness
+  gate) is a planner/Dean sequencing call, non-blocking. Review doc back to DRAFT, "## Round 3".
+- Next steps: PR C needs a small round-3 coder pass (F3 identifier-expansion, comment/gofmt only)
+  before the Dean-authorized force-push; NTH-1 needs a Dean/planner ruling.
+
+## Process note (for the governance backlog, not for me to action)
+
+F3 is the *fourth* instance in this PR's history of a convention slip that surfaced only on a later
+manual re-derivation, not from the process catching it: the F1 formula-fork (2026-07-27), and now
+§4a leaks that passed two review rounds. Reinforces the existing governance item — a mechanical
+§4a grep (`decision #|review finding|\bF[0-9]\b|planning/|-plan\.md|-review\.md`) over the diff's
+added comment/test lines would have caught F3 the first time. Candidate for the pre-push /
+review checklist. Ownership sits with the same open "who edits CONVENTIONS.md" question.

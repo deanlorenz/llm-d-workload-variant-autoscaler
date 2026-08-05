@@ -1,0 +1,36 @@
+# plan__ta-veto-liveness-round2-done
+
+Round-2 follow-ups for PR D (#1481, ta-veto-liveness) are implemented, committed, and green.
+Branch was first rebased onto current upstream/main, then the three folds + dev-guide update landed.
+
+## State
+- Branch `ta-veto-liveness`, tip `5d324b36`. Rebased onto upstream/main `dfc21e2c`.
+- 8 commits from base (6 round-1 + 2 round-2). DCO 8/8.
+- **NOT pushed** — #1481 is OPEN; Dean force-pushes with `--force-with-lease` when ready.
+- All gates green: gofmt clean, `go build ./...`, `go vet`, `make test` (no failures),
+  `make lint` (0 issues), `-race` on pipeline+saturation_v2+saturation.
+
+## What changed (round-2)
+Two commits:
+
+1. `61060530` — **D.1** single source of truth for the no-data/error reason sentinels.
+   Promoted to exported `pipeline.ReasonNoData` / `pipeline.ReasonError`; saturation_v2 aliases
+   the shared const and returns `pipeline.ReasonError` instead of literals. Decision was PROMOTE
+   (no pin test) after confirming no import cycle. The `"no-data"`/`"error"` literals in
+   saturation_v2 are DEPRECATED/removed, superseded by the shared constants.
+
+2. `5d324b36` — **D.2** prune `lastGoodAnalysis` of departed models (selective eviction in
+   `optimizeV2`, keyed identically to the liveness map, empty-set guarded) + **D.3** warn-only
+   demand-liveness detector (`detectDemandLiveness` in `updateLivenessAndSetLive`; NUL-delimited
+   synthetic demand-latch key; timestamp-gap signal seeded on first live supply so cold-start does
+   not false-positive; never sets Live / touches RoleSpare / gates a decision) + engine-level test
+   (4 cases, all pass) + dev-guide round-2 paragraph.
+
+## DEFERRED (recorded in code comment + status file)
+Per-pod demand latch: when demand becomes per-replica, the demand-latch key extends with a pod
+component (`"\x00" + podID`) and a per-replica latch is tracked alongside the model-level one. Not
+built — 0.9 demand is model-level only.
+
+## Detail
+Full per-fold breakdown (files, decisions, key semantics) is in
+`plans/session/status/ta-veto-liveness.md`.

@@ -1,0 +1,5 @@
+reason: re-read plan
+refs:
+  - planning/ta-anchor-refactor-plan.md
+  - planning/combined-analyzer-optimizer-design.md
+note: The two questions raised 2026-08-03 are resolved on plans@500f08d8. §5 1b — the sat-v2 name-skip becomes a REUSE branch (append the already-computed baseResult when effectiveEnabled; never re-invoke Analyze(), which would double-invoke and run the generic path); the residual name comparison is a compute-once-reuse, not a voting special-case; a len(ballot)>0 guard was added to the (b)-copy. Enablement is opt-in: default-on only for the empty analyzers list, a customized [TA] alone is TA-only, no ApplyDefaults / third-file change. §3 item 2, §7 3a, §8, and §13 items 4/4a/7 updated to match; the design doc § anchor gained an Enablement-contract note.

@@ -1,0 +1,48 @@
+from: ta-model-level-demand
+session: PR C round-3 follow-up — F3 §4a cleanup
+
+## What changed
+Processed the `ta-model-level-demand__review-followups-r3` trigger (re-read review §Round 3 / F3).
+Fixed F3 in one comment/test-description-only commit **b2acffd6** on top of the round-2 stack.
+NOT pushed.
+
+**Review's F3 undercounted.** The round-3 review's "full §4a re-scan" listed 7 leaks. A full
+working-tree re-scan of every C-added (`+`) line found **14 C-introduced** plans-branch identifier
+leaks. Dean authorized folding all in (2026-07-29). All 14 expanded to self-contained descriptive
+prose; no logic/assertion change; commit message itself §4a-clean.
+- 7 (review F3): `decision #1` ×3, `review finding F1` ×3 (incl. one test `It(...)`), `Decision #4`.
+- 3 (Dean-approved fold-in): `TA-demand §3.3/§3.5` ×2 in analyzer.go + ×1 in throughput-analyzer.md.
+- 4 (found in re-scan, same class, C-introduced): `TA-supply.md §5.5` (throughput-analyzer.md),
+  `plan §Deferred` ×2 (analyzer_test.go), `plan §Tests 1-4` (analyzer_test.go Describe string).
+
+**Deliberately NOT fixed — pre-existing upstream, out of scope for C** (introduced by #1250
+`efca1b4c`, already merged; not on any C-added line):
+- `docs/developer-guide/throughput-analyzer.md:671` — `Design: plans/planning/TA-Plan.md, TA-PR4-plan.md`
+- `internal/engines/analyzers/throughput/analyzer_test.go:1189` — `Specs 1–5 from plan §3.4`
+These are a genuine pre-existing upstream §4a leak (a shipping dev-guide line literally points at
+`plans/planning/`). Worth a separate upstream cleanup issue, but PR C should not be widened to own
+pre-existing code it didn't touch.
+
+**Post-F3 stack (dfc21e2c..HEAD), tip b2acffd6:**
+- b2acffd6 throughput: replace internal-planning references with self-contained prose (F3)
+- 94accd09 throughput: document zero-arrival safety + why RequestRate is not an arrival cross-check (C.1/C.2)
+- 4fb1b659 docs(multi-analyzer-pipeline): add ArrivalRate row
+- b0257e59 throughput: weight model-level avgOL by replica count
+- 55b0507f throughput: compute decode demand from model-level arrival rate
+- a1446aa8 collector: add model-level request arrival rate
+
+Gates (all green): go build clean; gofmt clean; throughput package `go test -count=1` pass;
+make lint 0 issues; DCO on all 6 commits.
+
+## Update CURRENT.md
+- PR C (#1480) row: tip now **b2acffd6** on base dfc21e2c. Round-3 F3 §4a cleanup done (14 sites,
+  comment/test-desc only). Review's F3 undercounted (7 listed vs 14 actual C-introduced); all 14
+  folded in per Dean 2026-07-29. All gates green; **NOT pushed** — force-push (history rewrite,
+  --force-with-lease) awaits Dean's explicit confirmation at push time (#1480 OPEN → warn-before-push).
+- Known pre-existing upstream §4a leak (out of C's scope): dev-guide:671 + test:1189 reference
+  plans/planning docs (from #1250) — candidate for a separate upstream issue.
+
+## Open questions / follow-ups
+- Re-review of b2acffd6 (F3 verification): confirm the 14 expansions are accurate prose and no
+  further C-introduced leaks remain. My working-tree scan shows clean except the 2 pre-existing lines.
+- Force-push for PR #1480 still pending Dean's go-ahead. Nothing pushed this session.

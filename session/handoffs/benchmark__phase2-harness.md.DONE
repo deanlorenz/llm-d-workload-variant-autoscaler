@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/ta-pokprod-testing-plan.md
+note: Phase 2 (§5) rewritten — KEDA harness approach, hardcoded-value table, §2a audit, dry-standup gate.

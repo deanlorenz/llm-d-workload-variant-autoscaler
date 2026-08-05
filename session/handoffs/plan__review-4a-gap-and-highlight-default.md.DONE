@@ -1,0 +1,76 @@
+from: reviewer (ta-model-level-demand)
+session: §4a enforcement gap (root-cause) + reviewer "highlight changes" default
+
+This handoff carries two governance items for the planner to fold into the backlog and
+(where owned) into the conventions docs. Neither is code work; PR C itself is closed out
+(see `plan__ta-model-level-demand-review-r4.md`). Dean directed both on 2026-07-29.
+
+## Item 1 — §4a leaks: root-cause of why they were neither prevented nor caught
+
+PR C shipped 14 §4a plans-branch-identifier leaks in code comments / test descriptions,
+introduced across two logic commits (`55b0507f`, `b0257e59`) and only found on a manual
+round-3 re-scan. Root cause has two independent halves:
+
+**Why the coder created them (prevention failure).** §4a is violated by *transcription*.
+The coder worked from the Type 3 plan and this Type 6 review — both of which correctly and
+freely use plans-branch identifiers on every line (`decision #1`, `§Tests 1-4`, `§Deferred`,
+`TA-demand §3.3/§3.5`, `TA-supply §5.5`, `F1`). When writing a code comment or test
+description explaining *why* a line exists, the coder copied the doc sentence with its
+identifier intact. `// per review finding F1` is the purest case — the coder was literally
+fixing finding F1 and labelled the fix with the review's own finding number. §4a's own text
+predicts exactly this ("when you transcribe content into code, strip the identifier"), but
+it is a vigilance rule with no gate: the code compiles, passes gofmt/test/lint/DCO/build, and
+golangci-lint cannot see a prose-convention violation.
+
+**Why the process didn't catch them (detection failure), at three stages, all eyeballs:**
+1. Coder pre-push checklist (CONVENTIONS §Pre-push) = gofmt / test / lint / DCO / build. **No
+   §4a step.** Lint can't catch it (project prose convention, not a Go rule).
+2. Reviewer rounds 1–2 (mine) — my §4a check scanned only the **dev-guide doc text**, not code
+   comments or `It(...)`/`Describe(...)` strings. Gap I own.
+3. Reviewer round-3 grep was itself too narrow — matched `review finding F1` but not bare `F1`
+   or the `§`/`plan §` family, so I reported **7** sites; the coder's full working-tree re-scan
+   found **14** (+2 pre-existing upstream, correctly left out of scope per Dean's "leaks in main
+   handled later").
+
+**Through-line:** §4a is a "must-not" enforced entirely by attention, and attention failed at
+every layer independently. This is the fourth convention slip in PR C's history to surface only
+on manual re-derivation (F1 formula-fork, then §4a across two review rounds).
+
+**Concrete remedy (single mechanical gate that catches all of it):** grep the diff's added
+comment/test lines for
+`decision #|Decision #|review finding|\bF[0-9]\b|plan §|TA-[a-z]+ §|planning/|-plan\.md|-review\.md`
+Add it (a) to the pre-push checklist in CONVENTIONS.md (coder side), and (b) to the reviewer
+checklist (reviewer side) — the reviewer grep must cover code comments and `It`/`Describe`
+strings, not just dev-guide text. Ownership sits with the still-open "who edits CONVENTIONS.md"
+question in the existing governance backlog item; this reinforces that item rather than opening
+a new thread. Related memories: `feedback_semantic_pivot_grep` (same "planner-includes-a-grep-
+step" structure), `feedback_doc_accuracy_discipline`.
+
+## Item 2 — make "highlight all changes + critical sections" a reviewer default (Dean's request)
+
+Dean liked the round-4 close-out format — a highlight of *all* the changes (per-commit table:
+what each commit does + logic-vs-comment-vs-doc classification) plus the critical shipping code
+section shown inline — and wants it to be the **default deliverable for internal code reviewers**,
+not an ad-hoc one-off. Requested 2026-07-29: "I like the highlight — this should be default for
+internal code reviewers — add to handoff for planner to correct."
+
+Planner action: fold this into the reviewer conventions. There is no `REVIEWER-CONVENTIONS.md`
+yet (it's candidate direction (2) in the existing governance item); this is a second concrete
+requirement for it, alongside the pre-action checklist mirror. Proposed shape of the default,
+for whoever authors it:
+- **Change highlight** — a per-commit table (commit → one-line what → type: logic / comment-only
+  / doc), plus an explicit list of anything deliberately left out of scope and why.
+- **Critical section** — the key shipping code shown inline (the smallest region that carries the
+  PR's actual behavior), so the reviewer's verdict is legible without re-opening the diff.
+- Applies to the internal plan-vs-diff review close-out (the FINAL / ready-to-push summary), not
+  every interim round.
+
+Until REVIEWER-CONVENTIONS.md exists, capturing this as a backlog line under the governance item
+(candidate direction (2)) is enough — it just needs to not be lost.
+
+## Update CURRENT.md
+- Governance item (§ Next steps "repeat scope-boundary incidents"): add the §4a
+  prevention+detection root-cause (Item 1) and the mechanical-grep remedy as a sub-bullet;
+  note it's the 4th PR-C slip. Add Item 2 (reviewer "highlight" default) as a second concrete
+  requirement for the proposed REVIEWER-CONVENTIONS.md (candidate direction (2)).
+- No PR-status change from this handoff (PR C status is in the r4 handoff).

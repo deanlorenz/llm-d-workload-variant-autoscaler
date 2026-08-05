@@ -1,0 +1,55 @@
+from: plans (0.9 planner)
+session: TA 0.9 — PR F plan authored + worktree launched
+
+## What changed
+
+### PR F `ta-correctness-guards` — plan authored, worktree created, coder kickoff issued
+- New Type 3 plan committed-pending on the plans branch:
+  [`planning/ta-correctness-guards-plan.md`](../../planning/ta-correctness-guards-plan.md)
+  (TOC-refreshed). Four localized guard/wiring commits from TA forward plan I-2/I-3/I-4/I-6:
+  - **Commit 1 — I-3** — reject NaN `k` in `ObservationWindow.Add` (only NaN-k slips the range
+    check; `itl` NaN already guarded). Conflict-free with C. Narrow defense-in-depth.
+  - **Commit 2 — I-6** — wire real per-replica freshness (`Age`/`FreshnessStatus`) in the
+    collector instead of the hardcoded `"fresh"`; reuse `DetermineStatus`. Conflict-free with C.
+    **Honest severity: observability/prep only today** — makes the throughput stale-metrics
+    sanity *detection* truthful, but the sanity report does not yet gate scaling (`TODO(#1261)`),
+    so scaling behavior is unchanged. Only gating consumer of `== "stale"` is
+    `throughput/sanity.go`.
+  - **Commit 3 — I-2** — extract shared `validITLModel(A,B)` in `itl_model.go`; use from both
+    `FitITLModel` and `resolveITLModel` Tier-2. Consistency/anti-drift (Tier-2 pre-filtering
+    makes an outcome change unlikely today), not a live bug. One-line touch in `analyzer.go`.
+  - **Commit 4 — I-4** — NaN/`>1` guard in `computeLocalDemand` (`analyzer.go`). **LIVE on this
+    base (`main`)** where it's the fallback demand contributor; introspection-only after C merges.
+- **Base = `main` (moving ref), NOT stacked on C #1480.** Rationale in plan § C-overlap: C is
+  still OPEN and may force-push; 3 of 4 items are in files C never touches; C keeps
+  `computeLocalDemand`/`resolveITLModel` bodies unchanged. Commits ordered conflict-free-first so
+  a mid-work C merge only forces one ordinary rebase onto `main` before the two analyzer.go commits.
+
+### Worktree + kickoff
+- New worktree/branch **`ta-correctness-guards`** cut from **`main@f5261c8e`** at
+  `/home/dean/code/llm-d/llm-d-workload-variant-autoscaler/ta-correctness-guards`. No commits yet
+  (empty at main tip). (First `worktree add` accidentally landed under `repo/` due to a
+  `-C repo` relative-path resolution; removed cleanly and recreated at the top level with an
+  absolute path — no residue.)
+- Coder kickoff trigger written: `session/handoffs/ta-correctness-guards__kickoff.md`.
+- **Pushed to origin 2026-07-30** (Dean-confirmed): `origin/ta-correctness-guards` tracking, at
+  `f5261c8e` (empty branch at main tip, no PR).
+
+## Update CURRENT.md
+- **PR Status — new row `ta-correctness-guards` (PR F):** was "PLANNED — plan doc not yet authored"
+  → now **plan authored + TOC-refreshed; worktree/branch created off `main@f5261c8e`; coder kickoff
+  issued; pushed to origin 2026-07-30; no PR.** No tracker issue yet (I-2/I-3/I-4/I-6 not filed as GitHub
+  issues). Plan: `planning/ta-correctness-guards-plan.md`.
+- **Next steps — "TA 0.9 remaining code work — PR E + PR F":** PR F advanced from "plan not yet
+  authored, hold until C merges" to "plan authored, coder launching off main (not stacked on C)".
+  Note the base-on-main decision and conflict-free-first ordering. Correct the earlier scope
+  re-derivation into the honest severities above (I-6 observability-only; I-2 anti-drift; I-4 live
+  on main / introspection-only post-C; I-3 narrow).
+- **Outstanding action:** none for the branch (pushed). Optional: file I-2/I-3/I-4/I-6 tracker
+  issues (see below) at Dean's direction.
+
+## Open questions / follow-ups
+- Whether I-2/I-3/I-4/I-6 should get GitHub tracker issues (like #1497 for E). Not filed; awaiting
+  Dean's direction (Issues-to-file discipline — no filing without confirmation).
+- When C #1480 merges: F rebases onto `main` (one ordinary rebase), re-verify the two analyzer.go
+  anchors, and reframe I-4 severity per plan § Scope.

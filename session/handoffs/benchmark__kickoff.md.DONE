@@ -1,0 +1,4 @@
+reason: re-read plan
+refs:
+  - planning/ta-pokprod-testing-plan.md   (§2 Architecture, §3 Phase 0 — your scope)
+note: Phase 0 only (preserve + rename + fresh-branch + local archive tag). Commit untracked runbook/notes/results/ onto benchmark; do NOT commit .claude/settings.json. Then rename benchmark→benchmark-ta3-legacy, git switch -c benchmark 11d70a8a, git tag archive/benchmark-ta3-legacy. STOP before any push/delete — those are Dean's. Verify CWD (pwd + git branch) before first write and before every commit.

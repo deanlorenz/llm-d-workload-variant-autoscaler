@@ -1,0 +1,68 @@
+from: plans (0.9 planner)
+session: TA 0.9 — C/D approvals + D follow-ups folded into PR F
+
+## What changed (GitHub review state, read-only checks 2026-07-30)
+
+### PR C #1480 — approval DISMISSED (stale); needs re-approval before merge
+- ev-shindin upgraded COMMENTED → APPROVED 2026-07-30 07:51Z **on commit `13981f1d`**. That
+  approval is now **DISMISSED**: after it, C's HEAD moved to **`c4b65702`** via
+  `b1ec8905` (merge `main` — which now carries D `f5261c8e` — into C) + `c4b65702` (thread the
+  `arrivalRate` arg through the #1481 liveness test call sites). Linear history (`13981f1d` is an
+  ancestor of `c4b65702`) — a legitimate main-integration, **not** a force-push. Branch protection
+  `dismiss_stale_reviews` fired → **reviewDecision=REVIEW_REQUIRED**, merge blocked ("At least 1
+  approving review is required"). State: **OPEN · MERGEABLE · CI green · reviewDecision=REVIEW_REQUIRED**.
+- **Action needed:** fresh re-approval from ev-shindin on `c4b65702` (the delta since approval is
+  merge-only + test-call arg threading, no logic change). GitHub-write — held pending Dean's OK on
+  wording/mechanism. The earlier "advisory accuracy note" is unchanged and still folded into PR F's
+  dev-guide scope (see below).
+- **Provenance note:** the push adding `b1ec8905`/`c4b65702` to origin/C was not planner-authorized
+  in this session — either Dean or the C coder integrated D. Confirm with Dean.
+- Approval carried one **advisory accuracy note** (non-blocking): the demand-liveness *warning* is
+  observability-only and does not gate scale-down; the real protection when arrivals read zero is
+  the multi-analyzer **live-consensus veto**, not the liveness warning — phrase the safety section
+  that way rather than "#1481 addresses it." Grepped C's branch dev-guide: **no `1481`/`liveness`
+  match**, so nothing to fix in C's code/docs. The phrasing point is folded into **PR F's dev-guide
+  scope** instead (see below), since F now owns the liveness follow-ups.
+
+### PR D #1481 — MERGED, 3 review follow-ups → folded into PR F
+- ev-shindin **APPROVED + it MERGED 2026-07-30** (07:15/07:16Z; merge `f5261c8e`). Approval said
+  "please address my comments in a follow-up PR." Three inline comments on `saturation/engine_v2.go`,
+  all non-blocking:
+  - **:203** — `OptimizationInterval()` returning 0 → `threshold=0` → all analyzers non-live →
+    safety floor blocks all scale-down (nil-config already defaulted; zero-return is the gap).
+  - **:182** — an informative result with zero `AnalyzedAt` → instantly-stale → excluded from veto →
+    can enable a wrong scale-down; treat zero as `now`.
+  - **:325** — genuine all-models-removed vs transient-empty indistinguishable in prune; comment
+    (which already largely exists) should acknowledge the accepted bounded leak.
+
+### PR F #— plan amended (Dean chose "fold into F")
+- Added **Commit 5 (DR-1/DR-2/DR-3)** to `planning/ta-correctness-guards-plan.md` (plans commit
+  `3d632313`): DR-1 interval-zero clamp, DR-2 fail-safe zero `AnalyzedAt`, DR-3 comment-only
+  enhancement — all in `saturation/engine_v2.go`, conflict-free with C and disjoint from F's
+  Commits 1-4. Also folded ev-shindin's C safety-section phrasing note into F's dev-guide scope.
+- F **coder has started** (Commit 1 / I-3 in flight; kickoff trigger `.WIP`). Per protocol I did
+  **not** edit the in-flight kickoff — wrote a fresh doorbell
+  `session/handoffs/ta-correctness-guards__plan-updated-commit5.md` pointing the coder to re-read
+  the plan.
+
+## Update CURRENT.md
+- **PR Status — C #1480:** OPEN · MERGEABLE · CI green but **reviewDecision=REVIEW_REQUIRED** —
+  ev-shindin's 07:51Z approval (on `13981f1d`) was **auto-dismissed** when C's HEAD advanced to
+  `c4b65702` (merge main+D `f5261c8e` in, thread `arrivalRate` through #1481 liveness test calls;
+  linear, not a force-push). **Needs a fresh approval on `c4b65702` before merge.** Tip
+  `b2acffd6` → **`c4b65702`** (2 new commits). Reviewer's observability-vs-veto safety-phrasing note
+  folded into PR F dev-guide scope (no C code change).
+- **PR Status — D #1481:** already flipped to MERGED via the launched handoff. Add: **ev-shindin
+  left 3 non-blocking follow-ups (engine_v2.go :182/:203/:325); folded into PR F Commit 5**
+  (DR-1/DR-2/DR-3). Close tracker #1496 as merged (per prior handoff) but note the follow-ups ride F.
+- **PR Status — ta-correctness-guards (F):** update scope from "4 commits (I-2/I-3/I-4/I-6)" to
+  "**5 commits** — adds Commit 5 DR-1/DR-2/DR-3 saturation liveness follow-ups from the D #1481
+  review." Coder started.
+- **Next steps — TA 0.9 coding:** C is **blocked on re-approval** (not on Dean's button) — its tip
+  moved past ev-shindin's dismissed approval; needs a fresh approve on `c4b65702`. When C merges
+  flip its row + close #1495 and F rebases onto main. D follow-ups now tracked inside PR F, not a
+  separate PR.
+
+## Open questions / follow-ups
+- Still no GitHub tracker issues for F's items (I-2/I-3/I-4/I-6 + DR-1/DR-2/DR-3) — awaiting Dean's
+  direction on whether to file (E has #1497; F has none).

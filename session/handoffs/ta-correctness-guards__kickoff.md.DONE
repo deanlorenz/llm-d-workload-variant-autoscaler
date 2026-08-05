@@ -1,0 +1,10 @@
+reason: re-read plan
+refs:
+  - planning/ta-correctness-guards-plan.md
+note: PR F. Branch cut from main@f5261c8e (includes A′ #1479 + D #1481). Anchors re-verified
+  2026-07-30. Read the TOC first, fetch sections on demand. Base is main (moving ref), NOT
+  stacked on C #1480 — commits ordered conflict-free-first (I-3, I-6) then the two analyzer.go
+  commits (I-2 resolveITLModel touch, I-4) last, so if C merges mid-work you rebase onto main
+  before those. Honest per-item severity is in § Scope — do not overclaim I-6 (detection only,
+  gating deferred #1261) or I-2 (anti-drift) in commits/dev-guide. Run the § grep step + §4a
+  scan before push. Push held for Dean.

@@ -1,0 +1,4 @@
+reason: other
+refs:
+  - planning/ta-anchor-goldens-review.md
+note: internal review DRAFT posted; Finding 1 (ca[0]-indexed non-vacuity guards in A1/A2/B1) flagged as needing a fix before the review can go FINAL

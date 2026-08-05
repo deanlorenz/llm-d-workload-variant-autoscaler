@@ -1,0 +1,8 @@
+reason: re-read plan
+refs:
+  - planning/ta-correctness-guards-plan.md
+note: Plan gained a Commit 5 (saturation/engine_v2.go) — three PR D #1481 review follow-ups from
+  ev-shindin (DR-1 interval-zero guard, DR-2 fail-safe zero AnalyzedAt, DR-3 comment enhancement).
+  Disjoint from your current Commit 1 (I-3) and from PR C. Re-read the TOC + § Commit 5 + updated
+  § Scope / § Tests / § Developer guide. Ordering unchanged: Commit 5 lands last. Nothing about
+  Commits 1-4 changed.

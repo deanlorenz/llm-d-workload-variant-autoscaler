@@ -1,0 +1,5 @@
+reason: re-read plan
+refs:
+  - planning/ta-anchor-refactor-plan.md
+  - session/CODER-CONVENTIONS.md
+note: new worktree ta-anchor-refactor cut off the ta-anchor-goldens tip (a2f49ccf) so the landed characterization gate rides along; PR-1 static core of the anchor refactor (single-vote, zero combine-arithmetic change, byte-identity ship gate). Read the plan for scope — §11 covers the interim base and the rebase-onto-main once #1513 merges.

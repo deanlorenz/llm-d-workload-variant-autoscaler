@@ -1,0 +1,99 @@
+# Handoff → planner: WVA sat-2 e2e blocked at load-gen — guidellm vs inference-perf harness
+
+## TL;DR
+The single-variant WVA saturation-V2 e2e on `dhl-wva-209` is green through the
+entire control path (annotation-only KEDA discovery, V2 analyzer, k1 resolved,
+no unattributed pods, SO Ready/Active, decode at 1 replica). It is blocked only
+at the **load-generation** step: `make benchmark-run BENCHMARK_HARNESS=inference-perf`
+fails at harness step `[05] render_profiles` before any traffic is sent.
+
+Dean's question — "how did it work for Ofer?" — has a concrete answer: **Ofer ran
+the `guidellm` harness (the Makefile default), not inference-perf.** The
+inference-perf local-profile path I've been driving (per the `wva-sat2-tp1.yaml`
+scenario doc) has a filename bug and was almost certainly never validated e2e.
+
+No cluster risk: every failure dies pre-load. GPUs freed to 0, decode at 1.
+
+## Evidence
+- `Makefile`: `BENCHMARK_HARNESS ?= guidellm` (default). `BENCHMARK_REPO_REF ?= v0.7.0`
+  (or `main` when `BENCHMARK_DIRECT_KEDA=true`).
+- Current `llm-d-benchmark` clone is at `963bb00` = `v0.6.7-61-g963bb00` ("standup:
+  shared-cluster — don't overwrite cluster-monitoring-config") — i.e. **our fork tip
+  with custom edits, drifted from the pinned v0.7.0/main**.
+- `reference-legacy/README.md`: the original run used **guidellm** (guidellm 0.6.x,
+  `--request-format text_completions`, harness pinned `v0.6.1`). The `*.yaml.in`
+  files (`target:/model:/rate:/max_seconds:`) are **guidellm-format** profiles.
+- `test/benchmark/scenarios/{prefill_heavy,decode_heavy,prefill_heavy_15rps_900s}.yaml.in`
+  are copies of those legacy guidellm profiles.
+
+## Root cause of the inference-perf failure (verified by elimination)
+1. Makefile `benchmark-run` local-`.in` branch (lines 549-553) copies the template to
+   `PROF/$(BENCHMARK_WORKLOAD)` **bare** (and `PROF/$(WL).in`), unlike the working
+   catalog `elif` branch (554-557) which copies to `PROF/$(WL).yaml`.
+2. The CLI is always invoked with `-w $(BENCHMARK_WORKLOAD).yaml` (line 568).
+3. In the current harness, `-w` → `args.workload` → `context.harness_profile`, which is
+   **Tier-1** in `step_05_render_profiles._resolve(...)` and **overrides** the scenario's
+   `harness.experimentProfile`. (cli.py:818; step base `_resolve` lines 151-185.)
+4. No `BENCHMARK_WORKLOAD` value reconciles the two consumers:
+   - `=prefill_heavy.yaml` → fetch-guard passes, file copied, but `-w prefill_heavy.yaml.yaml`
+     (double `.yaml`) → render looks for a nonexistent `prefill_heavy.yaml.yaml[.in]` → FAIL.
+   - `=prefill_heavy` → `-w prefill_heavy.yaml` (correct) but the fetch-guard checks
+     `prefill_heavy.in` (file is `prefill_heavy.yaml.in`) → misses local → tries the
+     inference-perf catalog → not found (`prefill_heavy` isn't a catalog name) → FAIL.
+   The catalog branch works because its convention is: extensionless WL, `PROF/$(WL).yaml`,
+   `-w $(WL).yaml` — all consistent. The local-`.in` branch is not aligned to it.
+
+## Decision needed (planner / Dean)
+**Q1 — Which harness should the public WVA sat-2 guide target?**
+- (a) **guidellm** — proven, matches Ofer, needs NO code change; but its own setup
+  (harness image, request-format) and the scenario doc would revert to guidellm.
+- (b) **inference-perf** — modern, but requires the Makefile `.in`-branch fix below
+  plus doc updates. This is the path the current `wva-sat2-tp1.yaml` doc assumes.
+
+**Q2 — If inference-perf: approve the Makefile fix** (align local-`.in` to catalog
+convention; run with extensionless `BENCHMARK_WORKLOAD=prefill_heavy`):
+```make
+# line 505 fetch-guard: also treat a local *.yaml.in as "present"
+@if [ "$(BENCHMARK_HARNESS)" = "inference-perf" ] \
+   && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD)" ] \
+   && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" ] \
+   && [ ! -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).yaml.in" ]; then ...
+
+# lines 549-553 local-.in branch: key off *.yaml.in, emit PROF/$(WL).yaml
+@if [ -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).yaml.in" ]; then \
+    cp "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).yaml.in" \
+       "$(BENCHMARK_REPO_DIR)/workload/profiles/$(BENCHMARK_HARNESS)/$(BENCHMARK_WORKLOAD).yaml.in"; \
+    cp "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).yaml.in" \
+       "$(BENCHMARK_REPO_DIR)/workload/profiles/$(BENCHMARK_HARNESS)/$(BENCHMARK_WORKLOAD).yaml"; \
+elif ...
+```
+Then docs + scenario usage comments become `BENCHMARK_WORKLOAD=prefill_heavy`
+(extensionless) — note `docs/developer-guide/benchmark-guide.md:165,171` and
+`docs/developer-guide/two-variant-wva-benchmark.md:267` currently say `prefill_heavy.yaml`
+/ `symmetrical.yaml` (the `.yaml` form that triggers the double-`.yaml` bug).
+
+**Q3 — Harness ref drift:** clone is at `963bb00`, not the pinned `v0.7.0`/`main`.
+Confirm which ref the guide/e2e should pin (our fork tip vs. upstream tag) so results
+are reproducible.
+
+## My recommendation
+- **For the immediate WVA sat-2 e2e run:** use **guidellm** (Q1a) — fastest proven
+  path, matches Ofer, zero code change; get the 1→2→1 scaling observation done today.
+- **For the public end-user guide (longer-term):** standardize on **inference-perf**
+  (Q1b) with the Makefile fix in Q2 — but that's a doc+Makefile change worth doing
+  deliberately, not under the live e2e.
+
+## Uncommitted edits already in the benchmark worktree (mine, this session)
+- `hack/benchmark/scenarios/guides/wva-sat2-tp1.yaml`:
+  - `harness.experimentProfile: prefill_heavy_4k_2_6.yaml` → `prefill_heavy.yaml`
+    (the old value named a profile that exists nowhere).
+  - usage comments `prefill_heavy_4k_2_6.yaml`/`decode_heavy_1k_2_6.yaml`
+    → `prefill_heavy.yaml`/`decode_heavy.yaml`.
+  These are correct-direction but become `prefill_heavy`/`decode_heavy` (extensionless)
+  IF we go inference-perf per Q2; leave as-is if we go guidellm. Not committed.
+
+## State to resume from
+- NS `dhl-wva-209`: decode `unsloth--608e585a-instruct-decode` 2/2 Running, 1 replica;
+  SO `...-decode-scaler` Ready/Active; KEDA HPA `wva-keda-hpa-...` min1/max2 at 1;
+  `wva_desired_replicas{variant_name="...-decode-scaler"} = 1`; V2 sat analyzer active
+  (k1 resolved, P4-k1). gpu-reservation scaled to 0 (2 H100s free).

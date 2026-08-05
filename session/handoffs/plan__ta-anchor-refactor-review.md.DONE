@@ -1,0 +1,132 @@
+from: review agent (design-review continuation)
+to: planner
+session: ta-anchor coding-plan review
+
+## What this is
+
+A DRAFT Type-6 review of the **ta-anchor coding-plan stack** now exists at
+`planning/ta-anchor-refactor-review.md`. It covers PR-1 (`ta-anchor-refactor-plan.md`), cross-checks
+PR-2 (`ta-anchor-dynamic-refresh-plan.md`, stub — no change needed) and the goldens plan/review
+(already FINAL — no change needed). Method: 7-agent adversarial file:line verification against
+`main@9906dac5` + direct re-confirmation of the two MAJOR findings.
+
+Dean has read the review and adjudicated the two MAJOR findings (below). This handoff asks the
+**planner** to fold the outcomes into `planning/ta-anchor-refactor-plan.md` and move the review
+toward FINAL. I am the review agent — I did **not** edit the Type-3 plan or CURRENT.md, and the
+review is uncommitted.
+
+Refs:
+- `planning/ta-anchor-refactor-review.md`  — the review (DRAFT; full findings + fixes)
+- `planning/ta-anchor-refactor-plan.md`    — PR-1, the plan to update
+- `planning/ta-anchor-dynamic-refresh-plan.md` — PR-2 stub (no change needed)
+
+## Dean's decisions on the two MAJOR findings
+
+### F1 — QM optimize path omitted → nil Anchor → silent loss of all QM decisions
+**Dean's call: QM is not ready / not working — DISABLE QM for now, do not fix it.**
+
+- **Finding (recap).** `optimizeQueueingModel` builds `ModelScalingRequest` with a
+  `SaturationAnalyzerName` ballot entry but **no `Anchor`** (`internal/engines/saturation/engine_queueing_model.go:77-94`)
+  and calls the same optimizer (`:103`). Once PR-1 Commit 2 makes the getter return `req.Anchor`,
+  the nil-guard at `internal/engines/pipeline/cost_aware_optimizer.go:48-51` skips every QM model —
+  silent, no compile error, no red test/golden (QM lives in the `saturation` package, off the
+  goldens' path).
+- **Feasibility (code-grounded).** QM is **presence-gated**: it runs only when a
+  `wva-queueing-model-config` ConfigMap with a `"default"` entry exists
+  (`engine.go:509-510, 522-525, 550-554`). It is OFF in the default config and in the goldens' path
+  — which is precisely why the byte-identity gate would not catch the break. The hazard only bites a
+  deployment that has that ConfigMap present.
+- **Disposition for PR-1.** Drop the original F1 "populate `req.Anchor` in the QM builder" fix — no
+  point plumbing a non-working path. Instead make the QM path inert. The exact mechanism is the
+  planner's call (behavior for an *explicitly-requested-but-disabled* feature is a design decision):
+  options range from warn-and-fall-back-to-V2 at the `case domain.QueueingModelAnalyzerName:`
+  selection (`engine.go:553-554`), to a hard error/refusal when the QM ConfigMap is present, to
+  gating the builder itself. Whichever is chosen, it removes the silent-loss trap entirely and
+  matches "QM not ready."
+- **Plan edits needed.** Update PR-1 §5/§9/§10 so `engine_queueing_model.go` is accounted for — now
+  as a **disabled** path, not an anchor producer. Add `engine_queueing_model.go:81` to §9's survivor
+  reconciliation. Classify the change under §12's deletion rule — most likely **DEFERRED** (QM code
+  stays; intent = "returns as a first-class multi-analyzer participant when ready"; the in-code
+  comment at `engine_queueing_model.go:86-90` already frames it that way), not DEPRECATED.
+- **One thing to confirm with Dean before finalising:** that no live deployment currently relies on
+  the QM ConfigMap (presence-gated + experimental per the in-code comments, so almost certainly
+  none — but disabling changes behavior for anyone who has it on).
+
+### F2 — §9 vs §5 contradiction (survivor list lists lines §5 removes)
+**Dean's call: agreed — planner should recheck.**
+
+- §9 (L438-440) lists `engine_v2.go:118,141,143` as legitimate `SaturationAnalyzerName` survivors,
+  but §5-1b (L254-255) removes the `:140-148` block that **contains** `:141` and `:143`. Only
+  `engine_v2.go:118` (`resolveThresholds(...)`) genuinely survives on the engine side.
+- **Plan edit:** correct §9's survivor list to `engine_v2.go:118` + `engine.go` +
+  `optimizer_interfaces.go:44`, and (folding in F1) add the QM site's disposition. A coder trusting
+  the current §9 would preserve the always-first special-case PR-1 exists to delete.
+
+## Minor findings (F3–F12 + C1) — non-blocking polish
+
+All detailed in the review doc's § Findings with fixes. Recommend folding into the same planner
+pass. Headlines:
+- **F3** §2 Reason row cites `prcForVariant:58`; the gate is in `ResultIsInformative:58`
+  (`prcForVariant` is at `:102`, never reads Reason).
+- **F5** §4 heading "byte-identity ship gate" contradicts its own body ("never slice/byte
+  equality") — rename to "decision-set-identity ship gate."
+- **F9** config path missing the `internal/` prefix (`internal/config/saturation_scaling.go`).
+- **C1** §11's `git push -u origin ta-anchor-refactor` is a coder-facing action verb — reframe as a
+  planner/Dean action.
+- F4/F6/F7/F8/F10/F11/F12: Role-row `state.Role` vs `vc.Role`; #4-gap note; dead "special role"
+  grep term; §8 notional section names vs real headings (backstopped by §9 grep); (a)-paraphrase +
+  ReplicaCount readyCount-vs-nKV PR-2 caveat; `rescale.go:546` per-vote label; uncovered
+  `saturation-scaling-config.md:266` stale site.
+
+## NEW — coder-executability blockers (E-series) → see review § "Coder-executability findings"
+
+Since Dean's F1/F2 adjudication, a second review lens was run: a 4-agent **coder-simulation** pass
+(can a coder *build* §5–§7 at the sites the plan names?), re-verified against `main@9906dac5`. It
+found **five additional MAJOR blockers**, added to the review as a distinct **§ Coder-executability
+findings (E-series)** (with a Verdict pointer + a disposition bullet). Please fold these in the
+**same planner pass** as F1/F2 — they are more blocking than F3–F12 (they stall or silently break a
+coder on Commit 1/2), and **all fixes are plan revisions; none instructs the coder directly.**
+
+Read the review's E-series section for the file:line detail and the exact per-finding plan edit;
+headlines only here (single-source — do not re-derive from this handoff):
+
+- **E1** — §5-1b writes `req.Anchor = copy(baseResult)` inside `runAnalyzersAndScore`, which has no
+  `req` and doesn't build the request (that's `collectV2ModelRequest:607`). Needs a build-site
+  change + return-signature threading (~19 call sites, 4 test files) and an explicit ban on the
+  `namedResults[0]` shortcut (which silently sources anchor-(a) from TA in the TA-only path).
+- **E2** — `withSatEntry` (used 87×) + PD/V2 siblings never set `Anchor`; Commit 2's reroute makes
+  every fixture skip → all optimizer tests **and the #1513 goldens** go red. Fix = in-body
+  `req.Anchor` set (signature unchanged, §11-compatible) + add the 4 fixture files to §6 + make §9's
+  grep case-insensitive. (Distinct from the goldens Finding-2 compile note.)
+- **E3** — `copy(baseResult)` is invalid Go; no `Clone` exists; shallow copy aliases the stored sat
+  result → (b)-overwrite mutates it (ships silently; bites PR-2). Needs explicit deep-copy + a PR-1
+  no-mutation assertion.
+- **E4** — §6-2c routes `AcceleratorName`/`Cost`/`Utilization` "from `req.Anchor`," but those are
+  `VariantCapacity` fields (`vc.X`; two don't compile on `AnalyzerResult`, `Utilization` is silently
+  model-level) — leave `:283/:284/:302` as `vc.X`; and the removed nil-guard lets an empty-ballot
+  `req.AnalyzerResults[0]` panic — needs a length guard.
+- **E5** — §7's field-classification test has no observable anchor at the §5/§10 build site, and the
+  TA-only fixtures need anchor≠ballot but `withSatEntry` ties them → vacuous pass. Needs an
+  engine-package test off `collectV2ModelRequest` + a distinct-results fixture builder.
+
+Minor (E6–E13) + two extensions of existing findings (F8 real headings/4-site spread; F12 adds the
+`saturation-scaling-config.md:255-259` "not yet consumed" stale block) are in the same section —
+polish for the same pass.
+
+**Scope note (review agent):** I did not edit the Type-3 plan or CURRENT.md. All E-series items are
+described as plan edits for you to make; the coder only ever reads the revised plan.
+
+## Suggested CURRENT.md updates (for the sync session)
+
+- On the **ta-anchor-refactor** PR-Status row + the Recent-activity abstract: note a DRAFT code-plan
+  review exists (`planning/ta-anchor-refactor-review.md`) with **2 MAJOR correctness findings
+  (F1/F2)** + **5 MAJOR coder-executability blockers (E1–E5)**. Dean's calls on the first two =
+  **F1 disable QM** / **F2 planner recheck §9**; E1–E5 await the planner's fold-in pass (all are
+  plan revisions). These join the already-tracked gating items for PR-1 Commit 1/2 (the sat-v2
+  default-off gap and Mechanism A/B).
+- Do **not** mark the review FINAL until the planner has folded F1/F2 **and E1–E5** and Dean confirms.
+
+## Out of scope for me (review agent)
+
+The review is uncommitted; I edited neither the Type-3 plan nor CURRENT.md. Ask if you want the
+review committed to the plans branch.

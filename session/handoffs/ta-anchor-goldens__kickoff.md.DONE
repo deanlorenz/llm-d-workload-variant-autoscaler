@@ -1,0 +1,5 @@
+reason: re-read plan
+refs:
+  - planning/ta-anchor-goldens-plan.md
+  - session/CODER-CONVENTIONS.md
+note: new worktree ta-anchor-goldens off main@9906dac5; characterization goldens for the anchor-refactor ship gate (test-only). Read the plan for scope.

@@ -1,0 +1,141 @@
+from: plans (planner session "📐 TA-0.9 Planner")
+session: ta-09-remaining-work
+
+## Context
+
+Planner session, 2026-07-28. Purpose: with A/A′/C/D authored and moving (A+A′ merged; C #1480
+and D #1481 open, awaiting ev-shindin), Dean is about to start e2e benchmarking with the four
+0.9 PRs. Two questions were worked this session:
+
+1. Which TA code changes in 0.9 could **break or mask** TA behavior during the benchmark? (risk
+   analysis + a 3-gate precondition checklist — below).
+2. What **other** TA code changes are critical for 0.9 beyond the four PRs? → two new planned
+   PRs (E, F), decisions locked, plans NOT yet authored.
+
+No code was written this session. No CURRENT.md edit was made (single-writer model). This
+handoff is the full state capture for end-of-day.
+
+## Update CURRENT.md
+
+### New: two additional 0.9 TA PRs planned (decisions locked)
+
+**PR E plan is now AUTHORED** — [`planning/ta-gate-observability-plan.md`](../../planning/ta-gate-observability-plan.md)
+(Type 3, coder-ready, TOC-refreshed). PR F plan not yet written (waits for C to merge).
+
+Add a "TA 0.9 remaining code work" note under Next steps, and add two PR Status rows:
+- PR E row: status = "PLAN READY (`planning/ta-gate-observability-plan.md`); no worktree/branch yet"
+- PR F row: status = "PLANNED — plan doc pending C merge"
+
+**IMPORTANT — anchors moved.** Main advanced past the 0.9 rebase point (`827c8542`) to
+`bf8fd8d9`: `#1448` moved `pkg/` → `internal/queueing`, **`#1450` renamed `internal/saturation`
+→ `internal/saturationv1`**. C `#1480` and D `#1481` (based on `827c8542`) are now behind main —
+per [[feedback-no-rebase-live-pr-branches]] they only forward-rebase if a conflict/merge blocks
+them, not to chase main. PR E's plan was authored against **current main `bf8fd8d9`** (anchors
+re-verified live: `cmd/main.go:98-107/400/533-535/544`, `configmap_reconciler.go:38-44/164`,
+`config.go:320-350`). PR F's anchors (throughput `analyzer.go`/`sanity.go`, `replica_metrics.go`)
+must be re-verified against merged-C code before authoring — the rename may have shifted paths.
+
+**PR E — `ta-gate-observability`** (P0; I-5 half 2). Off `main` (`bf8fd8d9`), independent of C/D.
+Plan: `planning/ta-gate-observability-plan.md`. Summary:
+- **Problem:** analyzer registration is frozen at controller startup (`cmd/main.go:533`
+  `throughputAnalyzerEnabled` → `RegisterAnalyzer`, frozen after `StartOptimizeLoop` at
+  `cmd/main.go:544`). If an operator edits the saturation configmap at runtime to enable TA, the
+  change is silently ignored until the controller restarts. A′ landed half 1 (startup log when
+  the gate is false); half 2 (runtime edit ignored) is unaddressed.
+- **Decision (Dean, this session):** ship the **stopgap** for 0.9 — controller restart is
+  acceptable for 0.9. When the live configmap reconciler detects the live TA-enabled state
+  differs from the frozen registration decision, emit a **K8s Warning event + log line that
+  explicitly tells the operator to restart the controller**. Wiring exists:
+  `internal/controller/configmap_reconciler.go` already holds a `Recorder record.EventRecorder`
+  (precedent: `K8SEventUnattributedReadyPods`); need to capture the startup registration decision
+  and compare it on each reconcile.
+- **Dev guide (Type 4, required):** document the new warning behavior in
+  `docs/developer-guide/throughput-analyzer.md`.
+- **NO WVA user-guide change.** Operator-facing "TA is opt-in + restart-required" content goes to
+  the **llm-d/llm-d repo** (WVA config docs/values) — see cross-repo item below.
+- **"Disabled by default" needs no code** — verified true this session at all three layers:
+  (a) startup gate `throughputAnalyzerEnabled` returns false when TA absent from config;
+  (b) shipped `config/base/manager/saturation-scaling-configmap.yaml` default analyzers block
+  lists only `- name: saturation, score: 1.0` (no throughput entry); (c) per-cycle
+  `effectiveEnabled` fall-through returns false (A′). A′ already has
+  `TestThroughputAnalyzerEnabled` covering the default-off gate.
+- Superseded later by `wva-analyzer-lifecycle` (which removes the frozen-registration gate
+  entirely and absorbs I-5 half 2 properly); PR E is the 0.9 stopgap only.
+
+**PR F — `ta-correctness-guards`** (P1; minimal, deliberately NOT full error-path hardening).
+Based on / sequenced after **C** (touches the same `analyzer.go`/`sanity.go` C rewired).
+- **I-6 (Option B, Dean's choice):** wire the real per-replica freshness from the
+  already-computed `trackMetricFreshness` (`internal/collector/replica_metrics.go` L426, called
+  ~L976) into the emitted struct field — currently `replica_metrics.go:1002-1003` hardcodes
+  `Age: 0, FreshnessStatus: "fresh"`, so the dead staleness gate at
+  `internal/engines/analyzers/throughput/sanity.go:52-54` (checks
+  `Metadata.FreshnessStatus == "stale"` → `SanityIssueStaleMetrics`) never fires. Option B makes
+  it fire. (Option A would have been deleting the dead gate — rejected; we want it live.)
+- **I-3:** NaN k* guard in `ObservationWindow.Add`.
+- **I-2:** shared `validITLModel(A,B)` helper used by both `FitITLModel` and `resolveITLModel`.
+- **I-4:** NaN / k*>1 guards in `computeLocalDemand`.
+- Each with a focused test. All four are I-2/I-3/I-4/I-6 from TA-forward-plan.md.
+- **When to author the plan:** anchor against **merged-C** code to avoid stale line refs
+  (I recommended holding the Type 3 plan until C merges; can pre-draft function-anchored if
+  Dean wants it sooner).
+
+### Cross-repo tracking item (out of WVA write scope)
+
+**llm-d/llm-d WVA config docs/values — TA opt-in + restart-required (0.9).** Operator-facing doc
+that TA is opt-in and requires a controller restart after enabling. Dean said there is **already
+in-flight work** fixing llm-d/llm-d WVA guides for 0.9 — coordinate, do NOT open a duplicate.
+Candidates found this session (read-only `gh` scan, not yet opened/confirmed):
+- **PR #2130** (gyliu513, 2026-07-28) — *docs(observability): add per-guide troubleshooting for
+  workload autoscaling* — strongest candidate home for a "TA not registered / restart after
+  config edit" note.
+- **PR #2010** (shuynh2017) — *Doc: add WVA scale limiter feature* — active WVA-guide doc PR.
+- **Issue #2124** — *wva-controller-manager never becomes Available (0/7)* in the
+  workload-autoscaling guide — possibly a symptom of this class of config confusion.
+- Also: #1994 (WVA HPA guide namespace fix), #2098/#2053 (KEDA+EPP guide validation).
+Next action (needs Dean or docs-owner): pinpoint the exact in-flight PR/issue, then either fold
+the opt-in/restart note in or file against it. Track in CURRENT.md Issues-to-file as a cross-repo
+item so PR E's plan can cross-reference it instead of tracking a new one.
+
+**UPDATE 2026-07-29 — tracker filed.** WVA-repo issue **#1498** ("docs: WVA guides in llm-d/llm-d
+must state TA is opt-in and restart-required") opened (Dean-confirmed, unassigned; labels
+`documentation`, `area/installation`, `release/v0.9`). Scoped narrowly to the TA opt-in +
+restart-required gap (the coordination/candidate-PR notes above were deliberately kept OUT of the
+public issue). CURRENT.md Issues-to-file: change the cross-repo item to "FILED as #1498". The
+gate-observability plan can cross-reference #1498 for the operator-facing counterpart.
+
+## Benchmark preconditions — 3-gate checklist (for the benchmark planner/coder)
+
+Why: C (model-level demand, **no served-rate floor** — `ArrivalRate=0 → TotalDemand=0`) and D
+(liveness veto — an uninformative analyzer can't veto scale-down; conversely a live-but-zero-
+demand TA simply produces no scale signal) interact such that **TA can appear completely inert**
+in a benchmark for entirely benign config reasons. Before concluding "TA e2e is broken," verify
+all three gates:
+
+- **Gate 1 — TA is actually registered.** The saturation configmap must opt TA in (`throughput`
+  analyzer entry with `Enabled: true`) **and the controller must have been restarted after that
+  edit** (registration is frozen at startup — this is exactly what PR E warns about). Confirm via
+  startup log: TA-registered line present / A′'s "TA not registered" line absent.
+- **Gate 2 — TA has live metrics (D's liveness).** The EPP metric
+  `inference_extension_scheduler_attempts_total` must be scraped and non-zero, and the saturation
+  analyzer must have data (no `no-data` → non-live after the ~90s staleness window). Otherwise D's
+  liveness gate suppresses scale-down and the analyzer is treated as uninformative.
+- **Gate 3 — model-level demand signal present (C).** The arrival-rate query
+  (`Λ_req × avgOL` + queue-drain) must return non-zero. With **no served-rate floor**,
+  `ArrivalRate = 0` yields `TotalDemand = 0` and therefore no scale-up — this is by design, not
+  a bug.
+
+This checklist may already be in the benchmark plan; if not, relay to the benchmark planner. I
+did not write a separate benchmark-directed trigger (benchmark team owns their plan) — surfacing
+here so the sync session can decide whether to add a `benchmark__*` trigger or note it in
+CURRENT.md.
+
+## Open questions / follow-ups
+
+- PR E's Type 3 plan is **DONE** (`planning/ta-gate-observability-plan.md`). Next action when
+  Dean approves: create the `ta-gate-observability` worktree/branch off `main` + kickoff trigger.
+- Author PR F's Type 3 plan (`planning/ta-correctness-guards-plan.md`) — hold until C merges (or
+  pre-draft function-anchored). Depends on C; re-verify paths against post-#1450 rename.
+- Confirm the exact in-flight llm-d/llm-d guide PR/issue for the opt-in/restart doc.
+- Governance/CODER-CONVENTIONS gap from C's F1 (formula-semantics fork surfaced only via
+  hand-derivation) is already captured in CURRENT.md § Next steps governance item — no new action
+  here, just noting the overlap.

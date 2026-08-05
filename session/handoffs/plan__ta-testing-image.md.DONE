@@ -1,0 +1,23 @@
+from: ta-testing
+session: ta-testing-image
+
+## What changed
+Built the container image locally from the integration branch tip. No code, Dockerfile,
+or Makefile changes — tree built exactly as it is at db530eed.
+
+- Source commit: db530eed (annotated tag `ta-0.9-test-20260728`; integration = upstream/main
+  11d70a8a + PR C #1480 + PR D #1481)
+- Command: `make docker-build IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`
+  (native x86_64 `docker build`, no buildx — host linux/x86_64 matches OpenShift amd64 target)
+- IMG ref: `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9`
+- Image ID: `sha256:ce5fac61202d8a3e626bc399222d38c092e2cf59c75e77c0206c417313e21880`
+- os/arch: `linux/amd64` (Dockerfile builds `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`)
+- Status: built successfully, all stages green. NOT pushed.
+
+## Remaining Dean-only step
+Push the image at deploy time (needs quay credentials):
+
+    make docker-push IMG=quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9
+
+The branch + tag push (ta-testing / ta-0.9-test-20260728 → origin fork) also remains Dean-only,
+as noted in the ta-testing status file.

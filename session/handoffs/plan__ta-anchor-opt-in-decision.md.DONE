@@ -1,0 +1,39 @@
+from: plans (planner)
+session: ta-anchor opt-in decision + coder Q resolution
+
+## What changed
+The `ta-anchor-refactor` coder raised two PR-1 questions (2026-08-03), both verified against
+the code and now resolved on the plans branch (commit `500f08d8`):
+
+- **Issue 1 — load-bearing skip.** The `entry.name == SaturationAnalyzerName { continue }` skip in
+  `runAnalyzersAndScore` is not dead defensive code: sat-v2 is pre-registered in the analyzers
+  snapshot and already computed once as `baseResult` via the V2 path, so naively removing the skip
+  would double-invoke `Analyze()` (and via the generic path, diverging from `baseResult`). Plan §5 1b
+  now specifies a **reuse** branch (append the precomputed `baseResult`/`satUp`/`satDown` when
+  `effectiveEnabled`; never re-invoke). The residual name comparison is documented as a
+  compute-once-reuse, not the forbidden voting special-case. Added a `len(ballot) > 0` guard on the
+  (b)-copy (sat is now disable-able ⇒ an all-disabled config yields an empty ballot).
+
+- **Issue 2 — enablement contract. Dean's decision: OPT-IN** (verbatim: "Opt-in. If [a] use[r]
+  configures analyzers it will be TA only for this PR. So if TA in then Sat is out. Right now implied
+  not enforced. next PR would allow both."). sat-v2 obeys `effectiveEnabled` uniformly — enabled by
+  default **only** when the `analyzers` list is empty; a customized non-empty list yields exactly what
+  it names, so `[TA]` alone is TA-only. **No `ApplyDefaults` change / no third file** — the rejected
+  always-on-unless-disabled option is explicitly out. The anchor's (a) is preserved either way (sat
+  always runs for the anchor); opt-in governs only whether sat-v2's (b) vote joins the ballot.
+
+Docs edited (commit `500f08d8`, plans branch): `planning/ta-anchor-refactor-plan.md` (§3 item 2, §5 1b,
+§7 3a, §8, §13 items 4/4a/7) + `planning/combined-analyzer-optimizer-design.md` (§ anchor Enablement-
+contract note). Both toc-refreshed. Doorbell to the coder: `ta-anchor-refactor__issue-resolution.md`.
+
+## Update CURRENT.md
+On the (pending) `ta-anchor-refactor` PR-Status row / task note (from `plan__ta-anchor-refactor-worktree.md`),
+add: "PR-1 plan finalized w.r.t. the two coder questions — sat-v2 enablement is **opt-in** (Dean,
+2026-08-03; design doc § anchor + plan §5 1b); the ballot-build reuses the precomputed saturation
+result rather than re-invoking. In review; not pushed."
+
+## Open questions / follow-ups
+- None blocking. The opt-in choice leaves a forward-looking footgun for when multi-analyzer ships
+  (an operator adding a second analyzer must also list saturation to keep its vote) — the dev-guide (§8)
+  documents this, and it is flagged to revisit at PR-2 (`ta-anchor-dynamic-refresh-plan.md`), where
+  both-enabled becomes real.

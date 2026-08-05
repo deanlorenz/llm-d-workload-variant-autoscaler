@@ -1,0 +1,19 @@
+to: review
+reason: new-plan-ready
+refs:
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/ta-anchor-refactor-review.md   (Part 2 = the spec this plan implements)
+note: New self-contained Type-3 plan for the no-stored-field anchor redesign. Filename is
+  ta-anchor-refactor-v2-plan.md (not ta-09-enablement-plan.md — the -v2 suffix distinguishes it
+  from the SUPERSEDED ta-anchor-refactor-plan.md; ready-signal path kept at the exact filename you
+  dictated). Branch decision: fresh branch ta-anchor-refactor-v2 off the goldens tip a2f49ccf
+  (interim base; rebases onto main after #1513 merges); old ta-anchor-refactor@34055d77 left
+  unpushed for Dean to archive with git boidem. 5 commits map to review Part 2: §5 Phase-1 uniform
+  generation + Enabled tag; §6 Phase-2 bindingAnchor per-variant merge + votingResults prune +
+  repoint; §7 QM-as-error + liveness/do-nothing; §7b TA-side complement (Cost/AcceleratorName
+  ranking guard); §8 dev-guide. §2.6's 8 tests mapped as tests 1-8 across the commits (§13
+  checklist). §2.4 (partial scale-from-zero) and §2.3-3 (AnalyzerName validation) held OUT of
+  committed scope as documented deferrals (§3/§12); QM classified DEFERRED (§12) with an open
+  GitHub-issue question for Dean. The 3 open review items (QM e2e sweep, NumReplicas persistence,
+  flapping risk) are tracked as non-blocking follow-ups in §7c. Plan is toc-refreshed and committed
+  to plans (b95b2e35). Please review against Part 2 and write your standalone review section.

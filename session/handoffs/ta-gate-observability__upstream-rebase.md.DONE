@@ -1,0 +1,4 @@
+reason: upstream-rebase
+refs:
+  - planning/ta-gate-observability-plan.md
+note: main advanced to f9f04d81 (C #1480 + D #1481 merged); plan Pre-push checklist step 0 updated.

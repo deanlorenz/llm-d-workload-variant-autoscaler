@@ -1,6 +1,6 @@
 # ta-model-level-demand — Review
 
-**Status:** FINAL — 2 blocking findings; both routed to coder via planner handoff
+**Status:** FINAL (Dean finalized 2026-07-29) — round 4: **F3 fixed** (`b2acffd6`), all of PR C's own §4a leaks expanded to self-contained prose; gates green; **ready to push** pending planner force-push. One pre-existing §4a leak on `main` (`analyzer_test.go` "Regression test for F1", from #1250) is out of PR C's scope → separate cleanup. Round-1/2/3 findings (F1, F2, NTH-1) all resolved. See "## Round 4" at the bottom.
 **Scope:** `652307bd` (Commit 1), `6f161a5a` (Commit 2) on branch `ta-model-level-demand` (off
 `main@f5b7577c`). Reviewed against
 [`planning/ta-model-level-demand-plan.md`](ta-model-level-demand-plan.md). Both commits match the
@@ -212,7 +212,145 @@ Independently re-verified (not just re-trusting the status file): `go build ./..
 `internal/engines/analyzers/throughput/... internal/collector/... internal/engines/saturation/...`
 all pass; `gofmt -l` on the two changed `.go` files — clean. Both commits DCO-signed.
 
-**Final verdict: ready to push.** No outstanding findings. F1's process point (surfacing
-formula-semantics divergences as their own decision, not folded into a bug-fix note) remains an
-open CODER-CONVENTIONS gap for the planner/Dean to close — not something either fix commit needed
-to address.
+**Round-2 verdict (SUPERSEDED by Round 3 below): ready to push** on the F1/F2 axis. No F1/F2
+findings outstanding. F1's process point (surfacing formula-semantics divergences as their own
+decision, not folded into a bug-fix note) remains an open CODER-CONVENTIONS gap for the
+planner/Dean to close.
+
+> ⚠️ This "ready to push" was on the two-commit + F1/F2 stack and only checked the F1/F2 axis. A
+> round-3 re-review (after the C.0 rebase and the C.1/C.2 comment commit) re-ran a full §4a scan
+> and found plans-branch identifier leaks that were **already present in the round-1/round-2
+> commits and missed here** (`decision #1` ×3, `Decision #4` ×1, `review finding F1` ×3). Verdict
+> is now **not ready to push until F3 is fixed** — see Round 3.
+
+---
+
+## Round 3 — post-rebase (C.0) + C.1/C.2 comment commit + full §4a re-scan
+
+**Scope:** branch rebased `11d70a8a`→`dfc21e2c` (Dean-authorized target; current upstream/main,
+incl. #1491 utils-split), then one new comment-only commit. Post-rebase stack
+(`dfc21e2c..94accd09`):
+
+- `a1446aa8` collector: model-level arrival rate (was `7851cb33`/…)
+- `55b0507f` throughput: decode demand from model-level arrival rate
+- `b0257e59` throughput: nKV-weight avgOL (F1 fix)
+- `4fb1b659` docs: ArrivalRate row in multi-analyzer-pipeline.md (F2 fix)
+- `94accd09` throughput: **C.1/C.2 comment-only** — zero-arrival safety + why RequestRate is not
+  an arrival cross-check (+16 lines, no logic change)
+
+### Verified correct (round 3)
+
+- **Rebase preserved behavior.** `git merge-base --is-ancestor dfc21e2c HEAD` = yes. All four core
+  behaviors present in the current tree (nKV-weighted `avgOL = totalDecodeOL/totalDecodeKV`;
+  `arrivalDecodeDemand = input.ArrivalRate * avgOL`; `QueryModelArrivalRate` +
+  `CollectModelArrivalRate` + `AnalyzerInput.ArrivalRate`; F1 regression test present). Net diff
+  vs base matches the coder's per-file inventory. Rebase was import-line-clean (#1450/#1491 path
+  churn auto-resolved) — corroborated by a clean build.
+- **C.1/C.2 comments are substantively accurate** re: PR C's own behavior. Zero/absent arrival →
+  `arrivalDecodeDemand = 0` → `TotalDemand = 0`; zero demand only permits scale-down and never
+  forces a scale action or drives scale-up; intentionally not floored to a served-rate proxy —
+  all correct against the code at `analyzer.go` ~410–420. The `anyEPP := input.ArrivalRate > 0`
+  comment (RequestRate is a completion rate, non-zero during drain, so deliberately not a
+  broken-arrival cross-check) is also accurate.
+- **The new commit `94accd09` is itself §4a-clean** — its 16 added lines contain no plans-branch
+  identifiers. (The §4a problem below is in the *earlier* commits.)
+- **Gates re-run fresh (not trusting the status file):** `go build ./...` clean; `gofmt -l` on all
+  changed `.go` files clean; targeted `go test -count=1` on `throughput/…`, `collector/…`,
+  `saturation/…` all pass; DCO present on all 5 commits.
+
+### F3 — BLOCKING (for push): plans-branch identifier leaks in code comments and a test description (§4a)
+
+Seven sites reference plans-branch documents by section identifier, which §4a (CODER-CONVENTIONS
+§4a) forbids — these tokens are meaningless to a reader of the merged code, and this diff goes to
+an upstream PR (ev-shindin) with no access to the plans branch:
+
+| File:line | Text | Refers to |
+|---|---|---|
+| `analyzer.go:178` | `…no per-pod labels — decision #1) times avgOL…` | plan Decisions §, #1 |
+| `analyzer.go:238` | `…(decision #1), so a single check here is equivalent…` | plan Decisions §, #1 |
+| `analyzer.go:596` | `…avgOL instead (decision #1), and derives anyEPP…` | plan Decisions §, #1 |
+| `analyzer.go:333` | `…across variants — per review finding F1` | **this review doc's F1** |
+| `analyzer.go:399` | `…proportionally more (review finding F1). Zero when…` | **this review doc's F1** |
+| `analyzer_test.go:1445` | `// Decision #4: a draining engine keeps RequestRate > 0…` | plan Decisions §, #4 |
+| `analyzer_test.go:1467` | `It("…not an equal-per-variant mean (review finding F1)", …)` | **this review doc's F1** |
+
+Introduced in the round-1/round-2 commits: `decision #`/`Decision #` in `55b0507f`; `review
+finding F1` (all three) in `b0257e59` — the F1-fix commit literally cited this review's finding
+number in a code comment and a test `It(...)` description. **Rounds 1–2 (mine) missed all seven** —
+the earlier "no plans-branch identifiers leaked" check covered only the dev-guide doc text, not the
+code comments or test descriptions. Owning that gap here.
+
+Severity: mechanical, no behavioral impact — but §4a is a hard "must not," and the whole point of
+the rule is that a reviewer reading only the merged diff cannot resolve `decision #1` or
+`review finding F1`. **Required fix:** expand each to descriptive prose per the §4a table, e.g.
+`decision #1` → "the model-level all-or-nothing arrival design"; `review finding F1` → "avgOL is
+replica-count-weighted across non-prefill variants (so a variant with more replicas contributes
+proportionally more)". Then re-run gofmt (comment reflow only). Ultimate disposition is Dean's (as
+with the F1 residual on PR D), but per the written rule it should be fixed before the force-push.
+
+### NTH-1 — comments forward-reference PR D (ta-veto-liveness) mechanisms not present on this branch
+
+The C.1/C.2 comments (and pre-existing `analyzer.go:247`) describe the "multi-analyzer
+**all-live**-agree gate" and an "engine **liveness path** … observability-only warning." On this
+branch the scale-down gate is `needsScaleDownForRole` — an all-**agree** gate (every analyzer must
+report `RoleSpare[role] > 0`) with **no liveness check**; the "live" qualifier and the
+demand-liveness detector (planned as D.3) are *ta-veto-liveness* (PR D, #1481) additions — a
+sibling branch off the same base, **not on this tree** (verified: no `lastGoodAnalysis`/liveness
+gate code here). So if PR C merges before PR D, the merged comments reference a liveness gate that
+isn't there yet.
+
+This is **not a coder deviation** — the triage handoff shows the planner deliberately designed C.2
+to reference D.3 as the intended cross-reference.
+
+**RESOLVED — Dean's ruling 2026-07-29: accept (option b).** D will land; no point in a two-step
+soften-then-re-add. The forward reference stays as written. Closed, no action.
+
+### Round-3 verdict
+
+**Not ready to push until F3 is addressed.** The rebase is clean, C.1/C.2 are accurate and their
+own commit is §4a-clean, and the F1/F2 fixes remain correct. The one blocker is F3 — seven
+plans-branch identifier leaks in the round-1/round-2 code comments and one test description that
+both prior review rounds (mine) let through. Mechanical to fix, no design surface — coder can fix
+directly in-worktree from the F3 table above (no planner-mediated plan update needed); disposition
+ultimately Dean's. NTH-1 is **RESOLVED** (Dean 2026-07-29: accept the forward reference, D will
+land) — no longer open.
+
+---
+
+## Round 4 — F3 fixed; ready to push
+
+**Commit `b2acffd6`** ("throughput: replace internal-planning references with self-contained
+prose"), comment- and test-description-only, no logic/assertion change (verified: only comment /
+`It(...)` / `Describe(...)` string lines in the diff).
+
+- **All seven F3 sites expanded to self-contained prose:** `decision #1` → "an all-or-nothing
+  model-level signal" / "by design" / "the all-or-nothing model-level design"; `review finding F1`
+  (both code comments) → the substance kept, label dropped; `Decision #4` → "No served-rate
+  floor:"; the `(review finding F1)` test description → label dropped, description intact. Each
+  expansion is faithful to the original intent — no meaning changed.
+- **Coder's sweep was broader than my F3 table** (good): it also caught and expanded §4a
+  references I had missed in round 3 — `TA-demand §3.3/§3.5` (analyzer.go ×3 + dev-guide),
+  `TA-supply.md §5.5` → "an arrival-driven operating knee", `DEFERRED (plan §Deferred, …)` →
+  "DEFERRED behavior (…)" (×2 tests), and `Describe("… (plan §Tests 1-4)")` → label dropped.
+- **§4a re-scan of PR C's diff is now clean** — no `decision #` / `review finding` / `plan §` /
+  `TA-demand §` / `TA-supply §` tokens remain in any line PR C adds or changes.
+- **Gates (fresh):** `go build ./...` OK; `gofmt -l` on changed files clean; `go test -count=1`
+  throughput package pass; DCO present on `b2acffd6`.
+
+### One pre-existing §4a leak on `main` — out of PR C scope, file separately
+
+`internal/engines/analyzers/throughput/analyzer_test.go` has `// Regression test for F1: EPP
+present …` (branch line ~982). This `F1` is **not** this review's finding F1 — it predates the
+whole PR (originates in `efca1b4c`, the TA3 #1250 merge; present verbatim on the base `dfc21e2c`
+and **not touched by any PR C commit**). It's a genuine §4a leak (a TA3-#1250-era bug label,
+unresolvable to a merged-code reader), but fixing it inside PR C would be scope creep. Recommend a
+separate one-line cleanup (fold into the TA-forward-plan §4a/dev-hygiene backlog or a standalone
+trivial PR) — do **not** hold PR C on it.
+
+### Round-4 verdict
+
+**Ready to push.** PR C's own §4a leaks are fully resolved (`b2acffd6`), the fix is comment-only
+with gates green, and F1/F2/NTH-1 are all closed. The only residual (the pre-existing `main`-side
+"Regression test for F1" comment) is out of scope for this PR and routed to a separate cleanup.
+Force-push still requires Dean's explicit confirmation (history rewrite, `--force-with-lease`;
+#1480 is OPEN so warn-before-push applies).

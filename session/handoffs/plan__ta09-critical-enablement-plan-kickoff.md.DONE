@@ -1,0 +1,137 @@
+from: review agent (design-review continuation)
+to: planner
+session: TA 0.9 critical-enablement — new Type-3 plan kickoff
+
+## What this is
+
+A kickoff for a **brand-new Type-3 coding plan** whose job is to fix **all critical
+ThroughputAnalyzer (TA) enablement issues for the 0.9 release**. Dean's framing (2026-08-04):
+the planner needs to understand *how to change the current code* (as mapped in
+`planning/multi-analyzer-dataflow-map.md`) to make TA actually usable — i.e. the multi-analyzer
+engine correctly builds and binds the anchor, non-saturation analyzers can be enabled and bind,
+and the failure/liveness policy is sound. The design discussion that produced the corrected
+mechanism is now written up as an explicit **spec** in Part 2 of
+`planning/ta-anchor-refactor-review.md`. Use that as the authoritative spec; use the map doc to
+ground every change in the actual current code.
+
+**This kickoff SUPERSEDES the earlier `plan__ta-anchor-refactor-mechanism-redesign.md` handoff**
+(still `.WIP` in this dir). Two reasons it is superseded, not merely amended:
+1. **Different deliverable.** The earlier handoff asked you to *fold the correction into the
+   existing `ta-anchor-refactor-plan.md`*. Dean's current direction is to author a **new**
+   Type-3 plan (new filename; likely a **fresh branch** — see "Framing" in review §Part 2 intro).
+   Treat `ta-anchor-refactor-plan.md` as **Part 1 material only** (a superseded plan under review),
+   not the doc to edit.
+2. **Stale section refs.** That handoff points at a `"Design correction (2026-08-04)"` section at
+   `L490-784`. That section no longer exists — the review doc was **restructured** into Part 1
+   (review of the old plan) and Part 2 (the spec). The correct pointers are below.
+
+If you already began folding into `ta-anchor-refactor-plan.md` under the old handoff: stop editing
+that plan doc, mark `plan__ta-anchor-refactor-mechanism-redesign.md.WIP` → `.DONE`, and treat this
+kickoff as the live task. Nothing is lost — all the content moved into review §Part 2.
+
+## The two source documents (read in this order)
+
+1. **`planning/ta-anchor-refactor-review.md` → Part 2** (`# Part 2 — Recommended course of change:
+   spec for the new Type-3 plan`, starts **L526**). This is the spec. Section map:
+   - **§2.1 The corrected two-phase mechanism** (L552) — Phase 1 (generation: call every analyzer
+     incl. sat, tag each ballot entry with enablement+error status, **order-independent**, no
+     decisions) and Phase 2 (the binding/anchor getter — successor to `saturationEntry`: check
+     statuses → find binding analyzer → build `anchor.VariantCapacities` **merged per variant by
+     `VariantName`**, `(a)` identity fields from sat, `(b)` sizing fields from binding analyzer;
+     **per-variant fallback to sat's `(b)` runs BEFORE disabled-entry removal**; **no stored
+     `.Anchor` field** — derived on demand; no analyzer-level sort).
+   - **§2.2 How this redesign resolves the Part-1 findings** (L592) — maps E1/E3 resolved,
+     E2 likely-moot (no stored field ⇒ possibly no 87-site `withSatEntry` fix), E4/E5 eased,
+     F1→QM-error, etc. Read this to know which Part-1 findings you no longer need to design around.
+   - **§2.3 Decisions (surrounding the mechanism)** (L629) — (1) QM = **error/DEFERRED** (refuse to
+     dispatch, never silent sat-v2 fallback); (2) liveness "no live analyzers → do nothing" reusing
+     `emitSafetyNetMetrics`; (3) `AnalyzerName` validation gap = **separate small PR**, not this
+     plan; (4) scale-from-zero engine is **orthogonal**.
+   - **§2.4 Partial scale-from-zero under `[TA]`-alone** (L686) — **STILL UNDER DISCUSSION**
+     ("almost agree," not final). Rely on `scalefromzero` as the interim reactive net; Mechanism
+     A/B is not locked. **Do not commit this to a hard plan commit** — carry it as an open
+     design question / deferred item until Dean finalizes.
+   - **§2.5 TA-side proactive complement** (L778) — **agreed**. Persist `lastPerReplicaSupply`
+     *and* `Cost`/`AcceleratorName` together on `variantState` (same eviction window as
+     `lastFittedB`); the Go snippet is in the section. **Ranking-inversion guard is mandatory**:
+     defaulting only PRC while leaving `Cost=0` makes `costEfficiency = 0/PRC = 0`, ranking the
+     variant *cheapest* — both fields must fall back together.
+   - **§2.6 Test requirements for the new plan** (L866) — 8 numbered test obligations; each new
+     plan commit should map to one or more.
+   - **§2.7 Scope boundaries & deferred items** (L909) — the fences: in-scope / under-discussion /
+     separate-PR / deferred-to-PR-2 / orthogonal. **Honor these when scoping commits** so the plan
+     does not swallow the under-discussion (§2.4) or separate-PR (§2.3-3) items.
+
+2. **`planning/multi-analyzer-dataflow-map.md`** — the current-code map. Ground every "change X"
+   in the plan against the real symbol/file/line here (esp. §8 Dean's review annotations).
+   Companion: `planning/scale-from-to-zero-analysis.md` (scale-from/to-zero mechanisms; relevant
+   only to §2.4's interim reliance on `scalefromzero`).
+
+**Part 1 of the review doc is NOT a task list.** It reviews the superseded plan (F1–F12/C1/E1–E13)
+purely so its findings are on record and Part 2 can cite "this is now resolved." The blockquote at
+the top of Part 1 says it explicitly: do not implement against Part 1's per-finding
+"Fix (planner)" directions — Part 2 supersedes them.
+
+## What to produce
+
+1. A **new Type-3 plan doc** — you choose the filename (suggest `planning/ta-09-enablement-plan.md`
+   or similar; not `ta-anchor-refactor-plan.md`, which is the superseded doc). Micro-rules format
+   (Reading Protocol + `## TOC` with `L<start>:<end>` ranges + `[↑ TOC]` links); run
+   `bash plans/scripts/toc-refresh.sh <newfile>` before you hand it off.
+2. Per-commit structure implementing §2.1–§2.3 (and §2.5), each commit naming the exact
+   file/symbol from the map doc it touches, and the dev-guide section(s) it must update
+   (`docs/developer-guide/` — name them specifically, per CONVENTIONS; the map doc / current
+   dev-guide will tell you which).
+3. Explicit **deferred/under-discussion carve-outs** matching §2.7: keep §2.4 (partial
+   scale-from-zero mechanism A/B) and §2.3-3 (`AnalyzerName` validation) OUT of the committed plan
+   scope — record them as deferred items with design intent (per the deletion-documentation rule),
+   don't design them into a commit.
+4. The **semantic-pivot grep step** for any behavioral-contract change (e.g. `saturationEntry` →
+   the new binding getter; QM silent-drop → QM-error): old search term + files to scan, per
+   CONVENTIONS' plan-authoring rule.
+5. A note on **branch handling** (fresh branch vs. reworking `ta-anchor-refactor@34055d77`) — your
+   call per the branch-state analysis in the superseded handoff; whatever you decide, write it in
+   the plan.
+
+## How to signal me when the plan is ready (IMPORTANT — exact filename)
+
+When the new plan doc is complete and toc-refreshed, drop a **ready-signal handoff at this exact
+path** so my auto-review picks it up without colliding with the code-reviewer's or coder's channels:
+
+```
+session/handoffs/review__ta09-enablement-plan-ready.md
+```
+
+Body (three header lines + refs; this one is a genuine review request, so a short prose note is
+fine):
+```
+to: review
+reason: new-plan-ready
+refs:
+  - planning/<your-new-plan-filename>.md
+  - planning/ta-anchor-refactor-review.md   (Part 2 = the spec this plan implements)
+note: <one line — plan filename, branch decision, anything you want flagged for review>
+```
+
+I am watching for **that exact filename**. Do NOT reuse `review__ta-anchor-refactor-criteria.md`
+(that's the code-reviewer's PR-1 push checklist, a different role) or any `ta-anchor-refactor__*`
+coder trigger — those won't reach me and will confuse routing.
+
+## Scope reminder (both directions)
+
+- I (review agent) will **not** write the plan, edit code, or edit CURRENT.md. I review; I wrote
+  the spec; the plan authoring is yours.
+- I will create a **new standalone Part-3 review section** (or a sibling `*-review.md` keyed to
+  your new plan's filename — I'll decide by lineage when it lands) evaluating the new plan against
+  Part 2. Dean authorized an automatic review when the plan is ready (he's asleep) — so expect the
+  review to appear without a further round-trip.
+
+## Refs
+
+- `planning/ta-anchor-refactor-review.md` — Part 2 (§2.1–§2.7), the spec. Part 1 = superseded-plan
+  review, on record only.
+- `planning/multi-analyzer-dataflow-map.md` — current-code map (§8 = Dean's annotations).
+- `planning/scale-from-to-zero-analysis.md` — companion (relevant to §2.4 only).
+- `planning/ta-anchor-refactor-plan.md` — the **superseded** plan (Part 1 subject; do not edit).
+- Superseded handoff: `session/handoffs/plan__ta-anchor-refactor-mechanism-redesign.md.WIP`
+  (mark `.DONE`; its `L490-784` refs are stale).

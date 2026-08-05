@@ -1,17 +1,99 @@
 # ta-veto-liveness — Internal Code Review (PR D)
 
-**Status:** DRAFT
+**Status:** FINAL (Dean finalized 2026-07-29)
 **Reviewer session:** internal plan-vs-diff review (not `/code-review`; nothing posted to GitHub)
-**Branch:** `ta-veto-liveness` @ `7e931ccf`, off `main@f5b7577c`
-**Commits reviewed (round 1):** `785b5350` (state), `77be65ca` (gate), `b3b7f762` (dev-guide)
-**Commits reviewed (round 2, follow-ups):** `2b0c715c` (F-B1 QM static-live + test), `5fd0a958` (F-T1a test discriminates), `7e931ccf` (F-T1b/F-Demand/F-NTH/F-Conc doc+comment)
+**Branch:** `ta-veto-liveness` @ `c32235be`, rebased onto `upstream/main@dfc21e2c` (round 1/2 were off `main@f5b7577c`)
+**Commits reviewed (round 1):** `785b5350` (state), `77be65ca` (gate), `b3b7f762` (dev-guide) — SHAs pre-rebase; now `33226cd4`/`2b26f2cc`/`af5304b6`
+**Commits reviewed (round 2, follow-ups):** `2b0c715c` (F-B1 QM static-live + test), `5fd0a958` (F-T1a test discriminates), `7e931ccf` (F-T1b/F-Demand/F-NTH/F-Conc doc+comment) — SHAs pre-rebase; now `c2cf5b0a`/`4e9a67e2`/`03a2c6be`
+**Commits reviewed (round 3, ev-shindin PR #1481 folds D.1/D.2/D.3):** `61060530` (D.1 sentinel single-source-of-truth), `c32235be` (D.2 lastGoodAnalysis prune + D.3 demand-liveness warn-only detector + dev-guide; amended from `5d324b36` to fold the round-3 NTH fixes — prune test, §4a comment/commit-body reword, dev-guide predicate)
 **Plan:** [`planning/ta-veto-liveness-plan.md`](ta-veto-liveness-plan.md)
 **Gates (per coder status):** make test / gofmt / lint / build / -race all green.
 
+> **Round-3 outcome (2026-07-29): APPROVE — D.1/D.2/D.3 match the locked triage spec and are
+> correct; load-bearing safety claims independently verified. All 3 NTH items resolved at
+> `c32235be` (verified) — no outstanding findings.** See [§ Round-3 review](#round-3) immediately
+> below.
+
 > **Round-2 outcome (2026-07-27): APPROVE — all six locked follow-ups (F-B1, F-T1a, F-T1b,
 > F-Conc, F-Demand, F-NTH) correctly applied; no new findings; push-ready pending Dean.** See
-> [§ Round-2 review](#round-2) immediately below. The round-1 sections that follow are retained
+> [§ Round-2 review](#round-2) below. The round-1 sections that follow are retained
 > as the finding history that drove the fixes.
+
+---
+
+## Round-3 review — folds D.1/D.2/D.3 (2026-07-29) {#round-3}
+
+Scope: the three planner-locked round-3 folds (triage: `plan__ta-cd-review-triage.md`),
+landed as `61060530` (D.1) and `5d324b36` (D.2 + D.3), on the branch rebased onto
+`upstream/main@dfc21e2c`.
+
+**Verdict: APPROVE.** All three folds match the locked spec; the load-bearing safety claims
+were independently re-derived and hold. Three NTH items below, none blocking a push.
+
+### D.1 — sentinel single-source-of-truth (`61060530`) — CORRECT
+
+`analyzerReasonNoData`/`analyzerReasonError` promoted to exported `pipeline.ReasonNoData =
+"no-data"` / `pipeline.ReasonError = "error"` with doc comments; `ResultIsInformative` uses
+them. `saturation_v2/types.go` adds `satReasonNoData = pipeline.ReasonNoData` (const alias),
+`analyzer.go` `k2SourceLabel` returns `pipeline.ReasonError`. String values unchanged, so the
+liveness reason-matching is behaviour-preserving. No import cycle (`saturation_v2 → pipeline`
+only). The stale `resultIsInformative` comment casing was fixed in passing. Matches the
+triage decision (PROMOTE; no pin test needed given the alias makes drift a compile error).
+
+### D.2 — `lastGoodAnalysis` prune (`5d324b36`) — CORRECT
+
+`pruneLastGoodAnalysis(activeKeys)` is called at the top of `optimizeV2`; `activeKeys` is
+built from `utils.GetNamespacedKey(modelVAs[0].Namespace, modelVAs[0].Spec.ModelID)` over
+`modelGroups` — **exactly** the same key construction the writer uses in
+`updateLivenessAndSetLive` (verified char-for-char), so eviction targets the right outer
+keys. Both guards from the triage are present: `len(activeKeys)==0` early-return (a transient
+zero-model cycle does not wipe the map) and `e.lastGoodAnalysis==nil` nil-safety. The prune
+loop is the only range-over of `lastGoodAnalysis` and touches outer keys only — inner
+per-analyzer entries are left intact for surviving models.
+
+### D.3 — demand-liveness warn-only detector (`5d324b36`) — CORRECT & SAFE
+
+`detectDemandLiveness(...)` runs at the end of `updateLivenessAndSetLive`. Verified the three
+safety-critical properties:
+
+1. **Supply latch key consistency end-to-end.** The detector reads supply liveness from
+   `perAnalyzer[throughput.AnalyzerName]` and the throughput result by `Name ==
+   throughput.AnalyzerName`. `AnalyzerName == "throughput"` (constants.go:7), and
+   `cmd/main.go:535` registers the analyzer under that exact string — so the latch the
+   detector reads is the one the round-1 loop wrote. Consistent.
+2. **Synthetic demand key cannot flip a decision.** `demandLatchSuffix = "\x00demand"`; the
+   demand latch lives at `perAnalyzer[throughput.AnalyzerName + demandLatchSuffix]`. The NUL
+   byte cannot appear in a real analyzer name, and this key is never read by the decision path
+   (`needsScaleDownForRole`/`safeRemovalReplicasForRole` / the `nr.Live` assignment loop) —
+   only by the detector. Test `TestDetectDemandLiveness_SyntheticKeyNeverFlipsLive` pins this.
+3. **Warn-only, no state mutation of the decision.** The detector never sets `nr.Live`,
+   `RoleSpare`, or any gate; it only stamps the demand latch and emits `logger.Info` at V(0).
+   Cold-start seeds the demand latch to `supplyTS` on first live supply (no false-positive
+   warn), covered by `_ColdStartNoWarn`. The stale-demand warn path is covered by
+   `_SupplyLiveDemandStaleWarns` (pre-seeds latch −95s, asserts one warn AND throughput stays
+   Live). The detector is wired into the production path (called from
+   `updateLivenessAndSetLive`), not test-only.
+
+The deferred per-pod demand latch (key extends with `"\x00"+podID` once demand is per-replica)
+is correctly left out of scope and noted in the code.
+
+### NTH (round 3) — ALL RESOLVED at `c32235be` (2026-07-29)
+
+The D.2/D.3 commit was amended `5d324b36` → `c32235be`; reviewer-verified delta below.
+
+- **NTH-1 — `pruneLastGoodAnalysis` had no direct test. RESOLVED.** New
+  `internal/engines/saturation/engine_v2_prune_test.go` (`TestPruneLastGoodAnalysis`) with the
+  three requested cases: evicts-departed/keeps-active (also asserts the surviving model's inner
+  analyzer entry is left intact), empty-active-set no-op, nil-map no-panic. Guards now locked.
+- **NTH-2 — two §4a process-artifact leaks. RESOLVED.** (a) `engine_v2.go` comment reworded
+  "…otherwise round-1's supply gate…" → "…otherwise the supply liveness gate…". (b) the amended
+  commit body no longer references "round-2" (no round/plan identifiers remain). §4a clean.
+- **NTH-3 — dev-guide wording. RESOLVED.** The demand-liveness telemetry paragraph now reads
+  "reporting no demand (`TotalDemand == 0`)" — the parenthetical matches the stale/no-demand
+  case it describes.
+
+No logic changed in the amend (one comment, one dev-guide predicate, one new test file); no new
+§4a leaks; no scope creep. Round-3 verdict stands: **APPROVE, no outstanding findings.**
 
 ---
 

@@ -1,0 +1,49 @@
+from: reviewer (ta-model-level-demand)
+session: PR C round-4 re-review — F3 fixed, ready to push
+
+## What changed (review side only — no code touched)
+
+Re-reviewed PR C at new tip `b2acffd6` (one commit on top of round-3's `94accd09`). Updated
+`planning/ta-model-level-demand-review.md` — added "## Round 4", Status now "ready to push".
+
+## Result: F3 resolved, PR C ready to push
+
+**F3 fixed by `b2acffd6`** ("throughput: replace internal-planning references with self-contained
+prose") — comment/test-description-only, no logic or assertion change (verified). All seven F3
+sites expanded to self-contained prose (`decision #1`, `Decision #4`, `review finding F1` ×3 all
+gone). The coder's sweep was broader than my F3 table — it also caught §4a refs I'd missed in
+round 3: `TA-demand §3.3/§3.5` (×4 incl. dev-guide), `TA-supply.md §5.5`, `plan §Deferred` (×2),
+`plan §Tests 1-4`. A full §4a re-scan of PR C's diff is now clean.
+
+Gates (fresh): `go build ./...` OK; `gofmt -l` clean; `go test -count=1` throughput pass; DCO on
+`b2acffd6`.
+
+## One out-of-scope residual → separate cleanup (do NOT hold PR C)
+
+`analyzer_test.go` has `// Regression test for F1: EPP present …` (~line 982). That `F1` is a
+TA3-#1250-era bug label (**not** this review's F1) — it predates PR C, exists verbatim on the base
+`dfc21e2c` (from `efca1b4c`), and is **not touched by any PR C commit**. Genuine §4a leak but out
+of PR C scope. Recommend folding into the TA-forward-plan §4a/dev-hygiene backlog or a standalone
+one-line PR. PR C should not chase it.
+
+## Update CURRENT.md
+
+- PR C (#1480) row: round-4 re-review — F3 (§4a leaks) fixed in `b2acffd6` (comment-only, gates
+  green); PR C's own §4a scan clean; F1/F2/NTH-1 all closed. **Review FINAL-equivalent: ready to
+  push.** Tip now `b2acffd6` on base `dfc21e2c`. Force-push still needs Dean's explicit
+  confirmation (history rewrite, `--force-with-lease`; #1480 OPEN → warn-before-push).
+- Issues to Open / TA-forward-plan: add a one-line §4a-cleanup item for the pre-existing
+  `main`-side "Regression test for F1" comment in `throughput/analyzer_test.go` (from #1250).
+- Next steps: PR C round-4 complete; only remaining action is the Dean-authorized force-push, then
+  ev-shindin re-review.
+
+## Process note (governance backlog — not for me to action)
+
+F3 is the fourth convention slip in this PR's history that surfaced only on manual re-derivation
+rather than being caught by the process (F1 formula-fork, then §4a leaks through two review
+rounds). A mechanical §4a grep over the diff's added comment/test lines
+(`decision #|Decision #|review finding|\bF[0-9]\b|plan §|TA-[a-z]+ §|planning/|-plan\.md|-review\.md`)
+would have caught both F3 and the pre-existing leak the first time. Strong candidate for the
+pre-push / review checklist. My own round-1/2 §4a check was too narrow (dev-guide text only) — the
+grep should cover code comments and `It(...)`/`Describe(...)` strings too. Ownership sits with the
+open "who edits CONVENTIONS.md" question.

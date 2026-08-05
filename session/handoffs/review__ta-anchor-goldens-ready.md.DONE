@@ -1,0 +1,6 @@
+reason: code-review-before-push
+refs:
+  - ta-anchor-goldens/ (worktree)
+  - planning/ta-anchor-goldens-plan.md
+  - session/status/ta-anchor-goldens.md
+note: 4 commits on main@9906dac5 (tip cca44cf5); all gates green (gofmt, make test, make lint, go build, -race, DCO); Commit 5 (rescale) deferred per plan

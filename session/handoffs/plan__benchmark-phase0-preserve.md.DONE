@@ -1,0 +1,66 @@
+from: benchmark
+session: benchmark Phase 0 — preserve stale TA3 branch (revised after Dean input)
+
+## What changed (all local, benchmark worktree; nothing pushed/deleted-on-remote)
+
+Executed Phase 0 of `planning/ta-pokprod-testing-plan.md` (§3), then **revised per Dean's
+2026-07-28 direction**: discard raw results, don't preserve an exact clone patch, keep the two
+harness commits as local reference only (no cherry-pick).
+
+**Final local state:**
+- `benchmark` (fresh) @ `11d70a8a` (= upstream/main = origin/main; has A #1478 + A′ #1479).
+- `benchmark-ta3-legacy` @ **`892e1efa`** — preserves ONLY the two writeup docs
+  (`docs/two-variant-wva-ta3-runbook.md` + `docs/guidellm-harness-notes.md`). **results/ dropped.**
+- Tag `archive/benchmark-ta3-legacy` → `892e1efa` (signed annotated; recovery handle).
+- Untracked local `benchmark/reference-legacy/` (NOT committed): 3 guidellm workload profiles,
+  the locally-patched `two-variant-wva.patched.yaml` sample, `benchmark-settings.env`,
+  `benchmark-s1-manual-run.md`, and a README documenting the llm-d-benchmark edits for
+  re-application. `.claude/settings.json` still untracked/preserved.
+
+## Decisions applied (Dean, 2026-07-28)
+
+1. **results/ — discarded.** None of the 2026-06-15 runs succeeded; raw logs/CSVs/plots not
+   preserved. (The earlier commit `d60b2d94` that included 63M of results was amended away →
+   `892e1efa`; the 46M+17M controller.log blobs are no longer in any reachable commit.)
+2. **llm-d-benchmark clone changes — no exact patch.** The knowledge is already self-sufficient
+   in the two docs (runbook §5.1/5.2/9 = chart 0.7.0/RBAC CrashLoop fix; guidellm-notes =
+   HF_TOKEN 401 + guidellm-0.6.0 request-format fix + v0.6.1 pin + upstream TODO). Concrete
+   samples (3 profiles + patched guide yaml) kept as local reference for re-applying against a
+   clean llm-d-benchmark tip *if broken*.
+3. **Two WVA harness commits (`benchmark-settings.env` + scenario-1 guide) — not cherry-picked.**
+   Likely superseded by the updated benchmark code; kept as local reference files only. Still
+   preserved in git on `origin/benchmark` + `benchmark-ta3-legacy` regardless.
+4. **We did NOT change `llm-d` / `llm-d-infra`** — no such clone exists in this worktree.
+
+## Zero-loss verification (unchanged from first pass)
+
+68 local-vs-origin commits = TA/engine code merged to main + upstream PR pulls; the 2 genuine
+harness commits are patch-id-identical to origin/benchmark's `11fcb418`/`013d4976`. No unpreserved
+harness work in the local commits.
+
+## What Dean must do (pushes — coder cannot). Fork (origin) only, NEVER upstream.
+
+1. `git push origin archive/benchmark-ta3-legacy` (push the tag first).
+2. `git push -u origin benchmark` — ⚠️ **rewrites `origin/benchmark`** (fresh branch = main tip;
+   the 2 harness commits currently on origin/benchmark survive via the archive tag + legacy branch).
+   Non-fast-forward → `--force-with-lease`; confirm intent.
+3. Optionally delete local `benchmark-ta3-legacy` branch after the tag is pushed (harmless to keep).
+
+## Open items for later phases (NOT Phase 0)
+
+- **Embedded `llm-d-benchmark/` clone is fully captured and disposable.** I did NOT `rm -rf` it
+  (destructive) — Phase 2 replaces it with a fresh clone of Ofer's `feat/multi-variant-benchmark`;
+  drop the old folder then. Its uncommitted local patches are captured in `reference-legacy/`.
+- **"Clean new llm-d-benchmark + clean deploy branch llm-d"** (Dean) = Phase 2 setup actions
+  (fresh clones), out of Phase 0 scope.
+
+## Update CURRENT.md
+
+Benchmark-mission note: Phase 0 done locally — stale branch preserved as `benchmark-ta3-legacy` +
+tag `archive/benchmark-ta3-legacy` @ `892e1efa` (docs only; results discarded per Dean); fresh
+`benchmark` @ `11d70a8a`; local `reference-legacy/` holds workload profiles + patched-guide sample.
+Awaiting Dean's pushes. Plan doc still Status: DRAFT — Phases 1–4 gated on the STOP block.
+
+## Status
+state: in-progress (Phase 0 local work done; awaiting Dean pushes). Status file:
+`plans/session/status/benchmark.md`.

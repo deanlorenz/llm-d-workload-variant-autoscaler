@@ -1,0 +1,55 @@
+from: ta-model-level-demand
+session: forward-rebase onto upstream/main 11d70a8a (post PR #1479 merge)
+
+## What changed
+Forward-rebased `ta-model-level-demand` (PR #1480, "C — model-level demand") from base
+`827c8542` onto current upstream/main `11d70a8a` (which gained PR #1479 A' registration-safety).
+
+- pre-rebase tip: `7aec2645`
+- new tip: `25f09a87`
+- base: `11d70a8a`
+
+`git rebase 11d70a8a` applied CLEANLY — no manual conflict resolution required. git's three-way
+merge auto-integrated the A'-vs-C overlap in all 5 expected-conflict files
+(engine_v2.go, engine_v2_test.go, engine_v2_population_test.go, multi-analyzer-pipeline.md,
+throughput-analyzer.md). Because a clean apply is exactly where silent hunk drops hide, I ran the
+full per-file diff inventory + per-commit message-vs-diff check anyway (CONVENTIONS non-trivial-
+rebase discipline). Nothing dropped.
+
+Post-rebase commit stack (old->new SHA):
+- 03802e62 -> 7851cb33  collector: add model-level request arrival rate
+- 497d6aa4 -> 66fde352  throughput: compute decode demand from model-level arrival rate
+- f786a0cc -> 0eb46e77  throughput: weight model-level avgOL by replica count
+- 7aec2645 -> 25f09a87  docs: add ArrivalRate to AnalyzerInput field table
+
+## All 4 behaviors survived (verified)
+1. model-level arrival-rate collection (QueryModelArrivalRate query + CollectModelArrivalRate +
+   ArrivalRate on domain.AnalyzerInput) — PRESENT.
+2. decode-demand-from-arrival (Lambda_req x avgOL; distributeQueueDemandByRole ->
+   distributeDemandByRole rename reused for both arrival + queue terms) — PRESENT.
+3. nKV-weighted avgOL (totalDecodeOL/totalDecodeKV; regression test 250 vs 200) — PRESENT.
+4. ArrivalRate row in multi-analyzer-pipeline.md — PRESENT.
+Integration check on the overlapping engine_v2.go: BOTH A' opt-in effectiveEnabled (return false
+when absent) AND C's arrivalRate param plumbing coexist — neither side dropped.
+
+## Gates — all green
+- go build ./... — clean
+- gofmt (find form) — clean
+- make test — full suite green (throughput 92.1%, saturation 67.5%; A' cmd/main_test.go passes)
+- make lint — 0 issues
+- DCO present on all 4 post-rebase commits
+
+## Update CURRENT.md
+PR #1480 (`ta-model-level-demand`) row: tip `7aec2645` -> `25f09a87`, base `827c8542` ->
+`11d70a8a` (now includes #1479 A'). Rebase clean, per-file diff inventory verified no dropped
+hunks, all gates green (incl. lint). Still OPEN, awaiting ev-shindin review; now mergeable on the
+post-#1479 main. (Note: upstream/main advanced 827c8542 -> 11d70a8a via the #1479 merge.)
+
+## Push-ready — pending Dean's explicit confirmation
+This is a history rewrite of an OPEN PR branch (#1480). Per warn-before-push + no-push-without-
+confirmation rules, I did NOT push. When Dean approves:
+`git push --force-with-lease origin ta-model-level-demand` (fork/origin, never upstream).
+
+## Open questions / follow-ups
+None. Review was already FINAL with no outstanding findings before this rebase; the rebase
+introduced no logic change (only replayed onto the new base).

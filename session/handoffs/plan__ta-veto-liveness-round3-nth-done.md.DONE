@@ -1,0 +1,38 @@
+# plan__ta-veto-liveness-round3-nth-done
+
+Round-3 review (PR D, #1481) was APPROVE with 3 non-blocking NTH items. All three are now
+applied and green. Branch remains unpushed.
+
+## State
+- Branch `ta-veto-liveness`, tip `c32235be` — the former `5d324b36` **amended in place** to fold
+  the NTH items (still 8 commits from base `dfc21e2c`, unpushed). DCO 8/8.
+- **NOT pushed** — #1481 is OPEN; planner force-pushes with `--force-with-lease` when ready (coder
+  never pushes). The tip SHA changed (`5d324b36` → `c32235be`).
+- Gates re-run after the amend: gofmt clean, `go build ./...`, `go vet`, `make test` (no failures),
+  `make lint` (0 issues), `-race` on saturation.
+
+## What changed (round-3 NTH)
+All three NTH items belonged to the former `5d324b36` (its D.2 code / its comment / its dev-guide
+prose / its commit message), so they were folded into that commit via `--amend` rather than stacked
+as a separate "round-3 fixups" commit — which would itself have re-introduced a review-round token.
+
+- **NTH-1** — `pruneLastGoodAnalysis` now has a direct table test
+  (`engine_v2_prune_test.go`): evict-departed / keep-active (inner entry intact), empty-set no-op,
+  nil-map no-panic.
+- **NTH-2a** — `engine_v2.go` comment "round-1's supply gate" → "the supply liveness gate"
+  (§4a process-artifact removed).
+- **NTH-2b** — commit body "Two round-2 follow-ups…" → "Two follow-ups…". Safe: branch unpushed,
+  commit authored this session.
+- **NTH-3** — dev-guide demand-liveness paragraph "(`TotalDemand > 0`)" → "(`TotalDemand == 0`)"
+  so the parenthetical matches the stale/no-demand condition it annotates.
+
+`grep` confirms zero `round-1`/`round-2` tokens remain in `internal/`, `docs/`, or the commit body.
+
+## Note
+The review doc (`plans/planning/ta-veto-liveness-review.md`) is DRAFT and its round-3 outcome is
+APPROVE; these NTH items were reviewer nice-to-haves, not a Dean-locked fold list. They were applied
+because they are cheap, reversible, and the branch is unpushed. If any should be reverted, say so —
+nothing is pushed.
+
+## Detail
+Full per-item breakdown is in `plans/session/status/ta-veto-liveness.md` (§ Round-3 review NTH).

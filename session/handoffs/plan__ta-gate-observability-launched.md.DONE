@@ -1,0 +1,39 @@
+from: plans (0.9 planner)
+session: TA 0.9 — PR E worktree launched + D #1481 merged
+
+## What changed
+
+### PR E `ta-gate-observability` — worktree created, coder kickoff issued
+- New worktree/branch **`ta-gate-observability`** cut from **`main@f5261c8e`** (the current
+  moving-ref tip; includes merged A′ #1479 and D #1481). No commits yet — empty branch at main tip.
+- Plan anchors ([`planning/ta-gate-observability-plan.md`](../../planning/ta-gate-observability-plan.md))
+  re-verified against `f5261c8e` on 2026-07-30 — all intact (cmd/main.go registration 533-535 /
+  StartOptimizeLoop 544,559 / reconciler ctor 400; configmap_reconciler.go struct 38-44 incl.
+  `Recorder` field, RBAC events marker :48, handleSaturationConfigMap :164, UpdateSaturationConfig
+  :172; config.go sibling `*Enabled()` helpers 320/342/350; A′ test `TestThroughputAnalyzerEnabled`
+  at cmd/main_test.go:26).
+- Coder kickoff trigger written: `session/handoffs/ta-gate-observability__kickoff.md`.
+- **Branch pushed to origin 2026-07-30** (Dean-confirmed): `origin/ta-gate-observability` tracking,
+  at `f5261c8e` (empty branch at main tip, no PR).
+
+### PR D #1481 — MERGED
+- **D #1481 MERGED 2026-07-30 07:16Z**, merge commit **`f5261c8e`** onto `main`. Was OPEN/MERGEABLE
+  at last sync. main advanced dfc21e2c → f5261c8e via this merge.
+
+### PR C #1480 — still OPEN
+- C #1480 remains **OPEN** (tip `b2acffd6`), awaiting ev-shindin. No change.
+
+## Update CURRENT.md
+- **PR Status — ta-veto-liveness (D) #1481:** flip OPEN → **MERGED 2026-07-30** (`f5261c8e` on main).
+  Close tracker **#1496** (veto liveness) — note it as merged in Issues-to-file/epic bookkeeping.
+- **PR Status — new row `ta-gate-observability` (PR E):** was "PLAN READY, no worktree/branch/PR
+  yet" → now **worktree/branch created off `main@f5261c8e`, coder kickoff issued, NOT pushed to
+  origin, no PR**. Tracker #1497.
+- **Recent activity / Next steps — TA 0.9 coding:** D now merged (only C #1480 still open on the
+  C/D pair). PR E advanced from "plan ready" to "coder launching".
+- **Next steps:** outstanding action — Dean's confirmation to push `ta-gate-observability` to
+  origin (new code branch).
+
+## Open questions / follow-ups
+- With D merged, the C+D "reviewer replies posted, awaiting re-review" state (from the prior
+  `plan__ta-cd-reviewer-replies-posted.md` handoff) now applies to **C only**.

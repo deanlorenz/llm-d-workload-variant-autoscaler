@@ -1,0 +1,42 @@
+# Handoff → planner: two standup shared-write questions (benchmark / TA pokprod)
+
+From: benchmark tester session (2026-07-30). Two investigation items Dean asked to hand to the planner.
+Both are "check deeper" research items — no code action needed from me; they feed the public-code
+end-user makefile-target design in `planning/ta-pokprod-testing-plan.md` §6/§7.
+
+## Context already established (so the planner doesn't re-derive it)
+- Standup on OCP+modelservice performs a handful of shared/cluster-scoped writes. Read-only pokprod checks
+  confirmed all are no-ops on THIS cluster EXCEPT step_07's ungated istio re-apply (details in
+  `plans/session/status/benchmark.md` → "Cluster no-op verifications DONE + fork patches APPLIED").
+- I applied fail-safe "skip-if-present" guards to OUR fork clone (step_03 cluster-monitoring-config +
+  thanos ClusterRole; step_07 gateway-provider helmfile) as the testing safety net. Fork-only, uncommitted.
+- The END-USER deliverable must run PUBLIC llm-d-benchmark + an explicit `--step` list, NOT our fork — so
+  the two questions below decide whether the public path needs config toggles / upstream changes / detection.
+
+## Item 1 — How did Ofer avoid step_03's shared cluster-monitoring-config write?
+step_03 `_apply_monitoring` unconditionally `oc apply`s `03_cluster-monitoring-config` (the cluster-scoped
+`cluster-monitoring-config` ConfigMap in `openshift-monitoring`, `enableUserWorkload: true`) on
+OCP+modelservice — there is no "already-enabled?" gate in the public code. On a shared cluster that would
+overwrite the ConfigMap's `data.config.yaml` wholesale. Question: how does Ofer's own workflow avoid this?
+Candidates to check on `origin/wva-ta-benchmark` (== Ofer's tip verbatim) + his docs/guides/makefile:
+did he (a) skip step_03 via `--step`, (b) rely on a cluster where UWM was pre-enabled with an
+identical-content ConfigMap (so apply is a no-op, which is what we found on pokprod), (c) use a config
+toggle, or (d) simply accept the write on his (non-shared?) cluster? The answer tells us whether the
+public end-user path needs an explicit skip/toggle or an upstream presence-gate (which is exactly what my
+fork patch does — could be offered upstream).
+
+## Item 2 — Is modelservice + istio detected-from-cluster or hardcoded in the scenario?
+Dean's assumption: `deployMethod=modelservice` and `gateway.className=istio` reflect the CURRENT cluster
+setup, not a hardcoded choice. From what I saw they are LITERALS in the scenario yaml
+(`config/scenarios/guides/two-variant-wva.yaml`: `modelservice.enabled: true`; gateway className resolves
+to `istio`), i.e. author-chosen, not cluster-detected. Read-only pokprod checks confirm the literals
+happen to MATCH pokprod (istiod Running, `istio` gatewayclass Accepted). Planner to check deeper: is there
+any detection layer, or is it purely the scenario literal? If purely literal, the public-code end-user
+makefile-target likely needs to either (a) document the cluster prerequisite (istio gateway provider must
+already exist) or (b) parameterize gateway.className per-cluster — relevant to Dean's CONFIG-CONSOLIDATION
+goal (variant-count + all config in one yaml).
+
+## Not for the planner to action as code
+These are research/design questions. Any resulting plan revisions land in
+`planning/ta-pokprod-testing-plan.md`. The tester (me) stays STOPPED before any live standup / push until
+Dean's explicit go-ahead.
