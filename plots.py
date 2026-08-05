@@ -55,9 +55,11 @@ BAND_SHADES = ["#a7d8de", "#5fbcc7", "#2f9aa8", "#63c39a", "#9bd8b0"]
 # not normalised by request size). 6 colours: good/almost/mediocre/meh/bad/failed.
 GP_COLORS = ["#15803d", "#65a30d", "#eab308", "#f59e0b", "#ea580c", "#b91c1c"]
 
-# work COMPOSITION by request size (panel 1b): a light->dark blue ramp, small->large
-# — distinct from GP_COLORS (goodput green->red) and BAND_SHADES (per-pod teal).
-SIZE_SHADES = ["#bfdbfe", "#3b82f6", "#1e3a8a"]
+# work COMPOSITION by request size (panel 1b): a light pastel blue ramp, small->large
+# — distinct from GP_COLORS (goodput green->red) and BAND_SHADES (per-pod teal). Kept
+# light (used at low alpha too) since panel 1b already carries arrival/capacity lines
+# in saturated blue/purple — a heavy stack would compete with them.
+SIZE_SHADES = ["#dbeafe", "#93c5fd", "#60a5fa"]
 
 
 def _changes(series):
@@ -191,7 +193,11 @@ def render(ts: dict, title: str, path: str):
     # shows how much of the delivered work came from large vs small items.
     ax[1].plot(g, ts["arr_w"], color=C_ARR, label="offered (arrival)")
     ax[1].stackplot(g, *ts["size_bands"], colors=SIZE_SHADES, labels=ts["size_labels"],
-                    alpha=0.85, edgecolor="none")
+                    alpha=0.6, edgecolor="none")
+    # thin dark outline tracing the TOTAL completed-work curve (stack top), same
+    # treatment as panel 1a's departure outline — not per-band edges.
+    dep_total_w = [sum(v) for v in zip(*ts["size_bands"])]
+    ax[1].plot(g, dep_total_w, color="#1f2937", lw=0.8, alpha=0.8, zorder=2.5)
     ax[1].plot(g, ts["capacity_work"], color=C_CAP, ls="--", label="capacity ceiling")
     # shade the headroom between what was completed and the ceiling: capacity you
     # paid for but did not use (only where the ceiling sits above completions).
@@ -315,8 +321,8 @@ def render(ts: dict, title: str, path: str):
     for a in ax:
         a.grid(True, alpha=0.2)                       # tick-aligned gridlines
         _mark_decisions(a, decisions, label=(a is ax[0]))
-        if a is ax[0]:
-            # panel 1a carries the busy goodput-band key; keep it narrow (single
+        if a in (ax[0], ax[1]):
+            # panels 1a/1b carry a busy stacked-band key; keep it narrow (single
             # column) and tucked top-left so it never sits over the ramp data.
             a.legend(loc="upper left", fontsize=6.5, ncol=1,
                      labelspacing=0.3, handlelength=1.2, borderpad=0.4,
