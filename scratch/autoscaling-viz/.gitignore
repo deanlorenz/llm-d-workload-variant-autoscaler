@@ -3,3 +3,5 @@
 __pycache__/
 traces/
 # out/ IS committed (rendered HTML + figures, so the deck is viewable without a Python env)
+# ...except the sweep-table cache, which is a local recompute-skip artifact (design §8.1 item 10(d)).
+out/.sweep-cache.json

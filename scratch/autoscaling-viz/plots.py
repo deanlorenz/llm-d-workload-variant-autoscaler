@@ -469,13 +469,26 @@ def _pareto_frontier(pts: dict):
     return front
 
 
-def render_cost_quality(summaries: dict, title: str, path: str):
+def render_cost_quality(summaries: dict, title: str, path: str,
+                        extra_points=None, label_overrides=None):
     """Cost–quality frontier: x = billed fleet-time (provisioned·seconds),
     y = promptness (% of offered served within 15s). One labelled point per
     policy. The clairvoyant IDEAL is a separate reference star (not deployable);
     the dashed line is the Pareto frontier over the DEPLOYABLE policies — any
     point below-and-right of it is dominated (something is both cheaper AND
-    prompter). This is where 'same cost, better quality' becomes visible."""
+    prompter). This is where 'same cost, better quality' becomes visible.
+
+    `extra_points` overlays off-baseline operating points of policies already
+    shown — a list of (label, cost, quality, base_name) tuples. They take the
+    base policy's colour (via `base_name`) but draw as hollow markers so the
+    swept variant reads as the same algorithm at a different knob (e.g. the two
+    Q sizers at higher headroom — how much further up the frontier more static
+    margin buys). They ARE folded into the frontier and the axis ranges.
+    `label_overrides` maps a summary name to its annotation text (colour still
+    resolves from the real name), so the baseline Q points can carry their
+    headroom too — e.g. queue-aware -> 'qaware(1.3)'."""
+    extra_points = extra_points or []
+    label_overrides = label_overrides or {}
     pts = {}
     for name, s in summaries.items():
         cost = s["replicas"]["prov_seconds"]
@@ -484,6 +497,8 @@ def render_cost_quality(summaries: dict, title: str, path: str):
         pts[name] = (cost, q)
     fig, ax = plt.subplots(figsize=(9.5, 6))
     deploy = {n: p for n, p in pts.items() if n != "ideal"}
+    for label, cost, q, _base in extra_points:            # extras join the frontier
+        deploy[label] = (cost, q)
     front = _pareto_frontier(deploy)
     if front:
         ax.plot([c for _, c, _ in front], [q for _, _, q in front],
@@ -492,8 +507,32 @@ def render_cost_quality(summaries: dict, title: str, path: str):
     # label deconfliction: some policies land on near-identical (cost, quality)
     # — hpa-combined overlaps hpa-queue by design. Nudge a colliding label below
     # its point instead of overprinting the one already placed there.
-    xr = (max(c for c, _ in pts.values()) - min(c for c, _ in pts.values())) or 1.0
-    yr = (max(q for _, q in pts.values()) - min(q for _, q in pts.values())) or 1.0
+    all_costs = [c for c, _ in pts.values()] + [c for _, c, _, _ in extra_points]
+    all_q = [q for _, q in pts.values()] + [q for _, _, q, _ in extra_points]
+    xr = (max(all_costs) - min(all_costs)) or 1.0
+    yr = (max(all_q) - min(all_q)) or 1.0
+    # The two Q sizers each contribute a tight cluster of headroom points (qexp is
+    # near-saturated by 1.3, so its trio bunches along the top) — auto-nudge can't
+    # separate three near-collinear labels, so place them deterministically:
+    # leftmost anchors left, middle above, rightmost right; qexp trio above the
+    # line, qaware trio below it.
+    QPLACE = {"qexp(1.3)": (-8, 8, "right"), "qexp(1.5)": (0, 12, "center"),
+              "qexp(2.0)": (8, 8, "left"),
+              "qaware(1.3)": (-8, -15, "right"), "qaware(1.5)": (0, -18, "center"),
+              "qaware(2.0)": (8, -12, "left")}
+
+    def _annotate(disp, cost, q, color):
+        if disp in QPLACE:
+            dx, dy, ha = QPLACE[disp]
+            ax.annotate(disp, (cost, q), textcoords="offset points",
+                        xytext=(dx, dy), fontsize=9, color=color, ha=ha)
+        else:
+            collide = any(abs(cost - pc) / xr < 0.03 and abs(q - pq) / yr < 0.03
+                          for pc, pq in placed)
+            ax.annotate(disp, (cost, q), textcoords="offset points",
+                        xytext=(9, -13) if collide else (9, 5), fontsize=9, color=color)
+        placed.append((cost, q))
+
     placed = []
     for name, (cost, q) in pts.items():
         color, _ = _style(name)
@@ -505,11 +544,13 @@ def render_cost_quality(summaries: dict, title: str, path: str):
         else:
             ax.scatter([cost], [q], s=95, color=color, zorder=3,
                        edgecolors="white", linewidths=0.8)
-            collide = any(abs(cost - pc) / xr < 0.03 and abs(q - pq) / yr < 0.03
-                          for pc, pq in placed)
-            ax.annotate(name, (cost, q), textcoords="offset points",
-                        xytext=(9, -13) if collide else (9, 5), fontsize=9)
-            placed.append((cost, q))
+            _annotate(label_overrides.get(name, name), cost, q, "#000000")
+    # off-baseline sweep variants: hollow marker in the base policy's colour.
+    for label, cost, q, base in extra_points:
+        color, _ = _style(base)
+        ax.scatter([cost], [q], s=80, facecolors="none", edgecolors=color,
+                   linewidths=1.7, zorder=3)
+        _annotate(label, cost, q, color)
     ax.set_xlabel("billed fleet-time — provisioned·seconds   (cost →)")
     ax.set_ylabel("served within 15s   (% of offered — promptness →)")
     ax.set_title(title, loc="left", fontsize=11)
