@@ -24,6 +24,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
+from sim import summarize
+
 C_ARR = "#2563eb"      # arrival / offered   (blue)
 C_DEP = "#059669"      # departure / done    (green)
 C_DES = "#dc2626"      # desired / required  (red)
@@ -52,6 +54,10 @@ BAND_SHADES = ["#a7d8de", "#5fbcc7", "#2f9aa8", "#63c39a", "#9bd8b0"]
 # -> long wait before service). Bands split by ABSOLUTE waiting time (FIFO-fair;
 # not normalised by request size). 6 colours: good/almost/mediocre/meh/bad/failed.
 GP_COLORS = ["#15803d", "#65a30d", "#eab308", "#f59e0b", "#ea580c", "#b91c1c"]
+
+# work COMPOSITION by request size (panel 1b): a light->dark blue ramp, small->large
+# — distinct from GP_COLORS (goodput green->red) and BAND_SHADES (per-pod teal).
+SIZE_SHADES = ["#bfdbfe", "#3b82f6", "#1e3a8a"]
 
 
 def _changes(series):
@@ -151,6 +157,10 @@ def render(ts: dict, title: str, path: str):
     g = ts["grid"]
     rw, ww = ts["req_range"], ts["work_range"]
     decisions = ts.get("decisions", [])
+    # headline stats for each panel's right-side title. NOTE: named `stat`, not `s`
+    # — panel 3 below reuses `s` as a per-drain-start loop variable (`s = ds["slot"]`),
+    # which would silently clobber a same-named summary dict for every panel after it.
+    stat = summarize(ts)
     # 6 shared-x plot panels + a thin 7th text strip for the decision key.
     fig = plt.figure(figsize=(11, 16.5))
     gs = fig.add_gridspec(7, 1, height_ratios=[1, 1, 1, 1, 1, 1, 1.15], hspace=0.42)
@@ -165,14 +175,23 @@ def render(ts: dict, title: str, path: str):
     # The stack sums to the departure rate; arrival rate overlaid for the gap.
     ax[0].stackplot(g, *ts["gp_bands"], colors=GP_COLORS, labels=ts["gp_labels"],
                     alpha=0.9, edgecolor="none")
+    # thin dark outline tracing the TOTAL departure curve (stack top), so the
+    # departure boundary reads crisply against the arrival line above it.
+    dep_total = [sum(v) for v in zip(*ts["gp_bands"])]
+    ax[0].plot(g, dep_total, color="#1f2937", lw=0.8, alpha=0.8, zorder=2.5)
     ax[0].plot(g, ts["arr_n"], color=C_ARR, lw=2.4, label="arrival rate")
     ax[0].set_ylabel("requests / s")
     ax[0].set_title(f"1a · request throughput + goodput quality  ({rw:.0f}s avg)",
                     loc="left", fontsize=10)
+    ax[0].set_title(f"served ≤30s: {stat['within_pct'][2]:.1f}%",
+                    loc="right", fontsize=9, color="#374151")
 
-    # 1b — work rates
+    # 1b — work rates; completed work split into size-composition bands (small /
+    # medium / large tercile of this run's completed sizes) instead of one line —
+    # shows how much of the delivered work came from large vs small items.
     ax[1].plot(g, ts["arr_w"], color=C_ARR, label="offered (arrival)")
-    ax[1].plot(g, ts["dep_w"], color=C_DEP, label="completed (departure)")
+    ax[1].stackplot(g, *ts["size_bands"], colors=SIZE_SHADES, labels=ts["size_labels"],
+                    alpha=0.85, edgecolor="none")
     ax[1].plot(g, ts["capacity_work"], color=C_CAP, ls="--", label="capacity ceiling")
     # shade the headroom between what was completed and the ceiling: capacity you
     # paid for but did not use (only where the ceiling sits above completions).
@@ -183,6 +202,8 @@ def render(ts: dict, title: str, path: str):
     ax[1].set_ylabel("work / s")
     ax[1].set_title(f"1b · work throughput  ({ww:.0f}s avg, Prom-style)", loc="left",
                     fontsize=10)
+    ax[1].set_title(f"{stat['replicas']['rep_seconds']:.0f} rep·s",
+                    loc="right", fontsize=9, color="#374151")
 
     # 2 — backends desired vs actual, with the DRAINING slice broken out.
     # A draining replica is alive and still finishing its in-flight work, but is
@@ -205,6 +226,8 @@ def render(ts: dict, title: str, path: str):
     ax[2].yaxis.set_major_locator(MaxNLocator(integer=True))
     ax[2].set_title("2 · autoscaling: desired vs actual replicas "
                     "(draining ≠ usable capacity)", loc="left", fontsize=10)
+    ax[2].set_title(f"{stat['replicas']['prov_seconds']:.0f} prov·s",
+                    loc="right", fontsize=9, color="#374151")
 
     # 3 — per-backend work being delivered NOW (stack, from first dispatch) vs work
     # demanded by requests in system (L·rate) vs capacity ceiling (actual replicas in
@@ -259,6 +282,8 @@ def render(ts: dict, title: str, path: str):
     ax[4].plot(g, ts["qlen"], color=C_Q, label="queue length")
     ax[4].set_ylabel("queued reqs")
     ax[4].set_title("4 · global queue depth", loc="left", fontsize=10)
+    ax[4].set_title(f"wait p75: {stat['wait']['p75']:.1f}s",
+                    loc="right", fontsize=9, color="#374151")
 
     # 5 — concurrency: in-system L(t) vs slot capacity (residence-time story)
     # gap between served and in-system IS the queued count -> shade it (also
@@ -282,6 +307,8 @@ def render(ts: dict, title: str, path: str):
     ax[5].set_xlabel("time (s)")
     ax[5].set_title("5 · concurrency: requests in system vs slot capacity  "
                     "(L = λ·W)", loc="left", fontsize=10)
+    ax[5].set_title(f"failed: {stat['band_pct'][-1]:.1f}%",
+                    loc="right", fontsize=9, color="#374151")
 
     # scale-DECISION lines on every panel (direction-coloured), so the event that
     # triggered a decision can be read straight down any panel at that instant.

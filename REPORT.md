@@ -17,19 +17,19 @@ Quality rows are the **cumulative** share of offered requests served *within* ea
 
 | metric | ideal | static | setup-lag | queue-aware | qexp | hpa-queue | hpa-concurrency | hpa-combined |
 |---|---|---|---|---|---|---|---|---|
-| ≤2s % | 100.0 | 100.0 | 19.7 | 28.1 | 34.6 | 92.7 | 0.0 | 92.7 |
-| ≤15s % | 100.0 | 100.0 | 29.7 | 52.3 | 75.0 | 95.2 | 0.3 | 95.2 |
-| ≤45s % | 100.0 | 100.0 | 98.4 | 87.3 | 93.3 | 98.8 | 6.1 | 98.8 |
-| ≤60s % | 100.0 | 100.0 | 99.6 | 98.4 | 98.8 | 99.6 | 11.6 | 99.6 |
+| ≤2s % | 100.0 | 100.0 | 19.7 | 34.6 | 34.6 | 92.7 | 0.0 | 92.7 |
+| ≤15s % | 100.0 | 100.0 | 29.7 | 75.0 | 75.0 | 95.2 | 0.2 | 95.2 |
+| ≤45s % | 100.0 | 100.0 | 98.4 | 89.9 | 93.3 | 98.8 | 5.8 | 98.8 |
+| ≤60s % | 100.0 | 100.0 | 99.6 | 98.4 | 98.8 | 99.6 | 11.3 | 99.6 |
 | unfinished | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| wait avg (s) | 0.0 | 0.0 | 23.3 | 18.9 | 11.9 | 2.0 | 105.6 | 2.0 |
-| wait p95 (s) | 0.0 | 0.0 | 42.4 | 57.2 | 55.4 | 13.2 | 141.1 | 13.2 |
+| wait avg (s) | 0.0 | 0.0 | 23.3 | 12.5 | 11.9 | 2.0 | 106.9 | 2.0 |
+| wait p95 (s) | 0.0 | 0.0 | 42.4 | 57.2 | 55.4 | 13.2 | 143.2 | 13.2 |
 | replicas max | 5 | 10 | 5 | 5 | 5 | 10 | 4 | 10 |
-| replica·seconds | 1980 | 6002 | 1536 | 1629 | 1665 | 4860 | 1200 | 4860 |
-| provisioned·seconds | 1980 | 6002 | 1986 | 2169 | 2130 | 5760 | 1635 | 5760 |
-| utilization | 0.62 | 0.20 | 0.80 | 0.75 | 0.74 | 0.25 | 1.02 | 0.25 |
+| replica·seconds | 1858 | 6001 | 1422 | 1584 | 1578 | 4860 | 1185 | 4860 |
+| provisioned·seconds | 1858 | 6001 | 1872 | 2139 | 2043 | 5760 | 1605 | 5760 |
+| utilization | 0.66 | 0.20 | 0.86 | 0.77 | 0.78 | 0.25 | 1.04 | 0.25 |
 
-Readings: the **ideal** clairvoyant sizer is the only one that sees future arrivals — 100% prompt at the lowest real cost, the reference everything else is measured against. **No scaling** is also 100% prompt but pins at the max and burns ~3× the ideal fleet at the lowest utilisation — promptness bought by paying for peak through every valley. **Setup-lag → queue-aware → Qexp** is the deployable-sizer progression under 90s boot: a correct policy landing 90s late is only ~20% prompt; a reactive backlog term lifts that to ~28% but worsens the tail (it chases the queue after the pile-up); **Qexp** — the anticipatory periodic loop that sizes to the projected backlog peak — reaches ~35% prompt with a shorter tail (p90 43s vs 51s) and a lower queue peak, at the SAME fleet cost. **hpa-queue** and **hpa-combined** are prompt (~93% good) at ~2.5× the ideal fleet. **hpa-concurrency** is catastrophic — 88% wait over a minute — because its signal is capacity-capped and blind to the queue. **hpa-combined = hpa-queue**: the queue trigger dominates the KEDA `max`, rescuing concurrency's blind spot.
+Readings: the **ideal** clairvoyant sizer is the only one that sees future arrivals — 100% prompt at the lowest real cost, the reference everything else is measured against. **No scaling** is also 100% prompt but pins at the max and burns ~3× the ideal fleet at the lowest utilisation — promptness bought by paying for peak through every valley. **Setup-lag → queue-aware → Qexp** is the deployable-sizer progression under 90s boot: a correct policy landing 90s late is only ~20% prompt; a reactive backlog term (queue-aware, tuned to drain_time=20) lifts that to ~35% but still worsens the tail (it chases the queue after the pile-up); **Qexp** — the anticipatory periodic loop that sizes to the projected backlog peak — matches that ~35% prompt rate but gets there CHEAPER and with a shorter tail (p90 43s vs 46s) and a lower queue peak, at LOWER fleet cost. **hpa-queue** and **hpa-combined** are prompt (~93% good) at ~2.6× the ideal fleet. **hpa-concurrency** is catastrophic — 88% wait over a minute — because its signal is capacity-capped and blind to the queue. **hpa-combined = hpa-queue**: the queue trigger dominates the KEDA `max`, rescuing concurrency's blind spot.
 
 <details><summary>Full metrics table (all rows)</summary>
 
@@ -39,30 +39,30 @@ Readings: the **ideal** clairvoyant sizer is the only one that sees future arriv
 | completed | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 |
 | completed % | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
 | unfinished | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ≤2s % | 100.0 | 100.0 | 19.7 | 28.1 | 34.6 | 92.7 | 0.0 | 92.7 |
-| ≤15s % | 100.0 | 100.0 | 29.7 | 52.3 | 75.0 | 95.2 | 0.3 | 95.2 |
-| ≤30s % | 100.0 | 100.0 | 56.8 | 77.4 | 82.9 | 96.8 | 0.9 | 96.8 |
-| ≤45s % | 100.0 | 100.0 | 98.4 | 87.3 | 93.3 | 98.8 | 6.1 | 98.8 |
-| ≤60s % | 100.0 | 100.0 | 99.6 | 98.4 | 98.8 | 99.6 | 11.6 | 99.6 |
-| failed (>60s) % | 0.0 | 0.0 | 0.4 | 1.6 | 1.2 | 0.4 | 88.4 | 0.4 |
-| wait avg (s) | 0.0 | 0.0 | 23.3 | 18.9 | 11.9 | 2.0 | 105.6 | 2.0 |
-| wait p50 (s) | 0.0 | 0.0 | 28.5 | 14.6 | 3.4 | 0.0 | 115.3 | 0.0 |
-| wait p75 (s) | 0.0 | 0.0 | 35.7 | 26.1 | 15.0 | 0.0 | 129.8 | 0.0 |
-| wait p90 (s) | 0.0 | 0.0 | 39.6 | 50.6 | 43.0 | 0.0 | 138.8 | 0.0 |
-| wait p95 (s) | 0.0 | 0.0 | 42.4 | 57.2 | 55.4 | 13.2 | 141.1 | 13.2 |
-| wait p99 (s) | 0.0 | 0.0 | 47.4 | 62.4 | 62.4 | 47.4 | 143.1 | 47.4 |
-| time/work avg (s/u) | 0.01 | 0.01 | 0.27 | 0.23 | 0.14 | 0.03 | 1.17 | 0.03 |
-| time/work p50 (s/u) | 0.01 | 0.01 | 0.04 | 0.03 | 0.02 | 0.01 | 0.16 | 0.01 |
-| time/work p90 (s/u) | 0.01 | 0.01 | 0.24 | 0.19 | 0.11 | 0.01 | 1.04 | 0.01 |
-| time/work p95 (s/u) | 0.01 | 0.01 | 0.49 | 0.39 | 0.26 | 0.03 | 2.15 | 0.03 |
-| time/work p99 (s/u) | 0.01 | 0.01 | 2.80 | 2.48 | 1.49 | 0.23 | 13.04 | 0.23 |
-| replicas avg | 3.30 | 10.00 | 2.56 | 2.71 | 2.77 | 8.10 | 2.00 | 8.10 |
-| replicas std | 1.37 | 0.02 | 1.57 | 1.69 | 1.67 | 3.83 | 1.32 | 3.83 |
+| ≤2s % | 100.0 | 100.0 | 19.7 | 34.6 | 34.6 | 92.7 | 0.0 | 92.7 |
+| ≤15s % | 100.0 | 100.0 | 29.7 | 75.0 | 75.0 | 95.2 | 0.2 | 95.2 |
+| ≤30s % | 100.0 | 100.0 | 56.8 | 83.7 | 82.9 | 96.8 | 0.7 | 96.8 |
+| ≤45s % | 100.0 | 100.0 | 98.4 | 89.9 | 93.3 | 98.8 | 5.8 | 98.8 |
+| ≤60s % | 100.0 | 100.0 | 99.6 | 98.4 | 98.8 | 99.6 | 11.3 | 99.6 |
+| failed (>60s) % | 0.0 | 0.0 | 0.4 | 1.6 | 1.2 | 0.4 | 88.7 | 0.4 |
+| wait avg (s) | 0.0 | 0.0 | 23.3 | 12.5 | 11.9 | 2.0 | 106.9 | 2.0 |
+| wait p50 (s) | 0.0 | 0.0 | 28.5 | 3.4 | 3.4 | 0.0 | 116.5 | 0.0 |
+| wait p75 (s) | 0.0 | 0.0 | 35.7 | 15.0 | 15.0 | 0.0 | 131.5 | 0.0 |
+| wait p90 (s) | 0.0 | 0.0 | 39.6 | 45.7 | 43.0 | 0.0 | 140.7 | 0.0 |
+| wait p95 (s) | 0.0 | 0.0 | 42.4 | 57.2 | 55.4 | 13.2 | 143.2 | 13.2 |
+| wait p99 (s) | 0.0 | 0.0 | 47.4 | 62.4 | 62.4 | 47.4 | 145.1 | 47.4 |
+| time/work avg (s/u) | 0.01 | 0.01 | 0.27 | 0.15 | 0.14 | 0.02 | 1.18 | 0.02 |
+| time/work p50 (s/u) | 0.01 | 0.01 | 0.04 | 0.02 | 0.02 | 0.01 | 0.16 | 0.01 |
+| time/work p90 (s/u) | 0.01 | 0.01 | 0.24 | 0.12 | 0.11 | 0.01 | 1.05 | 0.01 |
+| time/work p95 (s/u) | 0.01 | 0.01 | 0.49 | 0.28 | 0.26 | 0.03 | 2.18 | 0.03 |
+| time/work p99 (s/u) | 0.01 | 0.01 | 2.80 | 1.52 | 1.49 | 0.23 | 13.24 | 0.23 |
+| replicas avg | 3.10 | 10.00 | 2.37 | 2.64 | 2.63 | 8.10 | 1.97 | 8.10 |
+| replicas std | 1.43 | 0.12 | 1.54 | 1.66 | 1.62 | 3.83 | 1.29 | 3.83 |
 | replicas max | 5 | 10 | 5 | 5 | 5 | 10 | 4 | 10 |
-| replica·seconds | 1980 | 6002 | 1536 | 1629 | 1665 | 4860 | 1200 | 4860 |
-| provisioned·seconds | 1980 | 6002 | 1986 | 2169 | 2130 | 5760 | 1635 | 5760 |
-| boot-lag waste·s | 0 | 0 | 450 | 540 | 465 | 900 | 435 | 900 |
-| utilization | 0.62 | 0.20 | 0.80 | 0.75 | 0.74 | 0.25 | 1.02 | 0.25 |
+| replica·seconds | 1858 | 6001 | 1422 | 1584 | 1578 | 4860 | 1185 | 4860 |
+| provisioned·seconds | 1858 | 6001 | 1872 | 2139 | 2043 | 5760 | 1605 | 5760 |
+| boot-lag waste·s | 0 | 0 | 450 | 555 | 465 | 900 | 420 | 900 |
+| utilization | 0.66 | 0.20 | 0.86 | 0.77 | 0.78 | 0.25 | 1.04 | 0.25 |
 
 </details>
 
@@ -76,7 +76,7 @@ Two cross-policy views on one axis — the full waiting-time CDF and the cost-vs
 
 ![Waiting-time CDF — all policies on one axis](out/09-wait-cdf.png)
 
-**Cost vs quality — the Pareto frontier.** x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of offered served within 15s). The dashed line is the frontier over the **deployable** policies — anything below-and-right of it is dominated (something is both cheaper AND prompter). **ideal** is drawn apart as the clairvoyant reference (not deployable). This is where “same cost, better quality” becomes literal: Qexp sits on the frontier, queue-aware just inside it at ~the same cost.
+**Cost vs quality — the Pareto frontier.** x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of offered served within 15s). The dashed line is the frontier over the **deployable** policies — anything below-and-right of it is dominated (something is both cheaper AND prompter). **ideal** is drawn apart as the clairvoyant reference (not deployable). This is where “same cost, better quality” becomes literal: Qexp sits on the frontier; queue-aware is now dominated by it (same ≤15s% at higher cost — its own drain retune closed the quality gap but not the cost gap).
 
 ![Cost vs quality — the Pareto frontier](out/10-cost-quality.png)
 
@@ -128,9 +128,9 @@ does a correct policy survive 90s boot lag? → still completes 100%, but only ~
 
 ### 4 · Queue-aware
 
-*setup=90, drain_time=30 · demand-tracking + backlog-drain (reactive, TRAILING)*
+*setup=90, drain_time=20 (tuned — the Pareto-frontier near-free point over 30) · demand-tracking + backlog-drain (reactive, TRAILING)*
 
-can a reactive backlog term rescue quality? → only modestly (~28% prompt), and it worsens the tail (chases the backlog after it has already piled up during the boot) — motivates anticipation, see Qexp
+can a reactive backlog term rescue quality? → ~35% prompt, and it still worsens the tail (chases the backlog after it has already piled up during the boot) — motivates anticipation, see Qexp
 
 ![queue-aware](out/03-queue-aware.png)
 
@@ -144,7 +144,7 @@ can a reactive backlog term rescue quality? → only modestly (~28% prompt), and
 
 *setup=90, drain_time=30 · anticipatory: a PERIODIC control loop that sizes to the backlog PEAK projected over the committed boot schedule (up now + pending at their estimated land-times). Reads only the observable queue LEVEL — no foresight of arrivals*
 
-does anticipating the boot-window pile-up help? → yes: ~35% prompt vs reactive's ~28%, tail p90 43s vs 51s, and a lower queue peak (583 vs 704) — at the SAME fleet cost (2130 vs 2169 prov·s). It orders sooner and HOLDS through the boot instead of chasing the queue after the fact. Still no foresight — it only projects the CURRENT queue forward (axis-2 dead-time compensation, not axis-1)
+does anticipating the boot-window pile-up help? → both now hit ~35% prompt (queue-aware's own drain retune closed most of that gap), but Qexp gets there CHEAPER and with a shorter tail: p90 43s vs 46s, a lower queue peak (583 vs 687), and less fleet cost (2043 vs 2139 prov·s). It orders sooner and HOLDS through the boot instead of chasing the queue after the fact. Still no foresight — it only projects the CURRENT queue forward (axis-2 dead-time compensation, not axis-1)
 
 ![qexp](out/08-queue-aware-exp.png)
 
@@ -158,7 +158,7 @@ does anticipating the boot-window pile-up help? → yes: ~35% prompt vs reactive
 
 *KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, cap 10*
 
-naive queue-depth scaling (target 1)? → 92.7% prompt, but pins at the maxReplicaCount=10 cap and burns ~2.5× the fleet (4860 vs ideal 1980 rep·s); the cold-start backlog is the only tail
+naive queue-depth scaling (target 1)? → 92.7% prompt, but pins at the maxReplicaCount=10 cap and burns ~2.6× the fleet (4860 vs ideal 1858 rep·s); the cold-start backlog is the only tail
 
 ![hpa-queue](out/04-hpa-queue.png)
 
@@ -208,6 +208,12 @@ Trend + calibration line-plots (full numeric tables in [`out/sweep.md`](out/swee
 
 ![Qexp — assumed boot lead vs quality & cost](out/13-sweep-qexp.png)
 
+![Headroom — static margin vs quality & cost (queue-aware, Qexp)](out/14-sweep-headroom.png)
+
+![Headroom × drain — aggressive reaction vs static margin (queue-aware)](out/15-sweep-headroom-drain.png)
+
+![Headroom × anticipation — look-ahead vs static margin (Qexp)](out/16-sweep-headroom-proj.png)
+
 ---
 
 ## Glossary
@@ -222,7 +228,7 @@ Trend + calibration line-plots (full numeric tables in [`out/sweep.md`](out/swee
 
 **headroom.** Scale-up utilization target. headroom=1.2 sizes for ~1/1.2 ≈ 83% utilization, leaving slack for noise.
 
-**sizing_range / decision_interval / drain_time.** **sizing_range** (60s) = the lookback the sizer averages DR over. **decision_interval** (15s) = how often it recomputes the desired count. **drain_time** (30s, queue-aware only) = the deadline over which the backlog term aims to clear the current queue.
+**sizing_range / decision_interval / drain_time.** **sizing_range** (60s) = the lookback the sizer averages DR over. **decision_interval** (15s) = how often it recomputes the desired count. **drain_time** = the deadline over which the backlog term aims to clear the current queue; used by both backlog-drain sizers, tuned separately: **20s** for queue-aware (Pareto-frontier retune), **30s** for Qexp (its own drain=20 is a regression — not a transferable win).
 
 **setup / drain.** **setup** = boot lag, start→up (dead time; 90s for the lagged scenarios). **drain** = drain time, stop→down.
 

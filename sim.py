@@ -1041,7 +1041,10 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
         for bid, c in cur.items():
             b = sim.backends[bid]
             is_drain = (b.stop is not None and b.stop <= t < (b.actual_down or dur))
-            w = c * service_rate
+            # actual concurrency-dependent decode rate (§2.7), not the nominal
+            # packed rate: a pod running under-full delivers work faster than
+            # service_rate, and this stack should show what it REALLY delivered.
+            w = c * b.rate_at(c / b.usable_C) if c else 0.0
             if is_drain:
                 band_drain[slot_of.get(bid, bid)][k] += w
                 drain_work[k] += w
@@ -1086,6 +1089,23 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     gp_bands = [_windowed_rate(sorted(bl), grid, req_range)[0] for bl in band_logs]
     _names = ["good", "almost", "mediocre", "meh", "bad", "failed"]
     gp_labels = [f"{_names[i]} (≤{edges[i]:g}s)" for i in range(len(edges))]
+
+    # work-COMPOSITION bands by REQUEST SIZE (small/medium/large tercile of this
+    # run's own completed-size distribution — dynamic per-run edges, same spirit as
+    # gp_bands' per-edge wait thresholds, no fixed global cutoffs). Unlike gp_bands
+    # (counts requests), this sums SIZE, so the bands' total tracks dep_w exactly —
+    # showing how much of the completed WORK RATE came from large vs small items.
+    sizes_sorted = sorted(r["size"] for r in sim.req_done)
+    lo_edge = _percentile(sizes_sorted, 100.0 / 3) if sizes_sorted else 0.0
+    hi_edge = _percentile(sizes_sorted, 200.0 / 3) if sizes_sorted else 0.0
+    size_logs = [[], [], []]                              # small, medium, large
+    for r in sim.req_done:
+        sz = r["size"]
+        idx = 0 if sz <= lo_edge else (1 if sz <= hi_edge else 2)
+        size_logs[idx].append((r["done"], sz))
+    size_bands = [_windowed_rate(sorted(sl), grid, work_range)[1] for sl in size_logs]
+    size_labels = [f"small (≤{lo_edge:.0f}u)", f"medium (≤{hi_edge:.0f}u)",
+                   f"large (>{hi_edge:.0f}u)"]
     gp_labels.append(f"{_names[len(edges)]} (>{edges[-1]:g}s)")
 
     lat = sorted(sim.req_done, key=lambda r: r["done"])
@@ -1146,6 +1166,7 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
         "demand_work": demand_work,
         "cum_arr": cum_arr, "cum_dep": cum_dep,
         "gp_bands": gp_bands, "gp_labels": gp_labels, "gp_edges": list(edges),
+        "size_bands": size_bands, "size_labels": size_labels,
         "lat_done": [r["done"] for r in lat],
         "lat_value": [r["latency"] for r in lat],
         "lat_size": [r["size"] for r in lat],
