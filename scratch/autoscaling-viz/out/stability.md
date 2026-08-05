@@ -2,6 +2,8 @@
 
 Canonical picks under test: Qexp `proj_setup = 120`, shared `drain_time = 20`, `headroom = 1.3` (at `sat_frac = 0.85`, `ρ = 2.0`), tuned on the triangular `bump`. Each non-bump shape has a nonzero floor (lo = peak/3 ≈ 8, hi = peak = 24 req/s) so the fleet never fully drains. A knob **HOLDS** for a shape if the canonical value's `good%` is within 3 pp of that shape's best swept `good%`; otherwise **FLAG**. Divergence is surfaced, not silently re-tuned.
 
+**Uncapped by design.** This sweep measures each sizer's *knob response* — does `proj_setup=120` / `drain=20` / `headroom=1.3` hold as the shape changes? — so it applies **no max-replica cap**. The actuated demo (`run.py`/`index.html`) caps every sizer at 10; capping here would confound the knob signal. The `rep_max` column below therefore reports *pre-cap desired* replicas (e.g. `qexp` peaks at 15 on `stepdown`), which is expected to exceed the demo's actuated ceiling — an intentional, informative difference, not a discrepancy.
+
 ## bump  (reqs = 7159)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)

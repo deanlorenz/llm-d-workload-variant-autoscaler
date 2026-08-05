@@ -777,8 +777,12 @@ WVA decode-heavy benchmark (peak ~24 req/s, ~1000-token mean work, C=100,
   `max_replicas` **10** (KEDA `maxReplicaCount`), same `decision_interval` 15 s.
 - **Static baseline:** fixed fleet pinned at **10** (= `max_replicas`), pre-warmed
   (`setup = 0`).
-- **Boot:** `setup` 90 s (setup-lag + queue-aware + all three HPA baselines; ideal
-  and static use 0).
+- **Actuation cap:** since 2026-08-05 the `max_replicas` cap is enforced at actuation for
+  **every** sizer, not just HPA/static — the WVA Q sizers are clamped to the same **10** ceiling
+  (cap-only, no floor; they still scale to zero). The cap = the no-autoscaling provisioning level
+  (= the static pin), *not* the ideal peak (≈5). Value 10 uniform; per-shape overridable to ≤15;
+  measured to hold every lesson at 10 (no escalation). Full decision + eval: §8.1 item 11. The
+  `bump` results below are byte-identical (WVA peaks at 5 < 10, so the cap never bites on bump).
 - **Sampling:** dt 0.25 s, `req_range` 15 s, `work_range` 60 s.
 - **Quality bands:** pre-service wait edges [2, 15, 30, 45, 60] s (§4).
 
@@ -1007,6 +1011,13 @@ the ceiling in panel 3. The lesson for the deck: **windowed sizing of a fixed
 replica count has a residual failure mode against sub-window bursts, independent of
 setup and independent of how well you can see the future.**
 
+**Distinct from the rendered `spike` shape (§8.1 item 11).** This standalone experiment is
+*ideal-only* (`setup=0`) and isolates the windowed-sizing failure mode. The demo deck also carries
+`spike` as a full first-class shape run through **all 8 policies** with realistic `setup=90` — which
+makes a *different* point: for a burst shorter than the boot time the bottleneck is **boot lag, not
+the sizing algorithm**, so every achievable autoscaler drops requests and only pre-warmed
+`static`/no-scaling absorbs it. The two are complementary spike lessons, not duplicates.
+
 ---
 
 ## 7. Prior art
@@ -1229,8 +1240,8 @@ This is a prior-art investigation, deferred; do not block workload implementatio
      Naturally downstream of the realistic plateaus (item 8). Note: with (a), W becomes
      load-dependent — a nice teaching point that Little assumes nothing about a constant
      service rate.
-8. [~] **Realistic workload set** (§1.1(3), §6.2) — **FIXTURES + STABILITY SWEEP DONE
-   (2026-08-05); per-shape demo figures + HTML selector (item 9) still deferred.** Added
+8. [x] **Realistic workload set** (§1.1(3), §6.2) — **DONE (2026-08-05): fixtures + stability
+   sweep + per-shape demo figures + HTML integration all landed (see item 11).** Added
    `trapezoid` / `stepup` / `stepdown` to `sim.py`'s `rate_profile` (lo = peak/3 ≈ 8,
    hi = peak = 24 req/s, nonzero floor throughout) and a standalone `stability.py` that
    re-sweeps the tuned knobs on every shape. **Verdict (full table `out/stability.md`):**
@@ -1251,8 +1262,10 @@ This is a prior-art investigation, deferred; do not block workload implementatio
      (queue-aware) / 24.0 % (setup-lag) and pushes qexp's peak fleet to 15 replicas — a
      clean illustration that irreducible boot lag, not the sizer, dominates a step onto peak.
 
-   Original scope (per-shape demo figures wired into the viewer) remains for item 9. Fixtures
-   added; the crafted shapes (`bump`, `spike`, `step`) are kept but demoted to teaching aids.
+   **Per-shape demo figures wired into the viewer — DONE (item 11, 2026-08-05):** all 5 shapes
+   (the three above + `bump` reference + `spike` teaching case) now render across Compare / Browse
+   / Table / Tradeoffs, and the actuation cap is enforced uniformly. Fixtures added; the crafted
+   shapes (`bump`, `spike`) are kept as reference/teaching aids.
 
    *(original spec, retained:)* Add fixtures to `rate_profile` for shapes that contain
    steady states so right-sizing is visible:
@@ -1269,11 +1282,12 @@ This is a prior-art investigation, deferred; do not block workload implementatio
    and capacity numbers carry over). Crafted shapes (`bump`, `spike`, `step`) are kept
    but **demoted to teaching aids** (secondary), not removed. Must not special-case
    the workload in any sizer or plot (§1.1(1)).
-9. [ ] **Two-level scenario chooser in the HTML** (decision-2, 2026-08-03) — once
-   *all* scenarios (teaching + realistic) are generated, `report.py`'s viewer needs a
-   selector: **first pick a category, then the particular workload.** Category names
-   **TBD** — "teaching" vs "real" are placeholders Dean wants improved. Open design;
-   affects `out/index.html` construction in `report.py` only.
+9. [x] **Scenario chooser in the HTML** (decision-2, 2026-08-03) — **DONE (item 11, 2026-08-05),
+   realized as a flat per-shape switcher, not the original two-level category→workload chooser.**
+   The two-level design (first pick a category, then the workload) is **superseded**: with only 5
+   shapes in one list, a single flat shape switcher across Compare / Browse / Table / Tradeoffs is
+   simpler and the "teaching vs real" category naming problem disappears. Affects `out/index.html`
+   construction in `report.py` only.
 
 10. [ ] **ACTIVE (2026-08-05) — level-field Qaware/Qexp comparison + sweep caching + then
     demand shapes.** Dean's review of the 7(a)/7(b) sweeps: *"Qaware looks optimized, Qexp does
@@ -1336,6 +1350,66 @@ This is a prior-art investigation, deferred; do not block workload implementatio
     knee-stable (1.1–1.3), and the only FLAG (`drain`: shape-best is `3` everywhere) is the
     intentional level-field handicap, not shape-instability. See item 8 for the full verdict.
 
+11. [x] **All demand shapes integrated into the HTML deck + uniform actuation cap (2026-08-05).**
+    The realistic shapes from item 8 (plus `spike`) are now first-class rendered material in
+    `out/index.html` and `REPORT.md`, and a max-replica cap is enforced at actuation for **every**
+    sizer. Two coupled pieces:
+
+    **(a) Uniform actuation cap — cap = the no-autoscaling provisioning level.** Every sizer's
+    *desired* count is capped at actuation (`desired → committed`), the **same** ceiling for the WVA
+    Q sizers as for the HPA/KEDA baselines (`run.py` now passes `max_replicas=cap_for(shape)` into all
+    six WVA calls, `run_closed_loop`, and `gen_supply_static`'s `count`). The WVA cap is **cap-only, no
+    floor** — they still scale to zero when demand drains. The cap is deliberately the **no-autoscaling
+    provisioning level** an operator would pin if they didn't autoscale — **not** the ideal sizer's
+    clairvoyant peak (≈5 on every sustained shape). Because `static` is pinned at exactly
+    `cap_for(shape)`, the static baseline line and the shared ceiling are the **same knob**; the minimal
+    sensible cap for a shape is whatever a no-autoscaling deployment needs to serve its peak (≈5–6 here),
+    so 10 sits comfortably above the floor.
+    - **Value: `CAP_DEFAULT = 10` for all shapes; `CAP_BY_SHAPE = {}` (empty ⇒ 10 everywhere).**
+      Escalation rule (two triggers, either fires): raise **only the affected shape** to **15** (never
+      higher) if (a) the Q-vs-HPA lesson collapses at 10 (qexp and qaware both peg and become
+      indistinguishable) OR (b) 10 falls below that shape's no-autoscaling floor (static@10 can't serve
+      its peak). `bump`/`spike` always stay 10.
+    - **Cap-lesson evaluation (2026-08-05): NO escalation needed — 10 holds every lesson.** At cap=10
+      qexp still visibly out-serves qaware on all three sustained shapes (trapezoid +11.3 pp, stepup
+      +8.8 pp, stepdown +10.3 pp good%≤15 s, roughly halving failures — qexp reaches the ceiling
+      *earlier*), the HPA sizers still peg at 10 and land dominated on the Pareto (≈1.8–2.5× qexp's
+      replica·s), and static@10 serves every shape (100 % good, 0 failed — no floor breach). So
+      `CAP_BY_SHAPE` stays empty. **`bump` is byte-identical** to pre-cap (WVA sizers peak at 5 < 10, so
+      the cap never bites); the cap bites only on the sustained-load shapes. (Uncapped peak-*desired* for
+      reference: qaware/qexp reach 14–27 on stepup/stepdown, HPA 557–1766 — the reason a cap is needed.)
+    - **`stability.py` stays uncapped by design** — it measures each sizer's *knob response* across
+      shapes; a cap there would confound the signal, so its `rep_max` column reports *pre-cap desired*
+      (e.g. qexp 15 on stepdown), an intentional, informative difference from the actuated demo.
+
+    **(b) Five shapes, every tab.** `run.py` loops `DEMO_SHAPES = [bump, trapezoid, stepup, stepdown,
+    spike]` (bump = calibration/reference, first; spike = teaching-only, NOT calibrated, last), rendering
+    all 8 scenarios × 5 shapes as `{stem}-{shape}.png` / `{stem}-{shape}-latency.png`, plus per-shape
+    `summary-{shape}.md` and `09-wait-cdf-{shape}.png` / `10-cost-quality-{shape}.png` (`summary.md`
+    kept as a bump alias; the old unsuffixed per-scenario/tradeoff PNGs are replaced and their orphans
+    removed). `report.py` surfaces them: **Compare** gains a shape switcher (swaps both panes + banner);
+    **Browse** shows a gallery of all 5 shapes (main + collapsible latency) for the chosen policy;
+    **Table** renders a per-shape summary table behind a shape switcher; **Tradeoffs** renders each
+    shape's cost-quality + wait-CDF as separate figures. `REPORT.md` keeps the bump reference figures and
+    adds a **Demand shapes** section embedding all 5 shapes' cost-quality Pareto. This realizes item 8's
+    deferred "per-shape demo figures wired into the viewer" and **supersedes item 9's *two-level*
+    category→workload chooser with a simpler flat per-shape switcher** (no category layer — the 5 shapes
+    sit in one list). Calibration constants unchanged (item 8 verdict: shape-robust). Out/ grows to
+    ~20–25 MB (committed, accepted).
+
+    **Spike as a rendered teaching shape (distinct from §6.5's standalone stress).** §6.5's
+    `stress_ideal.py` is *ideal-only* and makes the sub-window-burst sizing point. The deck's `spike`
+    shape runs **all 8 policies** and makes a different, measured point: for a ~6 s burst far shorter
+    than the 90 s boot, the bottleneck is **boot lag, not the sizing algorithm** — every *achievable*
+    policy that must spin up (reactive, anticipatory, both KEDA baselines) drops **7–57 %** of requests;
+    the clairvoyant **ideal** survives (0 % failed) only because it boots instantly (a fiction); and the
+    one real policy that absorbs the burst cleanly is **static/no-scaling** pinned at the cap
+    (pre-warmed → 0 % failed) — bought with ~5× the steady-state resource-seconds and ~14 % utilisation
+    the rest of the time. Lesson: **for a burst shorter than your boot time, autoscaling is the wrong
+    tool — only standing pre-provisioned headroom absorbs it, and that headroom is exactly what you pay
+    to be spike-proof.** (Exact numbers live in the per-shape Table; the `SHAPE_NOTES` banner in
+    `report.py` carries this prose, tuned to the actual run.)
+
 ### 8.2 Later (deferred — do not start without direction)
 
 **Model / sizing:**
@@ -1366,7 +1440,8 @@ This is a prior-art investigation, deferred; do not block workload implementatio
 - [x] **Static comparison viewer** (`report.py` → `out/index.html`) — self-contained
       vanilla HTML/CSS/JS over the rendered PNGs: **Compare** (two half-width panes,
       side-by-side, synchronized scroll, with a fit↔full-detail slider), **Browse**
-      (one scenario wide + its latency scatter), **Table** (all strategies as columns
+      (one scenario wide + its latency scatter — later extended to an all-shapes
+      gallery, §8.1 item 11), **Table** (all strategies as columns
       from `summary.md`, each row annotated with what it means; sticky header row),
       and a **Glossary** tab (the parameter/term definitions from §2.6/§3). The table
       and header carry shared narrative prose (intro / story / per-policy readings)
@@ -1376,8 +1451,9 @@ This is a prior-art investigation, deferred; do not block workload implementatio
 - [x] **Generated `REPORT.md`** — `report.py` also emits a standalone markdown
       report (`build` → `REPORT.md`) from the **same** sources as the HTML
       (`out/summary.md` + the scenario/glossary/prose constants), so it has
-      **identical scope** to `index.html` — all 7 scenarios, all rows, the same
-      narrative prose. Data-driven, not hand-maintained. *(A short/curated
+      **identical scope** to `index.html` — all 8 scenarios, all rows, the same
+      narrative prose (later extended with a per-shape **Demand shapes** section,
+      §8.1 item 11). Data-driven, not hand-maintained. *(A short/curated
       few-scenario report version is deferred until the full data set settles.)*
 - [ ] **Fillable parameter form** (deferred): a form in the viewer that lets a user
       set the run.py GLOBALS (workload / fleet / sizer / sampling knobs) and
@@ -1397,18 +1473,29 @@ This is a prior-art investigation, deferred; do not block workload implementatio
 ## 9. Files
 
 - `sim.py` — load/supply generators (`gen_supply_perfect`, `gen_supply_queue_aware`,
-  `gen_supply_static`, `run_closed_loop`), `Simulator` engine, `sample`, `summarize`.
-- `plots.py` — `render` (6 panels), `render_latency`, `render_cumulative`.
-- `run.py` — **7** scenarios (ideal, static, setup-lag, queue-aware, hpa-queue,
-  hpa-concurrency, hpa-combined) + comparison `report` → `out/summary.md`.
+  `gen_supply_queue_aware_exp`, `gen_supply_static`, `run_closed_loop`), `Simulator` engine,
+  `sample`, `summarize`. `rate_profile()` holds all 5 demand shapes; every `gen_supply_*` takes
+  `max_replicas` and clamps `desired` at actuation (§8.1 item 11).
+- `plots.py` — `render` (6 panels), `render_latency`, `render_cumulative`, `render_wait_cdf`,
+  `render_cost_quality`; shape-agnostic (shape reaches them only via the caller's title string).
+- `run.py` — **8** scenarios (ideal, static, setup-lag, queue-aware, **queue-aware-exp**,
+  hpa-queue, hpa-concurrency, hpa-combined), looped over `DEMO_SHAPES` (5 shapes) with a uniform
+  actuation cap (`cap_for(shape)`, default 10; §8.1 item 11). Emits `{stem}-{shape}.png` /
+  `{stem}-{shape}-latency.png`, `09-wait-cdf-{shape}.png`, `10-cost-quality-{shape}.png`, and
+  `summary-{shape}.md` (+ `summary.md` = bump alias).
 - `report.py` — builds `out/index.html` (comparison viewer) **and** `REPORT.md`
-  (standalone markdown, identical scope) from the PNGs + `summary.md` + shared
-  narrative prose constants; read-only over the sim.
-- `stress_ideal.py` — standalone B2 stress experiment (§6.5); not in the report.
+  (standalone markdown) from the per-shape PNGs + `summary-{shape}.md` + shared narrative prose
+  constants (`SHAPES`, `SHAPE_NOTES`); read-only over the sim. Compare / Browse / Table / Tradeoffs
+  are all shape-aware (flat per-shape switcher; §8.1 item 11).
+- `sweep.py` — bump-only calibration sweeps → figs `11`–`16` + `out/sweep.md`; read/calibrate tool.
+- `stability.py` — workload-stability sweeps: do the calibration knobs (`proj_setup`/`drain`/
+  `headroom`) hold across 4 shapes (bump/trapezoid/stepup/stepdown, spike excluded)? → `out/stability.md`.
+  **Uncapped by design** (measures knob response, not actuated behaviour; §8.1 item 11).
+- `stress_ideal.py` — standalone B2 stress experiment (§6.5); ideal-only, not in the report.
 - `diag_decisions.py` — throwaway per-decision sizer-state dump for the queue-aware
   run (when/why `desired` changes); not wired into `run.py`.
 - `traces/*.json` — generated load/supply traces.
-- `out/*.png`, `out/summary.md` — rendered figures + table.
+- `out/*.png`, `out/summary-{shape}.md` (+ `summary.md` bump alias) — rendered figures + tables.
 - `out/index.html` — self-contained comparison viewer (open with `file://`).
 - `REPORT.md` — generated standalone markdown report (regenerated by `report.py`).
 

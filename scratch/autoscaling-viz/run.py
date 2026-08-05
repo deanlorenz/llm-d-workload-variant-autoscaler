@@ -58,111 +58,145 @@ SAMPLE_INTERVAL = 0.25        # plot-grid resolution
 REQ_RANGE = 15.0             # request-count averaging range (panels 1a/4-ish)
 WORK_RANGE = 60.0            # work-rate averaging range (Prom-style, panel 1b)
 
+# --------------------------------------------------------------------------
+# Max-replica cap — enforced at ACTUATION (desired → committed), uniformly for
+# EVERY sizer within a shape (Q and HPA share one ceiling). It is the
+# "no-autoscaling provisioning level" — the maxReplicaCount an operator would
+# pin if they didn't autoscale — NOT the clairvoyant ideal peak (~5 here).
+# `scenario_static` runs pinned at exactly this value, so the static baseline
+# and the shared ceiling are the same knob. Cap is 10 everywhere to start; a
+# sustained-load shape whose Q sizers otherwise peg at 10 and become
+# indistinguishable can be lifted to (at most) 15 via CAP_BY_SHAPE — the
+# uncapped Q peaks (22/27) and HPA runaways (557–1766) are deliberately NOT the
+# story per-shape; the cost-blowup lesson lives in the sweeps/tradeoffs.
+CAP_DEFAULT = MAX_REPLICAS       # 10
+CAP_BY_SHAPE: dict[str, int] = {}   # per-shape overrides; empty ⇒ 10 everywhere
 
-def _load():
-    return gen_load(pattern="bump", duration=DURATION, peak_rate=PEAK_RATE,
+
+def cap_for(shape: str) -> int:
+    return CAP_BY_SHAPE.get(shape, CAP_DEFAULT)
+
+
+# Demand shapes rendered into the deck. `bump` first (the calibration/reference
+# shape); `spike` last (a teaching-only case — autoscaling is the wrong tool for
+# a 6s burst; NOT calibrated on). rate_profile() in sim.py already defines all 5.
+DEMO_SHAPES = [
+    ("bump",      "Bump (triangular 0→peak→0)"),
+    ("trapezoid", "Trapezoid (ramp → sustained plateau → ramp)"),
+    ("stepup",    "Step up (lo → hi, stays)"),
+    ("stepdown",  "Step down (hi → lo, stays)"),
+    ("spike",     "Spike (6s burst to 3×peak — teaching case, NOT calibrated)"),
+]
+
+
+def _load(shape="bump"):
+    return gen_load(pattern=shape, duration=DURATION, peak_rate=PEAK_RATE,
                     size_mean=SIZE_MEAN, size_dist="expo", seed=1)
 
 
-def _headroom_point(sizer, hr):
+def _headroom_point(sizer, hr, shape="bump"):
     """(prov·s, served≤15s%) for a Q sizer at an off-baseline headroom — feeds the
     cost-quality frontier's extra points. Mirrors the canonical scenario exactly;
-    only `headroom` varies (qexp holds its operating QEXP_PROJ_SETUP)."""
-    load = _load()
+    only `headroom` varies (qexp holds its operating QEXP_PROJ_SETUP). Capped at
+    the shape's actuation ceiling like the baseline points, so it is apples-to-
+    apples with them."""
+    load = _load(shape)
     if sizer == "qaware":
         supply = gen_supply_queue_aware(load, C=C, service_rate=SERVICE_RATE,
                                         setup=SETUP, drain=0.0, headroom=hr,
                                         sizing_range=SIZING_RANGE, drain_time=DRAIN_TIME,
-                                        decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC)
+                                        decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC,
+                                        max_replicas=cap_for(shape))
     else:
         supply = gen_supply_queue_aware_exp(load, C=C, service_rate=SERVICE_RATE,
                                             setup=SETUP, drain=0.0, headroom=hr,
                                             sizing_range=SIZING_RANGE, drain_time=DRAIN_TIME,
                                             proj_setup=QEXP_PROJ_SETUP,
-                                            decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC)
+                                            decision_interval=DECISION_INTERVAL, sat_frac=SAT_FRAC,
+                                            max_replicas=cap_for(shape))
     s = summarize(sample(Simulator(load, supply, rho=RHO).run(),
                          sample_interval=SAMPLE_INTERVAL, req_range=REQ_RANGE,
                          work_range=WORK_RANGE))
     return s["replicas"]["prov_seconds"], s["within_pct"][1]
 
 
-def scenario_ideal():
-    load = _load()
+def scenario_ideal(shape="bump"):
+    load = _load(shape)
     supply = gen_supply_perfect(load, C=C, service_rate=SERVICE_RATE, setup=0.0,
                                 drain=0.0, headroom=HEADROOM,
                                 sizing_range=SIZING_RANGE,
                                 decision_interval=DECISION_INTERVAL,
-                                sat_frac=SAT_FRAC)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(supply, open(f"{TR}/supply-perfect.json", "w"))
+                                sat_frac=SAT_FRAC, max_replicas=cap_for(shape))
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-perfect-{shape}.json", "w"))
 
     ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, "Ideal baseline — near-perfect scaling (setup≈0, drain≈0)",
-           f"{OUT}/01-ideal.png")
-    render_latency(ts, "Ideal baseline — per-request time in system",
-                   f"{OUT}/01-ideal-latency.png")
+    render(ts, f"Ideal baseline — near-perfect scaling (setup≈0, drain≈0) — {shape}",
+           f"{OUT}/01-ideal-{shape}.png")
+    render_latency(ts, f"Ideal baseline — per-request time in system — {shape}",
+                   f"{OUT}/01-ideal-{shape}-latency.png")
     # Cumulative A(t)/D(t) deferred: only legible zoomed-in / at low N. Revisit as
     # an animated zoom that follows the other panels' timeline. (render_cumulative)
     _ = render_cumulative  # keep import alive for the deferred figure
-    print(f"reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+    print(f"[ideal/{shape}] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def scenario_setup_lag():
+def scenario_setup_lag(shape="bump"):
     """Same clairvoyant demand-tracking commands, but 90s (~1.5min) boot time:
     actual replicas lag desired, so the up-ramp runs under-provisioned."""
-    load = _load()
+    load = _load(shape)
     supply = gen_supply_perfect(load, C=C, service_rate=SERVICE_RATE, setup=SETUP,
                                 drain=0.0, headroom=HEADROOM,
                                 sizing_range=SIZING_RANGE,
                                 decision_interval=DECISION_INTERVAL,
-                                sat_frac=SAT_FRAC)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(supply, open(f"{TR}/supply-setup90.json", "w"))
+                                sat_frac=SAT_FRAC, max_replicas=cap_for(shape))
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-setup90-{shape}.json", "w"))
 
     ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, "Setup lag — demand-tracking commands, 90s boot (reactive timing)",
-           f"{OUT}/02-setup-lag.png")
-    render_latency(ts, "Setup lag — per-request time in system",
-                   f"{OUT}/02-setup-lag-latency.png")
-    print(f"[setup90] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+    render(ts, f"Setup lag — demand-tracking commands, 90s boot (reactive timing) — {shape}",
+           f"{OUT}/02-setup-lag-{shape}.png")
+    render_latency(ts, f"Setup lag — per-request time in system — {shape}",
+                   f"{OUT}/02-setup-lag-{shape}-latency.png")
+    print(f"[setup90/{shape}] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def scenario_queue_aware():
+def scenario_queue_aware(shape="bump"):
     """Fix step 1: same 90s boot, but the sizer is QUEUE-AWARE (reactive, no
     look-ahead). It adds a backlog-drain term, so as the queue piles up during
     the boot window it over-provisions to clear it -- recovers within the run,
     but overshoots and stays late (motivates anticipation as the next step)."""
-    load = _load()
+    load = _load(shape)
     supply = gen_supply_queue_aware(load, C=C, service_rate=SERVICE_RATE,
                                     setup=SETUP, drain=0.0, headroom=HEADROOM,
                                     sizing_range=SIZING_RANGE,
                                     drain_time=DRAIN_TIME,
                                     decision_interval=DECISION_INTERVAL,
-                                    sat_frac=SAT_FRAC)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(supply, open(f"{TR}/supply-qaware90.json", "w"))
+                                    sat_frac=SAT_FRAC, max_replicas=cap_for(shape))
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-qaware90-{shape}.json", "w"))
 
     ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, "Queue-aware fix — 90s boot, size for backlog-drain (reactive)",
-           f"{OUT}/03-queue-aware.png")
-    render_latency(ts, "Queue-aware fix — per-request time in system",
-                   f"{OUT}/03-queue-aware-latency.png")
-    print(f"[qaware90] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+    render(ts, f"Queue-aware fix — 90s boot, size for backlog-drain (reactive) — {shape}",
+           f"{OUT}/03-queue-aware-{shape}.png")
+    render_latency(ts, f"Queue-aware fix — per-request time in system — {shape}",
+                   f"{OUT}/03-queue-aware-{shape}-latency.png")
+    print(f"[qaware90/{shape}] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def scenario_queue_aware_exp():
+def scenario_queue_aware_exp(shape="bump"):
     """Fix step 2: anticipatory QUEUE-aware sizing ("Qexp"), a periodic control
     loop. Same 90s boot and same backlog-drain idea as reactive queue-aware, but
     it sizes to the PEAK of the backlog it PROJECTS forward under the committed
@@ -172,103 +206,106 @@ def scenario_queue_aware_exp():
     assumptions are simplifications it self-corrects against, never depends on.
     Anticipating the queue that WILL pile up during the boot lets it order sooner
     and hold through the boot instead of chasing the backlog after the fact."""
-    load = _load()
+    load = _load(shape)
     supply = gen_supply_queue_aware_exp(load, C=C, service_rate=SERVICE_RATE,
                                         setup=SETUP, drain=0.0, headroom=HEADROOM,
                                         sizing_range=SIZING_RANGE,
                                         drain_time=DRAIN_TIME,
                                         proj_setup=QEXP_PROJ_SETUP,
                                         decision_interval=DECISION_INTERVAL,
-                                        sat_frac=SAT_FRAC)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(supply, open(f"{TR}/supply-qexp90.json", "w"))
+                                        sat_frac=SAT_FRAC, max_replicas=cap_for(shape))
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-qexp90-{shape}.json", "w"))
 
     ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, "Anticipatory queue-aware (Qexp) — 90s boot, size for projected peak",
-           f"{OUT}/08-queue-aware-exp.png")
-    render_latency(ts, "Anticipatory queue-aware (Qexp) — per-request time in system",
-                   f"{OUT}/08-queue-aware-exp-latency.png")
-    print(f"[qexp90] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+    render(ts, f"Anticipatory queue-aware (Qexp) — 90s boot, size for projected peak — {shape}",
+           f"{OUT}/08-queue-aware-exp-{shape}.png")
+    render_latency(ts, f"Anticipatory queue-aware (Qexp) — per-request time in system — {shape}",
+                   f"{OUT}/08-queue-aware-exp-{shape}-latency.png")
+    print(f"[qexp90/{shape}] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def scenario_static():
+def scenario_static(shape="bump"):
     """No autoscaling: a fixed fleet pinned at the ceiling for the whole run
-    (KEDA maxReplicaCount here). Never scales, so it never queues on this bump —
-    100% prompt — but pays for the full fleet the entire time (the most expensive
-    policy, and the lowest utilisation). The 'just provision for max' strawman."""
-    load = _load()
-    supply = gen_supply_static(load, count=MAX_REPLICAS, C=C,
+    (the no-autoscaling provisioning level = the shared cap). Never scales, so on
+    a bump it never queues — 100% prompt — but pays for the full fleet the entire
+    time (the most expensive policy, and the lowest utilisation). On sustained
+    shapes it may still queue if the peak exceeds the pinned count. The 'just
+    provision for max' strawman."""
+    load = _load(shape)
+    supply = gen_supply_static(load, count=cap_for(shape), C=C,
                                service_rate=SERVICE_RATE, setup=0.0, drain=0.0,
                                sat_frac=SAT_FRAC)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(supply, open(f"{TR}/supply-static.json", "w"))
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(supply, open(f"{TR}/supply-static-{shape}.json", "w"))
 
     ts = sample(Simulator(load, supply, rho=RHO).run(), sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, "No scaling — fixed fleet pinned at max (always-on, no autoscaler)",
-           f"{OUT}/07-static.png")
-    render_latency(ts, "No scaling — per-request time in system",
-                   f"{OUT}/07-static-latency.png")
-    print(f"[static] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
+    render(ts, f"No scaling — fixed fleet pinned at max (always-on, no autoscaler) — {shape}",
+           f"{OUT}/07-static-{shape}.png")
+    render_latency(ts, f"No scaling — per-request time in system — {shape}",
+                   f"{OUT}/07-static-{shape}-latency.png")
+    print(f"[static/{shape}] reqs={len(load['requests'])} replicas={len(supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def _hpa_scenario(kind, num, slug, title, latency_title):
+def _hpa_scenario(kind, num, slug, title, latency_title, shape="bump"):
     """Shared driver for the three HPA/KEDA closed-loop baselines. Each reads the
     ACTUAL simulated queue/running signal (trailing-avg over METRIC_WINDOW) every
-    DECISION_INTERVAL and reconciles the live fleet — no foresight, 90s boot."""
-    load = _load()
+    DECISION_INTERVAL and reconciles the live fleet — no foresight, 90s boot.
+    The desired count is clamped to the shape's cap at reconcile time."""
+    load = _load(shape)
     sim = run_closed_loop(load, kind, C=C, service_rate=SERVICE_RATE, setup=SETUP,
                           drain=0.0, sat_frac=SAT_FRAC,
                           decision_interval=DECISION_INTERVAL,
                           metric_window=METRIC_WINDOW, headroom=HEADROOM,
-                          max_replicas=MAX_REPLICAS, rho=RHO)
-    json.dump(load, open(f"{TR}/load-bump.json", "w"))
-    json.dump(sim.supply, open(f"{TR}/supply-hpa-{kind}.json", "w"))
+                          max_replicas=cap_for(shape), rho=RHO)
+    json.dump(load, open(f"{TR}/load-{shape}.json", "w"))
+    json.dump(sim.supply, open(f"{TR}/supply-hpa-{kind}-{shape}.json", "w"))
 
     ts = sample(sim, sample_interval=SAMPLE_INTERVAL,
                 req_range=REQ_RANGE, work_range=WORK_RANGE)
-    render(ts, title, f"{OUT}/{num}-hpa-{slug}.png")
-    render_latency(ts, latency_title, f"{OUT}/{num}-hpa-{slug}-latency.png")
-    print(f"[hpa-{kind}] reqs={len(load['requests'])} replicas={len(sim.supply['replicas'])} "
+    render(ts, f"{title} — {shape}", f"{OUT}/{num}-hpa-{slug}-{shape}.png")
+    render_latency(ts, f"{latency_title} — {shape}", f"{OUT}/{num}-hpa-{slug}-{shape}-latency.png")
+    print(f"[hpa-{kind}/{shape}] reqs={len(load['requests'])} replicas={len(sim.supply['replicas'])} "
           f"peak_desired={max(ts['desired'])} peak_actual={max(ts['actual'])} "
           f"peak_qlen={max(ts['qlen'])} peak_L={max(ts['nsys'])}")
     return ts
 
 
-def scenario_hpa_queue():
+def scenario_hpa_queue(shape="bump"):
     """HPA/KEDA on queue depth (AverageValue target=1 → desired=ceil(Q)). Blind
     to boot lag: during the 90s boot it sees the whole backlog and orders it as
     replicas, pinning at maxReplicaCount — completes, but over-provisions."""
     return _hpa_scenario(
         "queue", "04", "queue",
-        "HPA/KEDA queue-depth — desired = ceil(Q), target 1/replica (cap 10)",
-        "HPA/KEDA queue-depth — per-request time in system")
+        "HPA/KEDA queue-depth — desired = ceil(Q), target 1/replica",
+        "HPA/KEDA queue-depth — per-request time in system", shape=shape)
 
 
-def scenario_hpa_concurrency():
+def scenario_hpa_concurrency(shape="bump"):
     """HPA/KEDA on running-request count (AverageValue target c<C →
     desired=ceil(R/c)). The signal is capacity-capped (R ≤ n·usable_C), so it
     cannot see the queue behind it: under 90s boot it under-provisions badly."""
     return _hpa_scenario(
         "concurrency", "05", "concurrency",
-        "HPA/KEDA concurrency — desired = ceil(R/c), c≈58 (cap 10)",
-        "HPA/KEDA concurrency — per-request time in system")
+        "HPA/KEDA concurrency — desired = ceil(R/c), c≈58",
+        "HPA/KEDA concurrency — per-request time in system", shape=shape)
 
 
-def scenario_hpa_combined():
+def scenario_hpa_combined(shape="bump"):
     """HPA/KEDA with BOTH triggers (native KEDA max): scale up on either, down
     on both. The queue trigger rescues the concurrency signal's blind spot."""
     return _hpa_scenario(
         "combined", "06", "combined",
-        "HPA/KEDA combined — max(queue, concurrency) triggers (cap 10)",
-        "HPA/KEDA combined — per-request time in system")
+        "HPA/KEDA combined — max(queue, concurrency) triggers",
+        "HPA/KEDA combined — per-request time in system", shape=shape)
 
 
 # --------------------------------------------------------------------------
@@ -363,44 +400,55 @@ def report(summaries: dict, md_path=f"{OUT}/summary.md"):
     print(f"\n[wrote {md_path}]")
 
 
-if __name__ == "__main__":
-    # Keep each scenario's sampled timeseries (ts) around: the comparison table
-    # needs only the summaries, but the cross-policy CDF overlay needs the raw
-    # per-request waits, so run each scenario once and reuse the result.
-    runs = {
-        "ideal": scenario_ideal(),
-        "static": scenario_static(),
-        "setup-lag": scenario_setup_lag(),
-        "queue-aware": scenario_queue_aware(),
-        "qexp": scenario_queue_aware_exp(),
-        "hpa-queue": scenario_hpa_queue(),
-        "hpa-concurrency": scenario_hpa_concurrency(),
-        "hpa-combined": scenario_hpa_combined(),
+def _run_all(shape):
+    """Run all 8 policies for one demand shape. Keep each scenario's sampled
+    timeseries (ts) around: the comparison table needs only the summaries, but
+    the cross-policy CDF overlay needs the raw per-request waits, so run each
+    scenario once and reuse the result."""
+    return {
+        "ideal": scenario_ideal(shape),
+        "static": scenario_static(shape),
+        "setup-lag": scenario_setup_lag(shape),
+        "queue-aware": scenario_queue_aware(shape),
+        "qexp": scenario_queue_aware_exp(shape),
+        "hpa-queue": scenario_hpa_queue(shape),
+        "hpa-concurrency": scenario_hpa_concurrency(shape),
+        "hpa-combined": scenario_hpa_combined(shape),
     }
-    sums = {k: summarize(v) for k, v in runs.items()}
-    report(sums)
 
-    # Cross-policy comparison figures (the per-scenario PNGs above can't show
-    # policies on a shared axis). Cost is billed provisioned·seconds.
-    costs = {k: s["replicas"]["prov_seconds"] for k, s in sums.items()}
-    render_wait_cdf(runs, costs,
-                    "Waiting-time CDF — all policies (share of offered served within t)",
-                    f"{OUT}/09-wait-cdf.png")
-    # Extra frontier points: how much further up the cost-quality plane each Q
-    # sizer climbs as static headroom grows past the 1.3 operating point (same
-    # sizer colour, headroom in the label). Puts "how high can qaware go" right
-    # on the frontier, not only in the sweep tables. Only headroom varies —
-    # everything else (drain=20, sat_frac, qexp's proj_setup) is the operating
-    # config, so these are apples-to-apples with the baseline (1.3) points.
-    extra_pts = []
-    for hr in (1.5, 2.0):
-        c, q = _headroom_point("qaware", hr)
-        extra_pts.append((f"qaware({hr})", c, q, "queue-aware"))
-        c, q = _headroom_point("qexp", hr)
-        extra_pts.append((f"qexp({hr})", c, q, "qexp"))
-    render_cost_quality(sums,
-                        "Cost vs quality — fleet-time vs promptness (Pareto frontier)",
-                        f"{OUT}/10-cost-quality.png",
-                        extra_points=extra_pts,
-                        label_overrides={"queue-aware": "qaware(1.3)",
-                                         "qexp": "qexp(1.3)"})
+
+if __name__ == "__main__":
+    for shape, label in DEMO_SHAPES:
+        print(f"\n########## shape={shape} (cap={cap_for(shape)}) — {label} ##########")
+        runs = _run_all(shape)
+        sums = {k: summarize(v) for k, v in runs.items()}
+        report(sums, f"{OUT}/summary-{shape}.md")
+        if shape == "bump":
+            # keep the unsuffixed summary.md as the bump alias for any consumer
+            # that still reads the canonical reference table by its old name.
+            report(sums, f"{OUT}/summary.md")
+
+        # Cross-policy comparison figures (the per-scenario PNGs above can't show
+        # policies on a shared axis). Cost is billed provisioned·seconds.
+        costs = {k: s["replicas"]["prov_seconds"] for k, s in sums.items()}
+        render_wait_cdf(runs, costs,
+                        f"Waiting-time CDF — all policies (share of offered served within t) — {shape}",
+                        f"{OUT}/09-wait-cdf-{shape}.png")
+        # Extra frontier points: how much further up the cost-quality plane each Q
+        # sizer climbs as static headroom grows past the 1.3 operating point (same
+        # sizer colour, headroom in the label). Puts "how high can qaware go" right
+        # on the frontier, not only in the sweep tables. Only headroom varies —
+        # everything else (drain=20, sat_frac, qexp's proj_setup, the cap) is the
+        # operating config, so these are apples-to-apples with the baseline (1.3).
+        extra_pts = []
+        for hr in (1.5, 2.0):
+            c, q = _headroom_point("qaware", hr, shape)
+            extra_pts.append((f"qaware({hr})", c, q, "queue-aware"))
+            c, q = _headroom_point("qexp", hr, shape)
+            extra_pts.append((f"qexp({hr})", c, q, "qexp"))
+        render_cost_quality(sums,
+                            f"Cost vs quality — fleet-time vs promptness (Pareto frontier) — {shape}",
+                            f"{OUT}/10-cost-quality-{shape}.png",
+                            extra_points=extra_pts,
+                            label_overrides={"queue-aware": "qaware(1.3)",
+                                             "qexp": "qexp(1.3)"})

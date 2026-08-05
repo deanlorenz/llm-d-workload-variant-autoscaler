@@ -68,21 +68,47 @@ Readings: the **ideal** clairvoyant sizer is the only one that sees future arriv
 
 ---
 
-## Cost & waiting-time tradeoffs
+## Cost & waiting-time tradeoffs (reference: bump)
 
-Two cross-policy views on one axis — the full waiting-time CDF and the cost-vs-quality frontier.
+Two cross-policy views on one axis — the full waiting-time CDF and the cost-vs-quality frontier — on the calibration **bump** shape.
+
+**Cost vs quality — the Pareto frontier.** x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of offered served within 15s). The dashed line is the frontier over the **deployable** policies — anything below-and-right of it is dominated (something is both cheaper AND prompter). **ideal** is drawn apart as the clairvoyant reference (not deployable). This is where “same cost, better quality” becomes literal — on the reference **bump**: **setup-lag → queue-aware(1.3) → Qexp(1.3)** trace the frontier's steep left wall — each Pareto-optimal, a little more fleet-time for a lot more promptness — with Qexp the standout (89% within 15s at essentially queue-aware's cost). The extra hollow points are the two Q sizers swept to **headroom 1.5 and 2.0**: queue-aware climbs but every one of its points stays *below* Qexp, and both sizers' high-headroom variants are dominated by Qexp(1.3) — buying static margin costs real fleet-time for little extra quality, whereas anticipation is near-free. The fleet-heavy KEDA points (hpa-queue/combined) sit far to the right at ~2.5–3× the cost. The sustained shapes below stress this differently — read each shape's own frontier.
+
+![cost vs quality — bump](out/10-cost-quality-bump.png)
 
 **Waiting-time CDF — all policies on one axis.** Each curve is a policy's **wait CDF over the OFFERED denominator**: height at time *t* = share of all arrivals served within *t* s. Curves that asymptote **below 100%** stranded work (unfinished). Read left-to-right: the further up-and-left, the prompter. Legend carries each policy's billed fleet-cost, so promptness and cost read together. This is the same data as the Table's “≤Ns %” rows, shown continuously.
 
-![Waiting-time CDF — all policies on one axis](out/09-wait-cdf.png)
-
-**Cost vs quality — the Pareto frontier.** x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of offered served within 15s). The dashed line is the frontier over the **deployable** policies — anything below-and-right of it is dominated (something is both cheaper AND prompter). **ideal** is drawn apart as the clairvoyant reference (not deployable). This is where “same cost, better quality” becomes literal: **setup-lag → queue-aware(1.3) → Qexp(1.3)** trace the frontier's steep left wall — each Pareto-optimal, a little more fleet-time for a lot more promptness — with Qexp the standout (89% within 15s at essentially queue-aware's cost). The extra hollow points are the two Q sizers swept to **headroom 1.5 and 2.0**: queue-aware climbs (72→81→84%) but every one of its points stays *below* Qexp, and both sizers' high-headroom variants are dominated by Qexp(1.3) — buying static margin costs real fleet-time for little extra quality, whereas anticipation is near-free. The fleet-heavy KEDA points (hpa-queue/combined) sit far to the right at ~2.5–3× the cost.
-
-![Cost vs quality — the Pareto frontier](out/10-cost-quality.png)
+![waiting-time CDF — bump](out/09-wait-cdf-bump.png)
 
 ---
 
-## Scenarios
+## Demand shapes
+
+The same eight policies over five demand shapes. **bump** is the calibration reference; **trapezoid / step up / step down** stress sustained load and scale-down; **spike** is a teaching case (autoscaling is the wrong tool for a 6 s burst). Each panel is that shape's cost-vs-quality frontier; open [`out/index.html`](out/index.html) for the full per-shape galleries, waiting-time CDFs, and metric tables.
+
+**Bump** — a smooth triangular rise-and-fall (0 → peak → 0), the **calibration/reference** shape. Every constant (`drain_time=20`, `proj_setup=120`, `headroom=1.3`) is tuned here and the fleet fully drains at both ends. All narrative numbers in the Compare/Table prose are this shape's reference values.
+
+![cost vs quality — bump](out/10-cost-quality-bump.png)
+
+**Trapezoid** — ramp up to a *sustained plateau* at peak, then ramp down, over a low floor (≈ peak/3). Stresses the sizers in long steady-state, not just a transient — the anticipation vs reaction gap shows on both the up-ramp and the hold.
+
+![cost vs quality — trapezoid](out/10-cost-quality-trapezoid.png)
+
+**Step up** — an abrupt jump from a low floor to a *sustained high plateau that never recedes*. Stresses how fast each policy closes the gap after a step and where it settles.
+
+![cost vs quality — stepup](out/10-cost-quality-stepup.png)
+
+**Step down** — starts high, drops to a *sustained low floor*. Stresses scale-**down** discipline: how much fleet-time each policy wastes before releasing capacity it no longer needs (the uncapped WVA desired peaks are highest on this shape — the reason the actuation cap matters most here).
+
+![cost vs quality — stepdown](out/10-cost-quality-stepdown.png)
+
+**Spike — a teaching case, NOT a calibration shape.** A ~6-second burst to 3× peak, far shorter than the 90 s replica boot. The bottleneck here is **boot lag, not the sizing algorithm**: by the time an ordered replica finishes booting, the burst is long over. So every *achievable* policy that must spin up capacity — reactive, anticipatory, and both KEDA baselines — drops **between 7% and 57%** of requests. The clairvoyant **ideal** line *does* survive (0% failed), but only because it boots instantly — a fiction no real cluster gets. The one real policy that absorbs the burst cleanly is **No scaling** pinned at the max: 0% failed, because the replicas are already warm — paid for with ~5× the steady-state resource-seconds and ~14% utilisation the rest of the time. The lesson: for a burst shorter than your boot time, autoscaling is the *wrong tool* — only standing pre-provisioned headroom absorbs it, and that headroom is exactly what you pay to be spike-proof. Exact numbers are in the per-shape Table.
+
+![cost vs quality — spike](out/10-cost-quality-spike.png)
+
+---
+
+## Scenarios (reference: bump)
 
 ### 1 · Ideal
 
@@ -90,25 +116,25 @@ Two cross-policy views on one axis — the full waiting-time CDF and the cost-vs
 
 what does good look like? → 100% served ≤2s; never queues on a smooth bump
 
-![ideal](out/01-ideal.png)
+![ideal](out/01-ideal-bump.png)
 
 <details><summary>latency</summary>
 
-![ideal latency](out/01-ideal-latency.png)
+![ideal latency](out/01-ideal-bump-latency.png)
 
 </details>
 
 ### 2 · No scaling
 
-*fixed fleet pinned at maxReplicaCount=10 for the whole run · no autoscaler, pre-warmed (setup=0)*
+*fixed fleet pinned at the shape's maxReplicaCount for the whole run · no autoscaler, pre-warmed (setup=0)*
 
 what if you just provision for max and never scale? → 100% prompt (never queues on this bump), but the most expensive fleet (6001 rep·s ≈ 3.5× ideal) at the lowest utilisation (0.17) — promptness bought by paying for peak capacity through every valley
 
-![static](out/07-static.png)
+![static](out/07-static-bump.png)
 
 <details><summary>latency</summary>
 
-![static latency](out/07-static-latency.png)
+![static latency](out/07-static-bump-latency.png)
 
 </details>
 
@@ -118,11 +144,11 @@ what if you just provision for max and never scale? → 100% prompt (never queue
 
 does a correct policy survive 90s boot lag? → still completes 100%, but only ~36% served promptly (≤2s) and a 32s p90 wait. ⚠ confound: setup-lag→queue-aware changes TWO things at once (foresight lost, centered→trailing window, AND a backlog-drain term added) — not a clean A/B on the backlog term alone
 
-![setup-lag](out/02-setup-lag.png)
+![setup-lag](out/02-setup-lag-bump.png)
 
 <details><summary>latency</summary>
 
-![setup-lag latency](out/02-setup-lag-latency.png)
+![setup-lag latency](out/02-setup-lag-bump-latency.png)
 
 </details>
 
@@ -132,11 +158,11 @@ does a correct policy survive 90s boot lag? → still completes 100%, but only ~
 
 can a reactive backlog term rescue quality? → barely on promptness — 33% served ≤2s, roughly flat vs setup-lag's 36% — though it does lift the ≤15s share (55%→72%); and it worsens the p90 tail (32s→40s), chasing the backlog only after it has piled up during the boot. Reacting isn't enough — this is what motivates anticipation, see Qexp
 
-![queue-aware](out/03-queue-aware.png)
+![queue-aware](out/03-queue-aware-bump.png)
 
 <details><summary>latency</summary>
 
-![queue-aware latency](out/03-queue-aware-latency.png)
+![queue-aware latency](out/03-queue-aware-bump-latency.png)
 
 </details>
 
@@ -146,53 +172,53 @@ can a reactive backlog term rescue quality? → barely on promptness — 33% ser
 
 does anticipating the boot-window pile-up help? → decisively. Qexp serves 78% promptly (≤2s) vs reactive queue-aware's 33%, at essentially the same fleet cost (1920 vs 1872 prov·s, +3%), with a far shorter tail (p90 17.6s vs 40.2s) and a lower queue peak (428 vs 607). It orders sooner and HOLDS through the boot instead of chasing the queue after the fact — anticipation, not extra capacity, is what buys the quality. Still no foresight: it only projects the CURRENT queue forward (axis-2 dead-time compensation, not axis-1)
 
-![qexp](out/08-queue-aware-exp.png)
+![qexp](out/08-queue-aware-exp-bump.png)
 
 <details><summary>latency</summary>
 
-![qexp latency](out/08-queue-aware-exp-latency.png)
+![qexp latency](out/08-queue-aware-exp-bump-latency.png)
 
 </details>
 
 ### 6 · HPA queue
 
-*KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, cap 10*
+*KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, clamped to the shape's cap*
 
 naive queue-depth scaling (target 1)? → 64% prompt with a real slow tail (6.6% failed, p90 52.6s); pins at the maxReplicaCount=10 cap and still burns ~1.8× the ideal fleet (3159 vs 1714 rep·s) — the cold-start backlog dominates the tail
 
-![hpa-queue](out/04-hpa-queue.png)
+![hpa-queue](out/04-hpa-queue-bump.png)
 
 <details><summary>latency</summary>
 
-![hpa-queue latency](out/04-hpa-queue-latency.png)
+![hpa-queue latency](out/04-hpa-queue-bump-latency.png)
 
 </details>
 
 ### 7 · HPA concurrency
 
-*KEDA running-count · AverageValue target c≈58/replica → desired=ceil(R/c) · setup=90, cap 10*
+*KEDA running-count · AverageValue target c≈58/replica → desired=ceil(R/c) · setup=90, clamped to the shape's cap*
 
 concurrency-only scaling? → catastrophic: the running-count signal is capacity-capped (R ≤ n·usable_C), so it is BLIND to the 2004-deep queue behind it, stalls at 4 replicas, 74% wait >60s. Concurrency alone cannot outrun boot lag
 
-![hpa-concurrency](out/05-hpa-concurrency.png)
+![hpa-concurrency](out/05-hpa-concurrency-bump.png)
 
 <details><summary>latency</summary>
 
-![hpa-concurrency latency](out/05-hpa-concurrency-latency.png)
+![hpa-concurrency latency](out/05-hpa-concurrency-bump-latency.png)
 
 </details>
 
 ### 8 · HPA combined
 
-*KEDA both triggers · desired=max(queue, concurrency) · up on either, down on both · setup=90, cap 10*
+*KEDA both triggers · desired=max(queue, concurrency) · up on either, down on both · setup=90, clamped to the shape's cap*
 
 combining the two triggers (native KEDA max)? → the queue trigger rescues the concurrency blind spot; now the best-served fleet-heavy option (77% ≤2s, 95% ≤15s, p90 4.5s) at ~1.9× the ideal fleet (3242 rep·s), slightly beating queue-depth alone — the well-lit path's saturation+running pairing
 
-![hpa-combined](out/06-hpa-combined.png)
+![hpa-combined](out/06-hpa-combined-bump.png)
 
 <details><summary>latency</summary>
 
-![hpa-combined latency](out/06-hpa-combined-latency.png)
+![hpa-combined latency](out/06-hpa-combined-bump-latency.png)
 
 </details>
 

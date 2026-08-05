@@ -24,24 +24,24 @@ FULL_W = 1320
 # answers — they are false under this calibration.
 SCENARIOS = [
     {"key": "ideal", "label": "Ideal",
-     "png": "01-ideal.png", "latency": "01-ideal-latency.png",
+     "stem": "01-ideal",
      "setup": "setup=0 · size to CENTERED demand rate (DR) × headroom (clairvoyant)",
      "answers": "what does good look like? → 100% served ≤2s; never queues on a smooth bump"},
     {"key": "static", "label": "No scaling",
-     "png": "07-static.png", "latency": "07-static-latency.png",
-     "setup": "fixed fleet pinned at maxReplicaCount=10 for the whole run · no autoscaler, pre-warmed (setup=0)",
+     "stem": "07-static",
+     "setup": "fixed fleet pinned at the shape's maxReplicaCount for the whole run · no autoscaler, pre-warmed (setup=0)",
      "answers": "what if you just provision for max and never scale? → 100% prompt (never queues on this "
                 "bump), but the most expensive fleet (6001 rep·s ≈ 3.5× ideal) at the lowest utilisation "
                 "(0.17) — promptness bought by paying for peak capacity through every valley"},
     {"key": "setup-lag", "label": "Setup lag",
-     "png": "02-setup-lag.png", "latency": "02-setup-lag-latency.png",
+     "stem": "02-setup-lag",
      "setup": "setup=90 · the SAME demand-tracking commands as ideal, landing 90s late",
      "answers": "does a correct policy survive 90s boot lag? → still completes 100%, but only ~36% served promptly "
                 "(≤2s) and a 32s p90 wait. ⚠ confound: setup-lag→queue-aware changes TWO things at once (foresight "
                 "lost, centered→trailing window, AND a backlog-drain term added) — not a clean A/B on the backlog "
                 "term alone"},
     {"key": "queue-aware", "label": "Queue-aware",
-     "png": "03-queue-aware.png", "latency": "03-queue-aware-latency.png",
+     "stem": "03-queue-aware",
      "setup": "setup=90, drain_time=20 (the level-field backlog-drain deadline, shared with Qexp) · "
               "demand-tracking + backlog-drain (reactive, TRAILING)",
      "answers": "can a reactive backlog term rescue quality? → barely on promptness — 33% served ≤2s, roughly "
@@ -49,7 +49,7 @@ SCENARIOS = [
                 "tail (32s→40s), chasing the backlog only after it has piled up during the boot. Reacting isn't "
                 "enough — this is what motivates anticipation, see Qexp"},
     {"key": "qexp", "label": "Qexp (anticipatory)",
-     "png": "08-queue-aware-exp.png", "latency": "08-queue-aware-exp-latency.png",
+     "stem": "08-queue-aware-exp",
      "setup": "setup=90, drain_time=20, proj_setup=120 · anticipatory: a PERIODIC control loop that sizes to the "
               "backlog PEAK projected over the committed boot schedule (up now + pending at their estimated "
               "land-times), assuming a 120s boot lead (over-anticipates the true 90s). Reads only the observable "
@@ -61,24 +61,86 @@ SCENARIOS = [
                 "capacity, is what buys the quality. Still no foresight: it only projects the CURRENT queue forward "
                 "(axis-2 dead-time compensation, not axis-1)"},
     {"key": "hpa-queue", "label": "HPA queue",
-     "png": "04-hpa-queue.png", "latency": "04-hpa-queue-latency.png",
-     "setup": "KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, cap 10",
+     "stem": "04-hpa-queue",
+     "setup": "KEDA queue-depth · AverageValue target=1/replica → desired=ceil(Q) · setup=90, clamped to the shape's cap",
      "answers": "naive queue-depth scaling (target 1)? → 64% prompt with a real slow tail (6.6% failed, p90 52.6s); "
                 "pins at the maxReplicaCount=10 cap and still burns ~1.8× the ideal fleet (3159 vs 1714 rep·s) — "
                 "the cold-start backlog dominates the tail"},
     {"key": "hpa-concurrency", "label": "HPA concurrency",
-     "png": "05-hpa-concurrency.png", "latency": "05-hpa-concurrency-latency.png",
-     "setup": "KEDA running-count · AverageValue target c≈58/replica → desired=ceil(R/c) · setup=90, cap 10",
+     "stem": "05-hpa-concurrency",
+     "setup": "KEDA running-count · AverageValue target c≈58/replica → desired=ceil(R/c) · setup=90, clamped to the shape's cap",
      "answers": "concurrency-only scaling? → catastrophic: the running-count signal is capacity-capped (R ≤ n·usable_C), "
                 "so it is BLIND to the 2004-deep queue behind it, stalls at 4 replicas, 74% wait >60s. Concurrency alone "
                 "cannot outrun boot lag"},
     {"key": "hpa-combined", "label": "HPA combined",
-     "png": "06-hpa-combined.png", "latency": "06-hpa-combined-latency.png",
-     "setup": "KEDA both triggers · desired=max(queue, concurrency) · up on either, down on both · setup=90, cap 10",
+     "stem": "06-hpa-combined",
+     "setup": "KEDA both triggers · desired=max(queue, concurrency) · up on either, down on both · setup=90, clamped to the shape's cap",
      "answers": "combining the two triggers (native KEDA max)? → the queue trigger rescues the concurrency blind spot; "
                 "now the best-served fleet-heavy option (77% ≤2s, 95% ≤15s, p90 4.5s) at ~1.9× the ideal fleet "
                 "(3242 rep·s), slightly beating queue-depth alone — the well-lit path's saturation+running pairing"},
 ]
+
+
+# --------------------------------------------------------------------------
+# Demand shapes (mirrors run.py's DEMO_SHAPES). `bump` first (reference), `spike`
+# last (teaching-only). Short labels feed the picker buttons + gallery headings;
+# SHAPE_NOTES carries the per-shape banner prose (light markdown; _md_inline'd for
+# HTML, used verbatim in REPORT.md). Every scenario is rendered for every shape.
+# --------------------------------------------------------------------------
+SHAPES = [
+    ("bump",      "Bump"),
+    ("trapezoid", "Trapezoid"),
+    ("stepup",    "Step up"),
+    ("stepdown",  "Step down"),
+    ("spike",     "Spike"),
+]
+
+# Per-shape banner. bump = the calibration reference (all narrative numbers are
+# its); the three sustained shapes get a one-line "what this stresses" descriptor;
+# spike is the teaching banner (autoscaling is the wrong tool for a 6s burst).
+# NOTE: spike's concrete numbers are tuned to the actual capped run in verification
+# — the prose here is number-free on purpose so it can't drift from the figures.
+SHAPE_NOTES = {
+    "bump": "**Bump** — a smooth triangular rise-and-fall (0 → peak → 0), the "
+            "**calibration/reference** shape. Every constant (`drain_time=20`, "
+            "`proj_setup=120`, `headroom=1.3`) is tuned here and the fleet fully "
+            "drains at both ends. All narrative numbers in the Compare/Table prose "
+            "are this shape's reference values.",
+    "trapezoid": "**Trapezoid** — ramp up to a *sustained plateau* at peak, then "
+                 "ramp down, over a low floor (≈ peak/3). Stresses the sizers in "
+                 "long steady-state, not just a transient — the anticipation vs "
+                 "reaction gap shows on both the up-ramp and the hold.",
+    "stepup": "**Step up** — an abrupt jump from a low floor to a *sustained high "
+              "plateau that never recedes*. Stresses how fast each policy closes "
+              "the gap after a step and where it settles.",
+    "stepdown": "**Step down** — starts high, drops to a *sustained low floor*. "
+                "Stresses scale-**down** discipline: how much fleet-time each "
+                "policy wastes before releasing capacity it no longer needs "
+                "(the uncapped WVA desired peaks are highest on this shape — the "
+                "reason the actuation cap matters most here).",
+    "spike": "**Spike — a teaching case, NOT a calibration shape.** A ~6-second "
+             "burst to 3× peak, far shorter than the 90 s replica boot. The "
+             "bottleneck here is **boot lag, not the sizing algorithm**: by the time "
+             "an ordered replica finishes booting, the burst is long over. So every "
+             "*achievable* policy that must spin up capacity — reactive, "
+             "anticipatory, and both KEDA baselines — drops **between 7% and 57%** "
+             "of requests. The clairvoyant **ideal** line *does* survive (0% failed), "
+             "but only because it boots instantly — a fiction no real cluster gets. "
+             "The one real policy that absorbs the burst cleanly is **No scaling** "
+             "pinned at the max: 0% failed, because the replicas are already warm — "
+             "paid for with ~5× the steady-state resource-seconds and ~14% "
+             "utilisation the rest of the time. The lesson: for a burst shorter than "
+             "your boot time, autoscaling is the *wrong tool* — only standing "
+             "pre-provisioned headroom absorbs it, and that headroom is exactly what "
+             "you pay to be spike-proof. Exact numbers are in the per-shape Table.",
+}
+
+
+def fig_path(scen: dict, shape: str, kind: str = "main") -> str:
+    """Compose a scenario's figure filename for a shape. kind ∈ {main, latency}.
+    Mirrors run.py's `{stem}-{shape}.png` / `{stem}-{shape}-latency.png` output."""
+    stem = scen["stem"]
+    return f"{stem}-{shape}-latency.png" if kind == "latency" else f"{stem}-{shape}.png"
 
 # Per-row "what it means" annotations for the Table tab. Keyed by the row's first
 # cell (metric label, already stripped in summary.md). Percentile/family rows are
@@ -408,6 +470,27 @@ def render_table_html(headers, rows):
             f'<tbody>{"".join(body)}</tbody></table>')
 
 
+def render_tables_by_shape_html(out_dir=OUT) -> str:
+    """Table tab: a shape picker (JS-populated, class `shapepick`) plus one
+    server-rendered summary table per shape, each wrapped in a `data-shape` div
+    that the picker toggles. bump is visible by default; the rest are hidden until
+    selected. A missing summary-<shape>.md shows a hint in that shape's div."""
+    blocks = ['<div class="pick shapepick" data-shape-for="table"></div>']
+    for key, label in SHAPES:
+        headers, rows = parse_md_table(os.path.join(out_dir, f"summary-{key}.md"))
+        if headers:
+            inner = render_table_html(headers, rows)
+        else:
+            inner = (f'<p class="tnote">(no <code>summary-{esc(key)}.md</code> — run '
+                     f'<code>python run.py</code> first)</p>')
+        hide = "" if key == "bump" else ' style="display:none"'
+        note = SHAPE_NOTES.get(key)
+        banner = f'<p class="sw-note">{_md_inline(note)}</p>' if note else ""
+        blocks.append(f'<div data-shape="{esc(key)}"{hide}>'
+                      f'<h3 class="sw">{esc(label)}</h3>{banner}{inner}</div>')
+    return "".join(blocks)
+
+
 def render_glossary_html():
     items = "".join(
         f"<dt>{term}</dt><dd>{definition}</dd>" for term, definition in GLOSSARY)
@@ -556,50 +639,68 @@ def _sweep_table_html(tbl_lines) -> str:
     return "".join(out)
 
 
-# Cross-policy tradeoff figures for the Tradeoffs tab: (caption-title, png, note).
-# Rendered by run.py (render_wait_cdf / render_cost_quality).
-TRADEOFF_FIGS = [
-    ("Waiting-time CDF — all policies on one axis", "09-wait-cdf.png",
-     "Each curve is a policy's <b>wait CDF over the OFFERED denominator</b>: height "
-     "at time <i>t</i> = share of all arrivals served within <i>t</i> s. Curves that "
-     "asymptote <b>below 100%</b> stranded work (unfinished). Read left-to-right: the "
-     "further up-and-left, the prompter. Legend carries each policy's billed "
-     "fleet-cost, so promptness and cost read together. This is the same data as the "
-     "Table's “≤Ns %” rows, shown continuously."),
-    ("Cost vs quality — the Pareto frontier", "10-cost-quality.png",
-     "x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of "
-     "offered served within 15s). The dashed line is the frontier over the "
-     "<b>deployable</b> policies — anything below-and-right of it is dominated "
-     "(something is both cheaper AND prompter). <b>ideal</b> is drawn apart as the "
-     "clairvoyant reference (not deployable). This is where “same cost, better "
-     "quality” becomes literal: <b>setup-lag → queue-aware(1.3) → Qexp(1.3)</b> trace "
-     "the frontier's steep left wall — each Pareto-optimal, a little more fleet-time "
-     "for a lot more promptness — with Qexp the standout (89% within 15s at essentially "
-     "queue-aware's cost). The extra hollow points are the two Q sizers swept to "
-     "<b>headroom 1.5 and 2.0</b>: queue-aware climbs (72→81→84%) but every one of its "
-     "points stays <i>below</i> Qexp, and both sizers' high-headroom variants are "
-     "dominated by Qexp(1.3) — buying static margin costs real fleet-time for little "
-     "extra quality, whereas anticipation is near-free. The fleet-heavy KEDA points "
-     "(hpa-queue/combined) sit far to the right at ~2.5–3× the cost."),
-]
+# Cross-policy tradeoff figures are now rendered PER SHAPE by run.py:
+#   09-wait-cdf-<shape>.png   (waiting-time CDF overlay)
+#   10-cost-quality-<shape>.png (cost-vs-quality Pareto frontier)
+# The two "how to read" notes below are shared across all shapes and shown once
+# at the top of the Tradeoffs tab; the detailed frontier readings reference the
+# bump (calibration) shape, which is rendered first.
+CDF_NOTE = (
+    "Each curve is a policy's <b>wait CDF over the OFFERED denominator</b>: height "
+    "at time <i>t</i> = share of all arrivals served within <i>t</i> s. Curves that "
+    "asymptote <b>below 100%</b> stranded work (unfinished). Read left-to-right: the "
+    "further up-and-left, the prompter. Legend carries each policy's billed "
+    "fleet-cost, so promptness and cost read together. This is the same data as the "
+    "Table's “≤Ns %” rows, shown continuously.")
+PARETO_NOTE = (
+    "x = billed fleet-time (provisioned·seconds, the cost); y = promptness (% of "
+    "offered served within 15s). The dashed line is the frontier over the "
+    "<b>deployable</b> policies — anything below-and-right of it is dominated "
+    "(something is both cheaper AND prompter). <b>ideal</b> is drawn apart as the "
+    "clairvoyant reference (not deployable). This is where “same cost, better "
+    "quality” becomes literal — on the reference <b>bump</b>: <b>setup-lag → "
+    "queue-aware(1.3) → Qexp(1.3)</b> trace the frontier's steep left wall — each "
+    "Pareto-optimal, a little more fleet-time for a lot more promptness — with Qexp "
+    "the standout (89% within 15s at essentially queue-aware's cost). The extra "
+    "hollow points are the two Q sizers swept to <b>headroom 1.5 and 2.0</b>: "
+    "queue-aware climbs but every one of its points stays <i>below</i> Qexp, and "
+    "both sizers' high-headroom variants are dominated by Qexp(1.3) — buying static "
+    "margin costs real fleet-time for little extra quality, whereas anticipation is "
+    "near-free. The fleet-heavy KEDA points (hpa-queue/combined) sit far to the "
+    "right at ~2.5–3× the cost. The sustained shapes below stress this differently — "
+    "read each shape's own frontier.")
+
+
+def _tradeoff_fig_html(png, out_dir, caption) -> str:
+    """One cost-quality or wait-CDF figure (guarded) for the Tradeoffs tab."""
+    if not os.path.exists(os.path.join(out_dir, png)):
+        return (f'<p class="tnote">(no <code>{esc(png)}</code> — run '
+                f'<code>python run.py</code> first)</p>')
+    return (f'<figure class="tradefig"><figcaption class="figcap">{esc(caption)}</figcaption>'
+            f'<img src="{png}" alt="{esc(caption)}">'
+            f'<a class="zoom" href="{png}" target="_blank">open full size &#8599;</a>'
+            f"</figure>")
 
 
 def render_tradeoffs_html(out_dir=OUT) -> str:
-    """Embed the cross-policy CDF-overlay and cost-quality figures for the
-    Tradeoffs tab. Guarded per-figure: a missing PNG (run.py not run) is skipped
-    with a hint rather than a broken image."""
-    blocks = []
-    for title, png, note in TRADEOFF_FIGS:
-        if not os.path.exists(os.path.join(out_dir, png)):
-            blocks.append(f'<p class="tnote">(no <code>{esc(png)}</code> — run '
-                          f'<code>python run.py</code> first)</p>')
-            continue
-        blocks.append(
-            f"<h3 class='sw'>{esc(title)}</h3>"
-            f'<p class="sw-note">{note}</p>'
-            f'<figure class="tradefig"><img src="{png}" alt="{esc(title)}">'
-            f'<a class="zoom" href="{png}" target="_blank">open full size &#8599;</a>'
-            f"</figure>")
+    """Embed the cross-policy cost-quality + wait-CDF figures for EVERY shape as
+    separate figures (bump first). The two how-to-read notes are shown once at the
+    top; each shape gets its own heading + banner + the two figures. Guarded
+    per-figure: a missing PNG (run.py not run) is skipped with a hint."""
+    blocks = [
+        "<h3 class='sw'>How to read these two views</h3>",
+        f'<p class="sw-note"><b>Cost vs quality (Pareto).</b> {PARETO_NOTE}</p>',
+        f'<p class="sw-note"><b>Waiting-time CDF.</b> {CDF_NOTE}</p>',
+    ]
+    for key, label in SHAPES:
+        blocks.append(f"<h3 class='sw'>{esc(label)} — cost vs quality &amp; waiting-time CDF</h3>")
+        note = SHAPE_NOTES.get(key)
+        if note:
+            blocks.append(f'<p class="sw-note">{_md_inline(note)}</p>')
+        blocks.append(_tradeoff_fig_html(f"10-cost-quality-{key}.png", out_dir,
+                                         "Cost vs quality — the Pareto frontier"))
+        blocks.append(_tradeoff_fig_html(f"09-wait-cdf-{key}.png", out_dir,
+                                         "Waiting-time CDF — all policies on one axis"))
     return "".join(blocks)
 
 
@@ -609,7 +710,7 @@ def render_markdown(out_dir=OUT) -> str:
     identical scope to index.html — every rendered scenario, every metric row."""
     headers, rows = parse_md_table(os.path.join(out_dir, "summary.md"))
     scen = [s for s in SCENARIOS
-            if os.path.exists(os.path.join(out_dir, s["png"]))]
+            if os.path.exists(os.path.join(out_dir, fig_path(s, "bump", "main")))]
     md = []
     md.append("# Autoscaling Behavioral Demo — comparison report\n")
     md.append(INTRO + "\n")
@@ -632,26 +733,50 @@ def render_markdown(out_dir=OUT) -> str:
         md.append(_md_table(headers, rows) + "\n")
     md.append("</details>\n")
     md.append("---\n")
-    # Cross-policy tradeoff figures (CDF overlay + cost-quality frontier).
-    if any(os.path.exists(os.path.join(out_dir, p)) for _, p, _ in TRADEOFF_FIGS):
-        md.append("## Cost & waiting-time tradeoffs\n")
+    # Cross-policy tradeoff figures for the BUMP reference (CDF overlay +
+    # cost-quality frontier); the per-shape versions follow in "Demand shapes".
+    bump_pareto, bump_cdf = "10-cost-quality-bump.png", "09-wait-cdf-bump.png"
+    if any(os.path.exists(os.path.join(out_dir, p)) for p in (bump_pareto, bump_cdf)):
+        md.append("## Cost & waiting-time tradeoffs (reference: bump)\n")
         md.append("Two cross-policy views on one axis — the full waiting-time CDF and "
-                  "the cost-vs-quality frontier.\n")
-        for title, png, note in TRADEOFF_FIGS:
-            if os.path.exists(os.path.join(out_dir, png)):
-                md.append(f"**{title}.** {_html_to_md(note)}\n")
-                md.append(f"![{title}]({out_dir}/{png})\n")
+                  "the cost-vs-quality frontier — on the calibration **bump** shape.\n")
+        if os.path.exists(os.path.join(out_dir, bump_pareto)):
+            md.append(f"**Cost vs quality — the Pareto frontier.** {_html_to_md(PARETO_NOTE)}\n")
+            md.append(f"![cost vs quality — bump]({out_dir}/{bump_pareto})\n")
+        if os.path.exists(os.path.join(out_dir, bump_cdf)):
+            md.append(f"**Waiting-time CDF — all policies on one axis.** {_html_to_md(CDF_NOTE)}\n")
+            md.append(f"![waiting-time CDF — bump]({out_dir}/{bump_cdf})\n")
         md.append("---\n")
-    md.append("## Scenarios\n")
+    # Demand shapes — the headline cross-shape comparison: each shape's Pareto
+    # frontier. Full per-shape galleries + tables live in the interactive HTML.
+    if any(os.path.exists(os.path.join(out_dir, f"10-cost-quality-{k}.png"))
+           for k, _ in SHAPES):
+        md.append("## Demand shapes\n")
+        md.append("The same eight policies over five demand shapes. **bump** is the "
+                  "calibration reference; **trapezoid / step up / step down** stress "
+                  "sustained load and scale-down; **spike** is a teaching case "
+                  "(autoscaling is the wrong tool for a 6 s burst). Each panel is that "
+                  "shape's cost-vs-quality frontier; open [`out/index.html`](out/index.html) "
+                  "for the full per-shape galleries, waiting-time CDFs, and metric tables.\n")
+        for key, label in SHAPES:
+            png = f"10-cost-quality-{key}.png"
+            if os.path.exists(os.path.join(out_dir, png)):
+                # SHAPE_NOTES already leads with the bold shape name — no label prefix.
+                md.append(f"{_html_to_md(SHAPE_NOTES.get(key, ''))}\n")
+                md.append(f"![cost vs quality — {key}]({out_dir}/{png})\n")
+        md.append("---\n")
+    md.append("## Scenarios (reference: bump)\n")
     for i, s in enumerate(scen, 1):
         md.append(f"### {i} · {s['label']}\n")
         md.append(f"*{s['setup']}*\n")
         md.append(f"{s['answers']}\n")
         # REPORT.md sits one level above out/; the HTML lives inside out/ so it
-        # references bare filenames. Prefix out_dir for the markdown links.
-        md.append(f"![{s['key']}]({out_dir}/{s['png']})\n")
-        lat = s.get("latency")
-        if lat and os.path.exists(os.path.join(out_dir, lat)):
+        # references bare filenames. Prefix out_dir for the markdown links. The
+        # static fallback shows the bump reference figures (per-shape in the HTML).
+        main = fig_path(s, "bump", "main")
+        md.append(f"![{s['key']}]({out_dir}/{main})\n")
+        lat = fig_path(s, "bump", "latency")
+        if os.path.exists(os.path.join(out_dir, lat)):
             md.append("<details><summary>latency</summary>\n")
             md.append(f"![{s['key']} latency]({out_dir}/{lat})\n")
             md.append("</details>\n")
@@ -744,6 +869,14 @@ table.sum tr.base td{font-weight:700;}
 figure.tradefig{margin:0 0 26px;max-width:1100px;}
 figure.swfig{margin:2px 0 16px;max-width:1100px;}
 figure.tradefig img,figure.swfig img{max-width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:6px;background:#fff;}
+figcaption.figcap{font-size:12.5px;color:var(--muted);margin:0 0 4px;font-weight:600;}
+/* Browse gallery: one fit-to-width main figure per shape + a collapsed latency figure */
+.browse-gallery figure.browsefig{margin:0 0 4px;max-width:1100px;}
+.browse-gallery figure.browsefig img{max-width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:6px;background:#fff;}
+.browse-gallery details{margin:0 0 22px;max-width:1100px;}
+.browse-gallery details summary{cursor:pointer;color:var(--accent);font-size:13px;margin:4px 0;}
+/* shape switcher (Compare + Table) reuses .pick styling; banner note under it */
+p.shapebanner{max-width:1000px;margin:0 0 12px;}
 </style>
 </head>
 <body>
@@ -769,6 +902,8 @@ figure.tradefig img,figure.swfig img{max-width:100%;height:auto;display:block;bo
       <span>full detail</span>
       <span id="zoomval"></span>
     </div>
+    <div class="pick shapepick" data-shape-for="compare"></div>
+    <p class="tnote shapebanner" id="shapebanner-compare"></p>
     <div class="cmp">
       <div class="pane">
         <div class="pick" data-side="L"></div>
@@ -787,10 +922,10 @@ figure.tradefig img,figure.swfig img{max-width:100%;height:auto;display:block;bo
   <section class="view" id="view-browse">
     <div class="pick" data-side="B"></div>
     <div class="meta" id="meta-B"></div>
-    <div class="scroll"><figure><img id="img-B"></figure></div>
-    <a class="zoom" id="zoom-B" target="_blank">open full size &#8599;</a>
-    <p class="hint">latency — per-request time in system (coloured by request size):</p>
-    <div class="scroll"><figure><img id="img-Blat"></figure></div>
+    <p class="hint">Every demand shape for the selected policy — main figure plus a
+    collapsible latency figure. Numbers in the meta line above reference the bump shape;
+    see the Table tab for each shape's exact metrics.</p>
+    <div class="browse-gallery" id="browse-gallery"></div>
   </section>
   <section class="view" id="view-table">
     <p class="tnote">__READINGS__</p>
@@ -819,32 +954,85 @@ figure.tradefig img,figure.swfig img{max-width:100%;height:auto;display:block;bo
 </main>
 <script>
 const SCEN = __SCEN__;
+const SHAPES = __SHAPES__;            // [[key, short-label], ...]
+const SHAPE_NOTES = __SHAPENOTES__;   // {key: html banner}
 const FULL_W = __FULLW__;
 const DEFAULTS = {L:"setup-lag", R:"queue-aware", B:"ideal"};
-const state = Object.assign({}, DEFAULTS);
+const state = Object.assign({shape:"bump"}, DEFAULTS);
 const byKey = k => SCEN.find(s => s.key === k) || SCEN[0];
+// Compose a scenario's figure path for a shape — mirrors run.py + report.py fig_path.
+function figPath(s, shape, kind){
+  return kind === "latency" ? s.stem+"-"+shape+"-latency.png" : s.stem+"-"+shape+".png";
+}
 function fillMeta(el, s){ el.innerHTML = "<b>"+s.label+"</b> &mdash; "+s.setup+"<br>answers: "+s.answers; }
+// Compare panes (L / R): shape-aware, driven by state.shape.
 function renderSide(side){
   const s = byKey(state[side]);
+  const path = figPath(s, state.shape, "main");
   const img = document.getElementById("img-"+side);
-  img.src = s.png; img.alt = s.label;
+  img.src = path; img.alt = s.label;
   const zoom = document.getElementById("zoom-"+side);
-  if (zoom) zoom.href = s.png;
+  if (zoom) zoom.href = path;
   const meta = document.getElementById("meta-"+side);
   if (meta) fillMeta(meta, s);
-  if (side === "B") document.getElementById("img-Blat").src = s.latency || "";
   document.querySelectorAll('.pick[data-side="'+side+'"] button').forEach(b => {
     b.classList.toggle("sel", b.dataset.key === state[side]);
   });
   applyZoom();
 }
+// Browse: a gallery of ALL shapes for the selected policy (state.B).
+function renderBrowse(){
+  const s = byKey(state.B);
+  const meta = document.getElementById("meta-B");
+  if (meta) fillMeta(meta, s);
+  const g = document.getElementById("browse-gallery");
+  g.innerHTML = SHAPES.map(function(sh){
+    const key = sh[0], label = sh[1];
+    const main = figPath(s, key, "main"), lat = figPath(s, key, "latency");
+    const note = SHAPE_NOTES[key] ? '<p class="sw-note">'+SHAPE_NOTES[key]+'</p>' : '';
+    return "<h3 class='sw'>"+label+"</h3>" + note +
+      '<figure class="browsefig"><img loading="lazy" src="'+main+'" alt="'+label+'"></figure>' +
+      '<a class="zoom" href="'+main+'" target="_blank">open full size &#8599;</a>' +
+      '<details><summary>latency — per-request time in system (coloured by request size)</summary>' +
+      '<figure class="browsefig"><img loading="lazy" src="'+lat+'" alt="'+label+' latency"></figure>' +
+      '<a class="zoom" href="'+lat+'" target="_blank">open full size &#8599;</a></details>';
+  }).join("");
+  document.querySelectorAll('.pick[data-side="B"] button').forEach(b => {
+    b.classList.toggle("sel", b.dataset.key === state.B);
+  });
+}
+// Shape switcher shared by Compare + Table: swaps the compare panes + banner and
+// toggles the Table's per-shape divs. One state.shape drives both tabs.
+function setShape(shape){
+  state.shape = shape;
+  document.querySelectorAll('.shapepick button').forEach(b => {
+    b.classList.toggle("sel", b.dataset.shape === shape);
+  });
+  const banner = document.getElementById("shapebanner-compare");
+  if (banner) banner.innerHTML = SHAPE_NOTES[shape] || "";
+  document.querySelectorAll('#view-table [data-shape]').forEach(d => {
+    d.style.display = (d.dataset.shape === shape) ? "" : "none";
+  });
+  renderSide("L"); renderSide("R");
+}
 function buildPickers(){
-  document.querySelectorAll('.pick').forEach(p => {
+  // policy pickers only (data-side); shape pickers are built by buildShapePickers.
+  document.querySelectorAll('.pick[data-side]').forEach(p => {
     const side = p.dataset.side;
     SCEN.forEach(s => {
       const b = document.createElement("button");
       b.textContent = s.label; b.dataset.key = s.key;
-      b.onclick = () => { state[side] = s.key; renderSide(side); };
+      b.onclick = () => { state[side] = s.key; (side === "B" ? renderBrowse() : renderSide(side)); };
+      p.appendChild(b);
+    });
+  });
+}
+function buildShapePickers(){
+  document.querySelectorAll('.shapepick').forEach(p => {
+    SHAPES.forEach(function(sh){
+      const b = document.createElement("button");
+      b.textContent = sh[1]; b.dataset.shape = sh[0];
+      b.onclick = () => setShape(sh[0]);
       p.appendChild(b);
     });
   });
@@ -892,10 +1080,11 @@ function initTabs(){
     };
   });
 }
-buildPickers(); initTabs(); initSync();
+buildPickers(); buildShapePickers(); initTabs(); initSync();
 document.getElementById("zoomer").addEventListener("input", applyZoom);
 window.addEventListener("resize", applyZoom);
-["L","R","B"].forEach(renderSide);
+renderBrowse();
+setShape("bump");   // syncs shape pickers + banner + table divs and renders L/R
 </script>
 </body>
 </html>
@@ -904,23 +1093,26 @@ window.addEventListener("resize", applyZoom);
 
 def build(out_dir=OUT, out_html=None, md_path="REPORT.md"):
     out_html = out_html or os.path.join(out_dir, "index.html")
+    # A scenario is shown if its bump reference figure exists (all shapes share a stem).
     scen = [s for s in SCENARIOS
-            if os.path.exists(os.path.join(out_dir, s["png"]))]
-    headers, rows = parse_md_table(os.path.join(out_dir, "summary.md"))
+            if os.path.exists(os.path.join(out_dir, fig_path(s, "bump", "main")))]
+    shape_notes_html = {k: _md_inline(v) for k, v in SHAPE_NOTES.items()}
     html = (TEMPLATE
             .replace("__SCEN__", json.dumps(scen))
+            .replace("__SHAPES__", json.dumps(SHAPES))
+            .replace("__SHAPENOTES__", json.dumps(shape_notes_html))
             .replace("__FULLW__", str(FULL_W))
             .replace("__INTRO__", _md_inline(INTRO))
             .replace("__STORY__", _md_inline(STORY_NOTE))
             .replace("__READINGS__", _md_inline(READINGS))
-            .replace("__TABLE__", render_table_html(headers, rows))
+            .replace("__TABLE__", render_tables_by_shape_html(out_dir))
             .replace("__TRADEOFFS__", render_tradeoffs_html(out_dir))
             .replace("__SWEEPS__", render_sweeps_html(out_dir))
             .replace("__GLOSSARY__", render_glossary_html()))
     with open(out_html, "w") as f:
         f.write(html)
     print(f"[wrote {out_html}]  scenarios={[s['key'] for s in scen]}  "
-          f"table_rows={len(rows)}")
+          f"shapes={[k for k, _ in SHAPES]}")
     # REPORT.md is generated from the same sources → identical scope, no drift.
     with open(md_path, "w") as f:
         f.write(render_markdown(out_dir))
