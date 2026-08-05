@@ -5,7 +5,7 @@
 **Spec source:** [`ta-anchor-refactor-review.md`](ta-anchor-refactor-review.md) **Part 2** (§2.1–§2.7) — the corrected two-phase mechanism
 **Current-code map:** [`multi-analyzer-dataflow-map.md`](multi-analyzer-dataflow-map.md) (base `9906dac5`; §8 = reviewer annotations)
 **Base (interim):** `ta-anchor-goldens@a2f49ccf` — rebases onto `main` after goldens PR #1513 merges (see §11)
-**Branch (to cut):** `ta-anchor-refactor-v2` (not yet created — git op described in §11, executed by Dean/coder, not the planner)
+**Branch:** `ta-anchor-refactor-v2` — **created 2026-08-05** off `a2f49ccf` (goldens tip) per Dean's "create the worktrees" direction; local-only, push to origin pending Dean's explicit OK (see §11)
 **Supersedes:** [`ta-anchor-refactor-plan.md`](ta-anchor-refactor-plan.md) (stored-`.Anchor`-field design; now `Status: SUPERSEDED`) and the abandoned commit `ta-anchor-refactor@34055d77`
 **Companion:** [`ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) (PR-2, dependent — waits until this PR lands)
 **Ship gate:** the characterization goldens from [`ta-anchor-goldens-plan.md`](ta-anchor-goldens-plan.md) must stay green at every commit (decision-SET-identity, keyed by VariantName).
@@ -63,9 +63,9 @@
   - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L933:943
   - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L944:953
   - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L954:966
-- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L967:998
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L999:1045
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1046:1073
+- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L967:999
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L1000:1046
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1047:1074
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -977,10 +977,11 @@ the superseded plan used — only the branch name changes.
   commits (`68bda1a1`/`192ae06b`, on the *plans* branch — plan-doc edits, not code) are **superseded**
   by the no-stored-field design. Leave `34055d77` in place, unpushed, until Dean archives it with
   `git boidem ta-anchor-refactor` at his convenience — not urgent, no PR, no risk sitting there.
-- **This is a git operation outside the planner's write scope.** The planner does not create the
-  branch/worktree; it describes the ask in a handoff (see §"handoffs" in the task log) for Dean/the
-  coder to execute. Every code branch needs a matching origin branch — pushing `ta-anchor-refactor-v2`
-  to origin is subject to the "no push without explicit confirmation" rule.
+- **Worktree/branch created by the planner 2026-08-05** (off `a2f49ccf`, per Dean's explicit "finalize
+  the plans, create the worktrees and kickoff" direction — the standing "planner describes, Dean/coder
+  executes" default was overridden for this specific op). The branch is **local-only**; every code
+  branch needs a matching origin branch, but pushing `ta-anchor-refactor-v2` to origin is subject to the
+  "no push without explicit confirmation" rule and **awaits Dean's OK**.
 
 **Goldens gate (hard dependency).** #1513 must be green and its goldens present. Run them after every
 commit (§4, test 8). If #1513's `withSatEntry`-stability note (goldens review Finding 2) surfaces a
