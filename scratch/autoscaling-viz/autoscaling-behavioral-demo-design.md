@@ -1098,6 +1098,12 @@ This is a prior-art investigation, deferred; do not block workload implementatio
 
 ### 8.1 Next steps (immediate — do in this order)
 
+> ▶ **ACTIVE RESUME POINT (2026-08-05):** **item 10** below — level-field Qaware/Qexp
+> comparison (unify drain_time + headroom, pick Qexp's best projection from the sweep) +
+> sweep-result caching + then run the item-8 demand shapes. Items 1/6/7(b) remain open but
+> are **not** the live thread. Last commit on the viz: p1b polish `75f1f333` (lighter size
+> shades, stack-top outline, left legend). Item 7(a)/(b) sweeps landed (`fcabd6ab`).
+
 1. [ ] **Anticipation/control-theory prior-art search** (§7.2) — the visualization
    scan is already done (§7.1); this remaining one covers the *sizing math* only.
    Run it *before* writing any control-theory framing into §3. Verify or drop
@@ -1181,8 +1187,8 @@ This is a prior-art investigation, deferred; do not block workload implementatio
      Naturally downstream of the realistic plateaus (item 8). Note: with (a), W becomes
      load-dependent — a nice teaching point that Little assumes nothing about a constant
      service rate.
-8. [ ] **Realistic workload set** (§1.1(3), §6.2) — **GATED on item 7 (knob
-   exploration); do not implement until Dean gives the go-ahead.** Add
+8. [ ] **Realistic workload set** (§1.1(3), §6.2) — **GO-AHEAD GIVEN (2026-08-05:
+   *"we need to run those tests too"*); sequenced AFTER item 10 (a)–(d).** Add
    fixtures to `rate_profile` for shapes that contain steady states so right-sizing
    is visible:
    - **Trapezoid** — baseline → ramp → **hold peak** → ramp → baseline (full
@@ -1203,6 +1209,46 @@ This is a prior-art investigation, deferred; do not block workload implementatio
    selector: **first pick a category, then the particular workload.** Category names
    **TBD** — "teaching" vs "real" are placeholders Dean wants improved. Open design;
    affects `out/index.html` construction in `report.py` only.
+
+10. [ ] **ACTIVE (2026-08-05) — level-field Qaware/Qexp comparison + sweep caching + then
+    demand shapes.** Dean's review of the 7(a)/7(b) sweeps: *"Qaware looks optimized, Qexp does
+    not (same as Qaware now) — hard to compare the two as is."* Put both Q sizers on an even
+    field, then run the realistic workloads. Four coupled sub-tasks — (a)/(b)/(c) all touch the
+    same `run.py` constants and need one fresh sweep to settle the values:
+
+    - **(a) Unified `drain_time = 20` for BOTH Q sizers** — this **REVERSES** the earlier split
+      (Qexp was pinned at 30 because its *own* drain=20 regresses good%/cost — see the current
+      `DRAIN_TIME`/`QAWARE_DRAIN_TIME` split + comments in `run.py`). Dean's ruling: **level
+      field beats Qexp's absolute numbers** — *"If 20 is good then lets use that result for Qexp
+      too… compare them on a level field."* Do NOT re-apply the "Qexp regresses at 20" reasoning
+      to keep them split. Action: collapse the two constants back to one `DRAIN_TIME = 20`; point
+      `scenario_queue_aware_exp()` at it; update `sweep.py` stars/`BASE_DRAIN` (both Q sizers now
+      star drain=20); re-sync `report.py`'s SCENARIOS/READINGS prose (Qexp numbers *will* shift
+      worse — expected, note it, not a bug).
+    - **(b) Unified `HEADROOM` across ALL algorithms** — one value used by every sizer, *"grown
+      enough to improve the Qaware alg without changing cost much."* Candidate from the
+      last sweep (RE-VERIFY on a fresh sweep — these predate the drain=20 unification):
+      qaware `1.2 → 1.35` = good%(≤2s) `34.6 → 41.2` but prov·s `2139 → 2387` (**+11.6% — too
+      much cost** for "not much"; try a smaller step ~1.25–1.3, or read the knee off fig 14/15).
+      **Judgment call — present the cost/quality tradeoff to Dean before committing the value.**
+    - **(c) Qexp main plot uses the BEST `proj_setup` from the sweep** — *"The projection is only
+      in Qexp. The plot we show should be the best one using our sweep results."* proj=90 was the
+      peak-good% honest value at the OLD drain=30/hr=1.2 operating point (Qexp Pareto point
+      ≈(2043 prov·s, 75.0% within≤15s)); it is **NOT valid** after (a)/(b) move the operating
+      point. Re-run the `proj_setup` sweep at the new drain/headroom, then pick.
+    - **(d) Sweep-result caching** — *"Sweeping is challenging… save previous results and avoid
+      rerunning the whole thing… anything we tested should be saved, unless it takes very little
+      time to recreate."* **Measured timing (2026-08-05):** full `sweep.py` = **21.1s**; a single
+      simulation run = **0.19s**. So: cache at **single-run granularity**, keyed by a hash of
+      `(sizer, headroom, drain_time, proj_setup, + sim params, seed)`; invalidate on any
+      sim-param change; skip the memo for runs that are trivially cheap. Modest ROI for one full
+      grid, real payoff for repeated *partial* re-sweeps during interactive knob-tuning. Small
+      effort — a JSON/pickle memo keyed by param hash, read at sweep start / written per point.
+
+    **Then item 8** (realistic demand shapes) — Dean confirmed the item-7 gate is effectively
+    lifted: *"we need to run those tests too."* Trapezoid / level-shift up / level-shift down,
+    `lo ≈ 8` / `hi = 24` req/s — already fully specified in item 8. These proposals were captured
+    there (this is the "is it captured anywhere" Dean asked about — **yes, §8.1 item 8**).
 
 ### 8.2 Later (deferred — do not start without direction)
 
