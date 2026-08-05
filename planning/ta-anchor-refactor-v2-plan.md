@@ -28,43 +28,43 @@
   - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L144:166
   - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L167:185
   - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L186:207
-- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L208:245
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L246:261
-- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L262:341
-  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L269:289
-  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L290:329
-  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L330:341
-- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L342:479
-  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L352:384
-  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L385:399
-  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L400:419
-  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L420:433
-  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L434:453
-  - [2f. Tests (this commit)](#2f-tests-this-commit) L454:479
-- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L480:547
-  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L486:516
-  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L517:532
-  - [7c-tests (this commit)](#7c-tests-this-commit) L533:547
-- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L548:623
-  - [The gap](#the-gap) L555:563
-  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L564:597
-  - [The ranking-inversion guard (MANDATORY — the corrected bug)](#the-ranking-inversion-guard-mandatory--the-corrected-bug) L598:610
-  - [Test (this commit)](#test-this-commit) L611:623
-- [§7c Partial scale-from-zero — documentation only, no code](#7c-partial-scale-from-zero--documentation-only-no-code) L624:649
-- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L650:692
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L693:719
-- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L720:808
-  - [Struct / field](#struct--field) L726:734
-  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L735:745
-  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L746:754
-  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L755:764
-  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L765:774
-  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L775:785
-  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L786:795
-  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L796:808
-- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L809:840
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L841:871
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L872:895
+- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L208:255
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L256:271
+- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L272:351
+  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L279:299
+  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L300:339
+  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L340:351
+- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L352:505
+  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L362:398
+  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L399:416
+  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L417:436
+  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L437:450
+  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L451:470
+  - [2f. Tests (this commit)](#2f-tests-this-commit) L471:505
+- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L506:582
+  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L512:551
+  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L552:567
+  - [7c-tests (this commit)](#7c-tests-this-commit) L568:582
+- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L583:667
+  - [The gap](#the-gap) L590:598
+  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L599:641
+  - [The ranking-inversion guard (MANDATORY — the corrected bug)](#the-ranking-inversion-guard-mandatory--the-corrected-bug) L642:654
+  - [Test (this commit)](#test-this-commit) L655:667
+- [§7c Partial scale-from-zero — documentation only, no code](#7c-partial-scale-from-zero--documentation-only-no-code) L668:693
+- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L694:736
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L737:763
+- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L764:852
+  - [Struct / field](#struct--field) L770:778
+  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L779:789
+  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L790:798
+  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L799:808
+  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L809:818
+  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L819:829
+  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L830:839
+  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L840:852
+- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L853:884
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L885:915
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L916:939
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -108,7 +108,7 @@ change to the combine arithmetic**:
 | Config (`analyzers:` list) | Behavior |
 |---|---|
 | *(empty / default)* → `[saturation]` | today's behavior, byte-identical decisions (goldens, §4) |
-| `[saturation, throughput]` | both vote; sat binds the anchor (PR-1 single-vote); pre-existing multi-entry combine |
+| `[saturation, throughput]` | both vote (pre-existing 2-entry combine, unchanged); sat is the single **anchor-binder**. Expected bit-identical to **main's `[sat,TA]`**, not to `[sat]` — see §3 / §2f Test 9. |
 | `[throughput]` only | TA binds the anchor; sat present only as the identity/(a) carrier, does **not** vote |
 
 **The corrected model (supersedes the stored-`.Anchor` design).** There is **no stored anchor field**.
@@ -221,10 +221,20 @@ the binding analyzer is missing a variant, proving the fallback still resolves f
 
 - **The combine arithmetic is unchanged.** `initRoleState`, `fairShareValue`, `applyAllocation`,
   `scaleDownRoleIterated` keep their exact math. The only thing that changes for combine is *which
-  entries are in the ballot* (pruned to voting via `votingResults`), not how they combine. In the
-  default and `[sat,TA]` configs, `votingResults` returns the same slice as today — so combine is
-  bit-identical there (goldens, §4). The only config where the combine *set* differs is `[TA]`-only,
-  which is new capability, not a goldens regression.
+  entries are in the ballot* (pruned to voting via `votingResults`), not how they combine.
+  - **Default (`[saturation]`) path:** `votingResults` returns the same single entry as today and the
+    combine math is untouched → decisions are bit-identical, and **this is what the #1513 goldens
+    prove** (§4). The goldens cover the default path *only*.
+  - **`[sat,TA]` path:** both analyzers already vote today (this is the **pre-existing 2-entry
+    combine**, unchanged). "PR-1 single-vote" in the §1 table refers to a single **anchor-binder**
+    (sat binds the anchor's (b)), **not** a single combine entry — the ballot genuinely has two voting
+    entries and `votingResults` returns both. So `[sat,TA]` decisions are expected bit-identical to
+    **main's `[sat,TA]`** (not to `[sat]`), because the refactor changes zero combine arithmetic and
+    `votingResults` returns the same set. **The goldens do NOT prove this** — they are sat-only. The
+    regression backstop for `[sat,TA]` is the dedicated characterization test added in §2f (Test 9),
+    not the goldens.
+  - **`[TA]`-only path:** the only config where the combine *set* differs from main (sat is pruned out
+    of the ballot) — new capability, not a goldens regression.
 - **Partial scale-from-zero picker changes** (§2.4 of the review) — §7c documents the reliance on the
   existing `scalefromzero` reactive net + the §7b proactive complement; the cost-efficiency picker is
   NOT made "trustworthy for zero-replica candidates" in this PR. Documentation only.
@@ -357,7 +367,11 @@ read site. This is the largest commit; the read-site inventory is §10.
   churn is limited to the name + variable rename). New body:
 
   1. **Find the (a) carrier:** scan `s` for `e.Name == domain.SaturationAnalyzerName` with a non-nil
-     `Result`; call it `satNR`. (May be present even when `!satNR.Enabled`.)
+     `Result`; call it `satNR`. (May be present even when `!satNR.Enabled`.) **Reader-note:** `satNR.Live`
+     is populated for *every* ballot entry (sat included) by the existing `updateLivenessAndSetLive`
+     pass at the end of Phase 1 (`engine_v2.go:~172`, §5 1b) — sat is **not** exempt from liveness
+     tagging, so the `satNR.Live` read in step 2 is always meaningful. (The default-path goldens
+     enforce this indirectly: sat binds only because its `Live` is set true.)
   2. **Select the binding analyzer** (the (b)/sizing source), by this rule:
      - if `satNR != nil && satNR.Enabled && satNR.Live && ResultIsInformative(satNR)` → **binding = sat**
        (this is the default and `[sat,TA]` case — sat binds whenever it votes, which is why the
@@ -392,8 +406,11 @@ read site. This is the largest commit; the read-site inventory is §10.
   // The anchor build (bindingAnchor) reads the FULL ballot, not this pruned view.
   func votingResults(s []NamedAnalyzerResult) []NamedAnalyzerResult { /* filter e.Enabled */ }
   ```
-  In the default and `[sat,TA]` configs this returns the same entries as `s` (all Enabled) → combine
-  is bit-identical (goldens). In `[TA]`-only it drops the non-voting sat entry.
+  In the default and `[sat,TA]` configs this returns the same entries as `s` (all Enabled) → the
+  combine input set is unchanged from main. In the default path that identity is proven by the #1513
+  goldens (§4); in `[sat,TA]` it is an argument-from-unchanged-code (goldens do **not** cover
+  `[sat,TA]`), backstopped by the §2f Test 9 characterization test. In `[TA]`-only it drops the
+  non-voting sat entry (the one config where the combine set differs — new capability).
 
 [↑ TOC](#toc)
 
@@ -471,6 +488,15 @@ test intends to vote. This is the complete fixture scope — a handful of lines,
   result leaves it empty (it comes from sat's (a) through the merge). This is a characterization test
   of the read-source wiring so a later change can't silently repoint it; rescale TA-only *correctness*
   stays PR-2.
+- **Test 9 — `[sat,TA]` combine characterization (the V5 backstop; goldens do NOT cover this).**
+  A two-voting-entry ballot (`saturation` + `throughput`, both `Enabled`), exercised through the full
+  combine path (`votingResults` → `initRoleState`/`fairShareValue`/`applyAllocation`). Freeze the
+  resulting decision SET (keyed by `VariantName`, same shape as the #1513 goldens) as this test's
+  expectation. Purpose: the #1513 goldens prove only the sat-only default path is unchanged; nothing
+  else proves the `[sat,TA]` path is bit-identical to main. This test is that proof — it must stay
+  green at every commit, and if a later change perturbs the `[sat,TA]` combine it fails loudly. Build
+  the expectation from the **current (pre-refactor) main** behavior for the same fixture so it is a
+  true characterization, not a re-blessing of the refactored output.
 - **Test 8 — goldens (#1513) green.** Run after this commit.
 
 [↑ TOC](#toc)
@@ -484,6 +510,15 @@ test intends to vote. This is the complete fixture scope — a handful of lines,
 fallback); and "no analyzer can bind for a model" holds that model at its last-good replicas.
 
 ### 7a. QM-as-error (decision 1)
+
+**When this case fires (verify before writing).** The QM path is **not** activated by the `analyzers:`
+list — it is activated by the *presence* of a queueing-model ConfigMap. `analyzerName` is set to
+`domain.QueueingModelAnalyzerName` at [`engine.go:522-524`](../../Main/internal/engines/saturation/engine.go#L522)
+guarded by `hasQMAnalyzerConfig` ("ConfigMap takes priority over saturation analyzerName"), and that
+name then routes the dispatch switch below. So the refusal must sit in the **dispatch case body** (it
+fires whenever the ConfigMap selects QM); it must **not** be gated on the `analyzers:` list, or a
+QM-ConfigMap deployment would slip past the refusal. Confirm `hasQMAnalyzerConfig` is still the sole
+activation trigger before finalizing.
 
 - [`engine.go:553-554`](../../Main/internal/engines/saturation/engine.go#L553) — the dispatch switch
   case:
@@ -570,9 +605,18 @@ gets cleared" is `lastFittedB` (~:37-40). Extend the **same** pattern:
 
 1. **Struct change** — add to `variantState` (alongside `lastPerReplicaSupply`): persisted
    `lastCost float64` and `lastAcceleratorName string`. Set them at the **same** success site that
-   sets `lastPerReplicaSupply` (~:319-322), from that cycle's live values. Same eviction window as
-   `lastFittedB` / `lastPerReplicaSupply` (entries evicted after `2×DefaultObservationMaxAge`, ~60 min
-   idle) — so the fallback self-expires; no extra logic.
+   sets `lastPerReplicaSupply` (~:319-322). **Concrete source (this is a NEW read — verify):** the
+   values come from the `variantMetrics` rows already in scope at that site (`variantMetrics
+   []domain.ReplicaMetrics`, the current loop value from `byVariant`). `domain.ReplicaMetrics` carries
+   both `Cost` (`saturation_analyzer.go:59`, "from CRD spec, default 10") and `AcceleratorName`
+   (`:53`), populated per-pod by the collector (`replica_metrics.go:1046,1049`). **TA reads neither
+   field today** — a grep of `throughput/analyzer.go` for `Cost`/`AcceleratorName` returns nothing —
+   so this is genuinely new plumbing, not a re-read. All replicas of one variant share the same cost
+   and accelerator, so read them off any row (e.g. `variantMetrics[0].Cost` /
+   `variantMetrics[0].AcceleratorName`); the coder should confirm `variantMetrics` is non-empty at the
+   success site (it is — the site only runs when the variant had ≥1 metric-bearing replica this cycle).
+   Same eviction window as `lastFittedB` / `lastPerReplicaSupply` (entries evicted after
+   `2×DefaultObservationMaxAge`, ~60 min idle) — so the fallback self-expires; no extra logic.
 2. **Second loop** — after the existing `byVariant` loop, iterate `input.VariantStates`:
    ```go
    for _, vs := range input.VariantStates {
