@@ -16,14 +16,14 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [Why this doc exists {#why}](#why-this-doc-exists-why) L28:69
 - [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L70:116
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L117:149
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:306
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L307:357
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L358:438
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L439:469
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L470:503
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L504:571
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L572:632
-- [Open questions {#open}](#open-questions-open) L633:672
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L150:311
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L312:362
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L363:443
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L444:474
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L475:508
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L509:576
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L577:637
+- [Open questions {#open}](#open-questions-open) L638:677
 
 ## Why this doc exists {#why}
 
@@ -210,13 +210,18 @@ values. The anchor is **refreshed each iteration** of the allocation loop (multi
 reflects the current binding analyzer (which can shift as replicas are added and coverage changes);
 binding is state-dependent, so under multi-vote the anchor's (b) is recomputed, not computed once.
 
-**Implementation note (coder-deferred).** The exact partition of the struct's fields into (a) vs (b),
-and the precise copy mechanism, are lower-level decisions left to the coder — "it should be more cleanly
-split, but not now" (Dean). Two equivalent mechanisms produce the same optimizer inputs: (i) put
-sat-v2's (b) on the ballot only when sat-v2 is enabled, then copy the first entry's (b) onto the anchor;
-or (ii) always full-copy sat-v2's (a)+(b) into the anchor, and copy the first entry's (b) only when
-sat-v2 is *not* on the ballot (when it is, its (b) is already the anchor's and it is first). Both yield
-the same end state: **anchor = (a) + (b, the binding analyzer's); ballot = (b) per analyzer.**
+**Implementation note (materialization — corrected 2026-08-05).** There is **no stored anchor field**.
+The anchor is **derived on demand** by a Phase-2 getter (`bindingAnchor`, successor to `saturationEntry`)
+that builds a fresh `*AnalyzerResult` **merged per variant, keyed by `VariantName`** — (a) identity fields
+from saturation's entry for that name, (b) sizing fields from the binding analyzer's entry for that same
+name, with a per-variant fallback to saturation's own (b) when the binding analyzer omits a variant (and
+that fallback runs *before* any non-voting entry is pruned from the combine ballot). The end state is
+unchanged — **anchor = (a) + (b, the binding analyzer's); ballot = (b) per analyzer** — only the
+materialization differs: it is recomputed at each read site rather than stored on the request. (An earlier
+draft of this note described two equivalent stored-field "copy mechanisms" (i)/(ii) plus a positional
+"first enabled ballot entry" copy; that stored-field design was superseded — see
+[`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md).) The exact partition of fields into (a)
+vs (b) is the contract table below and is unchanged.
 
 **Anchor field contract.** Per `(role, variant)` anchor entry:
 

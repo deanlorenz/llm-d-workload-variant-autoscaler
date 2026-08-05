@@ -20,8 +20,8 @@
 - [§0 Status — why this is a stub](#0-status--why-this-is-a-stub) L26:46
 - [§1 Scope — the both-enabled dynamic case](#1-scope--the-both-enabled-dynamic-case) L47:70
 - [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L71:94
-- [§3 Per-iteration dynamic refresh](#3-per-iteration-dynamic-refresh) L95:109
-- [§4 Ship gate & tests (to be detailed)](#4-ship-gate--tests-to-be-detailed) L110:124
+- [§3 Per-iteration dynamic refresh](#3-per-iteration-dynamic-refresh) L95:116
+- [§4 Ship gate & tests (to be detailed)](#4-ship-gate--tests-to-be-detailed) L117:131
 
 ## §0 Status — why this is a stub
 
@@ -101,6 +101,13 @@ binding's (b) onto the anchor. (a) and the per-analyzer RC/SC are never touched.
 is memoized is an implementation detail to settle at scoping (correctness is identical either way);
 the observable contract is "anchor's (b) = the current per-role binding vote's, refreshed per
 iteration."
+
+> **Forward-note (2026-08-05, after the PR-1 mechanism redesign).** PR-1
+> ([`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md)) has **no stored anchor field** — the
+> anchor is derived on demand by the Phase-2 getter. So "refresh per iteration" here means **re-running
+> that getter** (re-select the per-role binding, re-merge) each iteration, **not** mutating a stored cell
+> in place. The observable contract above is unchanged; only re-scope the mechanism to "re-invoke the
+> Phase-2 getter" when this stub is expanded.
 
 [↑ TOC](#toc)
 
