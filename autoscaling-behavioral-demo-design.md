@@ -1130,15 +1130,21 @@ This is a prior-art investigation, deferred; do not block workload implementatio
 
 ### 8.1 Next steps (immediate — do in this order)
 
-> ▶ **ACTIVE RESUME POINT (2026-08-05):** **item 10** below. Sub-tasks **(a)/(b)/(c) DONE**
-> — `run.py` now has a single shared `DRAIN_TIME=20`, `SAT_FRAC=0.85`, `HEADROOM=1.3`, and
-> the fresh drain-20 `proj_setup` sweep picked **`QEXP_PROJ_SETUP=120`** (good% plateau 78 %
-> at 120–135, best tail before the flap; §3(ii)); `sweep.py` unified `BASE_DRAIN`/`BASE_HR`;
-> §2.3/§2.6/§3(ii)/§6 narrative all re-synced to the new calibration. **Remaining:** **(d)**
-> sweep-table caching + **item 8** realistic demand shapes (trapezoid / level-shift up/down)
-> **with a workload-stability re-sweep** to confirm `(drain=20, hr=1.3, sat=0.85, proj=120)`
-> holds across shapes. Items 1/6/7(b) remain open but are **not** the live thread. Last viz
-> commit: p1b polish `75f1f333`; item 7(a)/(b) sweeps landed (`fcabd6ab`).
+> ▶ **BATCH COMPLETE (2026-08-05) — committed `a8c763d2`.** Item 10 **(a)/(b)/(c)/(d) DONE**
+> and **item 8 DONE**: `run.py` has a single shared `DRAIN_TIME=20`, `SAT_FRAC=0.85`,
+> `HEADROOM=1.3`, `QEXP_PROJ_SETUP=120` (good% plateau 78 % at 120–135, best tail before the
+> flap; §3(ii)); `sweep.py` unified `BASE_DRAIN`/`BASE_HR` **and memoizes table data to
+> `out/.sweep-cache.json`** (item 10(d): ~22 s cold → ~1.6 s warm, source-hash invalidated,
+> plots.py excluded); §2.3/§2.6/§3(ii)/§6 narrative + `report.py` all re-synced to the new
+> calibration. **Item 8 verdict** (`stability.py` → `out/stability.md`): re-swept
+> trapezoid/step-up/step-down (nonzero floor) — `proj_setup=120` and the headroom knee **HOLD**
+> across all shapes; `drain=20` is FLAGGED only because it is the deliberate level-field
+> constant, **not** re-tuned (shape-best is drain=3 by construction). So `(drain=20, hr=1.3,
+> sat=0.85, proj=120)` is confirmed shape-robust, not a bump artefact. Also folded in: the
+> cost-quality frontier now overlays both Q sizers at headroom 1.5/2.0 (hollow markers —
+> anticipation dominates static margin). **Open (NOT live threads):** item 1 (control-theory
+> prior-art search, §7.2/§7.3), item 6, item 7(b) framing. Prior viz commits: p1b polish
+> `75f1f333`; item 7(a)/(b) sweeps `fcabd6ab`.
 
 1. [ ] **Anticipation/control-theory prior-art search** (§7.2) — the visualization
    scan is already done (§7.1); this remaining one covers the *sizing math* only.
