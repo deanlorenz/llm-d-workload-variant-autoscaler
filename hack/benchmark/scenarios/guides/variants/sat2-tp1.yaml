@@ -1,0 +1,21 @@
+# Single-variant WVA saturation-V2 set for the TA basic e2e system test.
+#
+# One variant of the model, TP=1 (1 GPU per replica), driven by WVA between
+# 1 and 2 replicas as saturation rises and falls (the 1->2->1 scaling test).
+# `deployed: true` means this is the variant standup already created, so no
+# extra Deployment is materialized -- configure_variants.py just attaches a
+# KEDA ScaledObject at this cost/min/max to the standup Deployment.
+#
+# parallelism / resources are informational here: the deployed variant's shape
+# is already baked in by standup, so those fields are ignored for a deployed
+# entry (kept for parity with the standup scenario's TP=1 / 1-GPU footprint).
+variants:
+  - suffix: tp1
+    deployed: true
+    variantCost: "10.0"
+    minReplicas: 1
+    maxReplicas: 2
+    parallelism:
+      tensor: 1
+    resources:
+      nvidia.com/gpu: 1

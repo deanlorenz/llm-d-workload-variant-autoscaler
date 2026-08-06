@@ -1,0 +1,20 @@
+# [REQUIRED]
+{% set base_dir = base_dir | default('../') -%}
+base_dir: {{ base_dir }}
+
+# [REQUIRED]
+values_file:
+  path: {{ base_dir }}/config/templates/values/defaults.yaml
+
+# [REQUIRED]
+template_dir:
+  path: {{ base_dir }}/config/templates/jinja
+
+# [OPTIONAL]
+scenario_file:
+  path: {{ base_dir }}/config/scenarios/guides/wva-sat2-tp1.yaml
+
+# Single-variant TP=1 (1 GPU per replica) WVA saturation-V2 scenario.
+# Minimal footprint for harness validation and the TA 1->2->1 e2e scaling
+# test. Pass BENCHMARK_MODEL_ID=<chat-templated / instruct model> when
+# invoking `make benchmark-standup`.

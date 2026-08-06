@@ -1,54 +1,79 @@
 #!/usr/bin/env python3
 """
-add_variant.py — Add a WVA variant to an existing single-stack benchmark.
+configure_variants.py — Configure a benchmark's WVA variant set from one YAML.
 
-Supports N variants. Run once per variant to add. Each variant gets its own
-KEDA ScaledObject with the llm-d.ai/managed annotation that WVA discovers.
+A benchmark deploys exactly one decode Deployment at standup. This script reads
+a variant-set config that lists one or more variants of the *same* model and,
+for each, ensures a KEDA ScaledObject that WVA discovers (via the
+llm-d.ai/managed annotation) and drives. There is no "primary"/"secondary":
+every entry is just a variant of the model, distinguished by cost and shape
+(tensor-parallelism / GPUs-per-pod). The variants may be brought up in any
+order; one of them simply happens to be the one standup already created.
 
-On the first run the script also creates a ScaledObject for the primary
-deployment (if one does not already exist), converting any legacy direct HPA
-that the benchmark harness may have created.
+Exactly one entry is marked `deployed: true` — the variant standup created.
+Its ScaledObject is attached to the existing Deployment (converting any legacy
+direct HPA the harness may have left). Every other entry is materialized as a
+new Deployment (cloned from the deployed one with TP / GPU / label overrides)
+plus its own ScaledObject.
 
-Implements Topology B: one shared InferencePool/EPP fed by two or more
+A single-variant config (one entry, `deployed: true`) therefore just attaches an
+autoscaler to the standup Deployment — no extra Deployment is created. A
+two-variant config adds one more.
+
+Common per-test setup (run once, independent of variant count):
+  - a KEDA TriggerAuthentication (`wva-prometheus-auth`) borrowing the WVA
+    controller SA token so Prometheus triggers authenticate to Thanos Querier
+    (without it every trigger 401s → falls back to replicas=1 → nothing scales);
+  - correcting the deployed Deployment's `llm-d.ai/variant` pod label so WVA's
+    collector attributes its metrics/demand correctly.
+
+Implements Topology B: one shared InferencePool/EPP fed by one or more
 Deployments, each with its own KEDA ScaledObject at a different
-llm-d.ai/variant-cost. The WVA cost-aware optimizer scales the most efficient
-variant (best capacity per unit cost) first and spills to the others.
+llm-d.ai/variant-cost. With >1 variant, the WVA cost-aware optimizer scales the
+most efficient variant (best capacity per unit cost) first and spills to the
+others.
 
 Label strategy
 --------------
-The InferencePool created by the primary standup selects pods by:
+The InferencePool created by standup selects pods by:
   llm-d.ai/inferenceServing: "true"   (camelCase)
   llm-d.ai/model:            <hash>
 
-The variant Deployment this script creates:
+A created (non-deployed) variant Deployment:
   - KEEPS  llm-d.ai/inferenceServing + llm-d.ai/model  → joins the pool
   - ADDS   wva.llmd.ai/variant: <suffix>                → unique selector
   - ADDS   llm-d.ai/variant:    <variant-name>          → unique selector
 
-The primary Deployment's selector is whatever the standup created (it varies by
-deploy path: kustomize, Helm modelservice chart, etc.).  The primary never claims
-variant pods at runtime because Kubernetes ownerReferences make each pod owned by
-exactly one Deployment's ReplicaSet; a ReplicaSet only adopts orphan pods.
+The deployed Deployment's selector is whatever standup created (it varies by
+deploy path: kustomize, Helm modelservice chart, etc.).  It never claims
+created-variant pods at runtime because Kubernetes ownerReferences make each pod
+owned by exactly one Deployment's ReplicaSet; a ReplicaSet only adopts orphans.
 
-All ScaledObjects share the same llm-d.ai/model-id annotation so the WVA
-solver groups them under one model and applies cost-weighted scaling.
+All ScaledObjects share the same llm-d.ai/model-id annotation so the WVA solver
+groups them under one model and applies cost-weighted scaling.
+
+Config schema
+-------------
+  variants:
+    - suffix: tp1              # required, unique; names the variant
+      deployed: true           # exactly one entry; attaches SO to the standup Deployment
+      variantCost: "10.0"      # default "5.0"
+      minReplicas: 1           # default 1
+      maxReplicas: 2           # default 10
+      parallelism:
+        tensor: 1              # rewrites --tensor-parallel-size (created variants only)
+      resources:
+        nvidia.com/gpu: 1      # limits+requests on GPU containers (created variants only)
+
+For the `deployed: true` entry the parallelism / resources fields are ignored
+(its shape is already baked in by standup); only cost / min / max apply.
 
 Usage
 -----
-  python hack/benchmark/add_variant.py -n NAMESPACE \\
+  python hack/benchmark/configure_variants.py -n NAMESPACE \\
       --config hack/benchmark/scenarios/guides/variants/<name>.yaml \\
-      --prometheus-url https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
-
-The variant config yaml declares only what differs from the primary:
-
-  suffix: v2                     # required; added variant name suffix
-  variantCost: "5.0"             # default "5.0"
-  minReplicas: 1                 # default 1
-  maxReplicas: 10                # default 10
-  parallelism:
-    tensor: 2                    # rewrites --tensor-parallel-size
-  resources:
-    nvidia.com/gpu: 2            # mirrors limits + requests on GPU containers
+      --prometheus-url https://thanos-querier.openshift-monitoring.svc.cluster.local:9091 \\
+      --accelerator-name NVIDIA-H100-80GB-HBM3
 """
 
 import argparse
@@ -96,33 +121,6 @@ def kubectl_delete(kind, name, namespace, dry_run=False):
     kubectl("delete", kind, name, "-n", namespace, "--ignore-not-found=true")
 
 
-def fix_variant_pod_label(dep_name, namespace, correct_value, dry_run=False):
-    """Patch a Deployment's pod template `llm-d.ai/variant` label to
-    `correct_value` if it doesn't already match. WVA's collector trusts this
-    label as-is whenever it's present (see make_variant_deployment's comment)
-    -- a wrong value silently drops that pod's demand contribution rather
-    than erroring, so scenario-yaml-hardcoded or stale values on the primary
-    Deployment need the same correction the variant gets at creation time.
-    Only patches spec.template.metadata.labels (safe: not part of the
-    Deployment's immutable spec.selector), so no immutable-field conflict.
-    """
-    current = kubectl("get", "deployment", dep_name, "-n", namespace,
-                       "-o", "jsonpath={.spec.template.metadata.labels.llm-d\\.ai/variant}",
-                       check=False).strip()
-    if current == correct_value:
-        return
-    print(f"      Correcting {dep_name}'s llm-d.ai/variant label: "
-          f"{current!r} -> {correct_value!r}")
-    if dry_run:
-        print(f"[dry-run] kubectl patch deployment {dep_name} -n {namespace} "
-              f"--type=merge -p ...llm-d.ai/variant={correct_value}")
-        return
-    patch = json.dumps({
-        "spec": {"template": {"metadata": {"labels": {"llm-d.ai/variant": correct_value}}}}
-    })
-    kubectl("patch", "deployment", dep_name, "-n", namespace, "--type=merge", "-p", patch)
-
-
 def _strip_managed(obj):
     """Remove server-managed fields before re-applying as a new object."""
     meta = obj.setdefault("metadata", {})
@@ -144,49 +142,81 @@ def _strip_managed(obj):
 # Variant config parsing
 # ---------------------------------------------------------------------------
 
-CONFIG_DEFAULTS = {
+VARIANT_DEFAULTS = {
     "variantCost": "5.0",
     "minReplicas": 1,
     "maxReplicas": 10,
+    "deployed": False,
 }
 
 
-def load_variant_config(path):
-    """Load a variant override yaml, validate, and apply defaults."""
+def _fail(msg):
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def _validate_variant_entry(entry, path, idx):
+    """Validate one variants[] entry in place, applying defaults."""
+    if not isinstance(entry, dict):
+        _fail(f"{path}: variants[{idx}] must be a mapping, got "
+              f"{type(entry).__name__}")
+    suffix = entry.get("suffix")
+    if not isinstance(suffix, str) or not suffix:
+        _fail(f"{path}: variants[{idx}] must set a non-empty 'suffix'")
+    for k, v in VARIANT_DEFAULTS.items():
+        entry.setdefault(k, v)
+    entry["variantCost"] = str(entry["variantCost"])
+    entry["minReplicas"] = int(entry["minReplicas"])
+    entry["maxReplicas"] = int(entry["maxReplicas"])
+    entry["deployed"] = bool(entry["deployed"])
+    return entry
+
+
+def load_variants_config(path):
+    """Load a variant-set yaml, validate, apply defaults, return the list.
+
+    The document is a mapping with a non-empty `variants:` list. Each entry is
+    validated by _validate_variant_entry. Suffixes must be unique and exactly
+    one entry must set `deployed: true` (the variant standup already created).
+    """
     p = Path(path)
     if not p.is_file():
-        print(f"ERROR: variant config not found: {p}", file=sys.stderr)
-        sys.exit(1)
+        _fail(f"variant config not found: {p}")
     try:
-        cfg = yaml.safe_load(p.read_text()) or {}
+        doc = yaml.safe_load(p.read_text()) or {}
     except yaml.YAMLError as e:
-        print(f"ERROR: failed to parse {p}: {e}", file=sys.stderr)
-        sys.exit(1)
-    if not isinstance(cfg, dict):
-        print(f"ERROR: variant config {p} must be a yaml mapping, got "
-              f"{type(cfg).__name__}", file=sys.stderr)
-        sys.exit(1)
-    if "suffix" not in cfg or not isinstance(cfg["suffix"], str) or not cfg["suffix"]:
-        print(f"ERROR: variant config {p} must set non-empty 'suffix'",
-              file=sys.stderr)
-        sys.exit(1)
-    for k, v in CONFIG_DEFAULTS.items():
-        cfg.setdefault(k, v)
-    cfg["variantCost"] = str(cfg["variantCost"])
-    cfg["minReplicas"] = int(cfg["minReplicas"])
-    cfg["maxReplicas"] = int(cfg["maxReplicas"])
-    return cfg
+        _fail(f"failed to parse {p}: {e}")
+    if not isinstance(doc, dict) or "variants" not in doc:
+        _fail(f"variant config {p} must be a mapping with a 'variants:' list")
+    variants = doc["variants"]
+    if not isinstance(variants, list) or not variants:
+        _fail(f"variant config {p}: 'variants' must be a non-empty list")
+    seen = set()
+    for i, entry in enumerate(variants):
+        _validate_variant_entry(entry, p, i)
+        if entry["suffix"] in seen:
+            _fail(f"variant config {p}: duplicate suffix {entry['suffix']!r}")
+        seen.add(entry["suffix"])
+    deployed = [e for e in variants if e["deployed"]]
+    if len(deployed) != 1:
+        _fail(f"variant config {p}: exactly one entry must set 'deployed: true' "
+              f"(found {len(deployed)})")
+    return variants
 
 
 # ---------------------------------------------------------------------------
 # Resource discovery
 # ---------------------------------------------------------------------------
 
-def find_primary_deployment(namespace):
+def find_deployed_deployment(namespace):
+    """Return the decode Deployment standup created (the one without a
+    wva.llmd.ai/variant selector). Created variants carry that selector, so
+    they are excluded -- exactly one un-suffixed decode Deployment is expected.
+    """
     out = kubectl("get", "deployment", "-n", namespace, "-o", "json")
     items = json.loads(out)["items"]
 
-    def _is_primary(d):
+    def _is_deployed(d):
         sel = d.get("spec", {}).get("selector", {}).get("matchLabels", {})
         if sel.get("llm-d.ai/role") != "decode":
             return False
@@ -194,18 +224,19 @@ def find_primary_deployment(namespace):
             return False
         return True
 
-    primaries = [d for d in items if _is_primary(d)]
-    if not primaries:
-        print("ERROR: No primary decode deployment found "
+    deployed = [d for d in items if _is_deployed(d)]
+    if not deployed:
+        print("ERROR: No standup-deployed decode deployment found "
               "(spec.selector must include llm-d.ai/role=decode and must not "
               "include wva.llmd.ai/variant)",
               file=sys.stderr)
         sys.exit(1)
-    if len(primaries) > 1:
-        names = [d["metadata"]["name"] for d in primaries]
-        print(f"ERROR: Multiple primary deployments found: {names}.", file=sys.stderr)
+    if len(deployed) > 1:
+        names = [d["metadata"]["name"] for d in deployed]
+        print(f"ERROR: Multiple un-suffixed decode deployments found: {names}.",
+              file=sys.stderr)
         sys.exit(1)
-    return primaries[0]
+    return deployed[0]
 
 
 def find_managed_scaledobject(namespace, deployment_name):
@@ -225,15 +256,37 @@ def find_managed_scaledobject(namespace, deployment_name):
     return None
 
 
+def _hpa_scales_on_wva(hpa):
+    """True if hpa has an external metric on wva_desired_replicas."""
+    for m in hpa.get("spec", {}).get("metrics", []):
+        ext = m.get("external") or {}
+        if (ext.get("metric") or {}).get("name") == "wva_desired_replicas":
+            return True
+    return False
+
+
 def find_managed_hpa(namespace, deployment_name):
-    """Return the direct HPA with llm-d.ai/managed=true targeting deployment_name, or None."""
-    out = kubectl("get", "hpa", "-n", namespace, "-o", "json")
-    hpas = json.loads(out)["items"]
+    """Return a pre-existing HPA on deployment_name that the KEDA ScaledObject
+    replaces, or None.
+
+    KEDA's admission webhook rejects a ScaledObject while any HPA already
+    targets the same Deployment. We remove one when it is clearly prior WVA
+    scaling wiring -- either llm-d.ai/managed=true, or a direct external-metrics
+    HPA scaling on the wva_desired_replicas metric (as the benchmark harness or
+    an earlier manual run leaves behind, without the managed annotation). An
+    unrelated user-created HPA is left untouched so the conflict surfaces
+    instead of being silently deleted.
+    """
+    out = kubectl("get", "hpa", "-n", namespace, "-o", "json", check=False)
+    try:
+        hpas = json.loads(out)["items"]
+    except (json.JSONDecodeError, KeyError):
+        return None
     for hpa in hpas:
-        ann = hpa.get("metadata", {}).get("annotations", {})
-        if ann.get("llm-d.ai/managed") != "true":
+        if hpa.get("spec", {}).get("scaleTargetRef", {}).get("name") != deployment_name:
             continue
-        if hpa.get("spec", {}).get("scaleTargetRef", {}).get("name") == deployment_name:
+        ann = hpa.get("metadata", {}).get("annotations", {})
+        if ann.get("llm-d.ai/managed") == "true" or _hpa_scales_on_wva(hpa):
             return hpa
     return None
 
@@ -580,127 +633,143 @@ def make_trigger_authentication(namespace, token_secret):
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Per-variant configuration
 # ---------------------------------------------------------------------------
 
-def main():
-    ap = argparse.ArgumentParser(
-        description="Add a WVA variant to an existing benchmark deployment."
-    )
-    ap.add_argument("-n", "--namespace", required=True,
-                    help="Kubernetes namespace")
-    ap.add_argument("--config", required=True,
-                    help="Path to a variant override yaml (see module docstring)")
-    ap.add_argument("--prometheus-url", required=True,
-                    help="Prometheus server URL for KEDA triggers")
-    ap.add_argument("--accelerator-name", required=True,
-                    help="Node GPU accelerator label (inference.optimization/acceleratorName) "
-                         "WVA uses to resolve k1/k2 and accelerator-specific saturation metrics")
-    ap.add_argument("--primary-cost", required=True,
-                    help="variant-cost annotation for a bootstrapped primary ScaledObject "
-                         "(used only when no existing HPA/ScaledObject is found)")
-    ap.add_argument("--primary-min", type=int, required=True,
-                    help="minReplicaCount for a bootstrapped primary ScaledObject")
-    ap.add_argument("--primary-max", type=int, required=True,
-                    help="maxReplicaCount for a bootstrapped primary ScaledObject")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Print manifests as JSON without applying")
-    args = ap.parse_args()
+def resolve_shared_model_id(namespace, dep_name, deployed_dep):
+    """Determine the llm-d.ai/model-id every ScaledObject in the set shares.
 
-    ns = args.namespace
-    cfg = load_variant_config(args.config)
-    suffix = cfg["suffix"]
+    Prefer whatever a prior run or the harness already stamped (an existing
+    managed ScaledObject, then a legacy managed HPA), then fall back to
+    detecting the served model from the deployed Deployment's vLLM args/env,
+    then the Deployment name.
+    """
+    so = find_managed_scaledobject(namespace, dep_name)
+    if so is not None:
+        mid = so.get("metadata", {}).get("annotations", {}).get("llm-d.ai/model-id")
+        if mid:
+            return mid
+    hpa = find_managed_hpa(namespace, dep_name)
+    if hpa is not None:
+        mid = hpa.get("metadata", {}).get("annotations", {}).get("llm-d.ai/model-id")
+        if mid:
+            return mid
+    return detect_model_id(deployed_dep) or dep_name
 
-    print(f"[1/4] Finding primary decode Deployment in namespace '{ns}'...")
-    primary_dep = find_primary_deployment(ns)
-    dep_name = primary_dep["metadata"]["name"]
-    model_hash = (primary_dep.get("spec", {}).get("selector", {})
-                  .get("matchLabels", {}).get("llm-d.ai/model", "?"))
-    primary_containers = _all_containers(primary_dep)
-    primary_tp = _read_tensor_parallel(primary_containers) or "1"
-    primary_gpu = _read_gpu_per_pod(primary_containers) or "1"
-    print(f"      {dep_name}  (llm-d.ai/model={model_hash})")
 
-    print(f"[2/3] Ensuring TriggerAuthentication for Thanos Querier access...")
-    token_secret = find_wva_token_secret(ns)
-    print(f"      Using SA token secret: {token_secret}")
-    trigger_auth = make_trigger_authentication(ns, token_secret)
-    kubectl_apply(trigger_auth, dry_run=args.dry_run)
+def remove_variantautoscaling_for(ns, dep_name, dry_run=False):
+    """Delete the deprecated VariantAutoscaling CR that targets dep_name, if any.
 
-    print(f"[3/4] Resolving primary ScaledObject...")
-    primary_so = find_managed_scaledobject(ns, dep_name)
+    Annotation-based discovery replaces the CRD path. A lingering VariantAutoscaling
+    keeps WVA's own controller-created HPA alive and double-emits
+    wva_desired_replicas under the CR's name, so it must go before the annotated
+    ScaledObject takes over. Idempotent: does nothing if the CRD or CR is absent.
+    """
+    out = kubectl("get", "variantautoscaling", "-n", ns, "-o", "json", check=False)
+    try:
+        items = json.loads(out)["items"]
+    except (json.JSONDecodeError, KeyError):
+        return
+    for va in items:
+        name = va.get("metadata", {}).get("name", "")
+        target = va.get("spec", {}).get("scaleTargetRef", {}).get("name", "")
+        if target == dep_name or name == dep_name:
+            print(f"  Deleting deprecated VariantAutoscaling CR: {name}")
+            kubectl_delete("variantautoscaling", name, ns, dry_run=dry_run)
 
-    # The modelservice chart unconditionally stamps llm-d.ai/variant=<model_id_label>-decode
-    # on primary's pod template (13_ms-values.yaml.j2, gated only on wva.enabled) whenever
-    # WVA is enabled -- independent of any scenario-yaml override. That value is baked into
-    # the Deployment's *selector* too (selector must be a subset of template labels), so it
-    # is immutable once created. Rather than fight an upstream chart default we can't
-    # durably patch, align the ScaledObject's own name to whatever the chart already put
-    # there (read live, not assumed) so WVA's collector attributes primary's metrics
-    # correctly without touching the Deployment at all -- root-caused 2026-07-25/26.
-    existing_variant_label = kubectl(
-        "get", "deployment", dep_name, "-n", ns,
-        "-o", "jsonpath={.spec.template.metadata.labels.llm-d\\.ai/variant}",
-        check=False,
-    ).strip()
-    primary_so_name = existing_variant_label or f"{dep_name}-scaler"
 
-    if primary_so is None:
-        # First run: check for legacy direct HPA left by the benchmark harness
-        legacy_hpa = find_managed_hpa(ns, dep_name)
-        if legacy_hpa is not None:
-            hpa_ann = legacy_hpa.get("metadata", {}).get("annotations", {})
-            model_id = hpa_ann.get("llm-d.ai/model-id") or detect_model_id(primary_dep)
-            primary_cost = hpa_ann.get("llm-d.ai/variant-cost", args.primary_cost)
-            primary_min = legacy_hpa.get("spec", {}).get("minReplicas", args.primary_min)
-            primary_max = legacy_hpa.get("spec", {}).get("maxReplicas", args.primary_max)
-            print(f"      Found legacy direct HPA '{legacy_hpa['metadata']['name']}' "
-                  f"(model-id={model_id}, cost={primary_cost}) — converting to ScaledObject")
-        else:
-            model_id = detect_model_id(primary_dep) or dep_name
-            primary_cost = args.primary_cost
-            primary_min = args.primary_min
-            primary_max = args.primary_max
-            print(f"      No ScaledObject or HPA found — creating primary ScaledObject "
-                  f"(model-id={model_id}, cost={primary_cost})")
+def configure_deployed_variant(deployed_dep, cfg, ns, model_id, args):
+    """Attach a WVA-managed KEDA ScaledObject to the standup-deployed Deployment.
 
-        primary_so_obj = make_variant_scaledobject(
-            dep_name=dep_name,
-            so_name=primary_so_name,
-            model_id=model_id,
-            cost=primary_cost,
-            min_replicas=primary_min,
-            max_replicas=primary_max,
-            namespace=ns,
-            prometheus_url=args.prometheus_url,
-            accelerator_name=args.accelerator_name,
+    Annotation-only discovery: the ScaledObject carries llm-d.ai/managed=true and
+    WVA synthesizes an in-memory VariantAutoscaling named after the ScaledObject
+    itself (internal/utils/variant_fromannotations.go: va.Name = so.Name), so it
+    emits wva_desired_replicas{variant_name=<so_name>, namespace=<ns>}.
+
+    No llm-d.ai/variant pod label is used or required: with the label absent the
+    collector's buildInstanceKey (internal/collector/replica_metrics.go) falls to
+    the owner-walk and attributes the decode pods to this ScaledObject by name.
+
+    Steps (each deletion idempotent / dry-run-aware):
+      - delete the deprecated VariantAutoscaling CR for this Deployment;
+      - delete any direct HPA targeting it (KEDA's webhook rejects a ScaledObject
+        while an HPA already targets the same scaleTargetRef) -- but never KEDA's
+        own wva-keda-hpa-<dep> or a ScaledObject-owned HPA (re-run safety);
+      - remove a stale managed ScaledObject under a different name;
+      - apply the ScaledObject built from this entry's cost / min / max, so the
+        YAML stays the source of truth on re-runs.
+
+    Returns a summary dict for the final table.
+    """
+    dep_name = deployed_dep["metadata"]["name"]
+    so_name = f"{dep_name}-scaler"
+
+    # Deprecated CRD path -> annotation path: remove the CR (and thus the HPA it owns).
+    remove_variantautoscaling_for(ns, dep_name, dry_run=args.dry_run)
+
+    # A prior run may have left a managed ScaledObject under a different name.
+    existing_so = find_managed_scaledobject(ns, dep_name)
+    if existing_so is not None and existing_so["metadata"]["name"] != so_name:
+        stale = existing_so["metadata"]["name"]
+        print(f"  Removing stale managed ScaledObject: {stale}")
+        kubectl_delete("scaledobject", stale, ns, dry_run=args.dry_run)
+
+    # KEDA rejects a ScaledObject while any HPA still targets the Deployment. Skip
+    # KEDA's own managed HPA and any ScaledObject-owned HPA so re-runs don't fight KEDA.
+    keda_hpa_name = f"wva-keda-hpa-{dep_name}"
+    legacy_hpa = find_managed_hpa(ns, dep_name)
+    if legacy_hpa is not None:
+        hpa_name = legacy_hpa["metadata"]["name"]
+        owned_by_so = any(
+            o.get("kind") == "ScaledObject"
+            for o in legacy_hpa.get("metadata", {}).get("ownerReferences", [])
         )
-        # Delete the legacy HPA BEFORE creating the ScaledObject:
-        # KEDA's admission webhook rejects a ScaledObject if a managed HPA
-        # already targets the same deployment.
-        if legacy_hpa is not None and not args.dry_run:
-            hpa_name = legacy_hpa["metadata"]["name"]
-            print(f"  Deleting legacy direct HPA first: {hpa_name}")
+        if hpa_name != keda_hpa_name and not owned_by_so:
+            print(f"  Deleting direct HPA first (KEDA will manage its own): {hpa_name}")
             kubectl_delete("hpa", hpa_name, ns, dry_run=args.dry_run)
 
-        print(f"  Applying primary ScaledObject: {primary_so_name}")
-        kubectl_apply(primary_so_obj, dry_run=args.dry_run)
-    else:
-        ann = primary_so.get("metadata", {}).get("annotations", {})
-        model_id = ann.get("llm-d.ai/model-id") or detect_model_id(primary_dep) or dep_name
-        primary_cost = ann.get("llm-d.ai/variant-cost", args.primary_cost)
-        primary_so_name = primary_so["metadata"]["name"]
-        print(f"      {primary_so_name}  (model-id={model_id}, cost={primary_cost})")
+    so_obj = make_variant_scaledobject(
+        dep_name=dep_name,
+        so_name=so_name,
+        model_id=model_id,
+        cost=cfg["variantCost"],
+        min_replicas=cfg["minReplicas"],
+        max_replicas=cfg["maxReplicas"],
+        namespace=ns,
+        prometheus_url=args.prometheus_url,
+        accelerator_name=args.accelerator_name,
+    )
+    print(f"  Applying ScaledObject: {so_name}  "
+          f"(cost={cfg['variantCost']}, min={cfg['minReplicas']}, max={cfg['maxReplicas']})")
+    kubectl_apply(so_obj, dry_run=args.dry_run)
 
-    fix_variant_pod_label(dep_name, ns, primary_so_name, dry_run=args.dry_run)
+    containers = _all_containers(deployed_dep)
+    return {
+        "role": "deployed",
+        "suffix": cfg["suffix"],
+        "dep_name": dep_name,
+        "so_name": so_name,
+        "cost": cfg["variantCost"],
+        "tp": _read_tensor_parallel(containers) or "1",
+        "gpu": _read_gpu_per_pod(containers) or "1",
+    }
 
-    print(f"[4/4] Creating variant '{suffix}'  "
-          f"variantCost={cfg['variantCost']}  modelID={model_id}")
 
+def create_variant(deployed_dep, cfg, ns, model_id, args):
+    """Materialize a new variant Deployment plus its ScaledObject.
+
+    The Deployment is cloned from the deployed one with this entry's TP / GPU /
+    label overrides applied. The ScaledObject carries an ownerReference to the
+    new Deployment so deleting the Deployment garbage-collects the autoscaler.
+
+    Returns a summary dict for the final table.
+    """
+    dep_name = deployed_dep["metadata"]["name"]
+    suffix = cfg["suffix"]
     var_dep_name = f"{dep_name}-{suffix}"
     var_so_name = f"{var_dep_name}-scaler"
 
-    var_dep = make_variant_deployment(primary_dep, cfg, ns)
+    var_dep = make_variant_deployment(deployed_dep, cfg, ns)
     var_so = make_variant_scaledobject(
         dep_name=var_dep_name,
         so_name=var_so_name,
@@ -716,9 +785,9 @@ def main():
     print(f"  Applying Deployment: {var_dep_name}")
     kubectl_apply(var_dep, dry_run=args.dry_run)
 
-    # Owner refs on ScaledObject point to the variant Deployment so that
-    # deleting the Deployment also garbage-collects the ScaledObject.
-    # Must read the UID after applying the Deployment.
+    # Owner refs on the ScaledObject point to the variant Deployment so deleting
+    # the Deployment also garbage-collects the ScaledObject. The UID is only
+    # available after the Deployment is applied.
     if not args.dry_run:
         var_dep_uid = json.loads(kubectl(
             "get", "deployment", var_dep_name, "-n", ns, "-o", "json",
@@ -733,26 +802,95 @@ def main():
         }
         var_so.setdefault("metadata", {}).setdefault("ownerReferences", []).append(owner_ref)
 
-    print(f"  Applying ScaledObject: {var_so_name}")
+    print(f"  Applying ScaledObject: {var_so_name}  "
+          f"(cost={cfg['variantCost']}, min={cfg['minReplicas']}, max={cfg['maxReplicas']})")
     kubectl_apply(var_so, dry_run=args.dry_run)
 
+    var_containers = _all_containers(var_dep)
+    return {
+        "role": "created",
+        "suffix": suffix,
+        "dep_name": var_dep_name,
+        "so_name": var_so_name,
+        "cost": cfg["variantCost"],
+        "tp": _read_tensor_parallel(var_containers) or "1",
+        "gpu": _read_gpu_per_pod(var_containers) or "1",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Configure a benchmark's WVA variant set from one YAML "
+                    "(no primary/secondary; exactly one entry is the "
+                    "standup-deployed variant)."
+    )
+    ap.add_argument("-n", "--namespace", required=True,
+                    help="Kubernetes namespace")
+    ap.add_argument("--config", required=True,
+                    help="Path to a variant-set yaml (see module docstring)")
+    ap.add_argument("--prometheus-url", required=True,
+                    help="Prometheus server URL for KEDA triggers")
+    ap.add_argument("--accelerator-name", required=True,
+                    help="Node GPU accelerator label (inference.optimization/acceleratorName) "
+                         "WVA uses to resolve k1/k2 and accelerator-specific saturation metrics")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Print manifests as JSON without applying")
+    args = ap.parse_args()
+
+    ns = args.namespace
+    variants = load_variants_config(args.config)
+    created_count = sum(1 for v in variants if not v["deployed"])
+
+    print(f"[1/4] Finding standup-deployed decode Deployment in namespace '{ns}'...")
+    deployed_dep = find_deployed_deployment(ns)
+    dep_name = deployed_dep["metadata"]["name"]
+    model_hash = (deployed_dep.get("spec", {}).get("selector", {})
+                  .get("matchLabels", {}).get("llm-d.ai/model", "?"))
+    print(f"      {dep_name}  (llm-d.ai/model={model_hash})")
+
+    model_id = resolve_shared_model_id(ns, dep_name, deployed_dep)
+    print(f"      Shared model-id: {model_id!r}")
+
+    print("[2/4] Ensuring TriggerAuthentication for Thanos Querier access...")
+    token_secret = find_wva_token_secret(ns)
+    print(f"      Using SA token secret: {token_secret}")
+    trigger_auth = make_trigger_authentication(ns, token_secret)
+    kubectl_apply(trigger_auth, dry_run=args.dry_run)
+
+    print(f"[3/4] Configuring {len(variants)} variant(s) "
+          f"(1 deployed + {created_count} created)...")
+    results = []
+    for v in variants:
+        label = "deployed" if v["deployed"] else "create"
+        print(f"  - variant '{v['suffix']}' [{label}]  cost={v['variantCost']} "
+              f"min={v['minReplicas']} max={v['maxReplicas']}")
+        if v["deployed"]:
+            results.append(configure_deployed_variant(deployed_dep, v, ns, model_id, args))
+        else:
+            results.append(create_variant(deployed_dep, v, ns, model_id, args))
+
+    print("[4/4] Done.")
     if args.dry_run:
         return
 
-    var_containers = _all_containers(var_dep)
-    var_tp = _read_tensor_parallel(var_containers) or "1"
-    var_gpu = _read_gpu_per_pod(var_containers) or "1"
-
     print()
-    print("Variant added successfully.")
-    print(f"  Primary (cost {primary_cost:>5}, TP={primary_tp}, "
-          f"{primary_gpu} GPU/pod): {dep_name}")
-    print(f"  Added   (cost {cfg['variantCost']:>5}, TP={var_tp}, "
-          f"{var_gpu} GPU/pod): {var_dep_name}")
+    print("Variant set configured successfully.")
+    for r in results:
+        tag = "deployed" if r["role"] == "deployed" else "created "
+        print(f"  [{tag}] cost {str(r['cost']):>5}  TP={r['tp']}  "
+              f"{r['gpu']} GPU/pod  {r['dep_name']}  (SO {r['so_name']})")
     print()
-    print("All ScaledObjects share model-id=" + repr(model_id) + ".")
-    print("WVA scales the most efficient variant first (highest capacity per")
-    print("unit cost), spilling to the others once it saturates.")
+    print(f"All ScaledObjects share model-id={model_id!r}.")
+    if created_count:
+        print("WVA scales the most efficient variant first (highest capacity per")
+        print("unit cost), spilling to the others once it saturates.")
+    else:
+        print("Single variant: WVA drives it between min and max replicas as")
+        print("saturation rises and falls.")
     print()
     print("Verify:")
     print(f"  kubectl get scaledobject,hpa -n {ns}")

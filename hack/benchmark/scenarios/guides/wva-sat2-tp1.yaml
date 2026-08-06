@@ -16,19 +16,20 @@
 #   make benchmark-standup BENCHMARK_NAMESPACE=$NS BENCHMARK_SPEC=guides/wva-sat2-tp1 \
 #     BENCHMARK_SKIP_PROMETHEUS_ADAPTER=true
 #
-#   # Register primary variant with WVA and create KEDA ScaledObject
-#   make benchmark-add-variant BENCHMARK_NAMESPACE=$NS
+#   # Configure the (single) variant with WVA and create its KEDA ScaledObject
+#   make benchmark-configure-variants BENCHMARK_NAMESPACE=$NS \
+#     VARIANT_CONFIG=hack/benchmark/scenarios/guides/variants/sat2-tp1.yaml
 #
 #   # Enable saturation-V2 cost-aware optimizer
 #   make benchmark-enable-v2-saturation BENCHMARK_NAMESPACE=$NS
 #
 #   # Run prefill-heavy workload
 #   make benchmark-run BENCHMARK_NAMESPACE=$NS BENCHMARK_SPEC=guides/wva-sat2-tp1 \
-#     BENCHMARK_HARNESS=inference-perf BENCHMARK_WORKLOAD=prefill_heavy_4k_2_6.yaml
+#     BENCHMARK_HARNESS=inference-perf BENCHMARK_WORKLOAD=prefill_heavy.yaml
 #
 #   # Wait for replicas to scale back to 1 (~10 min cooldown), then run decode-heavy
 #   make benchmark-run BENCHMARK_NAMESPACE=$NS BENCHMARK_SPEC=guides/wva-sat2-tp1 \
-#     BENCHMARK_HARNESS=inference-perf BENCHMARK_WORKLOAD=decode_heavy_1k_2_6.yaml
+#     BENCHMARK_HARNESS=inference-perf BENCHMARK_WORKLOAD=decode_heavy.yaml
 #
 #   # Teardown
 #   make benchmark-teardown BENCHMARK_NAMESPACE=$NS BENCHMARK_SPEC=guides/wva-sat2-tp1
@@ -211,7 +212,7 @@ shared:
   workDir: "__WVA_WORKDIR__"
   harness:
     name: inference-perf
-    experimentProfile: prefill_heavy_4k_2_6.yaml
+    experimentProfile: ta_autoscale_staircase.yaml
     # Prevent the entrypoint's 3-attempt retry loop from re-running the whole
     # workload when inference-perf exits non-zero due to per-request errors.
     # Without this, stage 1 errors (e.g. transient timeouts under load) trigger

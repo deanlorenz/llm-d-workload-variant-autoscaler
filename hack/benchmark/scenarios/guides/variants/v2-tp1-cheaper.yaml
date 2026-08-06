@@ -1,21 +1,37 @@
-# Secondary variant: TP=1 (1 GPU per pod), half the variantCost of the
-# primary TP=2 (5.0 vs 10.0).
+# Two-variant WVA saturation-V2 set: the standup-deployed TP=2 variant plus a
+# cheaper TP=1 (1 GPU per pod) variant at half the cost (5.0 vs 10.0).
 #
-# Note on efficiency: with the cost ratio (10/5) equal to the GPU/TP
-# ratio (2/1), both variants cost the same per GPU. A TP=2 replica
-# shards the weights across both GPUs, leaving more KV headroom per GPU,
-# so it yields >2x a TP=1 replica's capacity — i.e. the primary is the
-# MORE efficient variant at this pricing. WVA's saturation-V2 cost-aware
-# optimizer therefore scales the primary up first under load and uses
-# this cheaper TP=1 variant as spillover. v2 becomes the more efficient
-# pick only if priced below its proportional GPU share (cost ratio > TP
-# ratio) or for low-rate / short-output workloads where TP=2 never
+# There is no "primary"/"secondary" -- both are variants of the same model.
+# `deployed: true` marks the one standup already created (TP=2); the TP=1 entry
+# is materialized as an additional Deployment cloned from it with TP/GPU/label
+# overrides, plus its own ScaledObject.
+#
+# Note on efficiency: with the cost ratio (10/5) equal to the GPU/TP ratio
+# (2/1), both variants cost the same per GPU. A TP=2 replica shards the weights
+# across both GPUs, leaving more KV headroom per GPU, so it yields >2x a TP=1
+# replica's capacity -- i.e. the TP=2 variant is the MORE efficient one at this
+# pricing. WVA's saturation-V2 cost-aware optimizer therefore scales TP=2 up
+# first under load and uses this cheaper TP=1 variant as spillover. TP=1 becomes
+# the more efficient pick only if priced below its proportional GPU share (cost
+# ratio > TP ratio) or for low-rate / short-output workloads where TP=2 never
 # realizes its capacity edge.
-suffix: v2
-variantCost: "5.0"
-minReplicas: 1
-maxReplicas: 10
-parallelism:
-  tensor: 1
-resources:
-  nvidia.com/gpu: 1
+variants:
+  # The variant standup created: TP=2, 2 GPUs per replica.
+  - suffix: tp2
+    deployed: true
+    variantCost: "10.0"
+    minReplicas: 1
+    maxReplicas: 10
+    parallelism:
+      tensor: 2
+    resources:
+      nvidia.com/gpu: 2
+  # Cheaper spillover: TP=1, 1 GPU per replica.
+  - suffix: v2
+    variantCost: "5.0"
+    minReplicas: 1
+    maxReplicas: 10
+    parallelism:
+      tensor: 1
+    resources:
+      nvidia.com/gpu: 1
