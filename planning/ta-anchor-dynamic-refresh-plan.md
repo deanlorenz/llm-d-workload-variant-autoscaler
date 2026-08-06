@@ -1,13 +1,16 @@
 # TA Anchor Refactor — PR-2 (dynamic refresh + multi-vote combine)
 
-**Type:** 3 (task plan) · **Status:** Coder-ready — **START GATED on PR-1 merge** (do NOT begin coding until PR-1 lands)
+**Type:** 3 (task plan) · **Status:** Coder-ready — **stacked on PR-1; worked in parallel** (does NOT wait for PR-1 merge; starts on Dean's go-ahead)
 **Design authority:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md) (Type 1)
 **Depends on:** [`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md) (PR-1, FINAL) — this PR is a
-**dependent** follow-up and must not begin until PR-1 is merged. Base: PR-1's merged tip.
-**Branch/worktree:** `ta-anchor-dynamic-refresh` — worktree CREATED 2026-08-06 off the **interim base**
-`f6485980` (PR-1's code-complete tip), local-only/unpushed. **Re-base onto PR-1's merged tip before
-coding** (the interim base is a convenience so the plan can reference concrete line numbers; it is not
-the real base).
+**dependent, stacked** follow-up (Dean, 2026-08-06): its base is **PR-1's branch tip**, not merged `main`,
+and the two PRs progress **in parallel**. PR-2 opens as a GitHub PR with base = the `ta-anchor-refactor-v2`
+branch. Re-base onto PR-1's tip whenever PR-1's close-out (rebase-onto-`upstream/main` + F1/F3/F4 rewords)
+rewrites C1–C5.
+**Branch/worktree:** `ta-anchor-dynamic-refresh` — worktree CREATED 2026-08-06 off PR-1's tip
+`f6485980`; **pushed to `origin/ta-anchor-dynamic-refresh` 2026-08-06** (Dean-authorized). Expect one
+**force-push-after-re-base** once PR-1's close-out rewrites its C1–C5 SHAs (the current base `f6485980`
+becomes orphaned). The base is a real branch base, not just a line-number convenience.
 **Correctness scope:** §9 of the reviewer-owned [`multi-analyzer-dataflow-map.md`](multi-analyzer-dataflow-map.md)
 (findings **N1–N9**, traced against `ta-anchor-refactor-v2 @ f6485980`).
 
@@ -25,17 +28,17 @@ the real base).
 
 ## TOC
 
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L40:82
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L83:141
-  - [§1.1 Commit map (C1–C9)](#11-commit-map-c1c9) L120:141
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L142:194
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L195:267
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L268:297
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L298:332
-- [§4 Ship gate & tests](#4-ship-gate--tests) L333:365
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L366:400
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L401:430
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L431:455
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L43:87
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L88:146
+  - [§1.1 Commit map (C1–C9)](#11-commit-map-c1c9) L125:146
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L147:199
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L200:272
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L273:302
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L303:337
+- [§4 Ship gate & tests](#4-ship-gate--tests) L338:370
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L371:405
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L406:435
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L436:460
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -72,8 +75,10 @@ below were confirmed with Dean before authoring:
   goldens cover the single-vote path as a sub-case (explicit removal commit in C9 — see §4).
 - **N3 nil-guard hardening:** **INCLUDE** it in PR-2 (rides C5, the rescale commit).
 
-**Coding is still gated on PR-1 merging.** Do not start C1 until PR-1 lands and Dean gives the
-go-ahead (per "Discuss before implementing").
+**Coding is NOT gated on PR-1 merging** (Dean, 2026-08-06) — PR-2 is **stacked on PR-1's branch and
+worked in parallel**. Start C1 on Dean's explicit go-ahead (per "Discuss before implementing"); expect
+to re-base onto PR-1's tip when its close-out rewrites C1–C5. The correctness dependencies PR-2 builds
+on (`bindingAnchor`, `votingResults`, the `Enabled` ballot tag) are all present at the base tip.
 
 [↑ TOC](#toc)
 
