@@ -141,18 +141,20 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(vc.TotalCapacity).To(Equal(400.0))
 		})
 
-		// Test 2 — per-variant (b)-fallback + ordering.
+		// Test 2 — per-variant completeness + ordering.
 		// The (a) carrier (saturation) lists v1+v2; the binding analyzer lists only
 		// v1. Variant ordering follows the (a) carrier. For v2 (omitted by the
-		// binder) the fallback depends on whether saturation votes:
-		//   - saturation enabled (but non-binding here because non-live): its own
-		//     (b) is a consistent (demand, PRC) source, so v2 resolves from it;
-		//   - saturation not enabled (throughput-only): no consistent fallback, so
-		//     v2's PRC stays 0 and it is not proactively selectable.
-		It("falls back to saturation's own (b) for an omitted variant when saturation votes", func() {
+		// binder) there is no fallback to saturation's own (b) (N8) — it abstains
+		// with PRC=0 uniformly, whether or not saturation votes:
+		//   - saturation enabled (but non-binding here because non-live): still no
+		//     fallback — an enabled-but-not-binding saturation is, by definition,
+		//     not live+informative, so its own (b) would be untrustworthy anyway;
+		//   - saturation not enabled (throughput-only): same result, tested
+		//     separately below.
+		It("abstains (PRC=0) for a variant the binder omits, even when saturation votes", func() {
 			sat := NamedAnalyzerResult{
 				Name:    domain.SaturationAnalyzerName,
-				Enabled: true,  // votes → fallback source is consistent
+				Enabled: true,  // votes, but does not bind (below)
 				Live:    false, // non-live → does not bind; throughput binds
 				Result: &domain.AnalyzerResult{
 					AnalyzerName: domain.SaturationAnalyzerName,
@@ -182,9 +184,10 @@ var _ = Describe("analyzer helpers", func() {
 			// v1 sized by the binding analyzer.
 			Expect(anchor.VariantCapacities[0].PerReplicaCapacity).To(Equal(200.0))
 			Expect(anchor.VariantCapacities[0].Reason).To(Equal("T1-ols"))
-			// v2 omitted by the binder → falls back to saturation's own (b).
-			Expect(anchor.VariantCapacities[1].PerReplicaCapacity).To(Equal(110.0))
-			Expect(anchor.VariantCapacities[1].Reason).To(Equal("P1-obs"))
+			// v2 omitted by the binder → abstains (N8), not a fallback to
+			// saturation's own (b)=110.0 despite saturation being enabled.
+			Expect(anchor.VariantCapacities[1].PerReplicaCapacity).To(Equal(0.0))
+			Expect(anchor.VariantCapacities[1].Reason).To(Equal(""))
 		})
 
 		It("leaves an omitted variant at PRC=0 under a throughput-only (non-voting saturation) config", func() {

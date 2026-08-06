@@ -257,11 +257,16 @@ analyzer-written values are discarded.
 
 ## How results combine
 
-**Scale-down gate** (`needsScaleDownForRole`): ALL **live** analyzers in the
-slice must have `Spare > 0` for a role to scale down. One live analyzer with
-`RequiredCapacity > 0` (i.e., `Spare == 0`) blocks scale-down for that role.
-`safeRemovalReplicasForRole` (the safe-removal-count computation) applies the
-same live-only filter.
+**Scale-down gate** (`needsScaleDownForRole`): every **live** analyzer that
+has an opinion on a role must report `Spare > 0` for that role to scale down.
+"Has an opinion" excludes a live voter whose own `RoleSpare` simply doesn't
+decompose that role (e.g. a non-disaggregated analyzer's single `RoleBoth`
+entry, asked about `prefill`) — that voter **abstains** rather than reading
+the map-miss as `Spare == 0` (N7): a coarser voter has no basis to veto a
+role it never sized. A live analyzer that DOES have an opinion and reports
+`RequiredCapacity > 0` (i.e., `Spare == 0`) still blocks scale-down for that
+role. `safeRemovalReplicasForRole` (the safe-removal-count computation)
+applies the same live-only, opinion-only filter.
 
 **Liveness.** An analyzer is live for the current cycle iff it produced a
 non-error, capacity-bearing result within the staleness window (a fixed
@@ -298,12 +303,14 @@ what actually detects a durably-broken analyzer.
 
 Within the multi-analyzer engine path (`runAnalyzersAndScore`), this
 liveness filter applies uniformly to every *voting* analyzer, including
-saturation's own token-capacity signal — there is no name-based exemption
-inside the scale-down gate. The gate runs over the voting subset
-(`votingResults`, the ballot entries whose analyzer is enabled this cycle):
-saturation is subject to it exactly when it votes (default single-analyzer
-config, or when its name is explicitly enabled), and a non-voting saturation
-carrier is excluded from the vote just like any other disabled analyzer.
+saturation's own token-capacity signal — there is no name-based exemption.
+`votingResults` prunes the ballot to entries that are both Enabled and Live
+(VG-up) — the single gate feeding both scale-up and scale-down, so a stale
+Enabled analyzer can no longer force a spurious scale-up any more than it
+could veto scale-down: saturation is subject to it exactly when it votes
+(default single-analyzer config, or when its name is explicitly enabled),
+and a non-voting or non-live saturation carrier is excluded from the vote
+just like any other disabled or stale analyzer.
 (Saturation's separate role as the shared metrics-collection layer — cache
 size, replica cost, etc., feeding every analyzer and the cost optimizer — is
 unaffected; that collection either succeeds for everyone or, if it fails,
@@ -343,10 +350,13 @@ withheld until at least one analyzer produces a fresh result (typically
 within a cycle or two).
 
 **Scale-up gate** (`anyRoleNeedsScaleUp`): ANY analyzer having `Remaining > 0`
-triggers scale-up for the corresponding role. The liveness gate does not
-apply to scale-up — a non-live analyzer contributes `Remaining == 0`
-(from `RequiredCapacity == 0`), which is already harmless to the max-across-
-analyzers formula.
+triggers scale-up for the corresponding role. `anyRoleNeedsScaleUp` and the
+`roleBottleneckReplicas`/`roleAggRemaining` combine it feeds only ever see
+`votingResults`' pruned (Enabled && Live) slice, so a stale Enabled analyzer's
+last `Remaining` value is never read at all (VG-up) — scale-up no longer
+depends on the external invariant "a dead analyzer's `Remaining` happens to
+be 0"; it is structurally excluded from the combine regardless of what value
+it holds.
 
 The optimizer never reads per-variant metadata straight off the saturation
 entry. It consumes an **anchor** built on demand by `bindingAnchor`: a fresh,
@@ -378,11 +388,15 @@ it observed live earlier, carrying that variant's persisted last-good
 per-replica supply. It emits only the (b)/sizing field: `Cost`,
 `AcceleratorName`, and `Role` remain saturation's (a)/identity, supplied
 through the merge. A variant the throughput analyzer has never seen gets no
-fallback — its `PerReplicaCapacity` stays zero and it is not proactively
-selectable; the reactive `scalefromzero` engine still covers genuine
-cold-starts. The persisted supply self-expires on the analyzer's idle window
-(the observation-max-age eviction, ~60 min), so a long-idle variant degrades
-back to the never-seen case on its own.
+fallback, in any config — its `PerReplicaCapacity` stays zero and it is not
+proactively selectable; the reactive `scalefromzero` engine still covers
+genuine cold-starts. This holds uniformly whether or not saturation is also
+voting: the anchor never borrows saturation's own (b) for a variant the
+binder omits (N8) — a binder-unknown variant abstains rather than mixing
+metric scales across variants within one anchor. The persisted supply
+self-expires on the analyzer's idle window (the observation-max-age eviction,
+~60 min), so a long-idle variant degrades back to the never-seen case on its
+own.
 
 **Known limitation.** `Cost` always comes from saturation's (a)/identity, and
 saturation reports `Cost = 0` for a variant currently at zero replicas. A

@@ -111,16 +111,18 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 // votes in the quantity combine (votingResults) but does not become the
 // binder.
 //
-// Per-variant (b)-fallback: where the binding analyzer omits a variant the (a)
-// carrier lists, the (demand, PerReplicaCapacity) pair must come from a single
-// source. Saturation's own (b) is the fallback ONLY when saturation votes
-// (satNR.Enabled) — saturation is then both the demand and the PRC source, so
-// the pair stays consistent. Under a throughput-only config (saturation present
-// as the (a) carrier but not voting) a variant the binding analyzer omits gets
-// PerReplicaCapacity = 0 and is not proactively selectable; genuine cold-starts
-// fall to the reactive scale-from-zero engine. The (a) carrier is captured up
-// front, before any voting-set prune, so the fallback source is available even
-// when saturation is non-voting.
+// Per-variant completeness: where the binding analyzer omits a variant the (a)
+// carrier lists, the variant keeps its identity but abstains — PerReplicaCapacity
+// stays 0 and it is not proactively selectable; genuine cold-starts fall to the
+// reactive scale-from-zero engine. There is no fallback to saturation's own (b)
+// for an omitted variant, even when saturation votes (N8): a binder omits a
+// variant only when the binder itself is enabled-but-not-binding — Enabled &&
+// !(Live && Informative) — which is precisely the condition under which its own
+// (b) is untrustworthy (stale or no-data). Borrowing it would also mix metric
+// scales across variants within one anchor (the binder's sized variants carry
+// its own PRC scale; a borrowed variant would carry saturation's). When the
+// binder binds, every sized (b) entry is the binder's — uniformly, no
+// name-based exception.
 //
 // Builds fresh literals throughout — it never mutates the source Results or
 // their VariantCapacities slices/elements.
@@ -168,8 +170,6 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 	if satNR != nil {
 		aCarrier = satNR
 	}
-	// Whether saturation votes — gates the per-variant (b)-fallback below.
-	satEnabled := satNR != nil && satNR.Enabled
 
 	// Model-level fields: identity from the (a) carrier, sizing from binding.
 	anchor := &domain.AnalyzerResult{
@@ -205,16 +205,11 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 			out.Reason = b.Reason
 			out.TotalDemand = b.TotalDemand
 			out.Utilization = b.Utilization
-		} else if satEnabled {
-			// Enablement-gated fallback: saturation votes, so its own (b) is a
-			// consistent (demand, PRC) source. aCarrier is saturation here.
-			out.PerReplicaCapacity = a.PerReplicaCapacity
-			out.Reason = a.Reason
-			out.TotalDemand = a.TotalDemand
-			out.Utilization = a.Utilization
 		}
-		// else: throughput-only, binding analyzer omits this variant, no persisted
-		// throughput PRC → PerReplicaCapacity stays 0 → not proactively selectable.
+		// else: the binder omits this variant — PerReplicaCapacity stays 0
+		// (abstain), uniformly regardless of whether saturation votes (N8; see
+		// the doc comment above). Not proactively selectable; genuine
+		// cold-starts fall to the reactive scale-from-zero engine.
 
 		// TotalCapacity is recomputed (not copied) so the invariant
 		// TotalCapacity == ReplicaCount × PerReplicaCapacity holds by construction.
@@ -226,15 +221,27 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 }
 
 // votingResults returns the sub-slice of the ballot whose analyzers vote in the
-// combine (RC/SC) math this cycle. Non-voting entries (e.g. a saturation entry
-// present only as the (a) carrier in a throughput-only config) are excluded.
-// The anchor build (bindingAnchor) reads the FULL ballot, not this pruned view.
-// In the default and saturation+throughput configs every entry is Enabled, so
-// this returns the same combine input set as the raw ballot.
+// combine (RC/SC) math this cycle: Enabled AND Live (VG-up). Non-voting entries
+// (e.g. a saturation entry present only as the (a) carrier in a throughput-only
+// config) are excluded; so is a stale Enabled entry that has gone dead, which
+// would otherwise still seed initRoleState/roleBottleneckReplicas with a stale
+// Result and force a spurious scale-up. Scale-down was already Live-gated at
+// point of use (needsScaleDownForRole, safeRemovalReplicasForRole); this makes
+// scale-up equally robust rather than relying on the external invariant "dead
+// analyzer implies RC=0". Establishes the invariant non-nil anchor implies
+// non-empty voting set: bindingAnchor's own binder gate (Enabled && Live &&
+// Informative) is strictly stronger, so the binder itself always satisfies
+// this prune; an empty voting set forces anchor == nil upstream, which is
+// already the existing per-model hold path — there is no "empty voters,
+// non-nil anchor" case to handle separately.
+// The anchor build (bindingAnchor) reads the FULL ballot, not this pruned view
+// — it needs a non-voting saturation's identity even when Live is false.
+// In the default and saturation+throughput configs every entry is Enabled and
+// Live, so this returns the same combine input set as the raw ballot.
 func votingResults(s []NamedAnalyzerResult) []NamedAnalyzerResult {
 	out := make([]NamedAnalyzerResult, 0, len(s))
 	for _, e := range s {
-		if e.Enabled {
+		if e.Enabled && e.Live {
 			out = append(out, e)
 		}
 	}
@@ -522,20 +529,33 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 	}
 }
 
-// needsScaleDownForRole reports whether every live analyzer agrees this role
-// has spare capacity (all-down gate, scoped to one role). Non-live analyzers
-// (no metrics, error state, never analyzed, or stale) do not veto — this
-// applies uniformly, including saturation's token-capacity result; there is
-// no name-based exemption. Returns false if any live analyzer's
-// RoleSpare[role] ≤ 0 or RoleSpare is nil. Safety floor: if no live analyzer
-// remains, there is no current basis to scale down, so this returns false.
+// needsScaleDownForRole reports whether every live analyzer that has an
+// opinion on role agrees it has spare capacity (all-agree gate, scoped to one
+// role). Non-live analyzers (no metrics, error state, never analyzed, or
+// stale) do not veto — this applies uniformly, including saturation's
+// token-capacity result; there is no name-based exemption. A live analyzer
+// with no RoleSpare data at all, or whose RoleSpare simply does not decompose
+// this role, ABSTAINS rather than vetoing (N7): a coarser voter (e.g. a
+// non-disaggregated analyzer's single RoleBoth entry, seeded by initRoleState)
+// has no basis to veto a role it never sized, so a map-miss must not read as
+// "spare == 0". Returns false only when a live analyzer that DOES have an
+// opinion on role reports RoleSpare[role] ≤ 0. Safety floor: if no live
+// analyzer has an opinion on this role at all, there is no current basis to
+// scale down, so this returns false.
 func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 	liveCount := 0
 	for _, e := range s {
 		if !e.Live {
 			continue // non-live analyzers do not veto (no metrics / error / never analyzed)
 		}
-		if e.Result == nil || e.RoleSpare == nil || e.RoleSpare[role] <= 0 {
+		if e.Result == nil || e.RoleSpare == nil {
+			continue // no data at all this cycle; abstain, not veto
+		}
+		spare, ok := e.RoleSpare[role]
+		if !ok {
+			continue // this analyzer doesn't decompose this role; abstain (N7), not veto
+		}
+		if spare <= 0 {
 			return false
 		}
 		liveCount++

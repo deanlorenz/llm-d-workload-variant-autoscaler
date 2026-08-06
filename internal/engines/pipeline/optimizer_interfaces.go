@@ -38,9 +38,9 @@ type NamedAnalyzerResult struct {
 	// Enabled indicates the analyzer votes in the combine (RC/SC) math for this cycle.
 	// Saturation is present as the identity/(a) carrier even when it does not vote
 	// (e.g. a throughput-only config), so "present in the ballot" != "votes".
-	// Set by the engine each cycle. votingResults prunes the ballot to Enabled
-	// entries before combine math; the anchor build (bindingAnchor) reads the full
-	// ballot so a non-voting saturation entry can still supply (a)/fallback (b).
+	// Set by the engine each cycle. votingResults prunes the ballot to Enabled &&
+	// Live entries before combine math (VG-up); the anchor build (bindingAnchor)
+	// reads the full ballot so a non-voting saturation entry can still supply (a).
 	Enabled bool
 }
 

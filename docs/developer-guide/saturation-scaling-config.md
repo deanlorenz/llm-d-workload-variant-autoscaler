@@ -472,7 +472,15 @@ contributes its `RequiredCapacity` / `SpareCapacity` to the combine math only
 when it votes — the default single-analyzer config, or when its name is
 enabled. In a `[throughput]`-only config it is present purely as the identity
 carrier: it supplies (a) for the anchor merge but is pruned from the voting
-subset and neither drives scale-up nor vetoes scale-down.
+subset (Enabled && Live, VG-up) and neither drives scale-up nor vetoes
+scale-down.
+
+Being the identity carrier does not make saturation a sizing fallback: when
+the binding analyzer omits a variant, the anchor never borrows saturation's
+own (b) for it, even when saturation is enabled — a binder-unknown variant
+abstains (`PerReplicaCapacity = 0`) rather than mixing metric scales across
+variants within one anchor. When the binder binds, every sized (b) entry is
+the binder's, uniformly.
 
 ### Resilience
 
