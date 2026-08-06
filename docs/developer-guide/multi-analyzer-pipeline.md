@@ -246,8 +246,11 @@ analyzer-written values are discarded.
    directly: the anchor it consumes is a per-variant merge (`bindingAnchor`,
    derived on demand) that takes the (a) identity fields from saturation and
    the (b) sizing fields (`PerReplicaCapacity`, demand) from whichever
-   analyzer binds — saturation when it votes, otherwise the sole enabled
-   non-saturation analyzer. Slice position is not significant.
+   analyzer binds — saturation when it votes, otherwise the lowest-ballot-index
+   qualifying non-saturation analyzer (see "How results combine" below for the
+   tie-break when more than one qualifies). The combine math itself
+   (`votingResults`) is order-independent; only the binder tie-break reads
+   ballot position.
 
 ---
 
@@ -350,10 +353,18 @@ per-variant `AnalyzerResult` merged by `VariantName` from the (a)/identity
 fields (`Cost`, `AcceleratorName`, `Role`, replica counts) that saturation
 supplies for every configured variant, plus the (b)/sizing fields
 (`PerReplicaCapacity`, demand) from whichever analyzer binds. Nothing is
-stored — the merge is recomputed each time it is needed — and when nothing
-can bind (an empty ballot, no enabled-and-live-and-informative analyzer, or an
-ambiguous set of binding candidates) `bindingAnchor` returns `nil` and the
-optimizer holds that model unchanged for the cycle.
+stored — the merge is recomputed each time it is needed.
+
+**Binder selection** is deterministic, never a guess: saturation binds
+whenever it is enabled, live, and informative. Otherwise, the binder is the
+lowest-ballot-index non-saturation entry that is enabled, live, and
+informative — with two or more analyzers enabled (`[sat, TA]` and beyond), a
+tie among qualifying non-saturation entries resolves to the earliest one in
+the ballot rather than holding the model; the later entry still votes in the
+quantity combine, it just does not become the binder. `bindingAnchor` returns
+`nil` — and the optimizer holds that model unchanged for the cycle — only when
+literally nothing qualifies: an empty ballot, or no analyzer that is both
+enabled+live and informative.
 
 ### Scale-from-zero and zero-replica variants
 

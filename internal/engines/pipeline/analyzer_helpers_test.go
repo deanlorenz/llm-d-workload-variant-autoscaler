@@ -324,10 +324,10 @@ var _ = Describe("analyzer helpers", func() {
 		// Test 4 — degenerate ballots produce no anchor (the per-model hold).
 		// bindingAnchor returns nil whenever nothing can bind; each optimizer's
 		// nil-anchor guard then holds the model (no decision this cycle) rather
-		// than indexing into an empty or unbindable ballot. These pin the three
-		// nil paths that back the "empty / no-live-analyzer ballot is graceful"
-		// behaviour: no index panic on an empty ballot, and a deliberate hold
-		// when no single analyzer can bind.
+		// than indexing into an empty or unbindable ballot. These pin the two
+		// nil paths that remain after N2's deterministic tie-break (a multi-binder
+		// tie no longer holds — see Test 5): no index panic on an empty ballot,
+		// and a deliberate hold when no analyzer is live+informative at all.
 		It("returns nil for an empty ballot", func() {
 			Expect(bindingAnchor(nil)).To(BeNil())
 			Expect(bindingAnchor([]NamedAnalyzerResult{})).To(BeNil())
@@ -361,10 +361,11 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(bindingAnchor([]NamedAnalyzerResult{sat, ta})).To(BeNil())
 		})
 
-		It("returns nil for an ambiguous multi-binder (two non-saturation live analyzers)", func() {
-			// No saturation entry; two distinct non-saturation analyzers are each
-			// enabled+live+informative. This PR does not define which one binds, so
-			// bindingAnchor refuses to guess and holds the model.
+		// Test 5 — N2 deterministic binder tie-break (two non-saturation live
+		// analyzers, no saturation entry). PR-2 admits multiple non-saturation
+		// voters; rather than hold the model on a tie, the lowest-ballot-index
+		// qualifying entry binds. This asserts the tie-break, not a hold.
+		It("binds the lowest-ballot-index candidate when two non-saturation analyzers both qualify", func() {
 			ta := NamedAnalyzerResult{
 				Name:    "throughput",
 				Enabled: true,
@@ -387,7 +388,17 @@ var _ = Describe("analyzer helpers", func() {
 					},
 				},
 			}
-			Expect(bindingAnchor([]NamedAnalyzerResult{ta, lat})).To(BeNil())
+			// ta is ballot index 0 → binds; lat (index 1) votes but does not bind.
+			anchor := bindingAnchor([]NamedAnalyzerResult{ta, lat})
+			Expect(anchor).NotTo(BeNil(), "a multi-binder tie must bind deterministically, not hold")
+			Expect(anchor.AnalyzerName).To(Equal("throughput"))
+			Expect(anchor.VariantCapacities[0].PerReplicaCapacity).To(Equal(200.0))
+
+			// Reversing ballot order flips the binder: still the lowest index, not a fixed name.
+			anchorReversed := bindingAnchor([]NamedAnalyzerResult{lat, ta})
+			Expect(anchorReversed).NotTo(BeNil())
+			Expect(anchorReversed.AnalyzerName).To(Equal("latency"))
+			Expect(anchorReversed.VariantCapacities[0].PerReplicaCapacity).To(Equal(150.0))
 		})
 	})
 

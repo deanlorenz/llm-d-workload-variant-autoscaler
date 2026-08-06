@@ -100,13 +100,16 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 //   - saturation, when it votes and is live+informative (the default and the
 //     saturation+throughput case — merging saturation with itself is the
 //     identity, which is why the characterization goldens hold);
-//   - otherwise the sole enabled+live+informative non-saturation entry (the
-//     throughput-only case);
+//   - otherwise the lowest-ballot-index enabled+live+informative non-saturation
+//     entry (the throughput-only case, and the deterministic tie-break once
+//     more than one non-saturation entry qualifies);
 //   - otherwise none → return nil.
 //
-// If more than one non-saturation analyzer is enabled+live+informative, this PR
-// does not define which binds; rather than guess, the model is treated as
-// unbindable and nil is returned.
+// Binder tie-break (deterministic, not a guess): saturation binds whenever it
+// qualifies; otherwise the first (lowest ballot index) qualifying
+// non-saturation entry binds. A later qualifying non-saturation entry still
+// votes in the quantity combine (votingResults) but does not become the
+// binder.
 //
 // Per-variant (b)-fallback: where the binding analyzer omits a variant the (a)
 // carrier lists, the (demand, PerReplicaCapacity) pair must come from a single
@@ -139,18 +142,18 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		// Saturation binds whenever it votes (default / saturation+throughput).
 		binding = satNR
 	default:
-		// Otherwise the sole enabled+live+informative non-saturation entry binds.
+		// Otherwise the lowest-ballot-index enabled+live+informative
+		// non-saturation entry binds (N2 deterministic tie-break): once PR-2
+		// admits multiple non-saturation voters, a later qualifying entry does
+		// not overwrite the earlier one — it votes without binding.
 		for i := range s {
 			if s[i].Name == domain.SaturationAnalyzerName {
 				continue
 			}
 			if s[i].Enabled && s[i].Live && ResultIsInformative(s[i]) {
-				if binding != nil {
-					// >1 non-saturation binding candidate is not a config this PR
-					// defines; do not guess which binds — hold this model instead.
-					return nil
+				if binding == nil {
+					binding = &s[i]
 				}
-				binding = &s[i]
 			}
 		}
 	}

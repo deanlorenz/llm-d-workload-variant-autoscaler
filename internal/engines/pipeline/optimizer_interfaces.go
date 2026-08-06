@@ -47,9 +47,12 @@ type NamedAnalyzerResult struct {
 // ModelScalingRequest bundles the analyzer result with variant state for one model.
 // The optimizer receives a slice of these — one per model — and produces decisions.
 type ModelScalingRequest struct {
-	ModelID         string
-	Namespace       string
-	AnalyzerResults []NamedAnalyzerResult // per-analyzer slice; order is not significant (see bindingAnchor / votingResults)
+	ModelID   string
+	Namespace string
+	// AnalyzerResults is the per-analyzer ballot. votingResults' combine math is
+	// order-independent, but bindingAnchor's binder tie-break is not: among
+	// qualifying non-saturation entries, the lowest ballot index binds (N2).
+	AnalyzerResults []NamedAnalyzerResult
 	VariantStates   []domain.VariantReplicaState
 	Priority        float64 // Model priority (default 1.0)
 	Disaggregated   bool    // true when model has prefill+decode variants
