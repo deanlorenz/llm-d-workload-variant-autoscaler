@@ -64,3 +64,65 @@ commit (see Pointers).
 ## Not done / open
 
 - Dean's review (A/B/C/D) then the push decision. Nothing else pending in this mission.
+
+---
+
+## Round 2 (2026-08-05) — Dean reviewed A + B; 7 changes LOCKED
+
+**Status of round 2:** all 7 items IMPLEMENTED + regenerated 2026-08-06 (plots.py + sweep.py +
+report.py; `run.py`/`sweep.py`/`stability.py`/`report.py` re-run clean). **Uncommitted** — deck
+regenerated on top of `6f36b905`, pending Dean's re-review then a commit. Verification below.
+
+**Round-2 verification (structural, on the regenerated `out/index.html`):**
+- Per-tab independent shape switchers present + wired: `data-shape-for` = compare / browse / table /
+  tradeA / tradeB / cap (each its own `.shapepick`; `setShapeFor(scope,…)` redraws only that tab via
+  `SHAPE_RENDER`). No shared `state.shape` string; no orphaned `setShape()`.
+- Compare: `levelMetas()` equalizes `meta-L`/`meta-R` to the taller; re-runs on tab-activate + resize.
+- Browse: single-shape switcher (main + collapsible latency), gallery loop removed.
+- Table: 5 per-shape tables, each with a dark-red ruled-off `failed (>60s) %` row (`tr.failrow`);
+  independent switcher.
+- Tradeoffs: side-by-side A/B columns, each rendering its shape's cost-quality + wait-CDF.
+- Sweeps: sticky jump-nav (8 buttons, all targets resolve) + new cap-sweep section (trapezoid /
+  stepup / stepdown, each with the two-panel figure + cost/quality sub-tables; bump/spike noted
+  cap-inert). Cap switcher offers only the swept shapes (read from the DOM).
+
+**To re-review (open `out/index.html` via `file://`):** confirm each tab's switcher swaps only its
+own content; Compare panes start level; Table failed row reads dark-red; Tradeoffs shows two shapes
+at once; Sweeps nav jumps + cap section switches. Then the push decision (item D) — still needs
+Dean's explicit OK.
+
+**Original locked plan (for reference):** design decisions locked in discussion; deck was at
+`6f36b905` when the plan was written.
+
+- **B (numbers) = GREEN.** Deltas exact (trapezoid +11.3 / stepup +8.8 / stepdown +10.3 pp good%≤15s);
+  spike 7–57 % dropped; static@10 100 %/0-failed; HPA replica·s 1.80–2.52× qexp — **"2.5×" wording stays
+  (Dean: good enough), do not change**.
+- **Stability** — leave `out/stability.md` standalone (not a tab); Dean reviewed the md, good as-is.
+
+**Plan (7 items):**
+1. **Per-tab independent shape state.** Today Compare+Table share one global `state.shape` via
+   `setShape()` ("Table follows compare" — disliked). Give every tab its own Compare-style pill switcher.
+2. **Compare — level the panes.** Misalignment is variable-height `meta-L`/`meta-R` text, not the PNGs
+   (fixed 1320×1800). JS-equalize both meta heights to the taller so figures start level.
+3. **Browse — switcher, not gallery.** Replace all-shapes gallery with a shape switcher (one shape's main
+   + foldable latency for the chosen policy). Keep the fold.
+4. **Table — independent switcher + dark-red failed row.** Own shape state; style `failed (>60s) %` row
+   dark-red font + top border rule separating it from the served-within bands.
+5. **Tradeoffs — full side-by-side.** Pick shape A / shape B; render each shape's cost-quality + wait-CDF
+   in L/R columns. Shorten `render_wait_cdf` (11×5.4) + `render_cost_quality` (9.5×6) in plots.py so CDF +
+   Pareto both fit on screen.
+6. **Sweeps — cumulative line + nav.** (a) In `render_sweep` quality panel, add a per-group cumulative
+   **served ≤15s (good+almost)** line, KEEP the existing ≤2s good line (`s["within_pct"][1]`; add `_good15`
+   to `sweep.py` `_metrics`, `good15` to `_group`). (b) Add jump-to-section nav buttons.
+7. **NEW cap sweep.** None exists (`MAX_REPLICAS=10` is a fixed constant, never swept). Add to sweep.py:
+   sweep `max_replicas ∈ [5,8,10,12,15,20,30]` per shape (**per-shape switcher**: stepup+stepdown+trapezoid
+   where the cap bites the Q sizers; bump/spike cap-inert — note them). Emit cost (**provisioned·seconds**)
+   + **factor-vs-ideal** tables (ideal ≈1714 bump / 2227 stepup / 1976 stepdown prov·s) + a two-panel
+   `render_sweep` figure; land it as a new **Sweeps** section. Teaching point: HPA desired (557–1766) ≫ any
+   sane cap ⇒ HPA pins to the cap like `static` (cost ∝ cap); Q sizers rise with cap then flatten at their
+   natural peak (14–27); ideal flat (peak ~5). Range stays bounded — no log axis.
+
+**Implementation order:** plots.py + sweep.py → regen `run.py` (tradeoff figs) + `sweep.py` (sweeps + cap)
+→ report.py (all HTML) → regen `report.py` → verify.
+Regenerate: `./.venv/bin/python run.py && ./.venv/bin/python sweep.py && ./.venv/bin/python report.py`.
+`stability.py` stays uncapped by design — do not add a cap.

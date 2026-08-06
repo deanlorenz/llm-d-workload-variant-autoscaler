@@ -240,6 +240,12 @@ Trend + calibration line-plots (full numeric tables in [`out/sweep.md`](out/swee
 
 ![Headroom × anticipation — look-ahead vs static margin (Qexp)](out/16-sweep-headroom-proj.png)
 
+![Cap sweep (trapezoid) — actuation ceiling vs cost & quality](out/17-sweep-cap-trapezoid.png)
+
+![Cap sweep (step up) — actuation ceiling vs cost & quality](out/17-sweep-cap-stepup.png)
+
+![Cap sweep (step down) — actuation ceiling vs cost & quality](out/17-sweep-cap-stepdown.png)
+
 ---
 
 ## Glossary

@@ -147,3 +147,97 @@ Static margin dial (§2.6) at the real 90s boot (both Q sizers at the shared dra
 
 All sweeps run at the canonical `RHO = 2` (empty pods decode ~2× faster than packed ones, §2.7). Yet `good%` / `wait_p90` are **identical** to a `RHO = 1` run at every headroom, and only `prov·s` shifts (a slightly shorter drain tail). The reason is structural: the quality bands key on **waiting time** (arrival→service-start), and whenever a backlog exists the router keeps every pod **packed at `usable_C` (k≈1)**, where `rate = service_rate` — exactly the fixed-rate value. The decode speed-up only fires when a pod is *under-full* (k<1), which is precisely when there is no queue and wait≈0 already. So on the wait metric, headroom buys **capacity/slack**, not speed; the §2.7 speed benefit is a *service-latency* effect (visible in `time/work`, not plotted here). This refines the 7(b) framing — see the design doc §2.7 / §8.1(7b).
 
+## Cap sweep — actuation ceiling (max_replicas) as the swept axis
+
+The seven scenarios pin `max_replicas` at the KEDA guide's 10. Here it is swept per sustained shape. **This is not the same knob as HPA-queue's `q_target`** (the per-replica queue-depth target that sets aggression — swept in `stability.md`, held ≤10 there): raising the *cap* lets a policy provision *more*; raising `q_target` makes HPA-queue want *fewer* replicas. So Dean's "a less aggressive HPA doesn't grow cost as fast" is about `q_target` (`stability.md`), not the cap — along *this* axis HPA-queue's cost grows fast.
+
+Reading the cost column: `hpa-queue` and `static` rise **∝ cap** — HPA's raw desired (`ceil` of the whole backlog) runs far above any sane cap, so it pins to the ceiling, just as `static`'s fleet *is* the ceiling; both hit ~2.5× ideal at cap 10 and climb to 7–9× by cap 30. The work-rate Q sizers (`queue-aware`, `qexp`) behave completely differently: their **usable** fleet peaks low (6–15 replicas on these shapes — see `rep_max`), well under every swept cap, so a looser ceiling can't be filled with useful work. Their cost still creeps up a little past that peak (speculative boot orders the backlog term issues and then cancels before they become usable — pure boot-lag waste) and then **flattens** by cap ≈15–20, staying ~1.4–2.1× ideal. Crucially that creep buys **zero** extra quality: `served ≤15s` is flat across the cap once it clears the usable peak. `ideal` is flat throughout (usable peak ~5, cap never binds).
+
+One caution on `hpa-queue`'s quality column: it is **non-monotone in the cap** (e.g. trapezoid dips at cap 15, stepup dips at cap 8) — the same deterministic dead-time / mistimed-scale-down fragility the `q_target` sweep shows in `stability.md`, not a smooth cap response. Cross-ref: for the *aggression* axis at a fixed cap, see that HPA-queue `q_target` sweep.
+
+### cap sweep (trapezoid) — cost: provisioned·seconds (×ideal)
+
+Billed fleet-seconds per policy as the cap rises; `(N×)` = multiple of `ideal` at the same cap. `hpa-queue`/`static` track the cap; the Q sizers plateau once the cap clears their natural peak.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 2359 | 2428 (1.0×) | 2550 (1.1×) | 2619 (1.1×) | 3001 (1.3×) |
+| 8 | 2359 | 2911 (1.2×) | 2982 (1.3×) | 4695 (2.0×) | 4802 (2.0×) |
+| 10* | 2359 | 3100 (1.3×) | 3182 (1.3×) | 5865 (2.5×) | 6002 (2.5×) |
+| 12 | 2359 | 3250 (1.4×) | 3332 (1.4×) | 7035 (3.0×) | 7203 (3.1×) |
+| 15 | 2359 | 3400 (1.4×) | 3437 (1.5×) | 8512 (3.6×) | 9004 (3.8×) |
+| 20 | 2359 | 3400 (1.4×) | 3452 (1.5×) | 11715 (5.0×) | 12005 (5.1×) |
+| 30 | 2359 | 3400 (1.4×) | 3452 (1.5×) | 17565 (7.4×) | 18007 (7.6×) |
+
+### cap sweep (trapezoid) — quality: served ≤15s %
+
+Share served within 15s (the "works" bar). More ceiling buys the Q sizers headroom to clear the backlog; past their peak it stops mattering.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 100.0 | 52.5 | 67.3 | 74.7 | 100.0 |
+| 8 | 100.0 | 67.8 | 79.2 | 85.4 | 100.0 |
+| 10* | 100.0 | 69.0 | 80.3 | 86.5 | 100.0 |
+| 12 | 100.0 | 69.0 | 80.3 | 87.4 | 100.0 |
+| 15 | 100.0 | 69.0 | 80.3 | 68.3 | 100.0 |
+| 20 | 100.0 | 69.0 | 80.3 | 87.8 | 100.0 |
+| 30 | 100.0 | 69.0 | 80.3 | 87.8 | 100.0 |
+
+### cap sweep (stepup) — cost: provisioned·seconds (×ideal)
+
+Billed fleet-seconds per policy as the cap rises; `(N×)` = multiple of `ideal` at the same cap. `hpa-queue`/`static` track the cap; the Q sizers plateau once the cap clears their natural peak.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 2227 | 2475 (1.1×) | 2591 (1.2×) | 2940 (1.3×) | 3001 (1.3×) |
+| 8 | 2227 | 2917 (1.3×) | 3158 (1.4×) | 4372 (2.0×) | 4802 (2.2×) |
+| 10* | 2227 | 3007 (1.4×) | 3354 (1.5×) | 5865 (2.6×) | 6002 (2.7×) |
+| 12 | 2227 | 3007 (1.4×) | 3458 (1.6×) | 7035 (3.2×) | 7203 (3.2×) |
+| 15 | 2227 | 3007 (1.4×) | 3518 (1.6×) | 8790 (3.9×) | 9004 (4.0×) |
+| 20 | 2227 | 3007 (1.4×) | 3518 (1.6×) | 11715 (5.3×) | 12005 (5.4×) |
+| 30 | 2227 | 3007 (1.4×) | 3518 (1.6×) | 17565 (7.9×) | 18008 (8.1×) |
+
+### cap sweep (stepup) — quality: served ≤15s %
+
+Share served within 15s (the "works" bar). More ceiling buys the Q sizers headroom to clear the backlog; past their peak it stops mattering.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 100.0 | 61.6 | 69.3 | 92.7 | 100.0 |
+| 8 | 100.0 | 63.6 | 72.4 | 54.3 | 100.0 |
+| 10* | 100.0 | 63.6 | 72.4 | 93.1 | 100.0 |
+| 12 | 100.0 | 63.6 | 72.4 | 93.1 | 100.0 |
+| 15 | 100.0 | 63.6 | 72.4 | 93.1 | 100.0 |
+| 20 | 100.0 | 63.6 | 72.4 | 93.1 | 100.0 |
+| 30 | 100.0 | 63.6 | 72.4 | 93.1 | 100.0 |
+
+### cap sweep (stepdown) — cost: provisioned·seconds (×ideal)
+
+Billed fleet-seconds per policy as the cap rises; `(N×)` = multiple of `ideal` at the same cap. `hpa-queue`/`static` track the cap; the Q sizers plateau once the cap clears their natural peak.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 1976 | 2031 (1.0×) | 2049 (1.0×) | 2404 (1.2×) | 3001 (1.5×) |
+| 8 | 1976 | 2493 (1.3×) | 2543 (1.3×) | 4695 (2.4×) | 4802 (2.4×) |
+| 10* | 1976 | 2740 (1.4×) | 2824 (1.4×) | 4368 (2.2×) | 6002 (3.0×) |
+| 12 | 1976 | 3019 (1.5×) | 3084 (1.6×) | 7035 (3.6×) | 7203 (3.6×) |
+| 15 | 1976 | 3259 (1.6×) | 3460 (1.8×) | 8790 (4.4×) | 9004 (4.6×) |
+| 20 | 1976 | 3559 (1.8×) | 3850 (1.9×) | 11715 (5.9×) | 12005 (6.1×) |
+| 30 | 1976 | 3604 (1.8×) | 4180 (2.1×) | 17565 (8.9×) | 18007 (9.1×) |
+
+### cap sweep (stepdown) — quality: served ≤15s %
+
+Share served within 15s (the "works" bar). More ceiling buys the Q sizers headroom to clear the backlog; past their peak it stops mattering.
+
+| cap | ideal | queue-aware | qexp | hpa-queue | static |
+|---|---|---|---|---|---|
+| 5 | 100.0 | 31.7 | 32.9 | 33.9 | 100.0 |
+| 8 | 100.0 | 50.6 | 62.1 | 63.0 | 100.0 |
+| 10* | 100.0 | 55.4 | 65.7 | 67.7 | 100.0 |
+| 12 | 100.0 | 57.0 | 67.8 | 70.0 | 100.0 |
+| 15 | 100.0 | 57.0 | 69.5 | 72.3 | 100.0 |
+| 20 | 100.0 | 57.0 | 69.5 | 74.3 | 100.0 |
+| 30 | 100.0 | 57.0 | 69.5 | 75.1 | 100.0 |
+
+**bump / spike are cap-inert for the Q sizers** and so are omitted from the per-shape switcher: their offered load needs only ≈4–6 replicas at the peak, well under every swept cap, so `queue-aware`/`qexp`/`ideal` never touch the ceiling there (only `hpa-queue`/`static`, which pin to the cap on any shape, would still scale with it).
+

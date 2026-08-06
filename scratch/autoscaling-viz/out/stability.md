@@ -4,6 +4,8 @@ Canonical picks under test: Qexp `proj_setup = 120`, shared `drain_time = 20`, `
 
 **Uncapped by design.** This sweep measures each sizer's *knob response* — does `proj_setup=120` / `drain=20` / `headroom=1.3` hold as the shape changes? — so it applies **no max-replica cap**. The actuated demo (`run.py`/`index.html`) caps every sizer at 10; capping here would confound the knob signal. The `rep_max` column below therefore reports *pre-cap desired* replicas (e.g. `qexp` peaks at 15 on `stepdown`), which is expected to exceed the demo's actuated ceiling — an intentional, informative difference, not a discrepancy.
 
+**One capped exception — the HPA-queue `q_target` sweep** (last section per shape). The HPA/KEDA queue-depth controller has no meaningful uncapped baseline — at `q_target=1` (1 queued request per replica, the current default) its pre-cap desired diverges under the 90s boot lag — so it is run **capped at 10** (the demo's actuated ceiling). Raising `q_target` makes it *less* aggressive (`desired = ceil(Q / q_target)`): cheaper but slower. The question is how far the target can relax before the served-≤15s quality bar drops.
+
 ## bump  (reqs = 7159)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
@@ -40,6 +42,20 @@ Canonical picks under test: Qexp `proj_setup = 120`, shared `drain_time = 20`, `
 | qexp util | 0.79 | 0.78 | 0.75 | 0.70 | 0.64 | 0.56 | 0.53 |
 
 knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.1**; qexp util at 1.3 = 0.70.
+
+### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
+
+| q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| served ≤15s % | 70.4 | 94.8 | 70.6 | 65.4 | 93.1 | 93.1 | 48.6 | 45.8 |
+| good ≤2s % | 64.1 | 92.5 | 60.6 | 55.0 | 90.3 | 90.3 | 33.5 | 30.1 |
+| failed % | 6.6 | 0.4 | 0.4 | 5.0 | 0.4 | 0.4 | 7.2 | 7.6 |
+| wait p90 | 52.6 | 0.0 | 44.2 | 49.0 | 0.7 | 0.7 | 58.1 | 57.3 |
+| rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
+| prov·s | 4869 | 5685 | 5518 | 3824 | 4290 | 3434 | 4660 | 4542 |
+| util | 0.32 | 0.21 | 0.27 | 0.48 | 0.30 | 0.40 | 0.47 | 0.50 |
+
+**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 70.4% @ q=1). Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
 
 ## trapezoid  (reqs = 10460)
 
@@ -78,6 +94,20 @@ knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.1**; qexp util at 1.3 = 
 
 knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 0.65.
 
+### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
+
+| q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| served ≤15s % | 86.5 | 86.5 | 86.5 | 86.5 | 86.5 | 51.6 | 49.0 | 84.2 |
+| good ≤2s % | 82.8 | 82.8 | 82.8 | 82.8 | 82.8 | 38.8 | 35.8 | 79.0 |
+| failed % | 4.7 | 4.7 | 4.7 | 4.7 | 4.7 | 12.1 | 12.3 | 4.7 |
+| wait p90 | 27.3 | 27.3 | 27.3 | 27.3 | 27.3 | 64.0 | 62.3 | 40.9 |
+| rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
+| prov·s | 5865 | 5865 | 5865 | 5865 | 5865 | 5461 | 5400 | 3784 |
+| util | 0.30 | 0.30 | 0.30 | 0.30 | 0.30 | 0.51 | 0.52 | 0.52 |
+
+**cap-bound plateau: q_target 1–6** behave identically (served ≤15s 86.5%, prov·s 5865 — pinned at 10), so the target is inert there. Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
+
 ## stepup  (reqs = 10275)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
@@ -114,6 +144,20 @@ knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 
 | qexp util | 0.83 | 0.80 | 0.80 | 0.72 | 0.71 | 0.65 | 0.56 |
 
 knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.3**; qexp util at 1.3 = 0.72.
+
+### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
+
+| q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| served ≤15s % | 93.1 | 93.1 | 93.1 | 93.1 | 93.1 | 93.1 | 68.7 | 40.2 |
+| good ≤2s % | 92.2 | 92.2 | 92.2 | 92.2 | 92.2 | 92.2 | 59.7 | 28.0 |
+| failed % | 3.5 | 3.5 | 3.5 | 3.5 | 3.5 | 3.5 | 8.4 | 19.0 |
+| wait p90 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 55.8 | 67.7 |
+| rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
+| prov·s | 5865 | 5865 | 5865 | 5865 | 5865 | 5850 | 4758 | 4844 |
+| util | 0.29 | 0.29 | 0.29 | 0.29 | 0.29 | 0.29 | 0.47 | 0.61 |
+
+**cap-bound plateau: q_target 1–8** behave identically (served ≤15s 93.1%, prov·s 5865 — pinned at 10), so the target is inert there. Beyond the plateau served ≤15s declines monotonically as the target loosens (cheaper, slower).
 
 ## stepdown  (reqs = 8698)
 
@@ -152,6 +196,20 @@ knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.3**; qexp util at 1.3 = 
 
 knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 0.59.
 
+### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
+
+| q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| served ≤15s % | 67.7 | 58.8 | 58.2 | 54.8 | 52.4 | 52.4 | 52.4 | 47.5 |
+| good ≤2s % | 62.2 | 50.5 | 37.9 | 46.6 | 44.5 | 44.5 | 44.5 | 33.1 |
+| failed % | 12.8 | 12.8 | 12.8 | 16.2 | 17.7 | 18.3 | 18.8 | 18.8 |
+| wait p90 | 68.8 | 68.8 | 68.8 | 72.5 | 70.9 | 70.9 | 72.5 | 72.5 |
+| rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
+| prov·s | 4368 | 5776 | 5066 | 5854 | 5881 | 5866 | 5836 | 4612 |
+| util | 0.36 | 0.31 | 0.47 | 0.30 | 0.30 | 0.30 | 0.30 | 0.53 |
+
+**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 67.7% @ q=1). Beyond the plateau served ≤15s declines monotonically as the target loosens (cheaper, slower).
+
 ## Verdict — do the canonical picks hold across shapes?
 
 ### Qexp proj_setup = 120
@@ -184,4 +242,19 @@ headroom good% is monotone in margin by construction (more slots = less queue), 
 - **trapezoid** — HOLDS: knee ≈ 1.2, util@1.3 = 0.65
 - **stepup** — HOLDS: knee ≈ 1.3, util@1.3 = 0.72
 - **stepdown** — HOLDS: knee ≈ 1.2, util@1.3 = 0.59
+
+### HPA-queue q_target = 1 (aggression knob, CAPPED)
+
+Unlike the open-loop knobs above, this sweep is **capped at 10** — HPA-queue has no meaningful uncapped baseline (its pre-cap desired diverges at q_target=1 under boot lag). Higher q_target = fewer replicas per queued request = less aggressive. But HPA-queue is a **closed loop with a 90s boot dead time**, so served-≤15s is *not* a clean function of the target — read each shape by its plateau + monotonicity:
+
+- **bump** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 70.4%
+- **trapezoid** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 86.5%
+- **stepup** — cap-bound plateau to q≈**8** (target inert), then monotone decline; served ≤15s@1 = 93.1%
+- **stepdown** — **aggression load-bearing** — q_target=1 best, relaxing only hurts; served ≤15s@1 = 67.7%
+
+**→ there is no single "aggressive enough" threshold.** `desired = ceil(avg_q / q_target)` sets both the scale-*up* and scale-*down* thresholds, and three mechanisms compete:
+
+- **Sustained demand (`stepup`/`trapezoid`) — cap saturates the loop.** q_target 1…~6–8 are *identical* (all pinned at 10), so the knob is inert; only once the target is loose enough to pull desired below the cap does quality cliff. Aggression in this range buys nothing.
+- **Transient demand (`bump`) — mistimed scale-down dominates.** With the 90s boot dead time, the loop can scale *down* mid-drain and then re-scramble too late. Whether that premature cut lands is sensitive to the target (a looser q=2 delays the down-decision past the drain and holds at cap → serves *better* than the aggressive q=1), so served-≤15s is non-monotone. This is a scale-down/damping problem, not a scale-up aggression one.
+- **`stepdown` — aggression is load-bearing.** q_target=1 is best on quality *and* cost: clearing the post-step backlog fast lets the fleet scale down sooner, so relaxing the target only under-serves *and* costs more.
 
