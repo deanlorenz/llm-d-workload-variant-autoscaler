@@ -641,10 +641,21 @@ func allocateForModelPaired(
 		for _, role := range roles {
 			v := variantByRole[role]
 			k := kByRole[role]
-			prc := prcByRole[role]
 			targets[v] += k
+			// Decrement each analyzer's own remaining by k*PRC_i[v] -- the
+			// picked variant's PRC differs per analyzer, so a single uniform
+			// PRC (the anchor's binder) would mix units for every other
+			// analyzer (Bug #1). roleBottleneckReplicas/bindingIndexForRole
+			// divide by each analyzer's own PRC; the decrement must match.
 			for i := range pickerState {
-				pickerState[i][role] = math.Max(0, pickerState[i][role]-float64(k)*prc)
+				if s[i].Result == nil {
+					continue
+				}
+				prcI := prcForVariant(s[i].Result, v)
+				if prcI <= 0 {
+					continue
+				}
+				pickerState[i][role] = math.Max(0, pickerState[i][role]-float64(k)*prcI)
 			}
 			if available != nil {
 				available[accFromVCs(variants, v)] -= k * gpusPerReplicaFromState(stateMap, v)

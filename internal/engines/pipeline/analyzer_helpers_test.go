@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -528,6 +530,37 @@ var _ = Describe("paired helpers", func() {
 			s := []NamedAnalyzerResult{makeNamed("sat", 100, 0, "other", 1.0)}
 			_, ps := initRoleState(s)
 			Expect(roleAggRemaining(s, ps, domain.RoleBoth, "v")).To(Equal(0.0))
+		})
+	})
+
+	Describe("allocateForModelPaired decrement", func() {
+		It("decrements each analyzer's remaining by its OWN PRC, not the anchor's uniform PRC (Bug #1)", func() {
+			// saturation binds v (rd=100/10=10 beats throughput's rd=500/100=5),
+			// so the anchor's PRC for v is saturation's (10). 10 replicas of v
+			// fully cover saturation's 100 remaining (10*10=100) AND throughput's
+			// 500 remaining (10*100=1000 >= 500) when each analyzer's remaining is
+			// decremented by k times its OWN PRC. Before the fix, the decrement
+			// used the anchor's uniform PRC (10) for every analyzer, leaving
+			// throughput's remaining at 500-10*10=400 -- not cleared, even though
+			// its true demand was already satisfied -- which would force spurious
+			// extra iterations.
+			sat := makeNamed("saturation", 100, 0, "v", 10.0)
+			ta := makeNamed("throughput", 500, 0, "v", 100.0)
+			s := []NamedAnalyzerResult{sat, ta}
+			variants := []domain.VariantCapacity{
+				{VariantName: "v", AcceleratorName: "A100", Cost: 1.0, PerReplicaCapacity: 10, ReplicaCount: 0},
+			}
+			stateMap := map[string]domain.VariantReplicaState{
+				"v": {VariantName: "v", CurrentReplicas: 0, GPUsPerReplica: 1},
+			}
+			targets := map[string]int{"v": 0}
+			roles, ps := initRoleState(s)
+
+			allocateForModelPaired(context.Background(), s, variants, stateMap, nil, targets, costGreedyRolePick, ps, roles)
+
+			Expect(ps[0][domain.RoleBoth]).To(Equal(0.0), "saturation's remaining must clear")
+			Expect(ps[1][domain.RoleBoth]).To(Equal(0.0), "throughput's remaining must clear using its OWN PRC, not saturation's")
+			Expect(targets["v"]).To(Equal(10), "no spurious extra replicas from an under-decremented non-binder")
 		})
 	})
 

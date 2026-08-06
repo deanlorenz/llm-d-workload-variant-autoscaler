@@ -459,6 +459,7 @@ anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
   roleBottleneckReplicas       → max_i ceil(state[i][role] / PRC_i[v]): cross-analyzer replica sizing
   roleAggRemaining             → the bottleneck entry's own raw demand (replica-space argmax, not a raw cross-analyzer max)
   Δ_util = min_role util_role  → joint commit bound: trim to the least-served role
+  pickerState[i][role] -= k*PRC_i[v] → per-analyzer decrement (each analyzer's OWN PRC, not the anchor's)
   applyAllocation(s, v, k)     → decrement Remaining on all NamedAnalyzerResults
 ```
 
@@ -484,6 +485,15 @@ each analyzer's remaining demand shrinks at its own rate as replicas commit,
 so the binder for a given `(role, variant)` — and the cost-efficiency ranking
 that follows from its `PerReplicaCapacity` — can change partway through a
 single water-fill, not just once per optimize cycle.
+
+**Per-analyzer decrement.** Committing `k` replicas of the picked variant `v`
+decrements each voting entry's `pickerState[i][role]` by `k` times *that
+entry's own* `PerReplicaCapacity[v]` — not the anchor's (the binder's) PRC
+applied uniformly. With a single voter the two are the same value, so this is
+byte-identical there; once a second analyzer votes, its PRC for `v` can
+differ from the binder's, and decrementing by the wrong PRC would leave its
+remaining demand over- or under-stated for the next iteration's bottleneck
+and binder calculations.
 
 ### Scale-down path
 
