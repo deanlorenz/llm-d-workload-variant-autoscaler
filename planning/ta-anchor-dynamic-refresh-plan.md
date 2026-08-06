@@ -42,17 +42,25 @@ rewrites C1–C5, and is coordinated then.
 
 ## TOC
 
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L57:104
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L105:163
-  - [§1.1 Commit map (C1–C9)](#11-commit-map-c1c9) L142:163
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L164:216
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L217:289
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L290:319
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L320:354
-- [§4 Ship gate & tests](#4-ship-gate--tests) L355:387
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L388:422
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L423:452
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L453:477
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L65:122
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L123:184
+  - [§1.1 Commit map (C1–C9)](#11-commit-map-c1c9) L160:184
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L185:245
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L246:318
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L319:348
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L349:590
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L356:375
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L376:423
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L424:486
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L487:521
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L522:544
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L545:571
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L572:590
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L591:625
+- [§4 Ship gate & tests](#4-ship-gate--tests) L626:679
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L680:731
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L732:780
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L781:825
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -88,6 +96,16 @@ below were confirmed with Dean before authoring:
 - **Sat-only goldens endgame:** **RELAX / remove** the #1513 sat-only goldens once the multi-vote
   goldens cover the single-vote path as a sub-case (explicit removal commit in C9 — see §4).
 - **N3 nil-guard hardening:** **INCLUDE** it in PR-2 (rides C5, the rescale commit).
+- **Score semantics + the combine helper (Dean, 2026-08-06 — "Lets fix the score logic… The logic needs
+  fixing for multi-analyzers, so do it"):** analyzer `Score` is a **belief weight over votes**, applied in
+  the combine (stage 1) and nowhere else; model `priority` is the only fair-share weight (stage 2). The
+  combine collapses into **one helper**, and `Score` leaves `fairShareValue` and the `sortVariantsForScaleDown`
+  tie-break. Full spec: **§2d**. This expands the old single C6 into **C6a–C6d**.
+
+**Stack order note (2026-08-06).** C1–C5, C7 and C8 have **already landed** on the branch; C6 was paused
+on the Score question (coder handoff `plan__ta-anchor-c6-fairsharevalue-score.md`, answered in §2d). So the
+git order is **C1–C5 → C7 → C8 → C6a–C6d → C9** — the C-labels are stable identifiers, not the commit
+sequence. Do not renumber landed commits.
 
 **Coding is NOT gated on PR-1 merging** (Dean, 2026-08-06) — PR-2 is **stacked on PR-1's branch and
 worked in parallel**. Start C1 on Dean's explicit go-ahead (per "Discuss before implementing"). **First
@@ -151,7 +169,10 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C3** | **Bug #2** `roleAggRemaining` — max in replica space (`max_i rd_i`), not raw mixed-unit RC. | two-vote MAX fixture | sat-config "Shared aggregation helpers" | §2 #2 |
 | **C4** | **Bug #1** `allocateForModelPaired` decrement — per-analyzer `k·PRC_i` (or replica units), not `k·PRC_sat` uniformly. Paired with C3. | two-vote allocation fixture | pipeline "Scale-up path" | §2 #1 |
 | **C5** | **Bug #3** rescale water-fill + `roleDemandGPUs` combined `max_i ceil(demand_i/PRC_i)`; **+ N3** nil-guard hardening in `rescaleModelDecisions`. | two-vote rescale fixture | pipeline "Optimizer internals" | §2 #3, §7 N3 |
-| **C6** | **Bug #5** fair-share — 3 lock-step sites `fairShareValue` / `fairShareCap` / `sortVariantsForScaleDown` move together (anchor combined replica-demand; GPUs→replicas convert; binding-PRC tie-break). | fair-share ordering fixture | pipeline "Fair-share iteration" | §2 #5 |
+| **C6a** | **`combineVotes` helper + collectors** — one combine core; **merge** `roleBottleneckReplicas` + `bindingIndexForRole` (delete the duplicate loop); retrofit `roleAggRemaining` / `roleDemandGPUs` / `safeRemovalReplicasForRole` onto it. Uniform scores ⇒ **byte-identical**. | helper unit table (uniform / dominant / bounded / single / empty); 3-analyzer non-participant fixture (finding (a)) | pipeline "How results combine" | §2d.3 |
+| **C6b** | **Score dominance weighting on** — the `(sᵢ − s_bind)⁺` term; rounding **once** at the call site (`ceil` up, `floor` down). | 10-vs-5 @ scores 1/2 ⇒ 9 up, 6 down | pipeline "How results combine"; sat-config score semantics | §2d.2 |
+| **C6c** | **Bug #5** fair-share — **4** lock-step sites (i) `fairShareValue` / (ii) `fairShareCap` / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path" | §2 #5, §2d.5, §2d.6 |
+| **C6d** | Finding **(c)** — a **live** analyzer reporting `RoleSpare[role] <= 0` vetoes removal for that role's variants even with no per-variant PRC (distinct from C7's N7 *abstain*). | live-objector-without-PRC fixture (red: replicas removed; green: held) | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
 | **C9** | **Dev-guide multi-vote sections + goldens endgame** — multi-vote reference prose; **relax/remove** the #1513 sat-only goldens as an explicit commit once the multi-vote goldens cover the single-vote sub-case. | multi-vote goldens; hand-worked design examples | all touched dev-guides finalized | §4 |
@@ -191,23 +212,31 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
   **already OK**. **+ N3 hardening (this commit):** `rescaleModelDecisions:342-344` dereferences the
   anchor with **no local nil-guard** (safe only via the `:225` pre-filter + `bindingAnchor` purity;
   fragile). Add the nil-guard (or compute-once-and-pass the anchor) — cheap, closes the fragility.
-- **#5 — `fairShareValue` sums (`Σ_i`) where design wants (`max_i`) → C6.** Limited/fair-share mode only
-  (the cost-aware unlimited path does not use fsv). Three **lock-step** sites that must change together
-  or units desync:
+- **#5 — `fairShareValue` sums (`Σ_i`) where design wants (`max_i`) → C6c.** Limited/fair-share mode only
+  (the cost-aware unlimited path does not use fsv). **Four** **lock-step** sites that must change together
+  or units desync — site (iv) was found while verifying §2d.5 and is not in the design doc's list.
+  The Score decision that this bug's fix depended on is **settled in §2d** (Score leaves fsv entirely);
+  the old "× Score only if Score is meant to weight budget" hedge is **withdrawn**.
   - **(i) `fairShareValue` (`greedy_score_optimizer.go:73`)** — replace `Σ_i Score_i × Σ_role
-    ps[i][role]` with a combined replica/GPU-space quantity `Σ_role (max_i rd_i[role] − current[role])`
-    (× priority; × Score only if Score is meant to weight budget). **Re-point fsv at the anchor's
-    combined per-role replica-demand** instead of iterating per-analyzer `ps` — the anchor already
-    holds `max_i rd_i` per role.
+    ps[i][role]` with the combined **replica-space** per-role demand
+    `Σ_role combineVotes(votesFromPickerState(…, role, v_role), up=true)`, × `priority`, **no Score**.
+    `v_role` = the role's first `sortByCostEfficiencyAsc` candidate with `PRC > 0` (§2d.5 (i)).
   - **(ii) `fairShareCap` (`greedy_score_optimizer.go:421`)** — `ceil(target / vc.PerReplicaCapacity)`
-    divides the fsv-unit `target` (`= w.remaining − mean`, `:271`) by topology PRC_sat. Once `target`
-    becomes replica/GPU-space (fix i), this double-converts; convert GPUs→replicas via `gpusPerReplica`
-    or use replica-space `target` directly. Same commit as (i).
+    divides the fsv-unit `target` (`= w.remaining − mean`, `:273`) by that candidate's PRC. Once `target`
+    is replica-space (fix i) the divide is the second half of a double-conversion: becomes `ceil(target)`.
   - **(iii) scale-down tie-break `sortVariantsForScaleDown` (`cost_aware_optimizer.go:161-184`, weighted
     sum `:168`)** — a **second** `Σ_i Score_i × PRC_i[v]` site. Lower severity (orders scale-down
     candidates within a role, never sizes), but the same wrong-operator/mixed-unit pattern; sweep here
-    — use the binding `max_i` PRC or drop the cross-analyzer weight for a topology-only tie-break.
-    (Note: this site is **also** touched by C7's N7 role-coverage decision — coordinate the two edits.)
+    — drop the Score factor and tie-break on the **binding** analyzer's PRC (`combineVotes` binder,
+    `up=false`), then name ascending. (Note: this site is **also** touched by C7's landed N7 role-coverage
+    decision and by finding (c) in C6d — coordinate all three edits.)
+  - **(iv) `allocateForModel`'s picker-state clamp (`greedy_score_optimizer.go`, the
+    `if ps[i][role] > target { ps[i][role] = target }` loop, ~`:285-291`) — NEW.** It clamps
+    **raw-capacity** `ps` against `target`. The moment `target` becomes replica-space the clamp truncates
+    every role to a handful of capacity units. Convert the clamp to replica space (or clamp the combined
+    per-role replica count instead) in the same commit. **This is the site that makes #5 a units bug and
+    not merely a shape bug** — it is inert today only because `target` is the *sum over roles*, so each
+    individual role's value is already ≤ it.
 
 [↑ TOC](#toc)
 
@@ -316,6 +345,248 @@ byte-for-byte. **Deferred-not-deprecated:** the taxonomy is intentionally preser
 
 ---
 
+<a id="2d-score"></a>
+## §2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d
+
+Origin: Dean's directive 2026-08-06 ("*Lets fix the score logic. We already did all the work. The logic
+needs fixing for multi-analyzers, so do it*"), triggered by the coder's blocking question in
+`plan__ta-anchor-c6-fairsharevalue-score.md`. That handoff asked which of three formulas to implement;
+this section is the answer (**option 1 — drop Score from fsv — with the T1.4 fixture rewritten**, §2d.6).
+
+### §2d.1 What Score means (decided)
+
+`analyzers[].score` (public YAML, default `1.0`, `0` coerced to `1.0` in `config/saturation_scaling.go`)
+is a **belief weight over votes** — how much to trust one analyzer's replica opinion against another's.
+It is **not** a budget multiplier and **not** a priority. Model `priority` (default `1.0`) is the only
+fair-share weight. `K2Priority` is an unrelated name collision — **do not touch it**.
+
+Two stages, per Dean: **(1) combine analyzers with scores** → one replica number per (variant, role);
+**(2) fair-share models with priorities.** Score appears only in stage 1; `priority` only in stage 2.
+
+Consequences:
+- **Score is REMOVED from `fairShareValue` and from the `sortVariantsForScaleDown` tie-break.** Both are
+  stage-2 / ordering sites that today multiply by Score, double- and triple-counting a stage-1 quantity.
+- **Rejected — "Score as an aggregate budget multiplier"** (`fsv = priority × (Σᵢ Scoreᵢ) × …`, the coder's
+  option 3). It reproduces T1.4's existing expectation, but it makes a model's GPU claim grow with the
+  *number of analyzers configured for it*, which is not a property of the workload. Rejected 2026-08-06;
+  do not re-raise without a design-doc change.
+
+[↑ TOC](#toc)
+
+### §2d.2 The combine rule (dominance weighting)
+
+Per (variant, role), over **participating votes only** (§2d.4):
+
+```
+vᵢ  = replicas analyzer i implies    (demandᵢ/PRCᵢ scale-up;  spareᵢ/PRCᵢ scale-down)
+sᵢ  = analyzer i's Score  (> 0)
+e   = max vᵢ (scale-up)  |  min vᵢ (scale-down)      ← the binder's vote
+s_e = the binder's Score
+
+v* = e  −  Σᵢ (e − vᵢ)·(sᵢ − s_e)⁺ / Σⱼ sⱼ            (x⁺ = max(x, 0))
+```
+
+Then round **once**, at the call site: `ceil(v*)` scale-up, `floor(v*)` scale-down — **never per element**
+(Dean, 2026-08-06: "*ceil belongs after the weighting, not per element*").
+
+**One expression serves both directions.** For scale-down `e` is the *min*, so `(e − vᵢ) ≤ 0` and the
+subtraction *adds*. `up` selects only the extremum and the rounding — there is no second formula and no
+sign flip in the body.
+
+Invariants (the helper's unit table asserts each):
+1. **Uniform scores ⇒ plain extremum.** Every `(sᵢ − s_e)⁺ = 0` ⇒ `v* = e` — *exactly* today's `maxᵢ` /
+   `minᵢ`. This is why C6a is behavior-preserving and why the #1513 goldens cannot move on it.
+2. **Dominant score ⇒ that analyzer's own number.** `s_k → ∞` ⇒ `v* → v_k`.
+3. **Bounded: `v* ∈ [min vᵢ, max vᵢ]`, always.** Because `s_e ≥ 0`, `Σᵢ(sᵢ − s_e)⁺ ≤ Σⱼ sⱼ`, so the
+   correction can never exceed `|e − v_opposite|`. The combine can never invent a number no analyzer asked
+   for.
+4. **Monotone in each `sᵢ`** — raising a dissenter's score pulls the result toward its vote.
+5. Single vote ⇒ `v* = v₀`. No participating vote ⇒ `(0, −1)` ⇒ the caller holds.
+
+**Worked example (Dean's, 2026-08-06).** TA wants 10 replicas (score 1), saturation wants 5 (score 2).
+`e = 10` (TA binds), `s_e = 1`, `Σs = 3`. Correction `= (10−5)·(2−1)/3 = 5/3 = 1.667`.
+`v* = 8.333` → **ceil ⇒ 9 replicas**. Reproduces Dean's 8.33 exactly.
+A plain weighted average would give **6.67** — rejected, because it lands *below every analyzer's own
+lower bound reasoning* in cases where the binding constraint genuinely needs more than the trusted
+analyzer noticed. (Dean's literal phrasing, "max − weighted average of the deltas", is algebraically
+identical to that plain weighted average: `e − Σwᵢ(e−vᵢ)/Σwᵢ ≡ Σwᵢvᵢ/Σwᵢ`. Weighting the deltas by
+**score excess over the binder** rather than by raw score is what produces 8.33 and satisfies 1–3 above.)
+
+**Scale-down mirror** (scores swapped so the correction is visible): TA says 10 replicas are removable
+(score 2), saturation says 5 (score 1). `e = 5` (saturation binds — the conservative vote), `s_e = 1`,
+`Σs = 3`, correction `= (5−10)·(2−1)/3 = −1.667` ⇒ `v* = 6.667` → **floor ⇒ 6 removable**. Still ≤ TA's
+own 10 and ≥ saturation's 5. When the *conservative* analyzer is also the higher-scored one, every
+`(sᵢ − s_e)⁺ = 0` and the result stays at the safe extremum — the direction that matters for safety needs
+no special case.
+
+[↑ TOC](#toc)
+
+### §2d.3 The helper — one function, and the duplicate loop that must die
+
+The same combine loop is written out **six times** today, and two of them —
+`roleBottleneckReplicas` and `bindingIndexForRole` — are the *identical* loop with the *identical*
+tie-break, one returning the count and the other the argmax, **maintained independently**. That is a
+latent desync now and a guaranteed one once the score term lands. Extract one core:
+
+```go
+// replicaVote is one analyzer's opinion in a single (variant, role) combine,
+// already converted to replica space. Value is real-valued — rounding happens
+// once, at the caller, after the weighting.
+type replicaVote struct {
+	Index int     // ballot index — binder identity and deterministic tie-break
+	Value float64 // replicas: demand/PRC (scale-up) or spare/PRC (scale-down)
+	Score float64 // belief weight; > 0 (config coerces 0 → 1.0)
+}
+
+// combineVotes reduces one (variant, role) ballot to a single real-valued replica
+// count plus the index of the binding analyzer. up=true takes the max (scale-up
+// demand), up=false the min (scale-down safe removal). Higher-scored analyzers pull
+// the result toward their own vote without it ever leaving [min, max]; uniform
+// scores collapse to the plain extremum. Ties keep the lowest index. Returns
+// (0, -1) when no vote participates.
+func combineVotes(votes []replicaVote, up bool) (value float64, binder int)
+```
+
+Returning **both** the value and the binder from one evaluation is the load-bearing part: the count and
+"which analyzer is binding" can no longer disagree, and the binder identity is what §3's per-iteration
+refresh writes onto the anchor.
+
+Collectors — one thin function per state source, each applying the **same** participation filter
+(`e.Result != nil`, `prcForVariant(e.Result, variant) > 0`, its own state present):
+
+```go
+func votesFromPickerState(s []NamedAnalyzerResult, st RolePairedState, role, variant string) []replicaVote // scale-up (picker)
+func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []replicaVote                     // rescale
+func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replicaVote                       // scale-down
+```
+
+Because the filter lives in the collectors, `Σⱼ sⱼ` runs over participating votes only **structurally**,
+not by comment — finding (a) below is then unrepresentable.
+
+**Retrofit map** (grep by symbol — line numbers drift):
+
+| Site | Today | After |
+|---|---|---|
+| `roleBottleneckReplicas` (`analyzer_helpers.go`) | own `max ceil(state/prc)` loop | `ceil(combineVotes(votesFromPickerState(…), true))` |
+| `bindingIndexForRole` (`analyzer_helpers.go`) | the **same** loop, returns argmax | **DELETED** — callers take `combineVotes`' second return |
+| `roleAggRemaining` | binder's raw remaining via `bindingIndexForRole` | binder from `combineVotes`; **Bug #2** ⇒ replica space |
+| `roleDemandGPUs` (`rescale.go`) | own `maxᵢ ceil(demandᵢ/PRCᵢ)` loop | `ceil(combineVotes(votesFromTotalDemand(…), true))` (**Bug #3**) |
+| `safeRemovalReplicasForRole` | own `minᵢ floor(spareᵢ/PRCᵢ)` loop | `floor(combineVotes(votesFromRoleSpare(…), false))` |
+| `sortVariantsForScaleDown` (`cost_aware_optimizer.go`) | `Σᵢ Scoreᵢ·prcForVariant(…)` tie-break | Score dropped; binder's PRC (§2d.5 (iii)) |
+
+`needsScaleDownForRole` keeps its own all-agree **boolean** shape (it is a veto, not a magnitude) but must
+use the same participation filter — see finding (c).
+
+Bugs #1–#3 (C3/C4/C5, already landed) each fixed one of these loops in place. C6a does **not** re-open
+those fixes: it hoists their now-agreeing arithmetic into the shared core and deletes the duplicate. If a
+landed fix turns out to disagree with the extracted core, that is a finding — stop and write a `plan__`
+handoff rather than quietly re-deciding it inside C6a.
+
+[↑ TOC](#toc)
+
+### §2d.4 Missing / non-participating entries
+
+Analyzer *i* **does not participate** in a (variant, role) combine when it has no `Result`, no
+`VariantCapacities` entry for the variant (`prcForVariant` returns `0` — note it returns `0` both for
+"absent" and for a genuine zero), or no state for that role. A non-participant is excluded from the
+extremum, from the correction sum, **and from `Σⱼ sⱼ`**.
+
+Walking this (2026-08-06) produced three findings. Dean approved acting on **(b)** and **(c)**.
+
+- **(a) `Σⱼ sⱼ` over participating votes only — handled structurally, assert it.** If non-participants
+  counted in the denominator, a configured-but-silent analyzer would dilute every correction toward the
+  binder: an analyzer that says *nothing* would make the system trust the binder *more*. The collector-side
+  filter makes this automatic. Pin it: a 3-analyzer fixture whose third entry has no PRC for the variant
+  must produce the **same** number as the equivalent 2-analyzer fixture.
+- **(b) `fairShareValue` counts demand the pipeline cannot act on — FIX (participation filter), Dean-approved.**
+  `fairShareValue` skips only `e.Result == nil`; it has **no PRC filter**, so an analyzer with
+  `RequiredCapacity > 0` and no usable PRC for any variant still inflates the model's fsv. Full traced
+  consequence: the model sorts to the front of the fair-share queue on an unactionable claim →
+  `allocateForModel` can allocate nothing against it (`fairShareRolePick` skips `PerReplicaCapacity <= 0`)
+  → `allocated == false` → the model is **dropped for the rest of the cycle** at `fairShareScaleUp`'s
+  `w.remaining = -1`. Not a spin, but the model is **under-served**, and every other model's `mean` was
+  distorted for the iterations it was in the running. **Fix:** fsv counts only demand that has a PRC to
+  convert it — the same participation filter as the combine. (T1.4's fixture is exactly this shape — §2d.6.)
+- **(c) A live analyzer can be over-ridden on scale-down — FIX (role-level objector blocks removal), Dean-approved.**
+  `safeRemovalReplicasForRole` skips entries with `prc <= 0`, so a **live** analyzer reporting
+  `RoleSpare[role] = 0` — an explicit *"there is no spare here"* — but carrying no per-variant PRC is
+  dropped from the `min`; the other analyzers' spare wins and replicas come off **over its objection**.
+  This is **distinct from N7** (landed in C7), which reads a *missing* `RoleSpare[role]` as an **abstain**:
+  (c) is a *present, zero* role-level opinion. **Fix:** a live analyzer with `RoleSpare[role] <= 0` blocks
+  removal for every variant of that role, whether or not it sizes the variant — a role-level objection
+  needs no per-variant PRC to be meaningful. N7's abstain stays for the genuinely-absent case:
+  `RoleSpare == nil` or key missing ⇒ **abstain**; key present and `<= 0` ⇒ **veto**.
+
+[↑ TOC](#toc)
+
+### §2d.5 Fair share (Bug #5) — currency
+
+fsv's currency must match every consumer of `target`. See §2 #5 for the four sites (i)–(iv) and their
+edits; (iv) is new, found while verifying this section, and is the one that turns #5 from a shape bug into
+a units bug.
+
+**Why the #1513 goldens stay green — verified 2026-08-06, not assumed.** For a single analyzer with one
+PRC per variant, `Σ_role RC[role] / PRC ≡ Σ_role (RC[role]/PRC)`: the currency change is an exact monotone
+rescale of fsv by `1/PRC`, and `fairShareCap` divides that rescale straight back out, so the cap number is
+unchanged. The only quota-constrained golden (`optimizer_characterization_test.go`, "Commit 4 —
+quota-constrained optimizer golden", scenario C1) is **single-model, single-role, single-variant,
+priority 1, Score 1**: fsv `50000 → 5`, cap `ceil(50000/10000)=5 → ceil(5)=5`, and the namespace budget
+still binds at 2 replicas. Unchanged. Every other golden runs either `CostAwareOptimizer` (never touches
+fsv) or `unlimitedConstraints` with one active model, where fsv's magnitude only has to stay `> 0`.
+
+**What the currency fix genuinely does change:** multi-model, quota-constrained allocation where models
+have different PRCs — `computeMean` / `sortByRemainingDesc` compare tokens/s against req/s today. That is
+the bug being fixed, and #1513 does not cover it. Add fixtures for it (§4). **Run the goldens per commit
+and report; if one moves, stop and write a `plan__` handoff — do not rewrite a golden to accommodate this
+change.**
+
+[↑ TOC](#toc)
+
+### §2d.6 T1.4 — the existing Score test (rewrite; do not retire)
+
+`greedy_score_optimizer_test.go` T1.4 ("non-uniform Score across two analyzers drives fair-share ordering",
+~L881) asserts Model A (fsv 60000; saturation Score 1.0 + throughput Score 2.0) out-prioritizes Model B
+(fsv 20000; saturation only). Its throughput entry has an **empty `VariantCapacities`** while its comment
+claims it "shares rA's variant capacity" — the comment describes a fixture that was never built. The test
+therefore pins **exactly the two behaviors this section removes**: Score inflating fsv, and unactionable
+demand counting toward fsv (finding (b)).
+
+**Rewrite it** — the *premise* (non-uniform Score changes the outcome) stays valid; the *mechanism* moves
+from stage 2 to stage 1. Dean-approved shape:
+- Give the throughput entry a **real** `PerReplicaCapacity` for `a-v1`, consistent with the anchor data
+  contract (a voting analyzer sizes the variants it votes on).
+- Choose demands and PRCs so the two analyzers **disagree on the replica count** and the dominance
+  correction lands where `ceil` cannot swallow it — e.g. votes of 10 and 5 with scores 1 and 2 ⇒ 8.33 ⇒ 9,
+  distinguishable from both 10 and 5. **Counts in the low single digits round the whole effect away**; use
+  ≥ ~10 replicas of spread.
+- Assert the **combine** outcome (the replica number *and* the binder index), and keep a fair-share
+  ordering assertion driven by **priority**, not Score.
+- Add the uniform-score control asserting the plain extremum.
+
+Under the rewritten fixture the old expectation (A ≻ B *by Score*) no longer holds, and is not supposed
+to: with equal priorities and equal demands two models tie regardless of how many analyzers each has.
+State that in the commit message (CODER-CONVENTIONS §4a — describe it in prose, no plan-doc identifiers).
+
+[↑ TOC](#toc)
+
+### §2d.7 Why this is safe to land here
+
+- Both shipped configs set `score: 1.0`. The **only** non-unit Score in the tree is T1.4's fixture, so
+  non-uniform Score is **unreachable in production today** (Dean, 2026-08-06: "*we don't expect any non
+  default scores… this lowers the risk*").
+- Uniform scores collapse the new arithmetic to the old extremum exactly (§2d.2 invariant 1) ⇒ **C6a is a
+  behavior-preserving refactor** and **C6b turns on arithmetic no shipped config reaches**.
+- The user-visible risk concentrates in **C6c** (fsv currency + Score removal), which is why it is its own
+  commit, with the goldens re-run and dedicated `mean`/ordering fixtures.
+- Scope discipline: this is the "correct calculation" for multi-analyzer combine, not new functionality —
+  Dean, 2026-08-06: "*we should change the plan back to what was unless we know we had a math/logic bug
+  earlier… The correct calculation is always the same.*" Recomputation savings when the binder is unchanged
+  are **not** a goal (§3 refreshes unconditionally; memoization stays an implementation detail).
+
+[↑ TOC](#toc)
+
+---
+
 <a id="3-refresh"></a>
 ## §3 Per-iteration dynamic refresh — lands in C2
 
@@ -370,9 +641,30 @@ after. Run with `-race` (§4).
   - C3 — `roleAggRemaining` MAX in replica space (mixed-unit two-vote).
   - C4 — `allocateForModelPaired` per-analyzer decrement (two-vote allocation count).
   - C5 — rescale combined demand (two-vote water-fill); + N3 nil-anchor path exercised.
-  - C6 — fair-share ordering (limited mode, two votes); assert the three sites agree.
+  - C6a — `combineVotes` **unit table** (the invariants of §2d.2 one row each: uniform ⇒ extremum both
+    directions · dominant score ⇒ that vote · bounded in `[min,max]` · monotone in `sᵢ` · single vote ⇒
+    itself · no vote ⇒ `(0,−1)` · tie ⇒ lowest index), plus a **3-analyzer non-participant fixture**
+    (third entry has no PRC for the variant) that must produce the **same** number as the equivalent
+    2-analyzer fixture — this is finding (a)'s pin. Plus a byte-identity check: with uniform scores every
+    retrofitted site returns exactly what it returned before C6a.
+  - C6b — the two worked examples of §2d.2 as fixtures: votes 10/5 @ scores 1/2 ⇒ **9** scale-up; votes
+    10/5 @ scores 2/1 ⇒ **6** scale-down. Assert the number **and** the binder index. Add the
+    conservative-analyzer-is-higher-scored case asserting the result stays at the safe extremum.
+  - C6c — fsv **ordering** fixtures (two models, differing PRCs, quota-constrained: the model whose demand
+    is larger *in replicas* wins, not the one whose demand is larger in tokens/s) · a `computeMean`
+    fixture in replica space · a **multi-role** fixture pinning site (iv)'s clamp (a two-role model must
+    not have either role truncated to a handful of units) · finding (b): a model whose only demand has no
+    usable PRC must **not** sort ahead of an actionable model, and must not be dropped for the cycle ·
+    **T1.4 rewritten** per §2d.6 · **goldens re-run**.
+  - C6d — finding (c): a **live** analyzer with `RoleSpare[role] = 0` and **no** per-variant PRC blocks
+    removal for every variant of that role. Pair it with the N7 control (key *missing* ⇒ abstain, removal
+    proceeds) so the two cases are pinned as distinct.
   - C7 — stale-enabled scale-up (VG-up no-longer-scales); role-coverage-mismatch (N7 abstain);
     Test 2 rewrite (v2 PRC=0 under N8).
+- **Goldens are run per commit, not just at the end.** C6a and C6b must leave them byte-identical (uniform
+  scores ⇒ old arithmetic). C6c is the only commit where a golden *could* plausibly move — the verified
+  analysis in §2d.5 says it does not. **If a golden moves at any point: stop, and write a `plan__` handoff
+  with the diff. Do not rewrite a golden to accommodate this change.**
 - **Multi-vote goldens (C9):** a `[sat, TA]` golden suite that also encodes the `[sat]`-only and
   `[TA]`-only sub-cases (so the sat-only removal is covered), validated against hand-worked design-doc
   examples (§ anchor / § bugs worked numbers).
@@ -394,13 +686,20 @@ doc** (not the combine reference) — combine-arithmetic changes go in `multi-an
 
 **`docs/developer-guide/multi-analyzer-pipeline.md`:**
 - `## How results combine` (~L254) — **C1** (N2 deterministic binder tie-break replaces nil-on-ambiguity),
-  **C7** (VG-up `Enabled && Live` voting semantics; N7 abstain-vs-veto). *Modify.*
+  **C6a** (the single `combineVotes` helper is now *the* combine — describe it once here and have the
+  per-path sections refer back; name the collectors and the participation filter), **C6b** (the dominance
+  rule: what `score` means, the formula, rounding once at the caller, "uniform scores ⇒ plain max/min" as
+  the reader's anchor, and the 10-vs-5 @ 1/2 ⇒ 9 worked example), **C7** (VG-up `Enabled && Live` voting
+  semantics; N7 abstain-vs-veto). *Modify — this is the largest single dev-guide edit in PR-2.*
 - `### Scale-up path` (~L438) — **C2** (per-iteration refresh), **C4** (`allocateForModelPaired`
   per-analyzer decrement). *Modify.*
-- `### Scale-down path` (~L463) — **C6** (iii) (`sortVariantsForScaleDown` binding-PRC tie-break), **C7**
-  (N7). *Modify.*
-- `### Fair-share iteration (GreedyByScoreOptimizer only)` (~L482) — **C6** (i)/(ii) (`fairShareValue` /
-  `fairShareCap` combined replica-demand). *Modify.*
+- `### Scale-down path` (~L463) — **C6c** (iii) (`sortVariantsForScaleDown` tie-break: Score dropped, uses
+  the binder's PRC), **C6d** (a live analyzer's role-level "no spare" blocks removal even with no
+  per-variant PRC — and how that differs from an absent key abstaining), **C7** (N7). *Modify.*
+- `### Fair-share iteration (GreedyByScoreOptimizer only)` (~L482) — **C6c** (i)/(ii) `fairShareValue` /
+  `fairShareCap` in **replica space**; state explicitly that `score` does **not** appear in fair share
+  (it is consumed upstream in the combine) and that `priority` is the only fair-share weight; note the
+  participation filter (demand with no usable PRC does not inflate a model's claim). *Modify.*
 - `### Scale-from-zero and zero-replica variants` (~L358) — **C7** (N8 drop-fallback: binder-unknown ⇒
   PRC=0 abstain). *Modify.*
 - `### Data flow per optimize cycle` (~L16) — **C2** (note the anchor is re-derived per allocation
@@ -410,7 +709,17 @@ doc** (not the combine reference) — combine-arithmetic changes go in `multi-an
 - `(a)/(b)` gloss lines 40/166/243/247–248/349/351/366–367/375 — **C8** notation strip. *Modify.*
 
 **`docs/developer-guide/saturation-scaling-config.md`:**
-- `#### Shared aggregation helpers` (~L431) — **C3** (`roleAggRemaining` replica-space max). *Modify.*
+- `### AnalyzerScoreConfig Fields` (~L313) — **C6b**. The `score` field's documented meaning becomes
+  operative for the first time: a **belief weight over analyzer votes**, applied per (variant, role) inside
+  the combine, *not* a budget or priority multiplier. State that `1.0` for all analyzers (the default, and
+  what every shipped config uses) reproduces the plain max/min exactly, that raising one analyzer's score
+  pulls the combined number toward that analyzer's own vote without ever leaving the
+  `[min vote, max vote]` range, and that model `priority` — not `score` — is what weights fair share.
+  Add a short "when would I change this?" note. Explicitly disambiguate the unrelated `K2Priority`.
+  *Modify (substantial — the field is currently documented as little more than a default).*
+- `#### Shared aggregation helpers` (~L431) — **C3** (`roleAggRemaining` replica-space max), **C6a** (the
+  helpers now delegate to the one `combineVotes` core; `bindingIndexForRole` is gone — the binder comes
+  back from the same call that produces the count). *Modify.*
 - `### How Scale-Up Triggers Work` (~L207) — **C7** (VG-up liveness gate on the combine input). *Modify.*
 - `### Saturation as the Identity Carrier` (~L464) — **C7** (N8 drop-fallback; sat-as-non-voting-carrier
   under `[TA]`-only), **C8** (notation strip). *Modify.*
@@ -432,9 +741,28 @@ than inferring scope.
   that says the getter "returns nil" or "holds" on multiple binders. Confirm all call sites
   (`cost_aware_optimizer.go`, `rescale.go`) still nil-check correctly (the getter can still return nil on
   *no* binder / empty voting set).
-- **C3/C4/C6 — unit changes** (raw-capacity → replica space): `grep -rn "roleAggRemaining\|PRC_sat\|k·prc\|fairShareValue\|fairShareCap" internal/`
+- **C3/C4/C6c — unit changes** (raw-capacity → replica space): `grep -rn "roleAggRemaining\|PRC_sat\|k·prc\|fairShareValue\|fairShareCap" internal/`
   and re-read every comment describing "max of RequiredCapacity" / "decrement by PRC" / "sum across
   analyzers" — reword to the replica-space / per-analyzer / max_i semantics.
+- **C6a — `bindingIndexForRole` deleted:** `grep -rn "bindingIndexForRole" internal/ docs/` — must return
+  **zero** hits after C6a, including in comments and dev-guide prose that describes "a second pass to find
+  the binding analyzer." Any remaining reference means a caller was left on the old two-call pattern.
+- **C6a — the combine is one helper:** `grep -rn "roleBottleneckReplicas\|safeRemovalReplicasForRole\|roleDemandGPUs\|needsScaleDownForRole" internal/ docs/`
+  — every doc-comment that spells the loop out ("takes the max over analyzers of ceil(...)") now describes
+  *delegation* to the shared combine, and every one of them must name the **same** participation filter.
+  A comment that still describes its own private loop is a stale hit even though the code compiles.
+- **C6b — `score` is a combine weight** (`Enabled`-list ordering → belief weight): `grep -rni "score" internal/ docs/developer-guide/ config/`
+  — this is a wide grep; read every hit and classify. Fix any comment calling `score` a priority, a weight
+  on capacity/budget, or an ordering key. **Leave `K2Priority` and every `k2*` identifier untouched** (name
+  collision, unrelated mechanism) — if a hit makes that confusion in prose, fix the prose.
+- **C6c — `score` no longer reaches fair share:** `grep -rn "Score" internal/engines/pipeline/` — after
+  C6c there must be **no** `Score` reference in `fairShareValue`, `fairShareCap`, `computeMean`,
+  `sortByRemainingDesc`, `allocateForModel`, or `sortVariantsForScaleDown`. Any survivor is either a
+  double-count or a units desync. Cross-check the dev-guide fair-share section makes the same claim.
+- **C6d — role-level objection blocks removal** (skip-on-no-PRC → veto): `grep -rn "RoleSpare\|prc <= 0\|prcForVariant" internal/ docs/`
+  — update every comment that says an analyzer without per-variant capacity "is skipped" on the scale-down
+  path; it now still objects at role granularity. Verify the *abstain* prose for a genuinely missing
+  `RoleSpare` key (landed in C7) is still accurate and is stated as the distinct case.
 - **C5 — rescale demand→GPU** (saturation-only → combined): `grep -rn "satEntry.TotalDemand\|roleDemandGPUs\|rescaleModelDecisions" internal/ docs/`
   — update comments claiming "saturation's demand" and confirm the N3 nil-guard note lands.
 - **C7 — VG-up voting gate** (`Enabled` → `Enabled && Live`): `grep -rn "votingResults\|Enabled-only\|e.Enabled" internal/ docs/`
@@ -453,7 +781,27 @@ than inferring scope.
 ## §7 Out of scope / deferred / separable follow-ons
 
 **In PR-2 (this stack):** §1 multi-vote combine + N2 + N7, §2 bugs #1/#2/#3/#5, §2b VG-up + N8, §2c
-notation, §3 per-iteration refresh, N3 nil-guard hardening (rides C5), §4 goldens relax.
+notation, **§2d Score semantics — the `combineVotes` extraction, the dominance rule, the missing-entry
+findings (a)/(b)/(c), the fair-share currency fix and the T1.4 rewrite**, §3 per-iteration refresh, N3
+nil-guard hardening (rides C5), §4 goldens relax.
+
+**Considered and REJECTED (do not re-implement without a design-doc change):**
+- **Score as an aggregate budget multiplier** — `fsv = priority × (Σᵢ Scoreᵢ) × …` (the coder's option 3 in
+  `plan__ta-anchor-c6-fairsharevalue-score.md`). It has the appeal of reproducing T1.4's existing
+  expectation with the existing fixture, but it makes a model's claim on GPUs grow with the *number of
+  analyzers configured for it*, which is not a property of the workload. Rejected by the planner
+  2026-08-06; §2d.1.
+- **Plain weighted average across votes** — `Σ sᵢvᵢ / Σ sⱼ`. Rejected by Dean 2026-08-06 ("*Weighted
+  average as is gives 6.67. not the right call*"): it can land below every analyzer's own lower-bound
+  reasoning. The shipped rule weights the *deltas from the extremum by score excess over the binder*,
+  which keeps the result inside `[min, max]` and reproduces Dean's 8.33 (§2d.2).
+- **Weighting each vote by Score before the extremum** — `maxᵢ (Scoreᵢ × ceil(vᵢ))` (the coder's option 2).
+  Not sign-coherent for scale-down, and it can exceed `max vᵢ`, i.e. invent a replica count no analyzer
+  asked for. Also rounds per element, which Dean ruled out.
+
+**Not deferred out of PR-2 by the Score work.** The fair-share currency fix (§2 #5) was briefly considered
+for a follow-up PR on the theory that it would move the #1513 goldens; that was **verified false**
+(§2d.5) and it stays here. Nothing new left PR-2's scope as a result of §2d.
 
 **NOT in PR-2 — separable small PRs (PR-1 §12), each independent:**
 - **QM fold (F10)** — fold the queueing-model into the V2 multi-analyzer engine (PR-1 refuses QM with an
