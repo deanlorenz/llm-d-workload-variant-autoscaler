@@ -1,0 +1,77 @@
+from: ta-anchor-dynamic-refresh
+to: planner
+session: ta-anchor-dynamic-refresh C6
+
+## The question
+
+C6 (Bug #5, §2 item 5 of planning/ta-anchor-dynamic-refresh-plan.md) asks me to replace
+`fairShareValue`'s `Σ_i Score_i × Σ_role ps[i][role]` with a combined replica/GPU-space quantity
+built from `roleBottleneckReplicas`'s own `max_i ceil(state[i][role]/PRC_i[v])`. The plan itself
+hedges on Score's fate in the new formula: "(× priority; × Score only if Score is meant to weight
+budget)". The design doc's own "clean" formula (§ limited) has NO Score term at all:
+
+    remaining = priority × Σ_role (desired[role] - current[role]) × gpusPerReplica
+
+I found a concrete reason this isn't just a documentation nuance: an existing, clearly-intentional
+regression test exercises Score differentiation directly, and its fixture is incompatible with any
+PRC-based (replica-space) combine for the secondary analyzer.
+
+## What I found
+
+`greedy_score_optimizer_test.go` T1.4 ("non-uniform Score across two analyzers drives fair-share
+ordering", ~line 881): Model A has two ballot entries — saturation (Score=1.0, RC=20000, PRC=10000
+for variant "a-v1") and throughput (Score=2.0, RC=20000, **no VariantCapacities at all** — the
+fixture comment says "throughput shares rA's variant capacity for simplicity" but the Result literal
+it actually builds has an empty VariantCapacities slice). Model B has a single saturation entry,
+Score=1.0, same RC/PRC. The test asserts Model A (fsv=60000 under the OLD formula, from
+Score-weighted summing) out-prioritizes Model B (fsv=20000) and gets both available GPUs.
+
+Under ANY replica-space combine requiring a PRC to convert RC into a replica count
+(`roleBottleneckReplicas`, `bindingIndexForRole`, `roleAggRemaining` — the pattern C2/C3/C4/C5 all
+use), throughput's entry has no PRC for "a-v1" at all → `prcForVariant` returns 0 → skipped from the
+max (same guard every other combine site uses). So `max_i ceil(RC_i/PRC_i)` for Model A collapses to
+saturation's term alone (2), identical to Model B's (2) — Score never enters the computation, and the
+test's qualitative expectation (A prioritized over B) breaks.
+
+## Why I'm not just deciding this myself
+
+Bug #5 explicitly names this as a "lock-step" change across three sites (`fairShareValue`,
+`fairShareCap`, `sortVariantsForScaleDown`) that "must change together or units desync" — getting
+the Score treatment wrong doesn't fail loudly, it just silently drops (or keeps broken) a real
+prioritization feature across all three. And the plan's own hedge means there's no single documented
+answer to point to.
+
+## Options I see
+
+1. **Drop Score entirely**, matching the design doc's clean formula exactly. T1.4 would need its
+   fixture updated (give throughput a real PerReplicaCapacity for "a-v1", consistent with how every
+   analyzer is expected to emit VariantCapacities under the anchor-refactor's data contract) and its
+   expected numbers recomputed under the new formula — or the test could be judged to be testing a
+   now-superseded mechanism and retired/rewritten with a different premise.
+2. **Weight each analyzer's own replica term by its Score before the max**: `max_i (Score_i ×
+   ceil(state[i][role]/PRC_i[v]))`. Still zero for throughput in T1.4's fixture (no PRC → no term to
+   weight) — doesn't rescue the existing test without also fixing the fixture, but keeps Score
+   meaningful for analyzers that DO have PRC data.
+3. **Split Score out as a separate aggregate multiplier**: `fsv = priority × (Σ_i Score_i) ×
+   Σ_role(max_i ceil(state[i][role]/PRC_i[v]) × gpusPerReplica(v))` — i.e., "how urgent" (summed
+   Score, unchanged from today, no unit-mixing concern since Score is dimensionless) as one factor,
+   "how much GPU capacity is actually needed" (the fixed max_i combine) as a separate factor. This
+   reproduces T1.4's qualitative result with its EXISTING fixture (Model A: priority=1 × ΣScore=3.0 ×
+   2 replicas × 2 GPUs/replica = 12; Model B: 1 × 1.0 × 2 × 2 = 4; A > B, matches). I have not
+   verified this against every other existing fair-share test, and it's my own construction, not
+   something the plan or design doc states — flagging it as A candidate, not a recommendation I'm
+   confident enough in to just implement.
+
+## What I need
+
+A decision on which formula to implement (or a different one), and if it's option 1, confirmation
+that T1.4's fixture may be rewritten to fit the anchor-refactor's data contract (real PRC on the
+throughput entry) rather than preserved as-is.
+
+## Status
+
+Paused C6's (i)+(ii) work (`fairShareValue`/`fairShareCap`) pending this. (iii)
+(`sortVariantsForScaleDown`) has a related but smaller version of the same question — its tie-break
+also currently sums `Score_i × PRC_i[v]` across analyzers — I'll hold that too until this is resolved,
+since the plan groups all three as one coordinated change. Continuing to work other threads
+(dev-guide gaps, status sync) while I wait; not blocked on everything, just C6.
