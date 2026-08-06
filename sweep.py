@@ -334,6 +334,11 @@ def main():
     q_setups = [60, 90]
     drains = [3, 5, 8, 10, 15, 20, 30]
     md = ["# Parameter sweeps — trends & calibration\n",
+          "**Demand shape:** every knob sweep below runs on the **bump** reference "
+          "shape (the smooth triangular calibration demand) — only the knob varies, "
+          "the demand does not. The one exception is the **Cap sweep** at the very "
+          "end, which is run per sustained shape (trapezoid / step-up / step-down) "
+          "and labels each explicitly.\n",
           "Metrics per run: `good%` (≤2s, pinned), `failed%` (>60s, pinned), "
           "`wait_p90` (s), `rep_max` (peak fleet), `rep·s` (usable replica-seconds), "
           "`prov·s` (billed incl. boot/drain), `util` (delivered ÷ usable capacity "

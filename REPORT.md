@@ -226,7 +226,7 @@ combining the two triggers (native KEDA max)? → the queue trigger rescues the 
 
 ## Parameter sweeps
 
-Trend + calibration line-plots (full numeric tables in [`out/sweep.md`](out/sweep.md)). Solid = good %, dashed = wait p90, dotted vertical = baseline.
+Trend + calibration line-plots (full numeric tables in [`out/sweep.md`](out/sweep.md)). The six knob sweeps all run on the **bump** reference shape (only the knob varies); the **Cap sweep** figures below vary the demand shape and name it in each title. Solid = good %, dashed = wait p90, dotted vertical = baseline.
 
 ![Setup-lag — quality collapse & cost vs boot time](out/11-sweep-setuplag.png)
 

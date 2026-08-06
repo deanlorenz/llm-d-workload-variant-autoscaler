@@ -91,6 +91,22 @@ own content; Compare panes start level; Table failed row reads dark-red; Tradeof
 at once; Sweeps nav jumps + cap section switches. Then the push decision (item D) — still needs
 Dean's explicit OK.
 
+### Round-2 follow-ups (2026-08-06, Dean flagged two issues on the `dd648c93` render)
+
+1. **Table tab "missing shape selector".** Root cause: the picker buttons also carry `data-shape`,
+   and `renderTableShape` hid by `#view-table [data-shape]` (descendant) — so 4 of the 5 pills got
+   hidden along with the non-selected content divs, collapsing the switcher to one pill. Fix: scope
+   to direct children `#view-table > [data-shape]` (the 5 content divs only). Verified with jsdom —
+   picker now shows all 5 pills, exactly one content div visible. (The cap sweep already dodged this
+   by using a distinct `data-cap-shape`.)
+2. **Sweeps "not clear what shape was used".** The six knob sweeps all run on the **bump** reference
+   shape but said so nowhere. Added an explicit shape note in three places: `sweep.py` intro (→
+   `out/sweep.md`), the deck Sweeps intro tnote (`report.py` → `index.html`), and the `REPORT.md`
+   Parameter-sweeps intro. Cap sweep already names its shape per figure/switcher.
+
+Both fixes regenerated (`sweep.py` → `report.py`) and re-verified via jsdom. **Uncommitted** at time
+of writing → committing now on top of `dd648c93`; still not pushed (item D pending Dean's OK).
+
 **Original locked plan (for reference):** design decisions locked in discussion; deck was at
 `6f36b905` when the plan was written.
 
