@@ -2,6 +2,10 @@
 .venv/
 __pycache__/
 traces/
+# Staged publishable bundles (publish_result.sh). These belong on the `viz-results`
+# orphan branch, never on `plans` — committing them here would duplicate every result
+# into this branch's history. Rebuild any time from real-trace/<label>/.
+results/
 # out/ IS committed (rendered HTML + figures, so the deck is viewable without a Python env)
 # ...except the sweep-table cache, which is a local recompute-skip artifact (design §8.1 item 10(d)).
 out/.sweep-cache.json
