@@ -1,0 +1,57 @@
+# SCRATCH — GPU reservation holder for the TA benchmark on the shared pokprod
+# cluster. Parks spare H100 GPU(s) by staying scheduled on freed GPUs until the
+# autoscaler needs them. Right before/at a scale-up we scale this down so our
+# vLLM decode pod claims the freed GPU (minimizes the race with other tenants on
+# a heavily-allocated cluster).
+#
+# During a staircase run the coupler script (gpu-reservation-coupler.sh) manages
+# this deployment's replica count automatically, holding a constant total
+# footprint (decode replicas + reservation replicas == HOLD_TOTAL) so a GPU is
+# always pre-reserved for the next decode replica and freed the instant KEDA
+# scales decode up. replicas below is only the initial value; the coupler owns it
+# thereafter.
+#
+# replicas: 1 == decode is already running at 1 (holds its own GPU); we need one
+# spare held for the 1->2 scale-up.
+#
+# Manual controls (when the coupler is not running):
+#   oc apply  -f hack/benchmark/gpu-reservation.yaml
+#   oc delete -f hack/benchmark/gpu-reservation.yaml            # frees the GPU(s)
+#   oc scale deploy/gpu-reservation --replicas=0 -n dhl-wva-209 # free the spare
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-reservation
+  namespace: dhl-wva-209
+  labels:
+    app: gpu-reservation
+    purpose: ta-benchmark-gpu-hold
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-reservation
+  template:
+    metadata:
+      labels:
+        app: gpu-reservation
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3
+      # spread the two holders across nodes so each grabs a GPU independently
+      # (matches the e2e footprint: 2 decode replicas x 1 GPU, any placement)
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: gpu-reservation
+      containers:
+        - name: hold
+          image: registry.k8s.io/pause:3.9
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              cpu: "50m"
+              memory: 64Mi
