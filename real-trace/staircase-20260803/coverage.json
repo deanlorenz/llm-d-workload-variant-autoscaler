@@ -1,0 +1,92 @@
+{
+  "rows": [
+    {
+      "capability": "Calibrate A",
+      "verdict": "PASS",
+      "detail": "n=40 bands=4 kv_span=1.00"
+    },
+    {
+      "capability": "Trust B",
+      "verdict": "PASS",
+      "detail": "y_lo=0.1 B_fit=9.600682121745002 B_meas=12.053716350441416 n_low=26"
+    },
+    {
+      "capability": "Characterize saturation",
+      "verdict": "PASS",
+      "detail": "n=31"
+    },
+    {
+      "capability": "Exercise the 0.85 ceiling",
+      "verdict": "FAIL",
+      "detail": "n_0.80_0.90=0"
+    },
+    {
+      "capability": "Locate the throughput knee",
+      "verdict": "PASS",
+      "detail": "n=99 left=69 right=28"
+    },
+    {
+      "capability": "Scale-down present",
+      "verdict": "FAIL",
+      "detail": "drain_events=0"
+    },
+    {
+      "capability": "Drain-vs-kill measurable",
+      "verdict": "FAIL",
+      "detail": "needs a scale-down and a per-request trace"
+    },
+    {
+      "capability": "Queue (a) material",
+      "verdict": "PASS",
+      "detail": "p95=5.0"
+    },
+    {
+      "capability": "Queue (c) material",
+      "verdict": "PASS",
+      "detail": "max=617.0"
+    },
+    {
+      "capability": "Router oscillation observable",
+      "verdict": "PASS",
+      "detail": "pods=2 flips=16 disp_p95=0.3779527559055118 oscillating=False"
+    },
+    {
+      "capability": "rho model valid at top",
+      "verdict": "FAIL",
+      "detail": "preempt/s=1.4959677419354838"
+    },
+    {
+      "capability": "Capacity model checkable",
+      "verdict": "PASS",
+      "detail": "pred=196.17941692334807 obs=195.0"
+    },
+    {
+      "capability": "Boot lag measured",
+      "verdict": "PASS",
+      "detail": "n=1 mean=94.0"
+    },
+    {
+      "capability": "Signal completeness",
+      "verdict": "PASS",
+      "detail": "bvfqv=82; zxzlj=49"
+    },
+    {
+      "capability": "Per-request trace present",
+      "verdict": "PASS",
+      "detail": "n=50"
+    },
+    {
+      "capability": "Knee matches shape prediction",
+      "verdict": "PASS",
+      "detail": "in=2053 out=510 out/in=0.25 (prefill-heavy -> expect y>0); fitted y_lo=0.1"
+    }
+  ],
+  "n_pass": 12,
+  "n_fail": 4,
+  "saturation_threshold": 0.85,
+  "warnings": [
+    "no post_run_analyze.sh output (wva_target_timeseries.json etc.) - WVA decision timeseries unavailable for this run; see plan 1.1a",
+    "only per_request_head.json present - the demand trace is a SAMPLE, not the full run; every rate-based panel understates load. Re-fetch per_request_lifecycle_metrics.json for the real thing.",
+    "time anchor is weak (corr=None); arrival-time panels are unreliable for this run"
+  ]
+}

@@ -1,0 +1,17 @@
+# Raw fetched data — regenerable via fetch_run.sh, not carried in git.
+#
+# metrics/raw/  — 217 Prometheus scrape files, ~20 MB.
+#
+# per_request_head.json — 2.4 MB for only 50 records, because each inference-perf
+#   record embeds its full prompt (~17 KB) and its full streamed SSE response
+#   (~150 KB). That is 0.86 MB of raw prompt/response text across the sample.
+#   Our own publish rule (plan §15.2) bans prompt/response text from a bundle, so
+#   carrying it here would contradict the rule one directory over. The prompts in
+#   this particular run are synthetic token gibberish, so this is consistency and
+#   bulk, not a leak.
+#
+# What IS committed is bundle.json (30 KB) — the extractor's stripped output, which
+# is the complete input to every panel. So a cold session can re-render the figure
+# with no cluster access; re-running the *extractor* end-to-end needs a re-fetch.
+metrics/raw/
+per_request_head.json

@@ -19,9 +19,15 @@ gitignored; 50-record `per_request_head.json` instead of the 4.2 GB file).
 **⚠️ One trace of many.** The extractor's job is explicitly *not* to assume any run's properties —
 §9 makes per-run capability a machine-emitted report rather than an assumption.
 
-**Cold-resume entry point:** read §1.0 (what data exists and where), then §1.2 (which reader a run
-needs), then §8 (extractor spec). §§2–7 are the derivations behind §8 and can be skipped on a
-resume.
+**Tooling status (2026-08-07): built and exercised end-to-end.** `fetch_run.sh` →
+`extract_real_trace.py` → `render_real_trace.py` → `publish_result.sh`, all in
+`scratch/autoscaling-viz/` with a `README.md` (§14.2). What remains is *running* it on Ofer's runs
+(§12.1), not writing it.
+
+**Cold-resume entry point:** read `README.md` first if you just want to use the tools. To pick up
+the *work*: §1.0 (what data exists and where) → §1.2 (which reader a run needs) → §12.1 (next
+actions) → §16 (session log). §8 is the extractor spec; §§2–7 are the derivations behind it and can
+be skipped on a resume. §14–§15 describe the shareable/publish path as built.
 
 ---
 
@@ -674,6 +680,12 @@ Treatment options were sketched in Rev 2 §3.1 and are not carried forward here.
 
 ### 12.1 Next — concrete, in order
 
+**Tooling is done** (§14.2): fetch / extract / render / publish all written and exercised
+end-to-end on **[ref]**, so every item below is now a run of existing code, not new code.
+
+0. *(blocked on nothing but a cluster session)* the four commands, against a real `biran` run:
+   `fetch_run.sh -n biran -p <access-pod> -l` to list, then `-r /requests/<run> -o real-trace/<label>`,
+   then extract, render, publish. **Read-only on the cluster** (§14.1).
 1. **Extract `guidellm-1785856861-71ay4b_1`** (1→9 replicas, decode-heavy) from the `biran` PVC.
    Pull-to-local, then run the extractor; diff its `coverage.json` against §9.
 2. **Extract `guidellm-1785859604-upf3j2_1`** — the scale-down / drain case.
@@ -752,10 +764,29 @@ scratch/autoscaling-viz/
   README.md              ← the entry point: install, 3 commands, what each panel means
   fetch_run.sh           ← pull a run dir off a cluster PVC (oc/kubectl), read-only
   extract_real_trace.py  ← run dir → bundle.json + coverage.json   (§8)
-  render_real_trace.py   ← bundle.json → panels PNG/HTML
+  render_real_trace.py   ← bundle.json → panels PNG                (§14.5)
+  publish_result.sh      ← stage/commit a bundle to the result branch (§15.4)
   sim.py run.py plots.py … ← existing PoC (untouched synthetic path)
   real-trace/<label>/    ← per-run working copies (raw gitignored)
+  results/<date>-<label>/ ← staged publishable bundles (gitignored on `plans`; live on `viz-results`)
 ```
+
+**Status: all five files written.** `fetch_run.sh` and `publish_result.sh` are `bash -n` clean;
+the two Python files use only the standard library, except `render_real_trace.py`'s `matplotlib`.
+
+**What of `real-trace/` is carried in git, and why not the rest.** `bundle.json` (30 KB),
+`coverage.json`, `panels.png` and the small metadata files are committed — 16 files, ~557 KB — so a
+cold session can re-render **[ref]** and see the figure with no cluster access. Two things are
+gitignored:
+
+| ignored | why |
+|---|---|
+| `metrics/raw/` | 217 scrape files, ~20 MB, regenerable by `fetch_run.sh` |
+| `per_request_head.json` | 2.4 MB for **50 records**, because each inference-perf record embeds its full prompt (~17 KB) and full streamed SSE response (~150 KB) — 0.86 MB of raw prompt/response text across the sample. §15.2 bans that text from a bundle, so carrying it one directory over would contradict our own rule. (Synthetic token gibberish in this run, so: consistency and bulk, not a leak.) |
+
+The cost of ignoring the head sample is that a cold session can re-*render* but cannot re-run the
+*extractor* end-to-end without a re-fetch. Accepted — `bundle.json` is the extractor's verified
+output, and it is what every panel actually consumes.
 
 `fetch_run.sh` wraps exactly the read-only pattern used to inventory the PVC in §1.0b — parameters
 are namespace, access-pod, remote run dir, local dest. It never writes to the source namespace.
@@ -773,11 +804,43 @@ python3 extract_real_trace.py --run real-trace/<label> --out real-trace/<label>
 python3 render_real_trace.py --bundle real-trace/<label>/bundle.json
 ```
 
-Plus a fourth, optional: `--publish` (§15).
+Plus a fourth, optional (§15.4):
+
+```bash
+# 4a. stage + validate a bundle as a publishable result   (disk only)
+./publish_result.sh -r real-trace/<label> -l <label>
+
+# 4b. also commit it onto the viz-results branch          (never pushes)
+./publish_result.sh -r real-trace/<label> -l <label> --commit
+```
 
 The README must state up front the one thing a newcomer cannot guess: **`coverage.json` is the
 point of step 2.** It says which panels and which calibrations this particular run can support, so
 a FAIL row is information, not breakage.
+
+### 14.5 What the renderer does differently from the synthetic figure
+
+`render_real_trace.py` imports its colour vocabulary from `plots.py` so a real run and a simulated
+run read the same way, with a hardcoded fallback to the same hex values so the file still works if
+it is ever shared alone. Three deliberate divergences:
+
+1. **Panel 4 draws all three queues**, labelled (a)/(b)/(c) per §4, rather than picking one — with
+   an amber "INTERIM" subtitle saying the choice is an open design question (§11).
+2. **Panels degrade rather than vanish.** A missing input yields an italic in-panel sentence naming
+   the file that would fill it.
+3. **Decision markers come from observed `desired` changes**, drawn as vlines across all six panels
+   so a triggering signal lines up with the decision instant.
+
+Plus one thing a shared PNG has to do that the interactive deck does not: **carry its own
+caveats.** Whoever opens the file will not have the extractor's stdout, so `coverage.json` is
+threaded into the render — panel 1a and panel 5's `L(t)` are marked `SAMPLE` when the bundle came
+from a head sample (every rate is then *understated*, not merely noisy), and an amber figure footer
+lists the coverage warnings and the FAIL capabilities.
+
+Verified against **[ref]**: panel 2 shows `desired` stepping to 2 at ~455 s with `ready` following
+at ~545 s (the 94 s boot lag); panel 3 shows the KV ceiling stepping 196→392 as `ready` goes 1→2
+with observed concurrency (~390) tracking just under it; panel 4 shows dispatch (peak ~940) above
+engine-waiting (peak ~617), which is the expected ordering since (b) mixes waiting *and* served.
 
 ### 14.4 Where it is shared from
 
@@ -826,14 +889,78 @@ cloned shallow.
 - **Append-only.** Never rewrite an existing result dir; a re-extract lands as a new dated dir.
 - **Check for prompt text.** guidellm records embed full prompts (§1.2). The extractor must not
   copy prompt text into the bundle — it is bulk, and on a real workload it could be sensitive.
-- **`--publish` is opt-in and never automatic.** It stages the four files and commits locally;
-  **the push is a separate, explicit human action** (project rule: no push without Dean's
-  confirmation for that specific push). The script must not invoke `git push` itself.
+- **Publishing is opt-in and never automatic**, and it splits into **two** opt-ins rather than one
+  (see §15.4 — this is a deviation from how Rev 4 first specified it). Staging + validation is the
+  default; the commit needs a second flag; **the push is a separate, explicit human action**
+  (project rule: no push without Dean's confirmation for that specific push). The script must not
+  invoke `git push` itself.
 
 ### 15.3 Open
 
-Which remote — Dean's fork only, or eventually upstream? Ties to §14.4. Until decided, `--publish`
-writes to a local branch and stops.
+Which remote — Dean's fork only, or eventually upstream? Ties to §14.4. Until decided,
+`publish_result.sh --commit` writes to a local branch and stops.
+
+### 15.4 As implemented — `publish_result.sh`, and why the commit is a second flag
+
+Rev 4 specified one `--publish` that "stages the four files and commits locally". Implementation
+split that in two, because the second half is not as local as it reads:
+
+| | what it touches | flag |
+|---|---|---|
+| stage + validate | `results/<date>-<label>/` on disk only | default (`-r <run-dir>`) |
+| commit | **creates/advances `refs/heads/viz-results` in the bare repo**, which every worktree sharing that repo can see | `--commit` |
+
+That ref is the one piece of shared state in the whole flow, and this workspace has ~9 worktrees on
+one bare repo, any of which may be mid-edit. Two consequences, both load-bearing:
+
+1. **The commit is built with git plumbing** — `hash-object -w` → `update-index --cacheinfo` →
+   `write-tree` → `commit-tree` → `update-ref`, against a throwaway `GIT_INDEX_FILE`. No
+   `checkout`, no `reset`, no index write. HEAD, the real index, and every sibling worktree are
+   left byte-identical. Verified: `git status --porcelain | wc -l` was 162 before and after, HEAD
+   unchanged, branch still `plans`.
+2. **It is opt-in, not the default.** Staging is idempotent and harmless; creating a branch ref in
+   a shared repo is not, so it needs the explicit second flag.
+
+`results/` is `.gitignore`d on `plans` — staged bundles must not ride a `plans` commit. They exist
+only on disk and on `viz-results`.
+
+**All four §15.2 rules were tested, not just written:**
+
+| rule | test | result |
+|---|---|---|
+| bundles only, <20 MB | size check on the three files | passes at 31 KB / 2.6 KB / 247 KB |
+| no prompt/response text | injected `{"prompt": "…"}` into a copy | refused, exit 1, nothing staged |
+| append-only (disk) | re-publish same label | refused with re-extract/`-F` guidance |
+| append-only (branch) | re-publish a label already committed | **was broken, and it fired in anger** — see below. Fixed to `git ls-tree -r --name-only --full-tree` |
+| provenance mandatory | absent `extractor_version` | errors; `+dirty` and uncommitted-extractor both warn |
+
+**The append-only-on-branch bug, and why it is worth writing down.** The guard was originally
+`git ls-files --with-tree=refs/heads/viz-results | grep -q "^$DEST/"`. `ls-files` and `ls-tree`
+both scope their output to the **current working directory** unless told otherwise; this script
+runs from `scratch/autoscaling-viz/`, so the branch's paths (`results/…`, relative to the branch
+root) never matched, `grep -q` never succeeded, and the guard **always passed**. The fix is
+`git ls-tree -r --name-only --full-tree`, where `--full-tree` is the load-bearing token.
+
+This was not caught by reading the code — it was caught by noticing the test branch had **three**
+commits when it should have had two:
+
+```
+a2c256b7 results: 20260807-secondrun      ← duplicate; tree identical to its parent, empty diff
+eea79218 results: 20260807-secondrun
+e67bfe85 results: 20260807-staircase
+```
+
+So the failure mode is not hypothetical: an already-published result was silently re-committed,
+which is exactly what append-only exists to prevent. Two lessons, both general:
+
+1. **A guard that silently always passes is worse than no guard** — it converts an absent check
+   into a false assurance, and nothing in the output distinguishes the two.
+2. **CWD-relative git pathspecs are a reliable way to build one.** Any `ls-files` / `ls-tree` /
+   `grep`-on-paths check written in a subdirectory but matching root-relative paths has this bug.
+   `--full-tree` (or running from the repo root) is mandatory, not stylistic.
+
+`a2c256b7` is a local test artifact on a local-only branch; the branch itself is disposable and
+should be dropped before the first real publish (§16).
 
 ---
 
@@ -845,8 +972,19 @@ writes to a local branch and stops.
   scale-up **and** scale-down, but Qwen3-0.6B, not the 8B comparison studies. Established the
   guidellm record schema and that it removes the three-clock and token-inflation problems (§1.2).
   Rev 4 written.
-- **Next actions:** write `extract_real_trace.py` (§8 spec, dual reader per §1.2), `fetch_run.sh`,
-  `render_real_trace.py`, `README.md` (§14); then extract `…-71ay4b_1` and `…-upf3j2_1` (§12.1) and
-  replace §9.1's predictions with measured `coverage.json` output.
+- **2026-08-07** — Built the whole shareable path (§14.2): `extract_real_trace.py` (dual reader),
+  `fetch_run.sh` (read-only PVC pull), `render_real_trace.py` (§14.5), `publish_result.sh` (§15.4),
+  `README.md`. Exercised end-to-end on **[ref]**: extractor reproduced 12 PASS / 4 FAIL including
+  the §6 capacity model at **0.6 % error** (196.18 predicted vs 195.0 observed, zero free
+  parameters, measured `pfx_hit`=0.103) and the knee row agreeing with Dean's §5.2 window theory
+  (out/in = 0.25 ⇒ prefill-heavy ⇒ expect `y > 0`; fitted `y_lo` = 0.1). Renderer produced a
+  readable six-panel figure with its caveats baked in. All four §15.2 rules tested; the
+  append-only-on-branch guard was found broken (CWD-scoped pathspec) and fixed.
+- **Next actions:** run the four commands against a real `biran` run — extract `…-71ay4b_1` and
+  `…-upf3j2_1` (§12.1) — and replace §9.1's predictions with measured `coverage.json` output.
 - **Still deferred:** panel 4 (§11), by Dean, until the inventory is done across several runs.
-- **Awaiting Dean:** §14.4 share location, §15.3 remote, and the §12.2 decisions.
+  *"After that, we go look at panel 4."*
+- **Awaiting Dean:** §14.4 share location (B, a `viz-tools` branch on the fork, is the
+  recommendation), §15.3 remote, and the §12.2 decisions. Note §12.2 item 3 ("commit
+  `bundle.json`?") is now partly answered by §15.4 — the mechanism exists and keeps bundles off
+  `plans`; what is still open is only *which remote*.

@@ -1,0 +1,37 @@
+{
+  "collected_at": "2026-08-03T02:48:34Z",
+  "pods": [
+    {
+      "name": "unsloth--608e585a-instruct-decode-5b4d6bcb88-bvfqv",
+      "node": "pokprod-b93r44s0",
+      "model": "unsloth--608e585a-instruct",
+      "role": "decode",
+      "creation_timestamp": "2026-08-03T01:06:26Z",
+      "ready_timestamp": "2026-08-03T01:08:01Z",
+      "startup_seconds": 95.0
+    },
+    {
+      "name": "unsloth--608e585a-instruct-decode-5b4d6bcb88-zxzlj",
+      "node": "pokprod-b93r43s0",
+      "model": "unsloth--608e585a-instruct",
+      "role": "decode",
+      "creation_timestamp": "2026-08-03T02:34:47Z",
+      "ready_timestamp": "2026-08-03T02:36:19Z",
+      "startup_seconds": 92.0
+    }
+  ],
+  "aggregate": {
+    "mean": 93.5,
+    "stddev": 2.1213203435596424,
+    "min": 92.0,
+    "p25": 92.75,
+    "p50": 93.5,
+    "p75": 94.25,
+    "p90": 94.7,
+    "p95": 94.85,
+    "p99": 94.97,
+    "max": 95.0,
+    "count": 2,
+    "unit": "s"
+  }
+}

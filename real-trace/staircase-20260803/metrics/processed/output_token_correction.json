@@ -1,0 +1,23 @@
+{
+  "true_output_len_mean": 512.1002651849981,
+  "n_requests": 7919,
+  "global_inflation_factor": 1.7714,
+  "reports_corrected": 3,
+  "per_report": [
+    {
+      "report": "benchmark_report_v0.2,_stage_0_lifecycle_metrics.json.yaml",
+      "reported_output_len_mean": 905.481,
+      "inflation_factor": 1.7682
+    },
+    {
+      "report": "benchmark_report_v0.2,_stage_1_lifecycle_metrics.json.yaml",
+      "reported_output_len_mean": 912.331,
+      "inflation_factor": 1.7815
+    },
+    {
+      "report": "benchmark_report_v0.2,_stage_2_lifecycle_metrics.json.yaml",
+      "reported_output_len_mean": 903.618,
+      "inflation_factor": 1.7645
+    }
+  ]
+}

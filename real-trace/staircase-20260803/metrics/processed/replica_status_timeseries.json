@@ -1,0 +1,1316 @@
+{
+  "snapshots": [
+    {
+      "timestamp": "2026-08-03T02:27:18Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:27:33Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:27:49Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:28:05Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:28:20Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:28:36Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:28:52Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:29:07Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:29:23Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:29:39Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:29:54Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:30:10Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:30:26Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:30:41Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:30:57Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:31:13Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:31:28Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:31:44Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:32:00Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:32:15Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:32:31Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:32:47Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:33:02Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:33:18Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:33:34Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:33:49Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:34:05Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:34:21Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:34:36Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 1,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 1
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:34:52Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:35:08Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:35:23Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:35:39Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:35:55Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:36:10Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 1,
+          "available_replicas": 1,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:36:26Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:36:42Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:36:57Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:37:13Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:37:29Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:37:45Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:38:00Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:38:16Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:38:32Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:38:47Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:39:03Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:39:19Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:39:34Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:39:53Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:40:10Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:40:25Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:40:41Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:40:57Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:41:13Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:41:28Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:41:44Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:42:00Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:42:15Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:42:31Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:42:47Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:43:03Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:43:18Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:43:34Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:43:50Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:44:05Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:44:21Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:44:37Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:44:52Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:45:08Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:45:24Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:45:40Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:45:56Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:46:12Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:46:28Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:46:44Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:47:00Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:47:16Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:47:32Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:47:47Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:48:03Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:48:18Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-08-03T02:48:34Z",
+      "namespace": "dhl-wva-209",
+      "controllers": [
+        {
+          "name": "unsloth--608e585a-instruct-decode",
+          "kind": "Deployment",
+          "model": "unsloth--608e585a-instruct",
+          "role": "decode",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "available_replicas": 2,
+          "updated_replicas": 2
+        }
+      ]
+    }
+  ]
+}

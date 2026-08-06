@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-08-03T02:48:34Z",
+  "namespace": "dhl-wva-209",
+  "controllers": [
+    {
+      "name": "unsloth--608e585a-instruct-decode",
+      "kind": "Deployment",
+      "model": "unsloth--608e585a-instruct",
+      "role": "decode",
+      "desired_replicas": 2,
+      "ready_replicas": 2,
+      "available_replicas": 2,
+      "updated_replicas": 2
+    }
+  ],
+  "aggregate_ready_replicas": {
+    "mean": 1.5731707317073171,
+    "stddev": 0.4976608941363028,
+    "min": 1,
+    "p25": 1.0,
+    "p50": 2.0,
+    "p75": 2.0,
+    "p90": 2.0,
+    "p95": 2.0,
+    "p99": 2.0,
+    "max": 2,
+    "count": 82,
+    "unit": "count"
+  }
+}
