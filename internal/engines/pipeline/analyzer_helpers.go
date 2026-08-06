@@ -86,9 +86,9 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 
 // bindingAnchor derives the per-model anchor on demand from the ballot s. The
 // anchor is the topology carrier the optimizer selects variants and accounts
-// GPUs against. It merges identity/(a) fields from the saturation entry —
+// GPUs against. It merges identity fields from the saturation entry —
 // per variant: AcceleratorName, Cost, Role, ReplicaCount, PendingReplicas; at
-// the model level: ModelID, Namespace, AnalyzedAt — with sizing/(b) fields from
+// the model level: ModelID, Namespace, AnalyzedAt — with sizing fields from
 // the binding analyzer — per variant: PerReplicaCapacity, Reason, TotalDemand,
 // Utilization; at the model level: TotalSupply, TotalDemand, Utilization,
 // TotalAnticipatedSupply, RequiredCapacity, SpareCapacity, RoleCapacities —
@@ -96,7 +96,7 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 // when nothing can bind; the optimizer then holds for this model (the nil-guard
 // at each call site is that per-model hold).
 //
-// The binding analyzer (the (b)/sizing source) is:
+// The binding analyzer (the sizing source) is:
 //   - saturation, when it votes and is live+informative (the default and the
 //     saturation+throughput case — merging saturation with itself is the
 //     identity, which is why the characterization goldens hold);
@@ -111,24 +111,25 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 // votes in the quantity combine (votingResults) but does not become the
 // binder.
 //
-// Per-variant completeness: where the binding analyzer omits a variant the (a)
-// carrier lists, the variant keeps its identity but abstains — PerReplicaCapacity
-// stays 0 and it is not proactively selectable; genuine cold-starts fall to the
-// reactive scale-from-zero engine. There is no fallback to saturation's own (b)
-// for an omitted variant, even when saturation votes (N8): a binder omits a
-// variant only when the binder itself is enabled-but-not-binding — Enabled &&
-// !(Live && Informative) — which is precisely the condition under which its own
-// (b) is untrustworthy (stale or no-data). Borrowing it would also mix metric
-// scales across variants within one anchor (the binder's sized variants carry
-// its own PRC scale; a borrowed variant would carry saturation's). When the
-// binder binds, every sized (b) entry is the binder's — uniformly, no
-// name-based exception.
+// Per-variant completeness: where the binding analyzer omits a variant the
+// identity carrier lists, the variant keeps its identity but abstains —
+// PerReplicaCapacity stays 0 and it is not proactively selectable; genuine
+// cold-starts fall to the reactive scale-from-zero engine. There is no
+// fallback to saturation's own sizing for an omitted variant, even when
+// saturation votes (N8): a binder omits a variant only when the binder itself
+// is enabled-but-not-binding — Enabled && !(Live && Informative) — which is
+// precisely the condition under which its own sizing is untrustworthy (stale
+// or no-data). Borrowing it would also mix metric scales across variants
+// within one anchor (the binder's sized variants carry its own PRC scale; a
+// borrowed variant would carry saturation's). When the binder binds, every
+// sized variant is the binder's — uniformly, no name-based exception.
 //
 // Builds fresh literals throughout — it never mutates the source Results or
 // their VariantCapacities slices/elements.
 func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
-	// (a) carrier: the saturation entry. It may be present even when it does not
-	// vote (throughput-only config), so it is located by name, not by vote.
+	// Identity carrier: the saturation entry. It may be present even when it
+	// does not vote (throughput-only config), so it is located by name, not by
+	// vote.
 	var satNR *NamedAnalyzerResult
 	for i := range s {
 		if s[i].Name == domain.SaturationAnalyzerName && s[i].Result != nil {
@@ -137,7 +138,7 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		}
 	}
 
-	// Select the binding (b)/sizing analyzer.
+	// Select the binding (sizing) analyzer.
 	var binding *NamedAnalyzerResult
 	switch {
 	case satNR != nil && satNR.Enabled && satNR.Live && ResultIsInformative(*satNR):
@@ -163,7 +164,7 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		return nil
 	}
 
-	// Identity/(a) carrier: saturation when present; with no saturation entry at
+	// Identity carrier: saturation when present; with no saturation entry at
 	// all (not a config this PR defines) fall back to binding so the merge stays
 	// well-defined.
 	aCarrier := binding
@@ -171,7 +172,7 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		aCarrier = satNR
 	}
 
-	// Model-level fields: identity from the (a) carrier, sizing from binding.
+	// Model-level fields: identity from the identity carrier, sizing from binding.
 	anchor := &domain.AnalyzerResult{
 		AnalyzerName:           binding.Result.AnalyzerName,
 		ModelID:                aCarrier.Result.ModelID,
@@ -186,9 +187,9 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		RoleCapacities:         binding.Result.RoleCapacities,
 	}
 
-	// Per-variant merge: iterate the (a) carrier's complete variant list (it emits
-	// every configured variant), take (a) from it and (b) from the binding
-	// analyzer for the same VariantName.
+	// Per-variant merge: iterate the identity carrier's complete variant list
+	// (it emits every configured variant), take identity from it and sizing
+	// from the binding analyzer for the same VariantName.
 	bByName := buildCapacityMap(binding.Result.VariantCapacities)
 	merged := make([]domain.VariantCapacity, 0, len(aCarrier.Result.VariantCapacities))
 	for _, a := range aCarrier.Result.VariantCapacities {
@@ -222,7 +223,7 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 
 // votingResults returns the sub-slice of the ballot whose analyzers vote in the
 // combine (RC/SC) math this cycle: Enabled AND Live (VG-up). Non-voting entries
-// (e.g. a saturation entry present only as the (a) carrier in a throughput-only
+// (e.g. a saturation entry present only as the identity carrier in a throughput-only
 // config) are excluded; so is a stale Enabled entry that has gone dead, which
 // would otherwise still seed initRoleState/roleBottleneckReplicas with a stale
 // Result and force a spurious scale-up. Scale-down was already Live-gated at
@@ -392,13 +393,13 @@ func variantCapacityByName(vcs []domain.VariantCapacity, v string) (domain.Varia
 // refreshAnchorSizing overwrites each entry in variants (the anchor's own
 // VariantCapacities) with the voting entry currently binding it — per (role,
 // variant), the entry bindingIndexForRole selects. Identity fields
-// (AcceleratorName, Cost, Role, replica counts) are untouched; only the (b)
+// (AcceleratorName, Cost, Role, replica counts) are untouched; only the
 // sizing fields (PerReplicaCapacity, Reason, TotalDemand, Utilization) move,
 // plus the recomputed TotalCapacity. Mutates variants in place — the anchor's
 // own freshly-built slice, never the source ballot Results.
 //
-// No-op when len(s) <= 1: with a single voter the anchor's (b) already equals
-// that voter's, so refreshing would reproduce the same values. The
+// No-op when len(s) <= 1: with a single voter the anchor's sizing already
+// equals that voter's, so refreshing would reproduce the same values. The
 // single-vote invariant ("populate once, never refresh") is upheld by not
 // running this at all rather than running it to a no-op — see
 // combined-analyzer-optimizer-design.md § invariants #7.

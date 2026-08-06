@@ -68,17 +68,17 @@ var _ = Describe("analyzer helpers", func() {
 
 	Describe("bindingAnchor", func() {
 		// Test 1 — merged-anchor construction (non-vacuous).
-		// A two-entry ballot where saturation is the (a)/identity carrier and a
-		// live throughput analyzer is the (b)/sizing binder. The merged anchor must
+		// A two-entry ballot where saturation is the identity carrier and a
+		// live throughput analyzer is the sizing binder. The merged anchor must
 		// take identity (accelerator, cost, replica count, model ID) from
 		// saturation and sizing (PRC, reason, model-level RC) from throughput, and
 		// recompute TotalCapacity. The fixtures make the anchor differ from
 		// ballot[0] (saturation) in both analyzer name and PRC, so an implementation
 		// that merely returned the saturation entry would fail — proving the merge.
-		It("merges (a) identity from saturation with (b) sizing from the binding analyzer", func() {
+		It("merges identity from saturation with sizing from the binding analyzer", func() {
 			sat := NamedAnalyzerResult{
 				Name:    domain.SaturationAnalyzerName,
-				Enabled: false, // present as the (a) carrier, not voting
+				Enabled: false, // present as the identity carrier, not voting
 				Live:    true,
 				Result: &domain.AnalyzerResult{
 					AnalyzerName:     domain.SaturationAnalyzerName,
@@ -91,7 +91,7 @@ var _ = Describe("analyzer helpers", func() {
 						Cost:               10.0,
 						Role:               domain.RoleBoth,
 						ReplicaCount:       2,
-						PerReplicaCapacity: 100.0, // sat's own (b) — must NOT surface for v1
+						PerReplicaCapacity: 100.0, // sat's own sizing — must NOT surface for v1
 						Reason:             "P1-obs",
 						TotalDemand:        150.0,
 					}},
@@ -103,11 +103,11 @@ var _ = Describe("analyzer helpers", func() {
 				Live:    true,
 				Result: &domain.AnalyzerResult{
 					AnalyzerName:     "throughput",
-					ModelID:          "ignored", // identity comes from the (a) carrier
+					ModelID:          "ignored", // identity comes from the identity carrier
 					RequiredCapacity: 50,
 					VariantCapacities: []domain.VariantCapacity{{
 						VariantName:        "v1",
-						PerReplicaCapacity: 200.0, // binding (b) — this is what surfaces
+						PerReplicaCapacity: 200.0, // binding sizing — this is what surfaces
 						Reason:             "T1-ols",
 						TotalDemand:        300.0,
 					}},
@@ -130,25 +130,25 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(anchor.VariantCapacities).To(HaveLen(1))
 			vc := anchor.VariantCapacities[0]
 			Expect(vc.VariantName).To(Equal("v1"))
-			// (a) from saturation
+			// identity from saturation
 			Expect(vc.AcceleratorName).To(Equal("A100"))
 			Expect(vc.Cost).To(Equal(10.0))
 			Expect(vc.ReplicaCount).To(Equal(2))
-			// (b) from binding (throughput)
+			// sizing from binding (throughput)
 			Expect(vc.PerReplicaCapacity).To(Equal(200.0))
 			Expect(vc.Reason).To(Equal("T1-ols"))
-			// TotalCapacity recomputed = ReplicaCount(a) × PerReplicaCapacity(b)
+			// TotalCapacity recomputed = ReplicaCount(identity) × PerReplicaCapacity(sizing)
 			Expect(vc.TotalCapacity).To(Equal(400.0))
 		})
 
 		// Test 2 — per-variant completeness + ordering.
-		// The (a) carrier (saturation) lists v1+v2; the binding analyzer lists only
-		// v1. Variant ordering follows the (a) carrier. For v2 (omitted by the
-		// binder) there is no fallback to saturation's own (b) (N8) — it abstains
+		// The identity carrier (saturation) lists v1+v2; the binding analyzer lists only
+		// v1. Variant ordering follows the identity carrier. For v2 (omitted by the
+		// binder) there is no fallback to saturation's own sizing (N8) — it abstains
 		// with PRC=0 uniformly, whether or not saturation votes:
 		//   - saturation enabled (but non-binding here because non-live): still no
 		//     fallback — an enabled-but-not-binding saturation is, by definition,
-		//     not live+informative, so its own (b) would be untrustworthy anyway;
+		//     not live+informative, so its own sizing would be untrustworthy anyway;
 		//   - saturation not enabled (throughput-only): same result, tested
 		//     separately below.
 		It("abstains (PRC=0) for a variant the binder omits, even when saturation votes", func() {
@@ -178,14 +178,14 @@ var _ = Describe("analyzer helpers", func() {
 			anchor := bindingAnchor([]NamedAnalyzerResult{sat, ta})
 			Expect(anchor).NotTo(BeNil())
 			Expect(anchor.VariantCapacities).To(HaveLen(2))
-			// Ordering follows the (a) carrier (saturation): v1 then v2.
+			// Ordering follows the identity carrier (saturation): v1 then v2.
 			Expect(anchor.VariantCapacities[0].VariantName).To(Equal("v1"))
 			Expect(anchor.VariantCapacities[1].VariantName).To(Equal("v2"))
 			// v1 sized by the binding analyzer.
 			Expect(anchor.VariantCapacities[0].PerReplicaCapacity).To(Equal(200.0))
 			Expect(anchor.VariantCapacities[0].Reason).To(Equal("T1-ols"))
 			// v2 omitted by the binder → abstains (N8), not a fallback to
-			// saturation's own (b)=110.0 despite saturation being enabled.
+			// saturation's own sizing=110.0 despite saturation being enabled.
 			Expect(anchor.VariantCapacities[1].PerReplicaCapacity).To(Equal(0.0))
 			Expect(anchor.VariantCapacities[1].Reason).To(Equal(""))
 		})
@@ -193,7 +193,7 @@ var _ = Describe("analyzer helpers", func() {
 		It("leaves an omitted variant at PRC=0 under a throughput-only (non-voting saturation) config", func() {
 			sat := NamedAnalyzerResult{
 				Name:    domain.SaturationAnalyzerName,
-				Enabled: false, // throughput-only: saturation carries (a) but does not vote
+				Enabled: false, // throughput-only: saturation carries identity but does not vote
 				Live:    false,
 				Result: &domain.AnalyzerResult{
 					AnalyzerName: domain.SaturationAnalyzerName,
@@ -280,7 +280,7 @@ var _ = Describe("analyzer helpers", func() {
 		// model's accelerator type via singleAccType(bindingAnchor(...).VariantCapacities).
 		// Under a throughput-only config the throughput analyzer binds (it is the
 		// sole voting+live member) but leaves AcceleratorName empty; the accelerator
-		// identity comes from saturation's (a) contribution through the merge. This
+		// identity comes from saturation's identity contribution through the merge. This
 		// pins the wiring so a later change that repoints the read at the raw binding
 		// result (which has no AcceleratorName) can't silently drop the model from
 		// rescale. Throughput-only rescale *correctness* is a later change; this only
@@ -288,7 +288,7 @@ var _ = Describe("analyzer helpers", func() {
 		It("resolves the accelerator type via the merged anchor when the binding analyzer omits it", func() {
 			sat := NamedAnalyzerResult{
 				Name:    domain.SaturationAnalyzerName,
-				Enabled: false, // throughput-only: saturation carries (a) but does not vote
+				Enabled: false, // throughput-only: saturation carries identity but does not vote
 				Live:    false,
 				Result: &domain.AnalyzerResult{
 					AnalyzerName: domain.SaturationAnalyzerName,
@@ -316,7 +316,7 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(anchor.VariantCapacities).To(HaveLen(1))
 			// Throughput binds the sizing (PRC=200), confirming it is the binder.
 			Expect(anchor.VariantCapacities[0].PerReplicaCapacity).To(Equal(200.0))
-			// Accelerator identity survives via saturation's (a), even though the
+			// Accelerator identity survives via saturation's identity, even though the
 			// binding analyzer's own result left it empty.
 			Expect(anchor.VariantCapacities[0].AcceleratorName).To(Equal("A100"))
 

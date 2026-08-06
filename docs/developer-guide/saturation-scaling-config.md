@@ -259,7 +259,7 @@ registration order and invokes its `Analyze` method.
 >   behavior is unchanged from single-analyzer operation.
 > - `[saturation, throughput]` → both vote; saturation binds the anchor.
 > - `[throughput]` only → throughput binds the anchor; saturation still runs as
->   the identity/(a) carrier but does not vote.
+>   the identity carrier but does not vote.
 >
 > Saturation always runs to supply per-variant identity metadata regardless of
 > which config is active; what the `analyzers` list changes is whether it
@@ -271,7 +271,7 @@ Pre-registered:
 
 - The V2 saturation analyzer is pre-registered by `NewEngine` under
   `interfaces.SaturationAnalyzerName`. It always runs — supplying the
-  identity/(a) carrier — but drives the optimizer only when it votes (the
+  identity carrier — but drives the optimizer only when it votes (the
   default config, or when its name is enabled).
 
 External analyzers are registered from `cmd/main.go` via:
@@ -464,22 +464,22 @@ The asymmetry — anticipated supply for scale-up, steady-state `TotalSupply` fo
 ### Saturation as the Identity Carrier
 
 The saturation analyzer executes on every cycle regardless of the `analyzers`
-config — its `VariantCapacities` carry the (a)/identity fields (`Cost`,
+config — its `VariantCapacities` carry the identity fields (`Cost`,
 `AcceleratorName`, `Role`, replica counts) the optimizer needs for variant
 selection and GPU accounting, for every configured variant including those at
 zero replicas. Running is unconditional; *voting* is opt-in. Saturation
 contributes its `RequiredCapacity` / `SpareCapacity` to the combine math only
 when it votes — the default single-analyzer config, or when its name is
 enabled. In a `[throughput]`-only config it is present purely as the identity
-carrier: it supplies (a) for the anchor merge but is pruned from the voting
+carrier: it supplies identity for the anchor merge but is pruned from the voting
 subset (Enabled && Live, VG-up) and neither drives scale-up nor vetoes
 scale-down.
 
 Being the identity carrier does not make saturation a sizing fallback: when
 the binding analyzer omits a variant, the anchor never borrows saturation's
-own (b) for it, even when saturation is enabled — a binder-unknown variant
+own sizing for it, even when saturation is enabled — a binder-unknown variant
 abstains (`PerReplicaCapacity = 0`) rather than mixing metric scales across
-variants within one anchor. When the binder binds, every sized (b) entry is
+variants within one anchor. When the binder binds, every sized variant is
 the binder's, uniformly.
 
 ### Resilience

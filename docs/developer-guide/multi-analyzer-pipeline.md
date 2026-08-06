@@ -37,7 +37,7 @@ over it via shared free functions in `internal/engines/pipeline/`.
                            ▼
 ┌──────────────────────────────────────────────────────────┐
 │ Engine: run analyzers, build per-analyzer slice          │
-│ Saturation V2 (always run — the (a)/identity carrier),   │
+│ Saturation V2 (always run — the identity carrier),       │
 │ then each registered non-saturation analyzer:            │
 │   • skip if Enabled:false                                │
 │   • Analyze(ctx, input) → *AnalyzerResult                │
@@ -164,7 +164,7 @@ registered-but-unconfigured analyzer from returning `SpareCapacity=0` and
 silently vetoing scale-down, since the per-role scale-down decision requires
 every voting analyzer in the slice to agree. Saturation is always run
 regardless of `analyzers` config — the engine identifies it by name and
-appends it as the identity/(a) carrier that supplies per-variant metadata
+appends it as the identity carrier that supplies per-variant metadata
 (`Cost`, `AcceleratorName`, `Role`) for every configured variant. Its *vote*,
 however, is opt-in like any other analyzer's: saturation votes in the combine
 math only in the default single-analyzer config (no explicit `analyzers` list)
@@ -241,12 +241,12 @@ analyzer-written values are discarded.
 6. Each result is wrapped in a `NamedAnalyzerResult{Name, Result, Score,
    Remaining, Spare}` and appended to the `[]NamedAnalyzerResult` slice.
    `Remaining = RC` and `Spare = SC` after the post-step.
-7. Saturation supplies the (a)/identity fields. Its `VariantCapacities`
+7. Saturation supplies the identity fields. Its `VariantCapacities`
    entries carry `Cost`, `AcceleratorName`, and `Role` for every configured
    variant. The optimizer does not read these off the saturation entry
    directly: the anchor it consumes is a per-variant merge (`bindingAnchor`,
-   derived on demand) that takes the (a) identity fields from saturation and
-   the (b) sizing fields (`PerReplicaCapacity`, demand) from whichever
+   derived on demand) that takes the identity fields from saturation and
+   the sizing fields (`PerReplicaCapacity`, demand) from whichever
    analyzer binds — saturation when it votes, otherwise the lowest-ballot-index
    qualifying non-saturation analyzer (see "How results combine" below for the
    tie-break when more than one qualifies). The combine math itself
@@ -360,9 +360,9 @@ it holds.
 
 The optimizer never reads per-variant metadata straight off the saturation
 entry. It consumes an **anchor** built on demand by `bindingAnchor`: a fresh,
-per-variant `AnalyzerResult` merged by `VariantName` from the (a)/identity
+per-variant `AnalyzerResult` merged by `VariantName` from the identity
 fields (`Cost`, `AcceleratorName`, `Role`, replica counts) that saturation
-supplies for every configured variant, plus the (b)/sizing fields
+supplies for every configured variant, plus the sizing fields
 (`PerReplicaCapacity`, demand) from whichever analyzer binds. Nothing is
 stored — the merge is recomputed each time it is needed.
 
@@ -385,20 +385,20 @@ would drop out of the anchor merge — leaving it unselectable for a proactive
 scale-up. To keep a returning variant selectable, the throughput analyzer
 emits a per-replica-capacity-only fallback (`Reason: "T-sfz"`) for any variant
 it observed live earlier, carrying that variant's persisted last-good
-per-replica supply. It emits only the (b)/sizing field: `Cost`,
-`AcceleratorName`, and `Role` remain saturation's (a)/identity, supplied
+per-replica supply. It emits only the sizing field: `Cost`,
+`AcceleratorName`, and `Role` remain saturation's identity, supplied
 through the merge. A variant the throughput analyzer has never seen gets no
 fallback, in any config — its `PerReplicaCapacity` stays zero and it is not
 proactively selectable; the reactive `scalefromzero` engine still covers
 genuine cold-starts. This holds uniformly whether or not saturation is also
-voting: the anchor never borrows saturation's own (b) for a variant the
+voting: the anchor never borrows saturation's own sizing for a variant the
 binder omits (N8) — a binder-unknown variant abstains rather than mixing
 metric scales across variants within one anchor. The persisted supply
 self-expires on the analyzer's idle window (the observation-max-age eviction,
 ~60 min), so a long-idle variant degrades back to the never-seen case on its
 own.
 
-**Known limitation.** `Cost` always comes from saturation's (a)/identity, and
+**Known limitation.** `Cost` always comes from saturation's identity, and
 saturation reports `Cost = 0` for a variant currently at zero replicas. A
 returning variant therefore has a cost-efficiency of `0 / PerReplicaCapacity`
 and ranks cheapest, so the cost optimizer picks it first on scale-up. This is

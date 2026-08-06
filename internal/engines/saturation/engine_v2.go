@@ -95,7 +95,7 @@ const analyzerLivenessStaleCycles = 3
 // cycle) and liveness (Live). Order is not significant: the anchor is derived on
 // demand from the ballot (bindingAnchor), and combine math consumes only the
 // voting subset (votingResults). Saturation is always appended as the
-// identity/(a) carrier — it supplies per-variant metadata (Cost, AcceleratorName,
+// identity carrier — it supplies per-variant metadata (Cost, AcceleratorName,
 // Role) for every configured variant — but it votes only when enabled.
 func (e *Engine) runAnalyzersAndScore(
 	ctx context.Context,
@@ -142,7 +142,7 @@ func (e *Engine) runAnalyzersAndScore(
 	// Whether saturation votes in the combine (RC/SC) math this cycle. It always
 	// votes in the default single-analyzer config (no explicit analyzer list) and
 	// otherwise votes only when its name is enabled. When it does not vote it is
-	// still appended below as the identity/(a) carrier — present in the ballot,
+	// still appended below as the identity carrier — present in the ballot,
 	// but pruned from the voting subset by votingResults.
 	satVotes := len(config.Analyzers) == 0 || effectiveEnabled(domain.SaturationAnalyzerName, config)
 
@@ -162,7 +162,7 @@ func (e *Engine) runAnalyzersAndScore(
 
 	// Collect per-analyzer results. Each entry carries its Enabled tag; order is
 	// not significant. Saturation is appended first purely as a code artifact (it
-	// is the (a) carrier), tagged Enabled: satVotes; each enabled non-saturation
+	// is the identity carrier), tagged Enabled: satVotes; each enabled non-saturation
 	// analyzer is run, calibrated with its resolved thresholds, and appended
 	// tagged Enabled: true.
 	namedResults := []pipeline.NamedAnalyzerResult{{
@@ -178,7 +178,7 @@ func (e *Engine) runAnalyzersAndScore(
 	for _, entry := range e.analyzersSnapshot {
 		if entry.name == domain.SaturationAnalyzerName {
 			// Reuse guard, not a decision gate: saturation is already appended
-			// above (as the (a) carrier). Its vote is decided by satVotes there,
+			// above (as the identity carrier). Its vote is decided by satVotes there,
 			// not by skipping it here.
 			continue
 		}
@@ -414,7 +414,7 @@ func resolveThresholds(analyzerName string, cfg config.SaturationScalingConfig) 
 // not yet defaulted). An analyzer registered in code but ABSENT from cfg.Analyzers
 // does NOT participate — this prevents a registered-but-unconfigured analyzer (e.g.
 // throughput) from returning SpareCapacity=0 and silently vetoing scale-down.
-// Saturation is handled separately: it is always appended as the identity/(a)
+// Saturation is handled separately: it is always appended as the identity
 // carrier, and whether it votes is decided by satVotes, which consults this
 // function for the saturation name. The per-analyzer loop skips the saturation
 // name as a reuse guard (so it is not appended twice), not as a decision gate.

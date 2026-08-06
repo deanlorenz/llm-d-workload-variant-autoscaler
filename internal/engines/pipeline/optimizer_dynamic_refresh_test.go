@@ -12,7 +12,7 @@ package pipeline
 // snapshots isolate exactly what the refresh changes, independent of that.
 //
 // Before C2, refreshAnchorSizing does not exist: bindingAnchor picks the
-// (b)/sizing source once and every read of the anchor's VariantCapacities
+// sizing source once and every read of the anchor's VariantCapacities
 // sees that same pick regardless of how remaining demand has moved. This test
 // is red before C2 (the function it calls does not exist) and green after.
 
