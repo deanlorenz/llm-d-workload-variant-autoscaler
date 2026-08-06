@@ -21,6 +21,14 @@ percentage points of the shape's best swept `good%`; otherwise it is **FLAGGED**
 — per the standing rule we surface divergence, we do NOT silently re-tune (the
 level-field drain rule and the 0.85/1.3 calibration stand unless Dean re-opens).
 
+It also sweeps the HPA/KEDA queue-depth controller's aggression knob — the
+per-replica queue target `q_target` (desired = ceil(Q / q_target); 1 = the
+current, most aggressive default) — to answer "how aggressive must HPA-queue be
+to work?". Higher q_target is less aggressive (fewer replicas per unit queue):
+cheaper but slower. That one sweep is **CAPPED** at the demo's ceiling — HPA-queue
+has no meaningful uncapped baseline (at q_target=1 its pre-cap desired diverges
+under the 90s boot lag).
+
 Output: out/stability.md (tables + per-knob verdict). No figures — this is a
 read/calibrate tool like sweep.py, not part of the canonical figure set.
 
@@ -29,7 +37,8 @@ Run:  ./.venv/bin/python stability.py
 
 import run  # canonical calibration constants (single source of truth)
 from sim import (gen_load, gen_supply_perfect, gen_supply_queue_aware,
-                 gen_supply_queue_aware_exp, Simulator, sample, summarize)
+                 gen_supply_queue_aware_exp, run_closed_loop,
+                 Simulator, sample, summarize)
 
 # Held-constant calibration, pulled straight from run.py.
 C, SR, SAT = run.C, run.SERVICE_RATE, run.SAT_FRAC
@@ -49,6 +58,14 @@ TOL_PP = 3.0                       # good% slack (pp) within which a knob "HOLDS
 PROJS = [45, 60, 75, 90, 105, 120, 135, 180]
 DRAINS = [3, 5, 8, 10, 15, 20, 30]
 HEADROOMS = [1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0]
+
+# HPA-queue aggression knob: avg queued requests tolerated per replica before
+# scaling (desired = ceil(Q / q_target)); 1 = most aggressive (the current
+# default). CAPPED at the demo's actuated ceiling — HPA-queue has no meaningful
+# uncapped baseline: at q_target=1 its pre-cap desired diverges during the 90s boot.
+Q_TARGETS = [1, 2, 3, 4, 6, 8, 12, 16]
+HPA_CAP = run.MAX_REPLICAS          # 10 — matches the demo's actuated cap
+MW = run.METRIC_WINDOW              # 60 — HPA/KEDA trailing metric window
 
 
 def _load(pattern):
@@ -104,6 +121,74 @@ def _canonical_rows(load):
     }
 
 
+# --- HPA-queue closed-loop aggression sweep (q_target), CAPPED -------------
+def _qrow(s):
+    return {"w15": s["within_pct"][1], "good": s["band_pct"][0],
+            "failed": s["band_pct"][-1], "p90": s["wait"]["p90"],
+            "rep_max": s["replicas"]["max"], "reps": s["replicas"]["rep_seconds"],
+            "prov": s["replicas"]["prov_seconds"], "util": s["utilization"]}
+
+
+def _summ_cl_queue(load, q_target, cap=HPA_CAP):
+    """Summarize the HPA/KEDA queue-depth controller at per-replica queue target
+    `q_target` (desired = ceil(Q / q_target)), capped at `cap`."""
+    sim = run_closed_loop(load, "queue", C=C, service_rate=SR, setup=SETUP,
+                          sat_frac=SAT, decision_interval=DINT, metric_window=MW,
+                          q_target=q_target, headroom=HR, max_replicas=cap, rho=RHO)
+    return summarize(sample(sim, sample_interval=SI, req_range=RR, work_range=WR))
+
+
+def _qtarget_section(md, load):
+    """Append the HPA-queue q_target sweep table + verdict for one shape; return the
+    roll-up record (tmax, base_w15, best_w15_at_tmax, cost_saved_pct)."""
+    rows = [(t, _qrow(_summ_cl_queue(load, t))) for t in Q_TARGETS]
+    base = rows[0][1]                                   # q_target = 1 (most aggressive)
+    md.append(f"### HPA-queue `q_target` sweep — CAPPED at {HPA_CAP} "
+              "(avg queued reqs per replica; 1 = most aggressive)\n")
+    md.append("| q_target | " + " | ".join(f"{t}" for t, _ in rows) + " |")
+    md.append("|---|" + "---|" * len(rows))
+    md.append("| served ≤15s % | " + " | ".join(f"{r['w15']:.1f}" for _, r in rows) + " |")
+    md.append("| good ≤2s % | " + " | ".join(f"{r['good']:.1f}" for _, r in rows) + " |")
+    md.append("| failed % | " + " | ".join(f"{r['failed']:.1f}" for _, r in rows) + " |")
+    md.append("| wait p90 | " + " | ".join(f"{r['p90']:.1f}" for _, r in rows) + " |")
+    md.append("| rep_max | " + " | ".join(f"{r['rep_max']:d}" for _, r in rows) + " |")
+    md.append("| prov·s | " + " | ".join(f"{r['prov']:.0f}" for _, r in rows) + " |")
+    md.append("| util | " + " | ".join(f"{r['util']:.2f}" for _, r in rows) + " |")
+    # HPA-queue is a closed loop with SETUP-second dead time, so served-≤15s is
+    # NOT a clean monotone function of the target. Two honest read-outs instead of
+    # a fake "works up to N" threshold:
+    #   plateau  — leading run of targets that behave ~identically to q=1 (still
+    #              pinned at the cap the whole time → the target is inert there).
+    #   nonmono  — does served-≤15s ever RISE materially as the target loosens?
+    #              a signature of boot-lag oscillation, not a smooth cost/quality
+    #              trade.
+    w1, p1 = base["w15"], base["prov"]
+    plateau = 1
+    for t, r in rows[1:]:
+        if abs(r["w15"] - w1) <= 1.0 and (p1 == 0 or abs(r["prov"] - p1) <= 0.02 * p1):
+            plateau = t
+        else:
+            break
+    seq = [r["w15"] for _, r in rows]
+    nonmono = any(b - a > TOL_PP for a, b in zip(seq, seq[1:]))
+    if plateau > 1:
+        v = (f"**cap-bound plateau: q_target 1–{plateau}** behave identically "
+             f"(served ≤15s {w1:.1f}%, prov·s {p1:.0f} — pinned at {HPA_CAP}), so the "
+             "target is inert there. ")
+    else:
+        v = (f"**no plateau** — even q_target=2 diverges from q_target=1 "
+             f"(served ≤15s {w1:.1f}% @ q=1). ")
+    v += ("Served ≤15s is **non-monotone** in q_target — a looser target can delay a "
+          "mistimed mid-drain scale-down (which the boot lag makes costly to undo), so "
+          "there is no clean aggression threshold." if nonmono else
+          "Beyond the plateau served ≤15s declines monotonically as the target "
+          "loosens (cheaper, slower).")
+    md.append("\n" + v + "\n")
+    print(f"  q_target: plateau→{plateau}, {'NON-MONOTONE' if nonmono else 'monotone'} "
+          f"(served≤15s@1 {w1:.1f})")
+    return (plateau, nonmono, w1)
+
+
 def _sweep(load, builder, grid, base):
     """good% over a knob grid; returns (list[(val, good%)], best_val, base_good,
     best_good). best is argmax good% (ties → smallest knob = leanest/cheapest)."""
@@ -146,9 +231,17 @@ def main():
           "confound the knob signal. The `rep_max` column below therefore reports "
           "*pre-cap desired* replicas (e.g. `qexp` peaks at 15 on `stepdown`), which "
           "is expected to exceed the demo's actuated ceiling — an intentional, "
-          "informative difference, not a discrepancy.\n"]
+          "informative difference, not a discrepancy.\n",
+          "**One capped exception — the HPA-queue `q_target` sweep** (last section "
+          "per shape). The HPA/KEDA queue-depth controller has no meaningful "
+          "uncapped baseline — at `q_target=1` (1 queued request per replica, the "
+          "current default) its pre-cap desired diverges under the 90s boot lag — "
+          f"so it is run **capped at {HPA_CAP}** (the demo's actuated ceiling). "
+          "Raising `q_target` makes it *less* aggressive (`desired = ceil(Q / "
+          "q_target)`): cheaper but slower. The question is how far the target can "
+          "relax before the served-≤15s quality bar drops.\n"]
 
-    proj_verdicts, drain_verdicts, hr_notes = [], [], []
+    proj_verdicts, drain_verdicts, hr_notes, q_verdicts = [], [], [], []
 
     for shape in SHAPES:
         load = _load(shape)
@@ -217,6 +310,9 @@ def main():
                   f"qexp util at 1.3 = {util_13:.2f}.\n")
         print(f"  headroom knee ≈ {knee:g}; qexp util@1.3 = {util_13:.2f}")
 
+        # (2d) HPA-queue aggression: q_target sweep (CAPPED — see intro caveat)
+        q_verdicts.append((shape, *_qtarget_section(md, load)))
+
     # ---- roll-up verdict ----
     def _fmt(base, bv, bg, best):
         tag = "HOLDS" if (best - bg) <= TOL_PP else "**FLAG**"
@@ -264,6 +360,43 @@ def main():
         tag = "HOLDS" if knee <= 1.5 else "**FLAG**"
         md.append(f"- **{shape}** — {tag}: knee ≈ {knee:g}, util@1.3 = {util:.2f}")
     md.append("")
+
+    md.append("### HPA-queue q_target = 1 (aggression knob, CAPPED)\n")
+    md.append("Unlike the open-loop knobs above, this sweep is **capped at "
+              f"{HPA_CAP}** — HPA-queue has no meaningful uncapped baseline (its "
+              "pre-cap desired diverges at q_target=1 under boot lag). Higher "
+              "q_target = fewer replicas per queued request = less aggressive. But "
+              "HPA-queue is a **closed loop with a "
+              f"{SETUP:g}s boot dead time**, so served-≤15s is *not* a clean function "
+              "of the target — read each shape by its plateau + monotonicity:\n")
+    for shape, plateau, nonmono, w1 in q_verdicts:
+        if nonmono:
+            tag = ("**non-monotone** — mistimed mid-drain scale-down + late "
+                   "re-scramble under boot lag")
+        elif plateau > 1:
+            tag = (f"cap-bound plateau to q≈**{plateau}** (target inert), "
+                   "then monotone decline")
+        else:
+            tag = "**aggression load-bearing** — q_target=1 best, relaxing only hurts"
+        md.append(f"- **{shape}** — {tag}; served ≤15s@1 = {w1:.1f}%")
+    md.append("\n**→ there is no single \"aggressive enough\" threshold.** "
+              "`desired = ceil(avg_q / q_target)` sets both the scale-*up* and "
+              "scale-*down* thresholds, and three mechanisms compete:\n")
+    md.append("- **Sustained demand (`stepup`/`trapezoid`) — cap saturates the loop.** "
+              f"q_target 1…~6–8 are *identical* (all pinned at {HPA_CAP}), so the knob "
+              "is inert; only once the target is loose enough to pull desired below the "
+              "cap does quality cliff. Aggression in this range buys nothing.")
+    md.append("- **Transient demand (`bump`) — mistimed scale-down dominates.** With "
+              f"the {SETUP:g}s boot dead time, the loop can scale *down* mid-drain and "
+              "then re-scramble too late. Whether that premature cut lands is sensitive "
+              "to the target (a looser q=2 delays the down-decision past the drain and "
+              "holds at cap → serves *better* than the aggressive q=1), so served-≤15s "
+              "is non-monotone. This is a scale-down/damping problem, not a scale-up "
+              "aggression one.")
+    md.append("- **`stepdown` — aggression is load-bearing.** q_target=1 is best on "
+              "quality *and* cost: clearing the post-step backlog fast lets the fleet "
+              "scale down sooner, so relaxing the target only under-serves *and* costs "
+              "more.\n")
 
     path = f"{run.OUT}/stability.md"
     with open(path, "w") as f:

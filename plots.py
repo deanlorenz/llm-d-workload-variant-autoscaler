@@ -423,7 +423,7 @@ def render_wait_cdf(runs: dict, costs: dict, title: str, path: str,
     denominator). Vertical guides mark the quality-band edges; each legend entry
     carries the policy's billed fleet cost so promptness and cost read together.
     `runs` = {name: ts}; `costs` = {name: provisioned·seconds}."""
-    fig, ax = plt.subplots(figsize=(11, 5.4))
+    fig, ax = plt.subplots(figsize=(11, 4.2))
     for name, ts in runs.items():
         waits = sorted(ts["req_wait"])
         offered = (ts["cum_arr"][-1] if ts.get("cum_arr") else len(waits)) or len(waits)
@@ -495,7 +495,7 @@ def render_cost_quality(summaries: dict, title: str, path: str,
         wp = s.get("within_pct", [])
         q = wp[1] if len(wp) > 1 else float("nan")     # served ≤15s = CDF@edge[1]
         pts[name] = (cost, q)
-    fig, ax = plt.subplots(figsize=(9.5, 6))
+    fig, ax = plt.subplots(figsize=(9.5, 4.6))
     deploy = {n: p for n, p in pts.items() if n != "ideal"}
     for label, cost, q, _base in extra_points:            # extras join the frontier
         deploy[label] = (cost, q)
@@ -573,12 +573,16 @@ def render_sweep(title, xlabel, xs, groups, path, xmark=None, mark_label="baseli
     axp = axq.twinx()
     for g in groups:
         c = g.get("color", "#2563eb")
+        if "good15" in g:
+            # cumulative served ≤15s (the "actual quality" bar): faint, same
+            # colour, triangle marker — always ≥ the ≤2s line it sits above.
+            axq.plot(xs, g["good15"], "-^", color=c, lw=1.6, ms=4, alpha=0.4)
         axq.plot(xs, g["good"], "-o", color=c, lw=2, ms=4, label=g["label"])
         axp.plot(xs, g["p90"], "--s", color=c, lw=1.4, ms=3, alpha=0.65)
         axc.plot(xs, g["prov"], "-o", color=c, lw=2, ms=4, label=g["label"])
     axq.set_xlabel(xlabel)
     axc.set_xlabel(xlabel)
-    axq.set_ylabel("served ≤2s (good %) — solid")
+    axq.set_ylabel("served % (solid ● ≤2s · faint ▲ ≤15s)")
     axp.set_ylabel("wait p90 (s) — dashed")
     axc.set_ylabel("provisioned·seconds (fleet cost)")
     axq.set_title("quality", loc="left", fontsize=10)

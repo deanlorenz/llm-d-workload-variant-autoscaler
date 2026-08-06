@@ -44,7 +44,7 @@ import os
 
 import run  # reuse the canonical calibration constants + _load()
 from sim import (gen_supply_perfect, gen_supply_queue_aware,
-                 gen_supply_queue_aware_exp, run_closed_loop,
+                 gen_supply_queue_aware_exp, gen_supply_static, run_closed_loop,
                  Simulator, sample, summarize)
 from plots import render_sweep
 
@@ -70,6 +70,28 @@ BASE_CONC = max(1.0, int(SAT * C) / HR)   # run_closed_loop's default
 HR_COLORS = {1.0: "#94a3b8", 1.3: "#2563eb", 1.5: "#16a34a", 2.0: "#dc2626"}
 
 METRIC_COLS = ["good%", "failed%", "wait_p90", "rep_max", "rep·s", "prov·s", "util"]
+
+# Cap sweep (design §8.1 item 11 follow-up): the actuation ceiling `max_replicas`
+# is a fixed constant everywhere else (MAXR=10). Here it is the swept axis, to
+# separate the CEILING knob from HPA-queue's per-replica q_target AGGRESSION knob
+# (swept, capped@10, in stability.md). Five teaching policies span the two cost
+# families. Observed on the three sustained shapes: hpa-queue and static grow
+# cost ∝ cap (HPA's raw desired = ceil of the whole backlog ≫ any sane cap, so it
+# pins to the ceiling; static's fleet IS the ceiling). The work-rate Q sizers keep
+# a low USABLE peak (~6–15 here, under any swept cap); raising the ceiling past
+# that only adds a small, quality-neutral cost creep (speculative boot orders that
+# never become usable) before flattening. So a looser cap barely grows Q-sizer
+# cost and never in the ∝cap way. bump/spike keep the Q sizers even lower (~5) —
+# noted in the section. Range stays bounded (5→30) — no log axis.
+CAPS = [5, 8, 10, 12, 15, 20, 30]
+CAP_POLICIES = [
+    ("ideal",       "#111827"),   # reference — flat, usable peak ~5, cap never binds
+    ("queue-aware", "#dc2626"),   # Q sizer — low usable peak; small boot-waste creep then flat
+    ("qexp",        "#16a34a"),   # Q sizer — same, anticipatory
+    ("hpa-queue",   "#2563eb"),   # desired ≫ cap ⇒ pins to the cap ⇒ cost ∝ cap
+    ("static",      "#a855f7"),   # fixed fleet = the cap ⇒ cost ∝ cap by construction
+]
+CAP_SHAPES = ["trapezoid", "stepup", "stepdown"]
 
 
 # --------------------------------------------------------------------------
@@ -145,6 +167,7 @@ def _metrics(ts) -> dict:
         "prov·s": f"{s['replicas']['prov_seconds']:.0f}",
         "util": f"{s['utilization']:.2f}",
         "_good": s["band_pct"][0],
+        "_good15": s["within_pct"][1],      # cumulative served ≤15s (Dean's "works" bar)
         "_p90": s["wait"]["p90"],
         "_prov": s["replicas"]["prov_seconds"],
     }
@@ -194,6 +217,43 @@ def run_hpa_conc(setup, conc_target) -> dict:
     return _metrics(sample(sim, sample_interval=SI, req_range=RR, work_range=WR))
 
 
+@_memo
+def run_capped(policy, shape, cap) -> dict:
+    """One policy on one demand `shape` at one actuation ceiling `cap`
+    (max_replicas). Mirrors the matching run.py scenario exactly except the cap
+    is the swept variable — so a point at cap=MAXR (10) reproduces that
+    scenario's summary row. Used only by the cap sweep."""
+    load = run._load(shape)
+    if policy == "ideal":
+        supply = gen_supply_perfect(load, C=C, service_rate=SR, setup=0.0, drain=0.0,
+                                    headroom=HR, sizing_range=SRANGE,
+                                    decision_interval=DINT, sat_frac=SAT, max_replicas=cap)
+        return _metrics(_sample_open(supply, load))
+    if policy == "queue-aware":
+        supply = gen_supply_queue_aware(load, C=C, service_rate=SR, setup=BASE_SETUP,
+                                        drain=0.0, headroom=HR, sizing_range=SRANGE,
+                                        drain_time=BASE_DRAIN, decision_interval=DINT,
+                                        sat_frac=SAT, max_replicas=cap)
+        return _metrics(_sample_open(supply, load))
+    if policy == "qexp":
+        supply = gen_supply_queue_aware_exp(load, C=C, service_rate=SR, setup=BASE_SETUP,
+                                            drain=0.0, headroom=HR, sizing_range=SRANGE,
+                                            drain_time=BASE_DRAIN, proj_setup=run.QEXP_PROJ_SETUP,
+                                            decision_interval=DINT, sat_frac=SAT, max_replicas=cap)
+        return _metrics(_sample_open(supply, load))
+    if policy == "static":
+        # static's "cap" IS its fixed fleet size (pre-warmed, up the whole run).
+        supply = gen_supply_static(load, count=cap, C=C, service_rate=SR,
+                                   setup=0.0, drain=0.0, sat_frac=SAT)
+        return _metrics(_sample_open(supply, load))
+    if policy == "hpa-queue":
+        sim = run_closed_loop(load, "queue", C=C, service_rate=SR, setup=BASE_SETUP,
+                              drain=0.0, sat_frac=SAT, decision_interval=DINT,
+                              metric_window=MW, headroom=HR, max_replicas=cap, rho=RHO)
+        return _metrics(sample(sim, sample_interval=SI, req_range=RR, work_range=WR))
+    raise ValueError(f"unknown cap-sweep policy: {policy}")
+
+
 # --------------------------------------------------------------------------
 # table emit (stdout + markdown), same look as run.py's report()
 # --------------------------------------------------------------------------
@@ -223,6 +283,35 @@ def _emit(title, note, param_cols, rows, md):
     md.append("")
 
 
+def _emit_pivot(title, note, xlabel, xs, star_x, col_labels, cell_fn, md):
+    """Pivot table: one row per x (e.g. cap), one column per policy. `cell_fn(col, x)`
+    returns the formatted cell string; `star_x` flags the canonical baseline row.
+    Same stdout + markdown twin-output shape as `_emit`, but the columns are the
+    series (policies) rather than the fixed METRIC_COLS."""
+    headers = [xlabel] + col_labels
+    body = [[f"{x}*" if x == star_x else str(x)] + [cell_fn(col, x) for col in col_labels]
+            for x in xs]
+    widths = [max(len(headers[i]), max(len(r[i]) for r in body)) + 2
+              for i in range(len(headers))]
+
+    def line(vals):
+        return "".join(str(v).rjust(widths[i]) for i, v in enumerate(vals))
+
+    print(f"\n### {title}\n{note}")
+    print(line(headers))
+    print("-" * sum(widths))
+    for r in body:
+        print(line(r))
+
+    md.append(f"### {title}\n")
+    md.append(f"{note}\n")
+    md.append("| " + " | ".join(headers) + " |")
+    md.append("|" + "---|" * len(headers))
+    for r in body:
+        md.append("| " + " | ".join(str(v) for v in r) + " |")
+    md.append("")
+
+
 def _star(val, base):
     return f"{val}*" if val == base else str(val)
 
@@ -234,6 +323,7 @@ def _group(label, color, metrics):
         "label": label,
         "color": color,
         "good": [m["_good"] for m in metrics],
+        "good15": [m["_good15"] for m in metrics],
         "p90": [m["_p90"] for m in metrics],
         "prov": [m["_prov"] for m in metrics],
     }
@@ -395,13 +485,97 @@ def main():
         "is a *service-latency* effect (visible in `time/work`, not plotted here). This "
         "refines the 7(b) framing — see the design doc §2.7 / §8.1(7b).\n")
 
+    # 7 — cap sweep: the actuation CEILING (max_replicas) as the swept axis, per
+    # sustained shape. This is a DIFFERENT knob from HPA-queue's per-replica
+    # q_target aggression (stability.md sweeps that, capped@10): raising the cap
+    # lets a policy provision MORE; raising q_target makes HPA want LESS. The
+    # finding: HPA-queue's raw desired (ceil of the whole backlog) runs far above
+    # any sane cap, so it PINS to the cap and its cost rises ∝ cap — exactly like
+    # `static`, whose fleet IS the cap. The work-rate Q sizers instead rise with
+    # the cap only until they reach their natural peak (≈14–27 on these shapes),
+    # then FLATTEN — a looser ceiling costs them nothing once it clears their peak.
+    # So "a looser cap doesn't grow cost as fast" is a property of the Q sizers,
+    # not of HPA. `ideal` is flat (peak ~5, cap never bites). Range stays bounded
+    # (5→30) — no log axis.
+    md.append("## Cap sweep — actuation ceiling (max_replicas) as the swept axis\n")
+    md.append(
+        "The seven scenarios pin `max_replicas` at the KEDA guide's 10. Here it is "
+        "swept per sustained shape. **This is not the same knob as HPA-queue's "
+        "`q_target`** (the per-replica queue-depth target that sets aggression — swept "
+        "in `stability.md`, held ≤10 there): raising the *cap* lets a policy provision "
+        "*more*; raising `q_target` makes HPA-queue want *fewer* replicas. So Dean's "
+        "\"a less aggressive HPA doesn't grow cost as fast\" is about `q_target` "
+        "(`stability.md`), not the cap — along *this* axis HPA-queue's cost grows fast.\n")
+    md.append(
+        "Reading the cost column: `hpa-queue` and `static` rise **∝ cap** — HPA's raw "
+        "desired (`ceil` of the whole backlog) runs far above any sane cap, so it pins "
+        "to the ceiling, just as `static`'s fleet *is* the ceiling; both hit ~2.5× ideal "
+        "at cap 10 and climb to 7–9× by cap 30. The work-rate Q sizers (`queue-aware`, "
+        "`qexp`) behave completely differently: their **usable** fleet peaks low (6–15 "
+        "replicas on these shapes — see `rep_max`), well under every swept cap, so a "
+        "looser ceiling can't be filled with useful work. Their cost still creeps up a "
+        "little past that peak (speculative boot orders the backlog term issues and then "
+        "cancels before they become usable — pure boot-lag waste) and then **flattens** "
+        "by cap ≈15–20, staying ~1.4–2.1× ideal. Crucially that creep buys **zero** extra "
+        "quality: `served ≤15s` is flat across the cap once it clears the usable peak. "
+        "`ideal` is flat throughout (usable peak ~5, cap never binds).\n")
+    md.append(
+        "One caution on `hpa-queue`'s quality column: it is **non-monotone in the cap** "
+        "(e.g. trapezoid dips at cap 15, stepup dips at cap 8) — the same deterministic "
+        "dead-time / mistimed-scale-down fragility the `q_target` sweep shows in "
+        "`stability.md`, not a smooth cap response. Cross-ref: for the *aggression* axis "
+        "at a fixed cap, see that HPA-queue `q_target` sweep.\n")
+    cap_labels = [p for p, _ in CAP_POLICIES]
+    for shape in CAP_SHAPES:
+        grid = {p: {cap: run_capped(p, shape, cap) for cap in CAPS}
+                for p, _ in CAP_POLICIES}
+        ideal = grid["ideal"]
+
+        def cost_cell(pol, cap, _grid=grid, _ideal=ideal):
+            prov = _grid[pol][cap]["_prov"]
+            if pol == "ideal":
+                return f"{prov:.0f}"
+            iref = _ideal[cap]["_prov"]
+            fac = prov / iref if iref else 0.0
+            return f"{prov:.0f} ({fac:.1f}×)"
+
+        def q_cell(pol, cap, _grid=grid):
+            return f"{_grid[pol][cap]['_good15']:.1f}"
+
+        _emit_pivot(
+            f"cap sweep ({shape}) — cost: provisioned·seconds (×ideal)",
+            "Billed fleet-seconds per policy as the cap rises; `(N×)` = multiple of "
+            "`ideal` at the same cap. `hpa-queue`/`static` track the cap; the Q sizers "
+            "plateau once the cap clears their natural peak.",
+            "cap", CAPS, MAXR, cap_labels, cost_cell, md)
+        _emit_pivot(
+            f"cap sweep ({shape}) — quality: served ≤15s %",
+            "Share served within 15s (the \"works\" bar). More ceiling buys the Q "
+            "sizers headroom to clear the backlog; past their peak it stops mattering.",
+            "cap", CAPS, MAXR, cap_labels, q_cell, md)
+
+        groups = [_group(p, c, [grid[p][cap] for cap in CAPS])
+                  for p, c in CAP_POLICIES]
+        render_sweep(
+            f"Cap sweep ({shape}) — cost ∝ cap (hpa-queue, static) vs plateau (Q sizers)",
+            "actuation ceiling, max_replicas  — larger = higher cost allowed",
+            CAPS, groups, f"{run.OUT}/17-sweep-cap-{shape}.png",
+            xmark=MAXR, mark_label="baseline cap (10)")
+    md.append(
+        "**bump / spike are cap-inert for the Q sizers** and so are omitted from the "
+        "per-shape switcher: their offered load needs only ≈4–6 replicas at the peak, "
+        "well under every swept cap, so `queue-aware`/`qexp`/`ideal` never touch the "
+        "ceiling there (only `hpa-queue`/`static`, which pin to the cap on any shape, "
+        "would still scale with it).\n")
+
     path = f"{run.OUT}/sweep.md"
     with open(path, "w") as f:
         f.write("\n".join(md) + "\n")
     print(f"\n[wrote {path}]")
     print(f"[wrote {run.OUT}/11-sweep-setuplag.png, 12-sweep-drain.png, "
           f"13-sweep-qexp.png, 14-sweep-headroom.png, "
-          f"15-sweep-headroom-drain.png, 16-sweep-headroom-proj.png]")
+          f"15-sweep-headroom-drain.png, 16-sweep-headroom-proj.png, "
+          f"17-sweep-cap-{{trapezoid,stepup,stepdown}}.png]")
     _save_cache()
 
 

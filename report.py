@@ -465,7 +465,10 @@ def render_table_html(headers, rows):
             style = f' style="{st}"' if st else ""
             tds += f"<td{style}>{esc(c)}</td>"
         tds += f'<td class="mean">{esc(row_meaning(r[0]))}</td>'
-        body.append(f"<tr>{tds}</tr>")
+        # The slow-tail row (failed >60s) is styled dark-red + ruled off from the
+        # cumulative served-within bands above it (item: Table failed-row emphasis).
+        rcls = ' class="failrow"' if r[0].startswith("failed") else ""
+        body.append(f"<tr{rcls}>{tds}</tr>")
     return (f'<table class="sum"><thead><tr>{th}</tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table>')
 
@@ -540,28 +543,76 @@ SWEEP_FIGS = {
     "headroom × proj_setup": "16-sweep-headroom-proj.png",
 }
 
+# The cap sweep is rendered per shape behind a switcher (not stacked). Order +
+# membership mirror sweep.py's CAP_SHAPES (the sustained shapes where the ceiling
+# bites the work-rate sizers; bump/spike are cap-inert and omitted there).
+CAP_SWEEP_SHAPES = ["trapezoid", "stepup", "stepdown"]
+
+# Short jump-nav labels for the Sweeps tab, matched against each ### heading by
+# substring (the headings themselves are long). Cap sweep is labelled separately.
+_NAV_LABELS = [
+    ("setup (boot lag)", "Setup-lag"),
+    ("drain_time aggression", "Queue-aware"),
+    ("proj_setup dial", "Qexp"),
+    ("headroom — static", "Headroom"),
+    ("headroom × drain_time", "Head × drain"),
+    ("headroom × proj_setup", "Head × proj"),
+    ("ρ note", "ρ note"),
+]
+
+
+def _slug(s: str) -> str:
+    """Stable DOM id for a heading — 'sw-' + lowercased alnum runs joined by '-'."""
+    return "sw-" + re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def _nav_label(heading: str) -> str:
+    for key, label in _NAV_LABELS:
+        if key in heading:
+            return label
+    return heading[:16]
+
 
 def render_sweeps_html(out_dir=OUT) -> str:
-    """Parse out/sweep.md (### headings, prose paragraphs, pipe tables) into HTML
-    for the Sweeps tab, embedding each sweep's line-plot PNG under its heading.
-    Guarded: if sweep.py hasn't run, show a hint. The `*` baseline marker and
-    shaded best/worst cells mirror the Table view."""
+    """Parse out/sweep.md into HTML for the Sweeps tab. The six knob sweeps + the
+    ρ note render generically (### heading + line-plot PNG + prose + pipe table);
+    the cap sweep (everything from the `## Cap sweep` marker) is pulled out and
+    rendered behind its own per-shape switcher. A jump-to-section nav bar is
+    prepended. Guarded: if sweep.py hasn't run, show a hint."""
     path = os.path.join(out_dir, "sweep.md")
     if not os.path.exists(path):
         return ('<p class="tnote">(no <code>sweep.md</code> found — run '
                 '<code>python sweep.py</code> first)</p>')
-    # Block-parse: a line-buffer state machine over headings / tables / prose.
     lines = open(path).read().splitlines()
+    cap_start = next((i for i, l in enumerate(lines)
+                      if l.startswith("## Cap sweep")), len(lines))
+    nav = []                                   # [(dom-id, short-label)] for the nav
+    body = _render_regular_sweeps(lines[:cap_start], out_dir, nav)
+    if cap_start < len(lines):
+        body += _render_cap_sweep(lines[cap_start:], out_dir, nav)
+    navbar = ""
+    if nav:
+        btns = "".join(f'<button onclick="jumpTo(\'{hid}\')">{esc(lbl)}</button>'
+                       for hid, lbl in nav)
+        navbar = f'<div class="swnav">{btns}</div>'
+    return navbar + body
+
+
+def _render_regular_sweeps(lines, out_dir, nav) -> str:
+    """Block-parse the non-cap portion of sweep.md (state machine over headings /
+    tables / prose), embedding each sweep's line-plot PNG and collecting nav ids."""
     html, i, n = [], 0, len(lines)
     intro_done = False
     while i < n:
         line = lines[i].rstrip()
-        if line.startswith("# "):                       # top title → intro note
+        if line.startswith("# ") and not line.startswith("## "):   # top title
             i += 1
             continue
         if line.startswith("### "):
             heading = line[4:]
-            html.append(f"<h3 class='sw'>{esc(heading)}</h3>")
+            hid = _slug(heading)
+            nav.append((hid, _nav_label(heading)))
+            html.append(f"<h3 class='sw' id='{hid}'>{esc(heading)}</h3>")
             fig = next((v for k, v in SWEEP_FIGS.items() if k in heading), None)
             if fig and os.path.exists(os.path.join(out_dir, fig)):
                 html.append(f'<figure class="swfig"><img src="{fig}" alt="{esc(heading)}">'
@@ -581,6 +632,68 @@ def render_sweeps_html(out_dir=OUT) -> str:
             html.append(f'<p class="{cls}">{_md_inline(line.strip())}</p>')
         i += 1
     return "".join(html)
+
+
+def _render_cap_sweep(lines, out_dir, nav) -> str:
+    """Render the cap-sweep portion (from the `## Cap sweep` heading to EOF) as a
+    single section with a per-shape switcher: intro prose, a `.shapepick`
+    (data-shape-for="cap"), then one hidden-by-default div per CAP_SWEEP_SHAPES
+    holding that shape's figure + cost/quality sub-tables. Trailing prose (the
+    bump/spike cap-inert note) is shown once below, outside the switched divs."""
+    title = lines[0][3:].strip() if lines and lines[0].startswith("## ") else "Cap sweep"
+    hid = _slug(title)
+    nav.append((hid, "Cap sweep"))
+    intro, subs, trailing = [], [], []
+    cur, i, n = None, 1, len(lines)
+    while i < n:
+        line = lines[i].rstrip()
+        if line.startswith("### "):
+            heading = line[4:]
+            m = re.search(r"cap sweep \((\w+)\)\s*[—-]+\s*(.*)", heading)
+            cur = {"shape": m.group(1) if m else "",
+                   "kind": (m.group(2) if m else heading).strip(),
+                   "prose": [], "tbl": []}
+            subs.append(cur)
+            i += 1
+            continue
+        if line.startswith("|"):
+            while i < n and lines[i].lstrip().startswith("|"):
+                cur["tbl"].append(lines[i])
+                i += 1
+            continue
+        if line.strip():
+            if cur is None:                              # pre-first-heading intro
+                intro.append(line.strip())
+            elif cur["tbl"]:                             # prose after a table = trailing note
+                trailing.append(line.strip())
+            else:                                        # prose between heading and its table
+                cur["prose"].append(line.strip())
+        i += 1
+
+    out = [f"<h3 class='sw' id='{hid}'>{esc(title)}</h3>"]
+    for j, p in enumerate(intro):
+        out.append(f'<p class="{"tnote" if j == 0 else "sw-note"}">{_md_inline(p)}</p>')
+    out.append('<div class="pick shapepick" data-shape-for="cap"></div>')
+    for shape in CAP_SWEEP_SHAPES:
+        blocks = [s for s in subs if s["shape"] == shape]
+        if not blocks:
+            continue
+        hide = "" if shape == CAP_SWEEP_SHAPES[0] else ' style="display:none"'
+        inner = []
+        fig = f"17-sweep-cap-{shape}.png"
+        if os.path.exists(os.path.join(out_dir, fig)):
+            inner.append(f'<figure class="swfig"><img src="{fig}" '
+                         f'alt="cap sweep {esc(shape)}"></figure>')
+        for b in blocks:
+            inner.append(f"<h4 class='sw4'>{esc(b['kind'])}</h4>")
+            for p in b["prose"]:
+                inner.append(f'<p class="sw-note">{_md_inline(p)}</p>')
+            if b["tbl"]:
+                inner.append(_sweep_table_html(b["tbl"]))
+        out.append(f'<div data-cap-shape="{esc(shape)}"{hide}>{"".join(inner)}</div>')
+    for p in trailing:
+        out.append(f'<p class="sw-note">{_md_inline(p)}</p>')
+    return "".join(out)
 
 
 def _sweep_table_html(tbl_lines) -> str:
@@ -683,25 +796,16 @@ def _tradeoff_fig_html(png, out_dir, caption) -> str:
 
 
 def render_tradeoffs_html(out_dir=OUT) -> str:
-    """Embed the cross-policy cost-quality + wait-CDF figures for EVERY shape as
-    separate figures (bump first). The two how-to-read notes are shown once at the
-    top; each shape gets its own heading + banner + the two figures. Guarded
-    per-figure: a missing PNG (run.py not run) is skipped with a hint."""
-    blocks = [
-        "<h3 class='sw'>How to read these two views</h3>",
-        f'<p class="sw-note"><b>Cost vs quality (Pareto).</b> {PARETO_NOTE}</p>',
-        f'<p class="sw-note"><b>Waiting-time CDF.</b> {CDF_NOTE}</p>',
-    ]
-    for key, label in SHAPES:
-        blocks.append(f"<h3 class='sw'>{esc(label)} — cost vs quality &amp; waiting-time CDF</h3>")
-        note = SHAPE_NOTES.get(key)
-        if note:
-            blocks.append(f'<p class="sw-note">{_md_inline(note)}</p>')
-        blocks.append(_tradeoff_fig_html(f"10-cost-quality-{key}.png", out_dir,
-                                         "Cost vs quality — the Pareto frontier"))
-        blocks.append(_tradeoff_fig_html(f"09-wait-cdf-{key}.png", out_dir,
-                                         "Waiting-time CDF — all policies on one axis"))
-    return "".join(blocks)
+    """Tradeoffs tab: the two how-to-read notes only. The side-by-side shape
+    comparison (pick shape A / shape B → each shape's cost-quality + wait-CDF
+    stacked in the L/R columns) is JS-rendered into the two panes the template
+    declares, so switching a column's shape is instant. `out_dir` is unused now
+    (the client resolves figures by filename) but kept for signature stability."""
+    return (
+        "<h3 class='sw'>How to read these two views</h3>"
+        f'<p class="sw-note"><b>Cost vs quality (Pareto).</b> {PARETO_NOTE}</p>'
+        f'<p class="sw-note"><b>Waiting-time CDF.</b> {CDF_NOTE}</p>'
+    )
 
 
 def render_markdown(out_dir=OUT) -> str:
@@ -790,7 +894,13 @@ def render_markdown(out_dir=OUT) -> str:
                   ("Headroom × drain — aggressive reaction vs static margin (queue-aware)",
                    "15-sweep-headroom-drain.png"),
                   ("Headroom × anticipation — look-ahead vs static margin (Qexp)",
-                   "16-sweep-headroom-proj.png")]
+                   "16-sweep-headroom-proj.png"),
+                  ("Cap sweep (trapezoid) — actuation ceiling vs cost & quality",
+                   "17-sweep-cap-trapezoid.png"),
+                  ("Cap sweep (step up) — actuation ceiling vs cost & quality",
+                   "17-sweep-cap-stepup.png"),
+                  ("Cap sweep (step down) — actuation ceiling vs cost & quality",
+                   "17-sweep-cap-stepdown.png")]
     if any(os.path.exists(os.path.join(out_dir, p)) for _, p in sweep_figs):
         md.append("## Parameter sweeps\n")
         md.append("Trend + calibration line-plots (full numeric tables in "
@@ -877,6 +987,17 @@ figcaption.figcap{font-size:12.5px;color:var(--muted);margin:0 0 4px;font-weight
 .browse-gallery details summary{cursor:pointer;color:var(--accent);font-size:13px;margin:4px 0;}
 /* shape switcher (Compare + Table) reuses .pick styling; banner note under it */
 p.shapebanner{max-width:1000px;margin:0 0 12px;}
+/* Table slow-tail row: dark-red, ruled off from the served-within bands above it.
+   The "what it means" cell stays muted (override the red). */
+table.sum tr.failrow td{color:#b91c1c;font-weight:700;border-top:2px solid #fca5a5;}
+table.sum tr.failrow td.mean{color:var(--muted);font-weight:400;}
+/* Sweeps jump-to-section nav (sticky above the sections) */
+.swnav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:4;border-bottom:1px solid var(--line);}
+.swnav button{padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:#f9fafb;cursor:pointer;font-size:12px;color:var(--accent);font-weight:600;}
+.swnav button:hover{background:var(--sel);border-color:var(--accent);}
+h4.sw4{margin:16px 0 4px;font-size:13.5px;color:#4b5563;font-weight:700;}
+/* Tradeoffs side-by-side reuses .cmp/.pane; align columns to the top */
+#view-tradeoffs .cmp{margin-top:10px;align-items:flex-start;}
 </style>
 </head>
 <body>
@@ -921,8 +1042,9 @@ p.shapebanner{max-width:1000px;margin:0 0 12px;}
   </section>
   <section class="view" id="view-browse">
     <div class="pick" data-side="B"></div>
+    <div class="pick shapepick" data-shape-for="browse"></div>
     <div class="meta" id="meta-B"></div>
-    <p class="hint">Every demand shape for the selected policy — main figure plus a
+    <p class="hint">The selected policy on the selected demand shape — main figure plus a
     collapsible latency figure. Numbers in the meta line above reference the bump shape;
     see the Table tab for each shape's exact metrics.</p>
     <div class="browse-gallery" id="browse-gallery"></div>
@@ -934,9 +1056,19 @@ p.shapebanner{max-width:1000px;margin:0 0 12px;}
   <section class="view" id="view-tradeoffs">
     <p class="tnote">Cross-policy tradeoffs — the two views that put every policy on
     <b>one shared axis</b>: the full waiting-time <b>CDF</b> (how prompt), and the
-    <b>cost&nbsp;vs&nbsp;quality</b> frontier (what the promptness costs). Unlike the
-    per-scenario figures under Browse, these compare policies directly.</p>
+    <b>cost&nbsp;vs&nbsp;quality</b> frontier (what the promptness costs). Pick a shape
+    for each column to compare two demand shapes side by side.</p>
     __TRADEOFFS__
+    <div class="cmp">
+      <div class="pane">
+        <div class="pick shapepick" data-shape-for="tradeA"></div>
+        <div id="trade-A"></div>
+      </div>
+      <div class="pane">
+        <div class="pick shapepick" data-shape-for="tradeB"></div>
+        <div id="trade-B"></div>
+      </div>
+    </div>
   </section>
   <section class="view" id="view-sweeps">
     <p class="tnote">Parameter sweeps — trend + calibration figures and tables (not the
@@ -957,18 +1089,23 @@ const SCEN = __SCEN__;
 const SHAPES = __SHAPES__;            // [[key, short-label], ...]
 const SHAPE_NOTES = __SHAPENOTES__;   // {key: html banner}
 const FULL_W = __FULLW__;
-const DEFAULTS = {L:"setup-lag", R:"queue-aware", B:"ideal"};
-const state = Object.assign({shape:"bump"}, DEFAULTS);
+const POLICY_DEFAULTS = {L:"setup-lag", R:"queue-aware", B:"ideal"};
+// Each tab owns its shape independently (no shared state.shape). Tradeoffs holds
+// two (A/B) for the side-by-side; cap defaults to a shape where the ceiling bites.
+const state = Object.assign(
+  {shape:{compare:"bump", browse:"bump", table:"bump",
+          tradeA:"bump", tradeB:"trapezoid", cap:"trapezoid"}},
+  POLICY_DEFAULTS);
 const byKey = k => SCEN.find(s => s.key === k) || SCEN[0];
 // Compose a scenario's figure path for a shape — mirrors run.py + report.py fig_path.
 function figPath(s, shape, kind){
   return kind === "latency" ? s.stem+"-"+shape+"-latency.png" : s.stem+"-"+shape+".png";
 }
 function fillMeta(el, s){ el.innerHTML = "<b>"+s.label+"</b> &mdash; "+s.setup+"<br>answers: "+s.answers; }
-// Compare panes (L / R): shape-aware, driven by state.shape.
+// Compare panes (L / R): shape-aware, driven by state.shape.compare.
 function renderSide(side){
   const s = byKey(state[side]);
-  const path = figPath(s, state.shape, "main");
+  const path = figPath(s, state.shape.compare, "main");
   const img = document.getElementById("img-"+side);
   img.src = path; img.alt = s.label;
   const zoom = document.getElementById("zoom-"+side);
@@ -980,40 +1117,70 @@ function renderSide(side){
   });
   applyZoom();
 }
-// Browse: a gallery of ALL shapes for the selected policy (state.B).
+// Level the two Compare panes: the misalignment is variable-height meta text (the
+// answers line), NOT the fixed-size PNGs. Equalize both meta boxes to the taller
+// so the figures start on the same baseline. No-op if a pane is display:none
+// (offsetHeight 0) — re-run on tab-activate + resize.
+function levelMetas(){
+  const l = document.getElementById("meta-L"), r = document.getElementById("meta-R");
+  if (!l || !r) return;
+  l.style.height = r.style.height = "auto";
+  const h = Math.max(l.offsetHeight, r.offsetHeight);
+  if (h) l.style.height = r.style.height = h + "px";
+}
+// Re-render both Compare panes + banner for the current compare shape, then level.
+function renderCompare(){
+  const banner = document.getElementById("shapebanner-compare");
+  if (banner) banner.innerHTML = SHAPE_NOTES[state.shape.compare] || "";
+  renderSide("L"); renderSide("R"); levelMetas();
+}
+// Browse: ONE shape for the selected policy (state.B) — main figure plus a
+// collapsible latency figure. Shape chosen by the browse switcher (state.shape.browse).
 function renderBrowse(){
   const s = byKey(state.B);
   const meta = document.getElementById("meta-B");
   if (meta) fillMeta(meta, s);
-  const g = document.getElementById("browse-gallery");
-  g.innerHTML = SHAPES.map(function(sh){
-    const key = sh[0], label = sh[1];
-    const main = figPath(s, key, "main"), lat = figPath(s, key, "latency");
-    const note = SHAPE_NOTES[key] ? '<p class="sw-note">'+SHAPE_NOTES[key]+'</p>' : '';
-    return "<h3 class='sw'>"+label+"</h3>" + note +
-      '<figure class="browsefig"><img loading="lazy" src="'+main+'" alt="'+label+'"></figure>' +
-      '<a class="zoom" href="'+main+'" target="_blank">open full size &#8599;</a>' +
-      '<details><summary>latency — per-request time in system (coloured by request size)</summary>' +
-      '<figure class="browsefig"><img loading="lazy" src="'+lat+'" alt="'+label+' latency"></figure>' +
-      '<a class="zoom" href="'+lat+'" target="_blank">open full size &#8599;</a></details>';
-  }).join("");
+  const key = state.shape.browse, label = (SHAPES.find(x => x[0] === key) || [key, key])[1];
+  const main = figPath(s, key, "main"), lat = figPath(s, key, "latency");
+  const note = SHAPE_NOTES[key] ? '<p class="sw-note">'+SHAPE_NOTES[key]+'</p>' : '';
+  document.getElementById("browse-gallery").innerHTML =
+    "<h3 class='sw'>"+label+"</h3>" + note +
+    '<figure class="browsefig"><img loading="lazy" src="'+main+'" alt="'+label+'"></figure>' +
+    '<a class="zoom" href="'+main+'" target="_blank">open full size &#8599;</a>' +
+    '<details><summary>latency — per-request time in system (coloured by request size)</summary>' +
+    '<figure class="browsefig"><img loading="lazy" src="'+lat+'" alt="'+label+' latency"></figure>' +
+    '<a class="zoom" href="'+lat+'" target="_blank">open full size &#8599;</a></details>';
   document.querySelectorAll('.pick[data-side="B"] button').forEach(b => {
     b.classList.toggle("sel", b.dataset.key === state.B);
   });
 }
-// Shape switcher shared by Compare + Table: swaps the compare panes + banner and
-// toggles the Table's per-shape divs. One state.shape drives both tabs.
-function setShape(shape){
-  state.shape = shape;
-  document.querySelectorAll('.shapepick button').forEach(b => {
-    b.classList.toggle("sel", b.dataset.shape === shape);
-  });
-  const banner = document.getElementById("shapebanner-compare");
-  if (banner) banner.innerHTML = SHAPE_NOTES[shape] || "";
+// Table: show only the div for the table tab's own shape (state.shape.table).
+function renderTableShape(){
   document.querySelectorAll('#view-table [data-shape]').forEach(d => {
-    d.style.display = (d.dataset.shape === shape) ? "" : "none";
+    d.style.display = (d.dataset.shape === state.shape.table) ? "" : "none";
   });
-  renderSide("L"); renderSide("R");
+}
+// Tradeoffs: one column (A|B) renders its shape's note + cost-quality + wait-CDF,
+// stacked. Each column owns its shape (state.shape.tradeA / tradeB).
+function tradeFig(png, alt){
+  return '<figure class="tradefig"><img loading="lazy" src="'+png+'" alt="'+alt+'"></figure>' +
+         '<a class="zoom" href="'+png+'" target="_blank">open full size &#8599;</a>';
+}
+function renderTradeoffSide(side){
+  const scope = side === "A" ? "tradeA" : "tradeB";
+  const key = state.shape[scope];
+  const label = (SHAPES.find(x => x[0] === key) || [key, key])[1];
+  const note = SHAPE_NOTES[key] ? '<p class="sw-note">'+SHAPE_NOTES[key]+'</p>' : '';
+  document.getElementById("trade-"+side).innerHTML =
+    "<h3 class='sw'>"+label+"</h3>" + note +
+    "<h4 class='sw4'>Cost vs quality</h4>" + tradeFig("10-cost-quality-"+key+".png", label+" cost vs quality") +
+    "<h4 class='sw4'>Waiting-time CDF</h4>" + tradeFig("09-wait-cdf-"+key+".png", label+" waiting-time CDF");
+}
+// Cap sweep (Sweeps tab): show only the div for the cap switcher's shape.
+function renderCapShape(){
+  document.querySelectorAll('#view-sweeps [data-cap-shape]').forEach(d => {
+    d.style.display = (d.dataset.capShape === state.shape.cap) ? "" : "none";
+  });
 }
 function buildPickers(){
   // policy pickers only (data-side); shape pickers are built by buildShapePickers.
@@ -1022,19 +1189,50 @@ function buildPickers(){
     SCEN.forEach(s => {
       const b = document.createElement("button");
       b.textContent = s.label; b.dataset.key = s.key;
-      b.onclick = () => { state[side] = s.key; (side === "B" ? renderBrowse() : renderSide(side)); };
+      // Compare (L/R) re-renders both panes so heights re-level; Browse (B) redraws.
+      b.onclick = () => { state[side] = s.key; (side === "B" ? renderBrowse() : renderCompare()); };
       p.appendChild(b);
     });
   });
 }
+// Each tab's shape switcher is a .shapepick tagged with data-shape-for="<scope>".
+// SHAPE_RENDER maps a scope to the render call that shows its shape — so a switcher
+// only ever redraws its own tab (no cross-tab coupling).
+const SHAPE_RENDER = {
+  compare: renderCompare,
+  browse: renderBrowse,
+  table: renderTableShape,
+  tradeA: () => renderTradeoffSide("A"),
+  tradeB: () => renderTradeoffSide("B"),
+  cap: renderCapShape,
+};
+function markShapeSel(picker, shape){
+  picker.querySelectorAll('button').forEach(b => {
+    b.classList.toggle("sel", b.dataset.shape === shape);
+  });
+}
+function setShapeFor(scope, shape){
+  state.shape[scope] = shape;
+  document.querySelectorAll('.shapepick[data-shape-for="'+scope+'"]').forEach(p => markShapeSel(p, shape));
+  (SHAPE_RENDER[scope] || function(){})();
+}
 function buildShapePickers(){
+  // The cap switcher only offers shapes the cap sweep actually rendered (where the
+  // ceiling bites the Q sizers); read them from the DOM so the two stay in sync.
+  const capShapes = Array.from(document.querySelectorAll('#view-sweeps [data-cap-shape]'))
+    .map(d => d.dataset.capShape);
   document.querySelectorAll('.shapepick').forEach(p => {
-    SHAPES.forEach(function(sh){
+    const scope = p.dataset.shapeFor;
+    const shapes = scope === "cap"
+      ? SHAPES.filter(sh => capShapes.indexOf(sh[0]) !== -1)
+      : SHAPES;
+    shapes.forEach(function(sh){
       const b = document.createElement("button");
       b.textContent = sh[1]; b.dataset.shape = sh[0];
-      b.onclick = () => setShape(sh[0]);
+      b.onclick = () => setShapeFor(scope, sh[0]);
       p.appendChild(b);
     });
+    markShapeSel(p, state.shape[scope]);
   });
 }
 // Compare-pane zoom: interpolate each pane image width between "fit to pane"
@@ -1076,15 +1274,27 @@ function initTabs(){
       document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
       document.getElementById('view-'+t.dataset.tab).classList.add('active');
-      if (t.dataset.tab === "compare") applyZoom();
+      // Height-dependent layout must run once the view is visible (offsetHeight is
+      // 0 while display:none), so re-level / re-zoom Compare on activation.
+      if (t.dataset.tab === "compare"){ applyZoom(); levelMetas(); }
     };
   });
 }
+// Sweeps jump-to-section nav: smooth-scroll to a heading by id.
+function jumpTo(id){
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({behavior: "smooth", block: "start"});
+}
 buildPickers(); buildShapePickers(); initTabs(); initSync();
 document.getElementById("zoomer").addEventListener("input", applyZoom);
-window.addEventListener("resize", applyZoom);
+window.addEventListener("resize", () => { applyZoom(); levelMetas(); });
+// Initial paint: every tab renders its own default shape independently.
+renderCompare();
 renderBrowse();
-setShape("bump");   // syncs shape pickers + banner + table divs and renders L/R
+renderTableShape();
+renderTradeoffSide("A");
+renderTradeoffSide("B");
+renderCapShape();
 </script>
 </body>
 </html>
