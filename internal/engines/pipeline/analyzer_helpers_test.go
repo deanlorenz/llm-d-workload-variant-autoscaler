@@ -500,6 +500,37 @@ var _ = Describe("paired helpers", func() {
 		})
 	})
 
+	Describe("roleAggRemaining", func() {
+		It("compares in replica space, not raw cross-analyzer max (Bug #2)", func() {
+			// sat: Remaining=100 (raw), PRC=1  -> replica-space demand = 100/1  = 100 (larger)
+			// ta:  Remaining=5000 (raw), PRC=1000 -> replica-space demand = 5000/1000 = 5
+			// A raw max would wrongly pick ta's 5000 (tokens vs a different unit's
+			// remaining) even though sat's replica-space demand is the real
+			// bottleneck. roleAggRemaining must return sat's raw value (100), the
+			// entry roleBottleneckReplicas/bindingIndexForRole also identify as
+			// the bottleneck for "v" — commensurable with sat's own PRC in the
+			// caller's n*prc/demand formula.
+			s := []NamedAnalyzerResult{
+				makeNamed("sat", 100, 0, "v", 1.0),
+				makeNamed("ta", 5000, 0, "v", 1000.0),
+			}
+			_, ps := initRoleState(s)
+			Expect(roleAggRemaining(s, ps, domain.RoleBoth, "v")).To(Equal(100.0))
+		})
+
+		It("is byte-identical to the raw max with a single voter", func() {
+			s := []NamedAnalyzerResult{makeNamed("sat", 250, 0, "v", 10.0)}
+			_, ps := initRoleState(s)
+			Expect(roleAggRemaining(s, ps, domain.RoleBoth, "v")).To(Equal(250.0))
+		})
+
+		It("returns 0 when no entry has a usable PRC for v", func() {
+			s := []NamedAnalyzerResult{makeNamed("sat", 100, 0, "other", 1.0)}
+			_, ps := initRoleState(s)
+			Expect(roleAggRemaining(s, ps, domain.RoleBoth, "v")).To(Equal(0.0))
+		})
+	})
+
 	Describe("safeRemovalReplicasForRole", func() {
 		It("computes removable replicas from RoleSpare for a given role", func() {
 			// RoleSpare["prefill"]=20000, PRC_P=10000 → floor(20000/10000)=2

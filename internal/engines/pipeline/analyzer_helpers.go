@@ -421,15 +421,22 @@ func refreshAnchorSizing(variants []domain.VariantCapacity, s []NamedAnalyzerRes
 	}
 }
 
-// roleAggRemaining returns max cross-analyzer remaining demand for role.
-func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role string) float64 {
-	max := 0.0
-	for i := range s {
-		if d := state[i][role]; d > max {
-			max = d
-		}
+// roleAggRemaining returns the raw remaining demand of the entry currently
+// bottlenecking variant v in role — the same argmax_i ceil(state[i][role] /
+// PRC_i[v]) that roleBottleneckReplicas/bindingIndexForRole use, not a raw
+// cross-analyzer max. Comparing raw RequiredCapacity directly is meaningless
+// once analyzers' units differ (saturation = tokens, throughput = req/s —
+// Bug #2); comparing in replica space and returning that entry's own raw
+// value keeps the result commensurable with prc (that same entry's
+// PerReplicaCapacity) in the caller's n*prc/demand and k formulas. With a
+// single voter this is always that voter's own state[0][role], byte-identical
+// to the previous raw max.
+func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role, v string) float64 {
+	idx := bindingIndexForRole(s, state, role, v)
+	if idx < 0 {
+		return 0
 	}
-	return max
+	return state[idx][role]
 }
 
 // anyRoleNeedsScaleUp is the per-role scale-up gate for the unified dispatcher.
@@ -594,7 +601,7 @@ func allocateForModelPaired(
 			prc := prcByRole[role]
 			n := min(roleBottleneckReplicas(s, pickerState, role, variantByRole[role]), capByRole[role])
 			nByRole[role] = n
-			demand := roleAggRemaining(s, pickerState, role)
+			demand := roleAggRemaining(s, pickerState, role, variantByRole[role])
 			if demand <= 0 {
 				utilByRole[role] = 1.0
 			} else {
@@ -615,7 +622,7 @@ func allocateForModelPaired(
 		kByRole := make(map[string]int, len(roles))
 		anyPositive := false
 		for _, role := range roles {
-			demand := roleAggRemaining(s, pickerState, role)
+			demand := roleAggRemaining(s, pickerState, role, variantByRole[role])
 			prc := prcByRole[role]
 			n := nByRole[role]
 			k := 0

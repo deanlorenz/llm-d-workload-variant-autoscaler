@@ -457,7 +457,7 @@ anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
   refreshAnchorSizing(variants, s, ps) → re-select each variant's (role,v) binder (multi-vote only)
   pick(role, ...)              → (variant, capN): optimizer-specific variant selector
   roleBottleneckReplicas       → max_i ceil(state[i][role] / PRC_i[v]): cross-analyzer replica sizing
-  roleAggRemaining             → max demand across analyzers for this role
+  roleAggRemaining             → the bottleneck entry's own raw demand (replica-space argmax, not a raw cross-analyzer max)
   Δ_util = min_role util_role  → joint commit bound: trim to the least-served role
   applyAllocation(s, v, k)     → decrement Remaining on all NamedAnalyzerResults
 ```
