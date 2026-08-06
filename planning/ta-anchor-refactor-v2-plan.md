@@ -22,50 +22,54 @@
 
 ## TOC
 
-- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L70:101
-- [§1 Mission & the corrected model](#1-mission--the-corrected-model) L102:138
-- [§2 The (a)/(b) split + the per-variant merge](#2-the-ab-split--the-per-variant-merge) L139:225
-  - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L145:167
-  - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L168:186
-  - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L187:225
-- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L226:282
-- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L283:298
-- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L299:378
-  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L306:326
-  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L327:366
-  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L367:378
-- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L379:540
-  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L389:430
-  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L431:448
-  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L449:468
-  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L469:482
-  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L483:502
-  - [2f. Tests (this commit)](#2f-tests-this-commit) L503:540
-- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L541:617
-  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L547:586
-  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L587:602
-  - [7c-tests (this commit)](#7c-tests-this-commit) L603:617
-- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L618:742
-  - [The gap](#the-gap) L625:633
-  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L634:685
-  - [Why TA emits PRC only (and the resulting known limitation)](#why-ta-emits-prc-only-and-the-resulting-known-limitation) L686:701
-  - [Interaction with the `[sat,TA]` bit-identity gate (Test 9)](#interaction-with-the-satta-bit-identity-gate-test-9) L702:716
-  - [Test (this commit)](#test-this-commit) L717:742
-- [§7c Partial scale-from-zero — `[TA]`-only via §7b; `[sat,TA]` via sat's own emission; sat-only deferred](#7c-partial-scale-from-zero--ta-only-via-7b-satta-via-sats-own-emission-sat-only-deferred) L743:807
-- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L808:850
-- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L851:877
-- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L878:966
-  - [Struct / field](#struct--field) L884:892
-  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L893:903
-  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L904:912
-  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L913:922
-  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L923:932
-  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L933:943
-  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L944:953
-  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L954:966
-- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L967:999
-- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L1000:1046
-- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1047:1074
+- [§0 Deferred coder decisions (non-blocking)](#0-deferred-coder-decisions-non-blocking) L74:105
+- [§1 Mission & the corrected model](#1-mission--the-corrected-model) L106:142
+- [§2 The (a)/(b) split + the per-variant merge](#2-the-ab-split--the-per-variant-merge) L143:229
+  - [Table 1 — per-variant fields (`VariantCapacity`)](#table-1--per-variant-fields-variantcapacity) L149:171
+  - [Table 2 — model-level fields (`AnalyzerResult`)](#table-2--model-level-fields-analyzerresult) L172:190
+  - [The per-variant merge + fallback ordering (the load-bearing correctness point)](#the-per-variant-merge--fallback-ordering-the-load-bearing-correctness-point) L191:229
+- [§3 Scope & non-goals — what this PR does NOT touch](#3-scope--non-goals--what-this-pr-does-not-touch) L230:286
+- [§4 Invariant #7 — the decision-set-identity ship gate](#4-invariant-7--the-decision-set-identity-ship-gate) L287:302
+- [§5 Commit 1 — Phase 1: uniform generation + `Enabled` tag](#5-commit-1--phase-1-uniform-generation--enabled-tag) L303:382
+  - [1a. Add the enablement tag to `NamedAnalyzerResult`](#1a-add-the-enablement-tag-to-namedanalyzerresult) L310:330
+  - [1b. Uniform generation loop in `runAnalyzersAndScore`](#1b-uniform-generation-loop-in-runanalyzersandscore) L331:370
+  - [1c. QM — no change in this commit](#1c-qm--no-change-in-this-commit) L371:382
+- [§6 Commit 2 — Phase 2: `bindingAnchor` getter + `votingResults` + repoint](#6-commit-2--phase-2-bindinganchor-getter--votingresults--repoint) L383:544
+  - [2a. Rename `saturationEntry` → `bindingAnchor`; new body](#2a-rename-saturationentry--bindinganchor-new-body) L393:434
+  - [2b. New `votingResults` combine-ballot prune](#2b-new-votingresults-combine-ballot-prune) L435:452
+  - [2c. Repoint the SELECTION sites (anchor)](#2c-repoint-the-selection-sites-anchor) L453:472
+  - [2d. Repoint the COMBINE-BALLOT sites (`votingResults`)](#2d-repoint-the-combine-ballot-sites-votingresults) L473:486
+  - [2e. Fixture updates (bounded — this is the E2 "likely moot" resolution)](#2e-fixture-updates-bounded--this-is-the-e2-likely-moot-resolution) L487:506
+  - [2f. Tests (this commit)](#2f-tests-this-commit) L507:544
+- [§7 Commit 3 — QM-as-error + liveness/do-nothing](#7-commit-3--qm-as-error--livenessdo-nothing) L545:621
+  - [7a. QM-as-error (decision 1)](#7a-qm-as-error-decision-1) L551:590
+  - [7b. Liveness / do-nothing (decision 2)](#7b-liveness--do-nothing-decision-2) L591:606
+  - [7c-tests (this commit)](#7c-tests-this-commit) L607:621
+- [§7b Commit 4 — TA-side proactive complement](#7b-commit-4--ta-side-proactive-complement) L622:746
+  - [The gap](#the-gap) L629:637
+  - [The fix — a second loop over `input.VariantStates`](#the-fix--a-second-loop-over-inputvariantstates) L638:689
+  - [Why TA emits PRC only (and the resulting known limitation)](#why-ta-emits-prc-only-and-the-resulting-known-limitation) L690:705
+  - [Interaction with the `[sat,TA]` bit-identity gate (Test 9)](#interaction-with-the-satta-bit-identity-gate-test-9) L706:720
+  - [Test (this commit)](#test-this-commit) L721:746
+- [§7c Partial scale-from-zero — `[TA]`-only via §7b; `[sat,TA]` via sat's own emission; sat-only deferred](#7c-partial-scale-from-zero--ta-only-via-7b-satta-via-sats-own-emission-sat-only-deferred) L747:811
+- [§8 Commit 5 — developer-guide](#8-commit-5--developer-guide) L812:855
+- [§9 Semantic-pivot grep (mandatory)](#9-semantic-pivot-grep-mandatory) L856:882
+- [§10 Read-site inventory — code-change areas from main](#10-read-site-inventory--code-change-areas-from-main) L883:971
+  - [Struct / field](#struct--field) L889:897
+  - [Phase 1 (`engine_v2.go: runAnalyzersAndScore`, ~:96-178)](#phase-1-enginev2go-runanalyzersandscore-96-178) L898:908
+  - [Phase 2 (`analyzer_helpers.go`)](#phase-2-analyzerhelpersgo) L909:917
+  - [Selection sites (→ `anchor := bindingAnchor(...)`)](#selection-sites--anchor--bindinganchor) L918:927
+  - [Combine-ballot sites (→ `s := votingResults(req.AnalyzerResults)`)](#combine-ballot-sites--s--votingresultsreqanalyzerresults) L928:937
+  - [QM / liveness (`engine.go`)](#qm--liveness-enginego) L938:948
+  - [TA complement (`throughput/analyzer.go`)](#ta-complement-throughputanalyzergo) L949:958
+  - [Fixtures (test-only, bounded)](#fixtures-test-only-bounded) L959:971
+- [§11 Coordination — branch, goldens gate, PR-2 dependency](#11-coordination--branch-goldens-gate-pr-2-dependency) L972:1004
+- [§12 Deferrals & deletion classification](#12-deferrals--deletion-classification) L1005:1063
+- [§13 Reviewer verification checklist](#13-reviewer-verification-checklist) L1064:1094
+- [§14 Post-review close-out (C1–C5 code-complete — 2026-08-06)](#14-post-review-close-out-c1c5-code-complete--2026-08-06) L1095:1192
+  - [14.1 Reviewer findings to address (both non-blocking)](#141-reviewer-findings-to-address-both-non-blocking) L1104:1145
+  - [14.2 D1/D2 (combine Live-gating) — DEFERRED to PR-2, no PR-1 change](#142-d1d2-combine-live-gating--deferred-to-pr-2-no-pr-1-change) L1146:1157
+  - [14.3 Push-ready sequence (coder owns; do NOT push without Dean's OK)](#143-push-ready-sequence-coder-owns-do-not-push-without-deans-ok) L1158:1192
 
 ## §0 Deferred coder decisions (non-blocking)
 
@@ -837,9 +841,10 @@ these specific passages — the coder greps each (they are also caught by §9):
 
 **Add** (either file, whichever has the natural home — check during writing): a short note on the
 TA-side persistence behavior (§7b) — TA now emits a fallback `VariantCapacity` for a previously-live
-variant that dropped to zero, using its last-known per-replica capacity / cost / accelerator, within
-the ~60-min eviction window — and the §7c documentation-only note on scale-from-zero reliance +
-tracked follow-ups.
+variant that dropped to zero, carrying **PRC only** (its last-known per-replica capacity); `Cost`,
+`AcceleratorName`, and `Role` stay saturation's (a) via the merge (per §7b / §13 / the shipped code —
+TA does **not** emit cost or accelerator). Within the ~60-min eviction window — and the §7c
+documentation-only note on scale-from-zero reliance + tracked follow-ups.
 
 **Constraint:** Type-4 docs reflect *current code on this branch* only — no "pending PR" / forward
 references, no `Fnn`/`Ann`/`planning/` identifiers. Use descriptive prose.
@@ -1039,6 +1044,18 @@ classified so a future session can recover the intent.
 - **Partial-scale-from-zero picker trustworthiness → deferred (documented in §7c).** Under discussion
   in the review (§2.4); this PR relies on `scalefromzero` (reactive) + §7b (proactive) and does not
   change the picker for never-seen zero-replica candidates.
+- **The `bindingAnchor` (b)-fallback (enablement-gated — plan decision V9) → superseded by "drop the
+  fallback" in PR-2 (Dean-directed 2026-08-06; dataflow-map §9 finding N8).** PR-1 **ships the fallback
+  as coded** (a binder-unknown variant borrows saturation's sizing when sat is `Enabled`) — **no PR-1
+  code change**. It is **inert on every PR-1 config**: sat binds in `[sat]`-only and `[sat,TA]` (so the
+  fallback never fires), and `satEnabled=false` in `[TA]`-only — hence ship-gate-safe (byte-identical on
+  #1513 + Test 9). N8's analysis is that the fallback's activation condition is *exactly* "sat is `!Live`
+  or non-informative," so it can only ever lend untrustworthy sizing; the correct behavior is to **drop
+  it** — binder-unknown ⇒ PRC=0 (abstain), matching `[TA]`-only — which implements Dean's "when TA binds,
+  every sized entry is TA's" rule. This supersedes the earlier D1 idea (`.Live`-gate the fallback, nearly
+  vacuous) and lands in PR-2 ([`ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md)
+  §2b) alongside D2, N2, N7. Recorded here so a reader of the shipped fallback understands it is
+  intentionally-parked, not overlooked.
 
 [↑ TOC](#toc)
 
@@ -1070,5 +1087,106 @@ Internal plan-vs-diff review before push (this is the internal review, not the G
 - [ ] Dev-guide (§8) reflects current branch code only — no forward refs, no plans-branch identifiers.
 - [ ] gofmt clean; `make test` pass; `make lint` clean; `go build ./...` clean; DCO sign-off on every
       commit; correct branch (`ta-anchor-refactor-v2`) verified before each commit.
+
+[↑ TOC](#toc)
+
+---
+
+## §14 Post-review close-out (C1–C5 code-complete — 2026-08-06)
+
+**State.** PR-1 is **code-complete: C1–C5, tip `f6485980`**, local-only/unpushed. The internal
+per-commit review (`ta-anchor-refactor-v2-code-review.md`) verdict is **APPROVE against this FINAL
+plan — no correctness defects**. The coder reports all gates green post-C5 (gofmt / build / `make
+lint` / pipeline + saturation `go test`; goldens #1513 + Test 9 green; full §9 grep clean). This
+section is the coder's remaining work list to reach push-ready — **still WIP until Dean reviews; no
+push without Dean's explicit per-action OK (§11).**
+
+### 14.1 Reviewer findings to address (both non-blocking)
+
+- **F1 — SHOULD-FIX (commit-hygiene, documentation-only). Reword the C2 (`4b820281`) commit message.**
+  C2's message lists `ResultIsInformative` under "New helpers" and calls it newly exported. That is
+  false on the diff: `ResultIsInformative` **pre-exists at base** (`analyzer_helpers.go:53`, already
+  exported, already called at `engine_v2.go:215`); C2 merely **reuses** it in `bindingAnchor`'s
+  binder-selection switch. Reword to reflect reuse (e.g. *"`bindingAnchor` reuses the existing exported
+  `ResultIsInformative` for its binder-selection test"*). **No code change.** Do it via a targeted
+  reword now, or fold it into the post-#1513 rebase (§11) — either is fine; the message must reflect the
+  diff before push (CONVENTIONS "commit messages must reflect the diff").
+
+- **F2 — NTH (test-coverage). Plan Test 4's "assert replicas unchanged + metric emitted" clause —
+  KNOWINGLY RELAXED (Dean's sign-off, 2026-08-06). No action.** The review envisioned a "cheap half"
+  (assert `Status.DesiredOptimizedAlloc.NumReplicas` unchanged via a k8s-client VA read) — but that
+  premise does not hold for Test 5's fixture. Test 5 lives in the "multiple VariantAutoscalings" Context
+  whose `BeforeEach` creates Deployments + annotated HPAs only (**no `VariantAutoscaling` CRs**), so the
+  variants are annotation-sourced and the engine persists **no CRD status** for them
+  (`engine.go:1795-1798`: "KEDA/HPA reads `wva_desired_replicas` directly … no CRD status to patch";
+  `applySaturationDecisions` operates on an in-memory `*va.DeepCopy()` at `engine.go:1594-1596` and never
+  writes it back). There is no VA object to read after `optimize()`; the only held-replica observable is
+  the package-private, parallel-Ginkgo-racy `wva_desired_replicas` gauge (`metrics.go:45`) — so **both
+  halves collapse into that one fragile observable**, and the cheap non-flaky assertion the review
+  envisioned does not exist here. (It *would* exist for a model-sourced / CRD-persisted fixture, which is
+  likely where the recommendation came from.) Decision: keep the existing distributed coverage — Test 4B
+  (no-decision + no-panic), the pre-existing `applySaturationDecisions` hold tests, and Test 5's
+  `optimize()`-nil + empty `QueryCallCounts` + logged-refusal. The knowing relaxation of the plan's
+  Test 4 clause is recorded in the push-ready sync handoff.
+
+- **F3 — SHOULD-FIX (§4a, test-comment leak — code-side). Strip `#1513`/mission tokens from
+  `optimizer_combine_characterization_test.go` comments (introduced by C2).** Plans-branch identifiers
+  (`#1513`, "the anchor refactor mission", …) in a shipped test file are meaningless to a merged-code
+  reader (CODER-CONVENTIONS §4a). Replace with descriptive prose (e.g. *"characterization golden freezing
+  the two-analyzer combine decision set"*). This is a **code edit** in the worktree — amend it into C2
+  during the close-out (§14.3), so the F1 reword and this edit land together.
+- **F4 — SHOULD-FIX (§4a, commit-message leak). Strip schedule/mission/PR tokens from the C1 + C2
+  messages.** Same §4a rule for permanent code-side history: drop "PR-1", "the anchor refactor", "#1513"
+  from the C1/C2 subject+body. Bundle with the F1 reword — the coder is already amending C2's message, so
+  all commit-message hygiene lands in one pass. (If PR-1 is squash-merged the individual messages are
+  discarded and F4 self-resolves; fix now regardless — cheap.)
+
+[↑ TOC](#toc)
+
+### 14.2 D1/D2 (combine Live-gating) — DEFERRED to PR-2, no PR-1 change
+
+Dean decided (2026-08-06) that the `Enabled && Live` gating of the combine input (D2 =
+`votingResults`; D1 = the `bindingAnchor` (b)-fallback) is **latent hardening, not a PR-1 correctness
+fix**, and moves to PR-2 ([`ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md)
+§2b). PR-1 is safe as-is: scale-down is enforced-Live-safe; scale-up is emergent-safe (dead ⇒ RC=0 for
+current analyzers); scale-from-zero rides a live TA. **Plan §2/§6 and Test 2 stay exactly as shipped on
+this branch — the coder makes no change here.** (The §8 dev-guide wording was corrected to "PRC only"
+to match §7b/§13 and the shipped C4 code — this is a plan-doc fix, already applied, not a coder task.)
+
+[↑ TOC](#toc)
+
+### 14.3 Push-ready sequence (coder owns; do NOT push without Dean's OK)
+
+1. **F2 is knowingly relaxed — no action** (§14.1: the cheap-half k8s read is infeasible for the
+   annotation-sourced Test 5 fixture; distributed coverage kept, Dean signed off). **F1, F3, and F4 all
+   ride the rebase reword pass in step 2** (interactive reword/amend of non-tip commits isn't available in
+   the coder env, so they land during the rebase).
+2. **Rebase C1–C5 onto the current `upstream/main` tip (Dean's OK given 2026-08-06; does NOT wait for
+   #1513).** #1513 is a test-only characterization gate, already green in PR-1's own tree (base
+   `a2f49ccf`); if it has not merged, its goldens commit rides into PR-1's diff — expected, not a
+   surprise. **The target is the moving `upstream/main` ref, not a pinned SHA:** `git fetch upstream`,
+   then `git rebase upstream/main` from the `ta-anchor-refactor-v2` worktree (do **not** touch the
+   `main` branch/worktree — that ff-only is separate and not the coder's). Run the CONVENTIONS
+   **non-trivial-rebase procedure** — a pre-rebase plan in the coder's status file (coders don't write
+   `planning/`), a **per-file diff inventory** (`git diff <pre-rebase-tip> <post-rebase-tip> -- <file>`
+   confirming every claimed behavior survived), and a **per-commit message-vs-diff check**. Do **not**
+   assume the rebase is clean: `main` has moved since PR-1's interim base and Dean notes a further
+   update, so the diff inventory — not a snapshot — establishes triviality. In the same pass, apply the
+   §14.1 hygiene fixes: **reword C2's message for F1** (drop the "`ResultIsInformative` new/exported"
+   misdescription → "reuses the existing exported `ResultIsInformative`"); **strip the §4a commit-message
+   leaks for F4** (schedule/mission/PR tokens from the C1 + C2 messages); and **amend the F3 test-comment
+   fix into C2** (strip `#1513`/mission tokens from `optimizer_combine_characterization_test.go`
+   comments).
+3. **Definitive gate battery in an isolated worktree, post-rebase** (checklist item 8): #1513 goldens +
+   Test 9 combine characterization **green after EVERY commit** C1→C5, not just at the tip. Plus the full
+   pre-push battery (gofmt / `make test` / `make lint` / `go build`).
+4. Walk the **§13 checklist** end-to-end against the final rebased tip; verify DCO sign-off on every
+   commit and the branch is `ta-anchor-refactor-v2` before any amend/reword.
+5. Write the **`review__ta-anchor-refactor-v2-ready.md`** trigger (internal code-review before push,
+   per CODER-CONVENTIONS §5.4) — the reviewer runs the definitive push-ready pass on the rebased diff.
+6. Only after review clears: write the push-ready **`sync__`** handoff carrying the formal
+   **DEFERRED/DEPRECATED classifications** (QM optimize path DEFERRED §12; the stored-`.Anchor`
+   mechanism superseded; the sat `Cost=0`, AnalyzerName-validation, and partial-scale-from-zero items
+   as separate-PR deferrals) + the F2 relaxation record.
 
 [↑ TOC](#toc)
