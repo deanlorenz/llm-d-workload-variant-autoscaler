@@ -1,5 +1,7 @@
 # Parameter sweeps — trends & calibration
 
+**Demand shape:** every knob sweep below runs on the **bump** reference shape (the smooth triangular calibration demand) — only the knob varies, the demand does not. The one exception is the **Cap sweep** at the very end, which is run per sustained shape (trapezoid / step-up / step-down) and labels each explicitly.
+
 Metrics per run: `good%` (≤2s, pinned), `failed%` (>60s, pinned), `wait_p90` (s), `rep_max` (peak fleet), `rep·s` (usable replica-seconds), `prov·s` (billed incl. boot/drain), `util` (delivered ÷ usable capacity paid for). `*` = each section's own canonical baseline (setup=90; drain=20 for BOTH Q sizers — a standing rule so they compare on a level field; headroom=1.3; sat_frac=0.85).
 
 ### setup-lag — setup (boot lag) sweep

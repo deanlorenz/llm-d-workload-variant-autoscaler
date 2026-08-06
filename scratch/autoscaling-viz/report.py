@@ -904,8 +904,10 @@ def render_markdown(out_dir=OUT) -> str:
     if any(os.path.exists(os.path.join(out_dir, p)) for _, p in sweep_figs):
         md.append("## Parameter sweeps\n")
         md.append("Trend + calibration line-plots (full numeric tables in "
-                  f"[`{out_dir}/sweep.md`]({out_dir}/sweep.md)). Solid = good %, "
-                  "dashed = wait p90, dotted vertical = baseline.\n")
+                  f"[`{out_dir}/sweep.md`]({out_dir}/sweep.md)). The six knob sweeps "
+                  "all run on the **bump** reference shape (only the knob varies); the "
+                  "**Cap sweep** figures below vary the demand shape and name it in each "
+                  "title. Solid = good %, dashed = wait p90, dotted vertical = baseline.\n")
         for title, png in sweep_figs:
             if os.path.exists(os.path.join(out_dir, png)):
                 md.append(f"![{title}]({out_dir}/{png})\n")
@@ -1072,7 +1074,10 @@ h4.sw4{margin:16px 0 4px;font-size:13.5px;color:#4b5563;font-weight:700;}
   </section>
   <section class="view" id="view-sweeps">
     <p class="tnote">Parameter sweeps — trend + calibration figures and tables (not the
-    seven canonical scenario figures). Each point re-runs the sim across a knob grid;
+    seven canonical scenario figures). <b>Demand shape:</b> every knob sweep here runs on
+    the <b>bump</b> reference shape (only the knob varies, the demand does not); the final
+    <b>Cap sweep</b> is the exception — it varies the demand shape (trapezoid / step-up /
+    step-down) and its switcher labels each. Each point re-runs the sim across a knob grid;
     a point at the baseline knobs reproduces the matching scenario's summary row. In
     the plots, <b>solid</b> = good&nbsp;% (left axis), <b>dashed</b> = wait&nbsp;p90
     (right axis), and the dotted vertical is the baseline. In the tables <b>*</b> marks
@@ -1155,8 +1160,10 @@ function renderBrowse(){
   });
 }
 // Table: show only the div for the table tab's own shape (state.shape.table).
+// DIRECT children only — the picker buttons also carry data-shape, so a descendant
+// selector would hide all but the selected shape's pill and gut the switcher.
 function renderTableShape(){
-  document.querySelectorAll('#view-table [data-shape]').forEach(d => {
+  document.querySelectorAll('#view-table > [data-shape]').forEach(d => {
     d.style.display = (d.dataset.shape === state.shape.table) ? "" : "none";
   });
 }
