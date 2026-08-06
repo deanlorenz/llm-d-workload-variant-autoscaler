@@ -532,6 +532,39 @@ analyzer (Score=1) this reduces to plain cost-descending / PRC-ascending order.
 A higher `Score` on a high-demand analyzer increases a model's priority value
 and therefore how many GPUs it attracts in a constrained environment.
 
+### Rescale pre-pass (GreedyByScoreOptimizer only)
+
+When rescale is enabled for a budget scope, `applyRescale` groups contended
+models by `(accType, budget-scope)` and priority-weighted water-fills each
+group's GPU budget across them (`computeRescaleTargets`) before the additive
+fair-share path runs. Two demand quantities feed that water-fill, both
+combined across every voting entry rather than read off the anchor alone:
+
+- **`roleDemandGPUs`** converts a role's demand to a GPU count via the
+  cheapest variant on the accelerator type: `max_i ceil(demand_i[role] /
+  PRC_i[v*])` over the voting entries, using each entry's own demand
+  (model-level `TotalDemand` for the synthetic `"both"` role, or its own
+  `RoleCapacities[role].TotalDemand` for a P/D role) and its own PRC for the
+  cheapest variant `v*`. Reading only the anchor's (the binder's) demand and
+  PRC would miss a non-binding analyzer whose demand for that role is larger.
+- **The water-fill weight** (`rescaleInput.Demand`, consumed as `priority ×
+  demand` in `computeRescaleTargets`) uses the model's combined demand-in-GPUs
+  (`modelDemandGPUs`, which sums `roleDemandGPUs` across roles) rather than
+  the anchor's `TotalDemand` in its own natural unit. The water-fill compares
+  weights *across models* directly, so two models bound by different
+  analyzers (one in tokens, one in request-rate) would be incommensurable
+  otherwise — unlike a same-model ratio, the unit does not cancel here.
+
+With a single voter both reduce to that voter's own demand and PRC —
+byte-identical to reading the anchor alone. `fillRole`'s cost-efficiency sort
+and `reclaimRole`'s scale-down tie-break already read the anchor's
+(binder's) `VariantCapacities` directly, so they need no separate combine.
+
+`rescaleModelDecisions` nil-guards its own `bindingAnchor` call, matching
+every sibling topology helper (`modelCurrentGPUs`, `rescaleInputsForGroup`,
+`roleCurrentGPUs`, `roleFloorGPUs`) — safe today only via `applyRescale`'s
+pre-filter, but the local guard removes that fragile coupling.
+
 ---
 
 ## Optimizer consumption

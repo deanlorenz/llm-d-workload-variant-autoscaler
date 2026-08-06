@@ -147,7 +147,38 @@ var _ = Describe("roleDemandGPUs", func() {
 		stateMap := map[string]domain.VariantReplicaState{
 			"A-v": {VariantName: "A-v", GPUsPerReplica: 1},
 		}
-		Expect(roleDemandGPUs(sat, stateMap, "A100", domain.RoleBoth)).To(Equal(9))
+		s := []NamedAnalyzerResult{{Name: domain.SaturationAnalyzerName, Result: sat, Enabled: true, Live: true}}
+		Expect(roleDemandGPUs(sat, s, stateMap, "A100", domain.RoleBoth)).To(Equal(9))
+	})
+
+	It("combines across voting entries -- max_i ceil(demand_i/PRC_i[v*]), not just the anchor's (Bug #3)", func() {
+		// v* (cheapest on A100) is "A-v", PRC=1000 for both entries. saturation's
+		// own demand (8500) implies ceil(8500/1000)=9 replicas; throughput's own
+		// demand (25000) implies ceil(25000/1000)=25 -- the larger, so the
+		// combined result must be 25, not saturation's 9 (what reading only the
+		// anchor's TotalDemand would give).
+		sat := &domain.AnalyzerResult{
+			ModelID:     "A",
+			TotalDemand: 8500,
+			VariantCapacities: []domain.VariantCapacity{
+				{VariantName: "A-v", AcceleratorName: "A100", PerReplicaCapacity: 1000},
+			},
+		}
+		ta := &domain.AnalyzerResult{
+			ModelID:     "A",
+			TotalDemand: 25000,
+			VariantCapacities: []domain.VariantCapacity{
+				{VariantName: "A-v", PerReplicaCapacity: 1000},
+			},
+		}
+		stateMap := map[string]domain.VariantReplicaState{
+			"A-v": {VariantName: "A-v", GPUsPerReplica: 1},
+		}
+		s := []NamedAnalyzerResult{
+			{Name: domain.SaturationAnalyzerName, Result: sat, Enabled: true, Live: true},
+			{Name: "throughput", Result: ta, Enabled: true, Live: true},
+		}
+		Expect(roleDemandGPUs(sat, s, stateMap, "A100", domain.RoleBoth)).To(Equal(25))
 	})
 })
 
