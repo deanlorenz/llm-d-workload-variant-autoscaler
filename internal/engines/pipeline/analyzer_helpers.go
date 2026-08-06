@@ -341,6 +341,86 @@ func roleBottleneckReplicas(s []NamedAnalyzerResult, state RolePairedState, role
 	return max
 }
 
+// bindingIndexForRole returns the ballot index of the voting entry that
+// currently bounds variant v in role — the entry achieving
+// roleBottleneckReplicas' own max_i ceil(state[i][role]/PRC_i[v]). Ties keep
+// the lowest index (ballot order), mirroring bindingAnchor's own tie-break
+// (N2). Returns -1 if no entry has a usable (positive) PRC for v.
+//
+// This is state-dependent: as pickerState is decremented each allocation
+// iteration, the entry with the largest remaining replica-demand for (role,v)
+// can change — this is the argmax_i rd_i the design's anchor refresh reads
+// (combined-analyzer-optimizer-design.md § anchor).
+func bindingIndexForRole(s []NamedAnalyzerResult, state RolePairedState, role, v string) int {
+	best := -1
+	bestN := 0
+	for i, e := range s {
+		if e.Result == nil {
+			continue
+		}
+		prc := prcForVariant(e.Result, v)
+		if prc <= 0 {
+			continue
+		}
+		n := int(math.Ceil(state[i][role] / prc))
+		if best == -1 || n > bestN {
+			bestN = n
+			best = i
+		}
+	}
+	return best
+}
+
+// variantCapacityByName returns the VariantCapacity for v in vcs, and whether
+// it was found. Linear scan, mirroring prcForVariant's style.
+func variantCapacityByName(vcs []domain.VariantCapacity, v string) (domain.VariantCapacity, bool) {
+	for _, vc := range vcs {
+		if vc.VariantName == v {
+			return vc, true
+		}
+	}
+	return domain.VariantCapacity{}, false
+}
+
+// refreshAnchorSizing overwrites each entry in variants (the anchor's own
+// VariantCapacities) with the voting entry currently binding it — per (role,
+// variant), the entry bindingIndexForRole selects. Identity fields
+// (AcceleratorName, Cost, Role, replica counts) are untouched; only the (b)
+// sizing fields (PerReplicaCapacity, Reason, TotalDemand, Utilization) move,
+// plus the recomputed TotalCapacity. Mutates variants in place — the anchor's
+// own freshly-built slice, never the source ballot Results.
+//
+// No-op when len(s) <= 1: with a single voter the anchor's (b) already equals
+// that voter's, so refreshing would reproduce the same values. The
+// single-vote invariant ("populate once, never refresh") is upheld by not
+// running this at all rather than running it to a no-op — see
+// combined-analyzer-optimizer-design.md § invariants #7.
+func refreshAnchorSizing(variants []domain.VariantCapacity, s []NamedAnalyzerResult, state RolePairedState) {
+	if len(s) <= 1 {
+		return
+	}
+	for i := range variants {
+		vc := &variants[i]
+		role := vc.Role
+		if role == "" {
+			role = domain.RoleBoth
+		}
+		idx := bindingIndexForRole(s, state, role, vc.VariantName)
+		if idx < 0 || s[idx].Result == nil {
+			continue // no voting entry currently sizes this variant; leave as-is
+		}
+		b, ok := variantCapacityByName(s[idx].Result.VariantCapacities, vc.VariantName)
+		if !ok {
+			continue // the current binder doesn't carry this variant; leave as-is
+		}
+		vc.PerReplicaCapacity = b.PerReplicaCapacity
+		vc.Reason = b.Reason
+		vc.TotalDemand = b.TotalDemand
+		vc.Utilization = b.Utilization
+		vc.TotalCapacity = float64(vc.ReplicaCount) * vc.PerReplicaCapacity
+	}
+}
+
 // roleAggRemaining returns max cross-analyzer remaining demand for role.
 func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role string) float64 {
 	max := 0.0
@@ -471,9 +551,11 @@ type RolePickFn func(
 
 // allocateForModelPaired is the Phase-3 role-generic scale-up loop.
 // Handles any set of roles (including the arity-1 "both" single-role case).
-// Per iteration: pick one variant per role, size independently, compute
-// Δ_util = min_role util_role, trim to matched joint commit.
-// Arity-1 (roles = ["both"]) reduces to plain per-variant allocation.
+// Per iteration: refresh the anchor's per-variant sizing to the current
+// binding analyzer (multi-vote only — see refreshAnchorSizing), pick one
+// variant per role, size independently, compute Δ_util = min_role util_role,
+// trim to matched joint commit. Arity-1 (roles = ["both"]) reduces to plain
+// per-variant allocation.
 func allocateForModelPaired(
 	ctx context.Context,
 	s []NamedAnalyzerResult,
@@ -487,6 +569,7 @@ func allocateForModelPaired(
 ) {
 	logger := ctrl.LoggerFrom(ctx)
 	for anyRoleNeedsScaleUp(pickerState, roles) {
+		refreshAnchorSizing(variants, s, pickerState)
 		variantByRole := make(map[string]string, len(roles))
 		capByRole := make(map[string]int, len(roles))
 		prcByRole := make(map[string]float64, len(roles))

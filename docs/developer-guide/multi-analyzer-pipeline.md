@@ -64,6 +64,7 @@ over it via shared free functions in `internal/engines/pipeline/`.
 │ Optimizer (CostAware or GreedyByScore)                   │
 │   • initRoleState → RolePairedState + RoleSpare          │
 │   • Scale-up: allocateForModelPaired                     │
+│       refresh anchor sizing per iter (multi-vote only)   │
 │       pick(role) → variant; joint Δ_util commit          │
 │       applyAllocation → decrement Remaining              │
 │   • Scale-down: scaleDownRoleIterated                    │
@@ -453,6 +454,7 @@ All scale-up goes through `allocateForModelPaired`:
 ```
 initRoleState(s)               → roles, RolePairedState (per-role demand + RoleSpare)
 anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
+  refreshAnchorSizing(variants, s, ps) → re-select each variant's (role,v) binder (multi-vote only)
   pick(role, ...)              → (variant, capN): optimizer-specific variant selector
   roleBottleneckReplicas       → max_i ceil(state[i][role] / PRC_i[v]): cross-analyzer replica sizing
   roleAggRemaining             → max demand across analyzers for this role
@@ -470,6 +472,18 @@ anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
 For non-disaggregated models, `initRoleState` synthesizes a single `"both"` role
 from the model-level scalars, so `allocateForModelPaired` handles both the
 disaggregated and non-disaggregated cases through the same loop.
+
+**Per-iteration anchor refresh.** `refreshAnchorSizing` re-invokes the (role,
+variant) binder selection (`bindingIndexForRole`, the same argmax the cross-
+analyzer combine uses) at the head of every iteration, mutating the anchor's
+`VariantCapacities` in place. With a single voter it is not called at all —
+the anchor's one-time pick from `bindingAnchor` already equals the sole
+voter's, and calling it would just reproduce the same values (see "How
+results combine" for the binder tie-break itself). With two or more voters,
+each analyzer's remaining demand shrinks at its own rate as replicas commit,
+so the binder for a given `(role, variant)` — and the cost-efficiency ranking
+that follows from its `PerReplicaCapacity` — can change partway through a
+single water-fill, not just once per optimize cycle.
 
 ### Scale-down path
 

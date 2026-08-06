@@ -51,7 +51,6 @@ func (o *CostAwareOptimizer) Optimize(
 		}
 
 		stateMap := buildStateMap(req.VariantStates)
-		vcMap := buildCapacityMap(anchor.VariantCapacities)
 		targets := initTargets(req.VariantStates)
 
 		// Unified dispatch: one path for all models via (model, role) math.
@@ -66,6 +65,10 @@ func (o *CostAwareOptimizer) Optimize(
 			scaleDownRoleIterated(ctx, s, anchor.VariantCapacities, targets, stateMap)
 		}
 
+		// Built after allocation so a multi-vote refresh (refreshAnchorSizing,
+		// invoked per iteration inside allocateForModelPaired) is reflected in
+		// the decisions below, not a pre-allocation snapshot.
+		vcMap := buildCapacityMap(anchor.VariantCapacities)
 		decisions := buildDecisionsWithOptimizer(req, stateMap, vcMap, targets, "cost-aware")
 		logger.V(logging.DEBUG).Info("Cost-aware optimizer decisions",
 			"modelID", req.ModelID,
