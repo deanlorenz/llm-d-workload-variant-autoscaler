@@ -42,25 +42,29 @@ rewrites C1–C5, and is coordinated then.
 
 ## TOC
 
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L65:122
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L123:184
-  - [§1.1 Commit map (C1–C9)](#11-commit-map-c1c9) L160:184
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L185:245
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L246:318
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L319:348
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L349:590
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L356:375
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L376:423
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L424:486
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L487:521
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L522:544
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L545:571
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L572:590
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L591:625
-- [§4 Ship gate & tests](#4-ship-gate--tests) L626:679
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L680:731
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L732:780
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L781:825
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L69:133
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:196
+  - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L171:196
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:257
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L258:330
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L331:360
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L361:602
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L368:387
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L388:435
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L436:498
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L499:533
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L534:556
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L557:583
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L584:602
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L603:710
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L610:645
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L646:682
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L683:710
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L711:745
+- [§4 Ship gate & tests](#4-ship-gate--tests) L746:805
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L806:872
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L873:931
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L932:982
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -102,10 +106,17 @@ below were confirmed with Dean before authoring:
   combine collapses into **one helper**, and `Score` leaves `fairShareValue` and the `sortVariantsForScaleDown`
   tie-break. Full spec: **§2d**. This expands the old single C6 into **C6a–C6d**.
 
-**Stack order note (2026-08-06).** C1–C5, C7 and C8 have **already landed** on the branch; C6 was paused
-on the Score question (coder handoff `plan__ta-anchor-c6-fairsharevalue-score.md`, answered in §2d). So the
-git order is **C1–C5 → C7 → C8 → C6a–C6d → C9** — the C-labels are stable identifiers, not the commit
-sequence. Do not renumber landed commits.
+- **k_sat is not a threshold — TA must use saturation's target (Dean, 2026-08-07: "*Use the same target as
+  sat. This looks like a small trivial bug. Fold it in. Too many small PRs already*"):** the throughput
+  analyzer evaluates per-replica capacity at a hard-coded `DefaultKSat = 0.85`, which mirrors
+  `DefaultScaleUpThreshold` — a **watermark** — instead of saturation's k_sat `KvCacheThreshold` (0.80).
+  Folded in here rather than split into its own PR. Full spec: **§2e**. Adds **C10**.
+
+**Stack order note (2026-08-06, revised 2026-08-07).** C1–C5, C7 and C8 have **already landed** on the
+branch; C6 was paused on the Score question (coder handoff `plan__ta-anchor-c6-fairsharevalue-score.md`,
+answered in §2d). So the git order is **C1–C5 → C7 → C8 → C6a–C6d → C10 → C9** — the C-labels are stable
+identifiers, not the commit sequence. Do not renumber landed commits. C10 is deliberately late: see §2e
+§ Ordering.
 
 **Coding is NOT gated on PR-1 merging** (Dean, 2026-08-06) — PR-2 is **stacked on PR-1's branch and
 worked in parallel**. Start C1 on Dean's explicit go-ahead (per "Discuss before implementing"). **First
@@ -157,7 +168,7 @@ name-checks, per Dean's model. The anchor is derived on demand by the PR-1 Phase
    behavior). **Default to abstain** (Dean-confirmed 2026-08-06) unless the design says otherwise;
    cover with a role-coverage-mismatch fixture. (Lands in **C7**.)
 
-### §1.1 Commit map (C1–C9)
+### §1.1 Commit map (C1–C10)
 
 Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated worktree. "Red-first"
 = add the fixture failing before the fix, passing after.
@@ -175,6 +186,7 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C6d** | Finding **(c)** — a **live** analyzer reporting `RoleSpare[role] <= 0` vetoes removal for that role's variants even with no per-variant PRC (distinct from C7's N7 *abstain*). | live-objector-without-PRC fixture (red: replicas removed; green: held) | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
+| **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; shifts every TA vote ~6%. | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85) | throughput-analyzer (5 named locations) | §2e |
 | **C9** | **Dev-guide multi-vote sections + goldens endgame** — multi-vote reference prose; **relax/remove** the #1513 sat-only goldens as an explicit commit once the multi-vote goldens cover the single-vote sub-case. | multi-vote goldens; hand-worked design examples | all touched dev-guides finalized | §4 |
 
 [↑ TOC](#toc)
@@ -587,6 +599,114 @@ State that in the commit message (CODER-CONVENTIONS §4a — describe it in pros
 
 ---
 
+<a id="2e-ksat"></a>
+## §2e k_sat is not a threshold — TA must use saturation's target — lands in C10
+
+Folded in by Dean 2026-08-07 ("*Use the same target as sat. This looks like a small trivial bug. Fold it
+in. Too many small PRs already*"). Not a combine-arithmetic bug — a **capacity-definition** bug inside the
+throughput analyzer — but it belongs here because it shifts every TA vote by a fixed ~6%, and PR-2 is the
+PR that makes TA's vote count.
+
+### §2e.1 Three constants; TA mirrored the wrong one
+
+| Constant | Value | Role | Lands on |
+|---|---|---|---|
+| `config.DefaultKvCacheThreshold` (field `KvCacheThreshold`) | **0.80** | saturation's **k_sat** — the definition of "full" per replica | `k1 = TotalKvCapacityTokens × KvCacheThreshold` (saturation_v2 `analyzer.go:168`, `:243`; also passed to `aggregateByVariant`) ⇒ shapes **PerReplicaCapacity** |
+| `config.DefaultScaleUpThreshold` | 0.85 | scale-**up** watermark | **RC only** |
+| `config.DefaultScaleDownBoundary` | 0.70 | scale-**down** watermark | **SC only** |
+
+`scaleUpThreshold` / `scaleDownBoundary` are **margins around the steady state** — the HPA-style no-op band
+(`RC>0` needs `demand/0.85 > anticipated`; `SC>0` needs `supply > demand/0.70`; between them both are zero).
+Validation enforces `scaleUp > scaleDown`, and `resolveSaturationConfig` resets an inverted pair to the
+defaults, so the band is a first-class invariant. They are **not** utilization targets, and they are not
+interchangeable with k_sat.
+
+`throughput/constants.go:52-56` conflates the two:
+
+> `DefaultKSat = 0.85` — *"Mirrors DefaultScaleUpThreshold in saturation config so that the throughput
+> analyzer and saturation analyzer agree on the definition of 'full'. TODO: unify with the system-wide
+> k_sat used by the EPP and saturation analyzer."*
+
+It mirrors the **watermark**, not the k_sat. Net effect: saturation says full = 80% KV, TA says 85% — the
+two analyzers do **not** agree on the definition of full, which is the one property that comment exists to
+guarantee. And the value is a compile-time constant: TA receives `input.Config` and never reads it (zero
+`KvCacheThreshold` and zero `ScaleUpThreshold` hits in the whole `throughput/` package), so an operator's
+configured k_sat never reaches TA at all. By the "config not used to set the value" test, that is a bug.
+
+**The engine's threshold post-step is correct and is not the bug.** `applyUniversalThreshold`
+(`engine_v2.go:468-505`) is invoked once per analyzer with that analyzer's *resolved* thresholds
+(`resolveThresholds` → `EffectiveScaleUpThreshold(global)`, per-analyzer override with global fallback,
+plumbed for both directions and for the `parameters:` plugin-envelope form via `Normalize()`), and it
+writes **RC/SC only** — model-level and each `RoleCapacity` — leaving `VariantCapacities` (PRC, TotalDemand,
+Utilization) raw. That is exactly where the margins belong; do not "fix" it, and do not push margins into
+the PRC math. Recorded because the opposite conclusion was reached once and abandoned.
+
+[↑ TOC](#toc)
+
+### §2e.2 The fix — resolve once, thread to four sites
+
+```go
+// resolveKSat returns the KV-utilization fraction at which per-replica capacity is
+// evaluated. It is saturation's configured k_sat, so both analyzers agree on what
+// "full" means. It is NOT a scale-up/scale-down watermark — those are margins the
+// engine applies to RC/SC after Analyze() returns.
+func resolveKSat(cfg domain.AnalyzerConfig) float64 {
+	if sc, ok := cfg.(*config.SaturationScalingConfig); ok && sc.KvCacheThreshold > 0 {
+		return sc.KvCacheThreshold
+	}
+	return config.DefaultKvCacheThreshold
+}
+```
+
+Called once at the top of `Analyze`; the value threads down. New import of `internal/config` into
+`throughput` — **verified no cycle** (`internal/config` imports no `internal/engines` package).
+
+| Site | Today | Change |
+|---|---|---|
+| `analyzer.go:295`, inside `Analyze` | `itlSat := model.ITLAt(DefaultKSat)` | `model.ITLAt(kSat)` — local variable, no signature change |
+| `analyzer.go:711-727` `computeVariantSupply` | `nSat := DefaultKSat * kvMax / shape.KVreq` | add `kSat float64` param — **1** production caller (`:300`), no direct test |
+| `itl_model.go:33-57` `validITLModel` | `a*DefaultKSat+b <= 0` | add `kSat float64` param; callers `FitITLModel:88` and `resolveITLModel:602` thread it — `FitITLModel` is **exported**, so its signature grows too |
+| `analyzer.go:801-845` `checkVariantGPSMismatch` | `m.KvUsageInstant < DefaultKSat-DefaultNearKSatMargin` | add `kSat float64` param — diagnostic gate; "near saturation" must mean near the *same* k |
+
+**Fallback is `config.DefaultKvCacheThreshold` (0.80), not 0.85.** A 0.85 nil-config fallback would keep a
+second definition of "full" alive in exactly the path the TA unit tests exercise (no TA test sets
+`input.Config`), so the tests would keep validating the old basis. One value, every path.
+
+**`DefaultKSat` is DELETED**, not retained as an alias. §4b classification: **DEPRECATED** — the value is
+now configuration; no future work planned; keeping a `0.85` constant named `KSat` is precisely the trap that
+produced this bug. `DefaultNearKSatMargin` (0.10) **stays** — it is a genuine margin — with its doc prose
+re-anchored to "the resolved k_sat" rather than to the deleted constant. The `TODO: unify with the
+system-wide k_sat used by the EPP` moves onto `resolveKSat` (still open — see §7).
+
+[↑ TOC](#toc)
+
+### §2e.3 Effect, churn, ordering
+
+**Effect.** Under any defaulted config TA now evaluates capacity at 0.80 instead of 0.85 ⇒ PRC **↓ ~5.9%**
+⇒ TA's replica vote **↑ ~6%**. Intended, and conservative in direction (TA asks for slightly more, on
+saturation's basis). Before the fix TA systematically voted ~6% *fewer* replicas than a matched-basis
+saturation on identical load — a fixed thumb on the scale that biases the §2d binder (`argmax`) and feeds
+the dominance correction. Invisible while TA's result was sole-or-discarded; live the moment §2d makes it
+vote.
+
+**Test churn** (all inside `internal/engines/analyzers/throughput/`; no other package constructs TA):
+- `itl_model_test.go` — 10 `FitITLModel(...)` + 6 `validITLModel(...)` call sites take a new arg
+  (mechanical); the comment at `:136` names `DefaultKSat`.
+- `analyzer_test.go` — the only file calling `NewThroughputAnalyzer`, and **no** TA test sets
+  `input.Config`, so every one takes the fallback and its expected supply/PRC numbers move ~6%.
+  **Re-derive each moved expectation** from `N_dec_sat = kSat × KV_max / KVreq`; do not re-baseline to
+  whatever the code now prints.
+- **#1513 goldens are saturation-only ⇒ unaffected.** Re-run anyway (§4).
+
+**Ordering — C10 lands after C6a–C6d and before C9.** The combine fixtures in C1–C6 build
+`NamedAnalyzerResult` values directly from synthetic RC/PRC and are immune to TA's k_sat; only TA's own
+package tests move. Landing C10 late confines the moved-expectation churn to one commit instead of smearing
+it across the combine commits.
+
+[↑ TOC](#toc)
+
+---
+
 <a id="3-refresh"></a>
 ## §3 Per-iteration dynamic refresh — lands in C2
 
@@ -661,6 +781,12 @@ after. Run with `-race` (§4).
     proceeds) so the two cases are pinned as distinct.
   - C7 — stale-enabled scale-up (VG-up no-longer-scales); role-coverage-mismatch (N7 abstain);
     Test 2 rewrite (v2 PRC=0 under N8).
+  - C10 — `resolveKSat` **unit table** (config sets `KvCacheThreshold` ⇒ that value · field zero ⇒
+    `DefaultKvCacheThreshold` · non-saturation config type ⇒ default · nil config ⇒ default), plus a TA
+    `Analyze` fixture whose `Config` carries `KvCacheThreshold: 0.5` asserting per-replica capacity tracks
+    it (red before: PRC pinned at 0.85 whatever the config says). The existing `analyzer_test.go`
+    expectations move ~6% — **re-derive each from `N_dec_sat = kSat × KV_max / KVreq`**, do not re-baseline
+    to whatever the code prints (§2e.3).
 - **Goldens are run per commit, not just at the end.** C6a and C6b must leave them byte-identical (uniform
   scores ⇒ old arithmetic). C6c is the only commit where a golden *could* plausibly move — the verified
   analysis in §2d.5 says it does not. **If a golden moves at any point: stop, and write a `plan__` handoff
@@ -724,6 +850,21 @@ doc** (not the combine reference) — combine-arithmetic changes go in `multi-an
 - `### Saturation as the Identity Carrier` (~L464) — **C7** (N8 drop-fallback; sat-as-non-voting-carrier
   under `[TA]`-only), **C8** (notation strip). *Modify.*
 
+**`docs/developer-guide/throughput-analyzer.md`** — **C10**, five locations:
+- `N_dec_sat = DefaultKSat × KV_max / KVreq` (~L460) — the formula now reads against the **resolved** k_sat.
+  *Modify.*
+- the `DefaultKSat = 0.85` gloss (~L470) — replace with saturation's configured `kvCacheThreshold`
+  (default **0.80**), and say *why*: one definition of "full" shared across analyzers. State explicitly that
+  this is **not** `scaleUpThreshold` — that is a watermark the engine applies to RC/SC afterwards.
+  *Modify.*
+- near-saturation diagnostics `k* ≥ DefaultKSat − 0.10` (~L639) — the literal 0.75 becomes
+  `k_sat − DefaultNearKSatMargin` (0.70 at the default). *Modify.*
+- constants table row (~L675) — **remove** the `DefaultKSat` row (constant deleted), add a config-sourced
+  k_sat line pointing at `kvCacheThreshold`; keep the `DefaultNearKSatMargin` row. *Modify.*
+- known-limitations line (~L692) — currently "`DefaultKSat = 0.85` is per-analyzer; needs alignment with
+  EPP system-wide k_sat". The *per-analyzer* half is now fixed; **keep the EPP half** as still-open (§7).
+  *Modify.*
+
 [↑ TOC](#toc)
 
 ---
@@ -772,6 +913,16 @@ than inferring scope.
   — remove the fallback prose; state binder-unknown ⇒ PRC=0 abstain. Update PR-1 Test 2 (v2 110→0).
 - **C8 — notation strip:** `grep -rnE "\((a|b)\)" internal/ docs/developer-guide/` — zero hits in shipped
   comments/docs after C8 (the letters are gone; the words remain).
+- **C10 — k_sat is configuration, not a constant:** `grep -rn "DefaultKSat" internal/ docs/` must return
+  **zero** hits after C10 (constant deleted, four call sites threaded, dev-guide prose reworded). Then
+  `grep -rni "0\.85\|k_sat\|ksat" internal/engines/analyzers/throughput/ docs/developer-guide/throughput-analyzer.md`
+  — every surviving `0.85` must be a *watermark* reference, never a capacity basis. Leave
+  `DefaultNearKSatMargin` in place and confirm its doc prose no longer anchors to the deleted constant.
+- **C7/C10 — the stale engine comment:** rewrite `engine_v2.go:126-131`. Both halves are defective: there
+  is no config-mutating loop (`resolveThresholds` returns values and `config` is passed by value), and
+  "*their results are discarded*" is precisely what PR-2 falsifies. Keep or repoint the
+  [#1228](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1228) reference rather than
+  dropping it.
 
 [↑ TOC](#toc)
 
@@ -782,8 +933,9 @@ than inferring scope.
 
 **In PR-2 (this stack):** §1 multi-vote combine + N2 + N7, §2 bugs #1/#2/#3/#5, §2b VG-up + N8, §2c
 notation, **§2d Score semantics — the `combineVotes` extraction, the dominance rule, the missing-entry
-findings (a)/(b)/(c), the fair-share currency fix and the T1.4 rewrite**, §3 per-iteration refresh, N3
-nil-guard hardening (rides C5), §4 goldens relax.
+findings (a)/(b)/(c), the fair-share currency fix and the T1.4 rewrite**, **§2e TA's k_sat — resolved from
+saturation's configured `kvCacheThreshold` instead of the hard-coded 0.85 watermark mirror**, §3
+per-iteration refresh, N3 nil-guard hardening (rides C5), §4 goldens relax.
 
 **Considered and REJECTED (do not re-implement without a design-doc change):**
 - **Score as an aggregate budget multiplier** — `fsv = priority × (Σᵢ Scoreᵢ) × …` (the coder's option 3 in
@@ -821,5 +973,10 @@ for a follow-up PR on the theory that it would move the #1513 goldens; that was 
   #4). Reconcile in the coordination-doc rewrite, not here.
 - **Dean's "always-fallback-from-all-analyzers" idea** — a design-doc-level change to how each analyzer
   populates results for every variant (§2b). Scope separately if pursued.
+- **EPP system-wide k_sat unification** — `throughput-analyzer.md`'s standing note that k_sat "needs
+  alignment with EPP system-wide k_sat" is only **half** closed by C10: TA now tracks *saturation's*
+  configured k_sat, but neither tracks whatever the EPP uses for its own saturation notion. Still open;
+  the `TODO: unify with the system-wide k_sat used by the EPP` moves onto `resolveKSat` rather than being
+  deleted with the constant (§2e.2).
 
 [↑ TOC](#toc)
