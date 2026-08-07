@@ -476,13 +476,23 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 // replicas per participating entry.
 //
 // Live-gated — a non-live entry (no metrics, error state, never analyzed, or
-// stale) does not constrain safe removal.
+// stale) does not constrain safe removal. An entry with no per-variant capacity
+// for variant is dropped: with no conversion factor there is no removable count
+// to offer. That drop is a magnitude-level silence only; the same entry can still
+// object at role level through roleSpareVetoed, which is PRC-blind precisely
+// because dropping it here would otherwise discard the objection.
 //
 // A live entry whose RoleSpare map exists but carries no key for role still
-// votes, reading the map-miss as 0.0 and so holding removal at zero. That is
-// the pre-existing shape, preserved deliberately here: whether a role-level
-// silence should abstain instead is a behavioral question, not part of hoisting
-// the arithmetic into one place.
+// votes, reading the map-miss as 0.0. This is the pre-existing shape, preserved
+// deliberately: whether a role-level silence should abstain in the ballot too is
+// a behavioral question, not part of hoisting the arithmetic into one place.
+// Two things about that 0 are worth stating exactly, because neither is what it
+// looks like. It does not hold removal at zero on its own — under dominance
+// weighting a higher-scored voter reporting spare pulls the combined value
+// positive, so a 0 vote is absolute only when nothing outscores it (which is the
+// shipped uniform-score case). And it is not the role-level abstain: that is
+// decided by needsScaleDownForRole and roleSpareVetoed, both of which read a
+// map-miss as ABSTAIN (N7) and never as "spare == 0".
 func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replicaVote {
 	out := make([]replicaVote, 0, len(s))
 	for i, e := range s {
@@ -620,13 +630,74 @@ func variantsForRole(vcs []domain.VariantCapacity, role string) []domain.Variant
 	return out
 }
 
+// roleSpareVetoed reports whether any live analyzer holds an explicit,
+// non-positive role-level spare — an objection to removing anything from this
+// role, whichever variant is under consideration.
+//
+// "Explicit" carries the whole distinction. The entry must be live, must have a
+// Result and a RoleSpare map, and the map must carry a key for role. A live
+// analyzer whose RoleSpare does not decompose this role ABSTAINS (N7): it never
+// sized the role, so it has no basis to block it. A key that is present and
+// non-positive is a different statement — that analyzer did size the role and
+// reports there is nothing left to give back.
+//
+// PRC-blind and score-blind, both load-bearing rather than incidental. A veto is
+// not a magnitude: there is no quantity to convert, so a per-variant capacity is
+// irrelevant to it, and there is nothing to weigh, so a score cannot dilute it.
+// Both are ways an objection would otherwise evaporate on the way to being
+// counted — see safeRemovalReplicasForRole for the two reachable paths.
+//
+// Shared with needsScaleDownForRole on purpose, and the duplication is the
+// point: the same predicate makes that call a cheap early-out for the whole
+// role, and this one the actual enforcement point, because a spare that was
+// positive at role entry can be driven to zero mid-loop by
+// applyDeallocationForRole. Neither caller is redundant.
+func roleSpareVetoed(s []NamedAnalyzerResult, role string) bool {
+	for _, e := range s {
+		if !e.Live {
+			continue // non-live analyzers do not veto (no metrics / error / never analyzed)
+		}
+		if e.Result == nil || e.RoleSpare == nil {
+			continue // no data at all this cycle; abstain, not veto
+		}
+		if spare, ok := e.RoleSpare[role]; ok && spare <= 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // safeRemovalReplicasForRole returns the number of replicas of variant v that
 // can safely be removed — the combined scale-down vote over each live
 // analyzer's per-role spare (votesFromRoleSpare, whose doc comment carries the
-// participation rules), rounded down once. Returns 0 when no live analyzer
-// sizes v, and clamps a negative combine to 0: an over-committed spare is not
-// a removable count.
+// participation rules), rounded down once. Clamps a negative combine to 0: an
+// over-committed spare is not a removable count.
+//
+// Returns 0 in two distinct cases. First, when no live analyzer sizes v at all,
+// there is no ballot to combine. Second, and independently of v, when any live
+// analyzer holds an explicit non-positive role-level spare (roleSpareVetoed):
+// that objection blocks removal from the whole role, whether or not the
+// objecting analyzer can price this particular variant and whatever its score.
+//
+// The veto is checked BEFORE combining, not expressed as a vote inside the
+// ballot, because after dominance weighting a vote is no longer a veto. Two
+// reachable paths would otherwise discard a live objection, both of them opened
+// by the role-entry gate running once and never being re-checked while
+// applyDeallocationForRole drives spares down variant by variant:
+//
+//   - The objector does not size v. votesFromRoleSpare drops any entry with no
+//     per-variant capacity, so its explicit "no spare left in this role" never
+//     reaches the combine and the remaining spares decide. A variant with no
+//     observed metrics yet is absent from that analyzer's VariantCapacities
+//     while still present in the anchor, so this is ordinary, not exotic.
+//   - The objector is outscored. Even when it does size v and therefore votes 0,
+//     the dominance correction pulls the combined value positive whenever a
+//     higher-scored voter reports spare, so floor() can still return a positive
+//     removable count. A zero vote is only absolute when no voter outscores it.
 func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
+	if roleSpareVetoed(s, role) {
+		return 0
+	}
 	value, binder := combineVotes(votesFromRoleSpare(s, role, v), false)
 	if binder < 0 {
 		return 0
@@ -639,23 +710,49 @@ func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
 
 // applyDeallocationForRole decrements each analyzer's RoleSpare[role] by
 // n × PRC_i[v]. Clamps to 0. Never mutates Result.
-// Intentionally not Live-gated: non-live entries are already excluded from
-// the veto (needsScaleDownForRole) and the safe-removal minimum
-// (safeRemovalReplicasForRole), so mutating their RoleSpare here is harmless
-// — nothing reads it back.
+//
+// Intentionally not Live-gated, and the reason survives the per-variant veto
+// unchanged because it turns on liveness alone: every reader of RoleSpare on this
+// path — the role gate, the per-variant veto, and the safe-removal ballot — skips
+// non-live entries first, so a non-live entry's RoleSpare is written here and
+// never read back. What the veto does change is that a LIVE entry's decremented
+// spare is now read by two things rather than one: it can reach 0 here and then
+// block every remaining variant in the role, which is precisely the mid-loop
+// path roleSpareVetoed exists to catch.
+//
+// The clamp at 0 matters to that path. A spare driven negative would still be
+// non-positive and so would still veto, but clamping keeps "exhausted" a single
+// value rather than a range, which is what makes the veto's ≤ 0 test read as an
+// exact state and not as a tolerance.
+//
+// Only an already-present key is decremented, and that guard is what keeps N7's
+// abstain an abstain for the whole loop rather than only until the first removal.
+// A bare `m[role] -= x` on a map with no such key reads the zero value, writes
+// the clamped result, and so MATERIALIZES the key at 0 — turning an analyzer that
+// never sized this role into one that appears to report no spare left in it, and
+// from the next variant onward that fabricated entry would veto. You can only
+// spend spare you reported: an analyzer with no opinion on the role has no
+// balance here to draw down. Observationally inert before the per-variant veto
+// existed (votesFromRoleSpare reads an absent key as 0 either way), which is why
+// the pre-existing form was harmless and is not any longer.
 func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 	for i := range s {
 		if s[i].Result == nil || s[i].RoleSpare == nil {
 			continue
 		}
+		spare, ok := s[i].RoleSpare[role]
+		if !ok {
+			continue // abstained on this role (N7): no reported balance to spend
+		}
 		prc := prcForVariant(s[i].Result, v)
 		if prc <= 0 {
 			continue
 		}
-		s[i].RoleSpare[role] -= float64(n) * prc
-		if s[i].RoleSpare[role] < 0 {
-			s[i].RoleSpare[role] = 0
+		spare -= float64(n) * prc
+		if spare < 0 {
+			spare = 0
 		}
+		s[i].RoleSpare[role] = spare
 	}
 }
 
@@ -673,11 +770,22 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 // analyzer has an opinion on this role at all, there is no current basis to
 // scale down, so this returns false.
 //
-// Deliberately keeps its own loop instead of delegating to combineVotes: this
-// is a veto, not a magnitude, and its participation rules are stricter than
-// votesFromRoleSpare's — a live entry whose RoleSpare carries no key for role
-// abstains here (N7) but still votes 0.0 on the safe-removal ballot.
+// Deliberately not expressed through combineVotes: this is a veto, not a
+// magnitude, and its participation rules are stricter than votesFromRoleSpare's
+// — a live entry whose RoleSpare carries no key for role abstains here (N7) but
+// still votes 0.0 on the safe-removal ballot. The abstain holds for the whole
+// role, not only until the first removal: applyDeallocationForRole draws down
+// reported balances only, so the loop cannot materialize a key for an analyzer
+// that abstained and thereby manufacture a veto out of a silence.
+//
+// The veto half is roleSpareVetoed, shared with safeRemovalReplicasForRole. This
+// call is an early-out that skips the role in full before any variant is
+// considered; the shared predicate is re-checked per variant there, because
+// deallocating one variant can exhaust a spare this gate already passed.
 func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
+	if roleSpareVetoed(s, role) {
+		return false
+	}
 	liveCount := 0
 	for _, e := range s {
 		if !e.Live {
@@ -686,12 +794,8 @@ func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 		if e.Result == nil || e.RoleSpare == nil {
 			continue // no data at all this cycle; abstain, not veto
 		}
-		spare, ok := e.RoleSpare[role]
-		if !ok {
+		if _, ok := e.RoleSpare[role]; !ok {
 			continue // this analyzer doesn't decompose this role; abstain (N7), not veto
-		}
-		if spare <= 0 {
-			return false
 		}
 		liveCount++
 	}

@@ -285,12 +285,17 @@ membership:
 | `votesFromRoleSpare` | scale-down (`safeRemovalReplicasForRole`) | `RoleSpare[i][role] / PRC_i[v]` |
 | `votesFromTotalDemand` | rescale (`roleDemandGPUs`) | `demand_i[role] / PRC_i[v]` |
 
-All three apply the same filter: the entry must have a `Result`, a positive
-`PerReplicaCapacity` for that variant, and its own state for that role.
+All three require a `Result` and a positive `PerReplicaCapacity` for that
+variant: with no conversion factor there is no vote to cast.
 `votesFromRoleSpare` additionally drops non-live entries. Keeping the filter in
 the collectors rather than in `combineVotes` is deliberate — it means an
 analyzer that says nothing about a `(variant, role)` is structurally absent from
 the combine, so it cannot influence the outcome by staying silent.
+
+The three differ on a *missing role*. `votesFromTotalDemand` drops an entry that
+doesn't decompose the role; the other two read the map-miss as `0`, so the entry
+votes zero rather than abstaining. On the scale-down path that difference is
+visible and deliberate — see the gate discussion below.
 
 **How much each vote counts.** Read the extremum first: with every analyzer at
 the default `score: 1.0` — which is what every shipped config uses — the combine
@@ -338,12 +343,18 @@ entry, asked about `prefill`) — that voter **abstains** rather than reading
 the map-miss as `Spare == 0` (N7): a coarser voter has no basis to veto a
 role it never sized. A live analyzer that DOES have an opinion and reports
 `RequiredCapacity > 0` (i.e., `Spare == 0`) still blocks scale-down for that
-role. `safeRemovalReplicasForRole` (the safe-removal-count computation) reads
-the same live-only ballot (`votesFromRoleSpare`), but its opinion filter is
-weaker than the gate's: a live voter whose `RoleSpare` doesn't decompose the
-role abstains from the *gate* and still votes `0.0` on the *count*, holding
-removal at zero. The gate therefore says "may scale down" while the count says
-"by nothing" — safe, but the two filters do not yet agree.
+role.
+
+The gate and the per-variant enforcement point share one predicate,
+`roleSpareVetoed`, so the gate is an early-out for the whole role and
+`safeRemovalReplicasForRole` is where the objection is actually enforced — see
+["Scale-down path"](#scale-down-path) for why one check is not enough. The
+*ballot* keeps a weaker filter than either: a live voter whose `RoleSpare`
+doesn't decompose the role abstains from the gate and the veto, yet still votes
+`0.0` on the count. That `0` is not itself a block — with non-uniform scores the
+dominance correction pulls the combined value positive — so the three filters
+still do not agree, and the count can read low for a voter that had no opinion to
+give. Nothing unsafe follows from it: a spurious `0` can only under-remove.
 
 **Liveness.** An analyzer is live for the current cycle iff it produced a
 non-error, capacity-bearing result within the staleness window (a fixed
@@ -594,21 +605,58 @@ synthetic role for non-disaggregated):
 
 ```
 for each role (sorted for determinism):
-  needsScaleDownForRole(s, role)           → gate: ALL live analyzers have RoleSpare > 0
+  needsScaleDownForRole(s, role)           → early-out: no live analyzer objects at role level
                                               (no live analyzer → false; see "How results combine")
-  sortVariantsForScaleDown(s, vcs)         → cost-desc; tie-break: Score-weighted PRC asc
+  sortVariantsForScaleDown(s, vcs, states) → cost-desc; tie-break: coverage per GPU freed, asc
                                               (an ordering key; nothing here is spent)
   scaleDownVariantSet(...)
-    safeRemovalReplicasForRole(s, v, role) → floor(combineVotes(votesFromRoleSpare(...), down)) over live i
-    applyDeallocationForRole(s, v, role, n)→ decrement RoleSpare on all entries
+    safeRemovalReplicasForRole(s, v, role) → roleSpareVetoed → 0, else
+                                             floor(combineVotes(votesFromRoleSpare(...), down)) over live i
+    applyDeallocationForRole(s, v, role, n)→ decrement each reported RoleSpare balance
 ```
 
-`sortVariantsForScaleDown` uses a Score-weighted PRC tie-break. With a single
-analyzer (Score=1) this reduces to plain cost-descending / PRC-ascending order.
-The product `Σᵢ Score_i·PRC_i[v]` is a comparator input and nothing else: it
-ranks candidate variants against each other and is never spent as a quantity.
-That is why a belief weight may appear here but must not appear in the
-fair-share claim below, which *is* spent.
+**The role-level objection is re-checked per variant, not only at role entry.**
+`safeRemovalReplicasForRole` returns 0 whenever any live analyzer holds an
+explicit non-positive `RoleSpare[role]`, before it combines anything. The
+role-entry gate is not sufficient on its own: `applyDeallocationForRole` decrements
+every analyzer's role balance by `n × PRC_i[v]` after each variant sheds, so a
+spare that was positive when the gate ran can be exhausted **mid-loop**, and the
+gate is never re-checked. From that point on, two things would otherwise discard
+the objection. The objector may not size the *next* variant, and
+`votesFromRoleSpare` drops entries with no per-variant capacity — so the veto is
+**PRC-blind**. And a `0` vote is not a veto once scores are non-uniform: the
+dominance correction pulls the combined value positive whenever a higher-scored
+voter reports spare — so the veto is also **score-blind**. A veto is not a
+magnitude; there is nothing to convert and nothing to weigh.
+
+An **absent** key is a different statement from a **present** zero. A live
+analyzer whose `RoleSpare` does not decompose this role never sized it and so
+**abstains** (N7); one whose key is present and `≤ 0` did size it and reports
+there is nothing left to give back, which vetoes. That distinction has to survive
+the whole loop, which is why `applyDeallocationForRole` draws down only balances an
+analyzer actually reported: a bare decrement on a missing key would materialize it
+at zero and manufacture a veto out of a silence.
+
+**Shed order.** `sortVariantsForScaleDown` is cost-descending, and ties break on
+*coverage per GPU freed* ascending — `maxᵢ PRC_i[v] ÷ GPUsPerReplica[v]`. Shedding
+one replica of `v` returns `GPUsPerReplica[v]` GPUs and gives up `PRC[v]` of
+serving capacity, so the ratio is what one freed GPU costs in coverage, and
+ascending order sheds whatever gives up the least per GPU it returns. Dividing by
+`GPUsPerReplica` is what makes two differently-sized variants comparable; raw
+capacity alone prefers shedding the smaller variant even when the larger one is
+strictly less efficient per GPU. The combine across analyzers is a **maximum,
+never a sum** — no single removal gives up the total of every analyzer's separate
+estimate, and a sum grows with the number of configured analyzers, so adding a
+voter would reorder the shed with no observation having changed. `Score` does not
+appear: it is a belief weight consumed by the sizing combine and it stops there,
+and this key is a comparator input that reduces no budget. With a single analyzer,
+and for a role whose variants share a `GPUsPerReplica`, this reduces to plain
+cost-descending / PRC-ascending order.
+
+The scale-down path never refreshes the anchor's sizing. `refreshAnchorSizing` is
+a scale-up-loop step only; nothing here re-reads a binder to overwrite
+`VariantCapacities`, so the anchor a scale-down decision is built from is the one
+the ballot produced.
 
 ### Fair-share iteration (GreedyByScoreOptimizer only)
 

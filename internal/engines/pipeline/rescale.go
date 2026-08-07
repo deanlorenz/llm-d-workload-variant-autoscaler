@@ -377,8 +377,8 @@ func (o *GreedyByScoreOptimizer) rescaleModelDecisions(
 		rt, rc := tgtByRole[role], curByRole[role]
 		switch {
 		case rt < rc:
-			// Combine (RC/SC) math (scale-down score-weighted tie-break) consumes only
-			// the voting subset of the ballot; the anchor supplies the variant topology.
+			// Combine (RC/SC) math and the shed ordering both consume only the voting
+			// subset of the ballot; the anchor supplies the variant topology.
 			reclaimRole(ctx, votingResults(req.AnalyzerResults), anchor.VariantCapacities, role, stateMap, targets, rc-rt)
 		case rt > rc:
 			want := rt - rc
@@ -411,7 +411,7 @@ func reclaimRole(
 	deltaGPUs int,
 ) {
 	remaining := deltaGPUs
-	sorted := sortVariantsForScaleDown(s, variantsForRole(variants, role))
+	sorted := sortVariantsForScaleDown(s, variantsForRole(variants, role), stateMap)
 	scaleDownVariantSet(ctx, sorted, targets, stateMap,
 		func(vc domain.VariantCapacity) int {
 			g := gpusPerReplicaFromState(stateMap, vc.VariantName)

@@ -157,35 +157,59 @@ func scaleDownVariantSet(
 
 // sortVariantsForScaleDown orders a role's variants for cost-greedy scale-down:
 //  1. Cost descending — shed the most expensive first.
-//  2. Tie: score-weighted per-replica capacity ascending — Σ_i Score_i·PRC_i[v].
+//  2. Tie: coverage per GPU freed, ascending — maxᵢ PRC_i[v] ÷ GPUsPerReplica[v].
 //  3. Tie: variant name ascending — full determinism.
 //
-// With a single analyzer (Score=1) this reduces to Cost-desc then PRC-asc, i.e.
-// #1237's existing tie-break.
+// Shedding one replica of v returns GPUsPerReplica[v] GPUs to the pool and gives
+// up PRC[v] of serving capacity, so the ratio is what one freed GPU costs in
+// coverage. Ascending order sheds the replica that gives up the least per GPU it
+// returns. Dividing by GPUsPerReplica is what makes two differently-sized
+// variants comparable: raw PRC alone prefers shedding the smaller variant even
+// when the larger one is strictly less efficient per GPU.
 //
-// The score-weighted sum is a comparator input and nothing else: it ranks
-// candidate variants against each other and is never spent as a quantity. That
-// is what makes a belief weight legitimate here even though score takes no part
-// in the fair-share claim, which is spent.
-func sortVariantsForScaleDown(s []NamedAnalyzerResult, roleVCs []domain.VariantCapacity) []domain.VariantCapacity {
-	weighted := func(name string) float64 {
-		sum := 0.0
+// The combine across analyzers is a MAXIMUM, never a sum. A sum answers a
+// question nobody asked, since no single removal gives up the total of every
+// analyzer's separate estimate, and it grows with the number of configured
+// analyzers — so adding a voter would reorder the shed with no observation
+// having changed. The maximum takes the most pessimistic estimate of what
+// shedding this variant costs, which is the same dominance rule the sizing
+// combine follows.
+//
+// Score does not appear. It is a belief weight consumed by the sizing combine and
+// it stops there. This key is a comparator input that is never spent — it orders
+// candidates and reduces no budget — so it needs neither a weighting nor a
+// currency. With a single analyzer, and for a role whose variants share a
+// GPUsPerReplica, this reduces to Cost-desc then PRC-asc: #1237's tie-break.
+func sortVariantsForScaleDown(
+	s []NamedAnalyzerResult,
+	roleVCs []domain.VariantCapacity,
+	stateMap map[string]domain.VariantReplicaState,
+) []domain.VariantCapacity {
+	coveragePerGPU := func(name string) float64 {
+		gpusPR := gpusPerReplicaFromState(stateMap, name)
+		best := 0.0
 		for _, e := range s {
 			if e.Result == nil {
 				continue
 			}
-			sum += e.Score * prcForVariant(e.Result, name)
+			prc := prcForVariant(e.Result, name)
+			if prc <= 0 {
+				continue // no capacity for v: no estimate to offer, not an estimate of zero
+			}
+			if r := prc / float64(gpusPR); r > best {
+				best = r
+			}
 		}
-		return sum
+		return best
 	}
 	out := append([]domain.VariantCapacity(nil), roleVCs...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Cost != out[j].Cost {
 			return out[i].Cost > out[j].Cost
 		}
-		wi, wj := weighted(out[i].VariantName), weighted(out[j].VariantName)
-		if wi != wj {
-			return wi < wj
+		ci, cj := coveragePerGPU(out[i].VariantName), coveragePerGPU(out[j].VariantName)
+		if ci != cj {
+			return ci < cj
 		}
 		return out[i].VariantName < out[j].VariantName
 	})
@@ -448,7 +472,7 @@ func scaleDownRoleIterated(
 		if len(roleVCs) == 0 {
 			continue
 		}
-		sorted := sortVariantsForScaleDown(s, roleVCs)
+		sorted := sortVariantsForScaleDown(s, roleVCs, states)
 		scaleDownVariantSet(ctx, sorted, targets, states,
 			func(vc domain.VariantCapacity) int {
 				return safeRemovalReplicasForRole(s, vc.VariantName, role)
