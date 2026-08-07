@@ -2079,4 +2079,50 @@ item 7's fall-through fixture is the sole guard. Item 8 now says so.
 change a replica count. The mechanism is present and unguarded; magnitude depends on fixture construction.
 The 10000→8000 numbers are illustrative, not measured.
 
+### Sharpening (2026-08-07, after the first handoff) — the plan *mandates* the broken form, in two places
+
+Second handoff sent: `plan__ta-anchor-c6c-prcref-site-ii-closure-param.md` (sibling, because the first is
+`.WIP` with the planner). My first handoff treated the in-closure derivation as something a *literal
+reading* of §2d.5 would produce. That understated it. §2 #5 site (ii), **plan L254-256**, instructs it
+outright:
+
+> `prcRef` needs **no new closure parameter** — the closure already computes
+> `sortByCostEfficiencyAsc(roleVCs)`, and `prcRef` is that sorted slice's first `PRC > 0` entry
+
+So there are two mandates, not one paragraph open to misreading — and **§2 #5 is the per-commit site
+enumeration**, i.e. the half the coder follows most literally. Folding only §2d.5 would leave the plan
+self-contradictory on the single decision C6c turns on, which is a worse end state than either half
+alone. That is why the supplement went out mid-`.WIP` instead of waiting for C6c.
+
+The distinction the plan misses: the ratio **is** exactly 1.0 *within* an iteration (§2d.5 is right about
+that), while the *value* drifts *between* iterations. Same-slice guarantees the former and is silent on
+the latter. So this bites on the **reference candidate itself** — precisely the case §2d.5 certifies as
+neutral — not only on fall-through.
+
+One correction to my own first handoff, carried into the second: `prcRef` is **per-role**, not a scalar
+(§2d.5 L623-624 says "the *role's* first candidate"; site (i)'s fsv sums over roles). The threaded value
+is `map[string]float64`. `:310` is a valid capture point — it runs before `allocateForModelPaired` at
+`:311`, so the slice is still in the state that produced `target`.
+
+### Scope — narrowed, not widened (verified at `d9f3b97e`)
+
+Checked whether the hazard reaches the other lock-step sites. It does not, which means the fold-in is
+bounded and no further handoff is owed:
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Does the scale-down path refresh? | **No.** `refreshAnchorSizing` has exactly one non-test call site, `analyzer_helpers.go:737`, inside `allocateForModelPaired`'s scale-up loop | site (iii) `sortVariantsForScaleDown` unaffected |
+| Is site (ii) one location or a family? | **One.** `greedy_score_optimizer.go:423` is the package's only `ceil(target / PRC)` | no sweep needed |
+| Do the vote helpers share `prcRef`? | **No.** `:445` / `:472` / `:502` divide by each analyzer's own `prcForVariant` — correct per-analyzer conversion, a different quantity | untouched |
+| Does `costGreedyRolePick` have the same bug? | Shares `allocateForModelPaired` (`cost_aware_optimizer.go:62`) and therefore the refresh, but has no `target` scalar to desync | not a second instance |
+
+Trivial nit also sent, since the planner is in the file: **plan L604** says "the **four** sites (i)–(iv)"
+where there are five (§2 #5 header L185 says "5", and (v) is at L271) — stale count from before (v) existed.
+
+**Review consequence:** checklist item for C6c hardens from "`prcRef` captured, not re-derived" to
+"`prcRef` is a **per-role map** captured at fsv time and threaded through the signature; the dead
+`_ = s` / `_ = roles` lines at `:399-400` must not become the derivation source." If the planner declines
+the fold-in and leaves (ii) as written, that is the plan owner's call and I review C6c against the plan
+as it stands at landing time — but I will record the divergence rather than pass it silently.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
