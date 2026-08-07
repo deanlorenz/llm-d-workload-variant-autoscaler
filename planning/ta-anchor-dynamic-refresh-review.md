@@ -4520,13 +4520,55 @@ both roles, or `role == "both"`), where both draws would see `firstDraw == true`
 is reachable; I am recording that I did not test it and that it is the one route by which a mis-ordered
 ceiling would breach the *target* bound rather than merely the per-role one.
 
+### Resolved before the diff — the `ReplicaCount == 0` guard is sufficient on its own, and no `[sat]`-only golden may move
+
+I had this on the checklist as a risk: if C11's guard is only `ReplicaCount == 0` with no
+binder-identity test, does a saturation config that fails to seed then admit a sentinel — making C11 a
+`[sat]`-only behaviour change, moving the saturation-only goldens, and contradicting `(D-a)`'s own
+**TA-CREATED** classification? **Checked at `eb12089a`: no. The branch is structurally unreachable
+under `[sat]`-only, and a bare `ReplicaCount == 0` guard is correct.** Recording it so I do not raise it
+as a defect when the diff lands.
+
+The sentinel site is the merge miss at `analyzer_helpers.go:212-221` — `if b, ok := bByName[a.VariantName]; ok`,
+whose `else` today is a **comment only** (`:218-221`), PRC left at its zero value. So C11 must add a real
+branch there. Reachability of that branch is decided by two selections above it:
+
+- **`satNR` is located by name, not by vote** (`:138-144`) — *"It may be present even when it does not
+  vote"*.
+- **`aCarrier = satNR` whenever `satNR != nil`** (`:176-178`), and **`binding = satNR`** iff saturation is
+  `Enabled && Live && Informative` (`:149-151`).
+
+Therefore under `[sat]`-only, exactly two cases, and neither reaches the branch:
+
+| `[sat]`-only case | outcome |
+|---|---|
+| saturation votes | `binding == aCarrier == satNR` — **the same pointer**, so `bByName` is built from the identical slice the merge loop iterates ⇒ `ok` is always true |
+| saturation does not vote | the `default` arm finds no non-saturation entry ⇒ `binding == nil` ⇒ `:168-170` returns **nil, no anchor at all** |
+
+This is a cleaner argument than the Type 1's own (*"saturation always binds and always seeds"*, which
+would depend on the analytic ladder never failing): the lookup cannot miss because the two lists are the
+same object, whatever saturation computed. Same conclusion, stronger ground. It also means `(D-a)`'s
+*"when the binder is not saturation and …"* phrasing describes a condition that is **automatically
+satisfied**, not one that has to be tested — so shipping only the `ReplicaCount == 0` guard is not a gap.
+
+**The falsifiable consequence, worth more than the checklist item it replaces:** C11's merge-site change
+cannot move any `[sat]`-only golden. So **if a `[sat]`-only golden moves under C11, the cause is the cap
+at the three grant sites failing to key on the sentinel tag** — a general clamp rather than a tagged one.
+That is precisely the property `(D-a)` says the `Reason` tag exists for (*"it is what the cap keys on"*),
+which makes the `[sat]`-only goldens a direct test of it. Pre-registered accordingly: **goldens move ⇒
+the cap is untagged**, not "goldens move ⇒ rebaseline".
+
+One premise I have **not** verified and am not endorsing: `(D-a)`'s claim that in a *TA-binding* config
+`ReplicaCount == 0` plus a binder miss is *precisely* "never seen", on the grounds that TA's own
+scale-from-zero complement already covers previously-live zero-replica variants from persisted supply. If
+that complement has a hole, the sentinel would also fire for a variant that *has* been measured and is
+merely idle — where `(D-a)` itself says abstain is right. Flagged as an unchecked dependency, not a
+finding.
+
 ### Rest of the C11 checklist, to verify against the diff
 
-Mechanism `(D-a)`: sentinel written at the `analyzer_helpers.go:213` `else` branch only · guarded on
-`ReplicaCount == 0` **and** a non-saturation binder — and if the binder test is *implicit* (saturation
-always seeds, so the branch is unreachable for it), verify that claim, because a saturation config that
-fails to seed would make this a `[sat]`-only behaviour change and move the `[sat]`-only goldens, which
-`(D-a)`'s own **TA-CREATED** classification says must not happen · `Reason` set to a dedicated constant
+Mechanism `(D-a)`: sentinel written at the merge-miss `else` (`analyzer_helpers.go:218-221`) only ·
+`Reason` set to a dedicated constant
 alongside the PRC, moving as a set at both write sites (`:207-212`, `refreshAnchorSizing:569-572`) ·
 the refresh's `continue` branches (`:562`, `:566`) must **leave the sentinel standing**.
 
