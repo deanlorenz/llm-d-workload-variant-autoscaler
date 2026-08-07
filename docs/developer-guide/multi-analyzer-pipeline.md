@@ -135,7 +135,7 @@ Analyzers are configured via `SaturationScalingConfig.Analyzers` (YAML key
 |---|---|---|---|
 | `name` | string | required | Must match the name returned by `Analyzer.Name()` |
 | `enabled` | bool | true (when the entry is present) | Set false to disable without removing the analyzer |
-| `score` | float64 | 1.0 | Weight in the fair-share priority formula |
+| `score` | float64 | 1.0 | Belief weight over this analyzer's replica votes, applied in the combine (see [How results combine](#how-results-combine)); `1.0` everywhere gives the plain max/min |
 | `scaleUpThreshold` | float64 | global | Overrides the model-level `scaleUpThreshold` for this analyzer |
 | `scaleDownBoundary` | float64 | global | Overrides the model-level `scaleDownBoundary` for this analyzer |
 
@@ -291,6 +291,41 @@ All three apply the same filter: the entry must have a `Result`, a positive
 the collectors rather than in `combineVotes` is deliberate — it means an
 analyzer that says nothing about a `(variant, role)` is structurally absent from
 the combine, so it cannot influence the outcome by staying silent.
+
+**How much each vote counts.** Read the extremum first: with every analyzer at
+the default `score: 1.0` — which is what every shipped config uses — the combine
+*is* the plain cross-analyzer max (scale-up) or min (scale-down), and the rest of
+this paragraph is inert. A non-uniform score turns on a dominance correction:
+
+```
+v_i = replicas analyzer i implies   s_i = analyzer i's score  (> 0)
+e   = max v_i (up) | min v_i (down)  -- the binder's own vote,  s_e its score
+
+v*  = e  -  SUM_i (e - v_i)*(s_i - s_e)+ / SUM_j s_j        ((x)+ = max(x, 0))
+```
+
+Only the *excess* over the binder's score pulls, which is what keeps `v*` inside
+`[min v_i, max v_i]`: the combine can never invent a replica count no analyzer
+asked for, and raising every score together changes nothing. One expression
+serves both directions — on scale-down `e` is the min, so `(e - v_i) <= 0` and
+the subtraction adds. `SUM_j s_j` runs over participating votes only, per the
+filter above.
+
+Worked example: throughput's demand implies 10 replicas at `score: 1.0`,
+saturation's implies 5 at `score: 2.0`. Throughput binds (`e = 10`, `s_e = 1`,
+`SUM s = 3`), the correction is `(10-5)*(2-1)/3 = 1.67`, so `v* = 8.33` and the
+caller's single `ceil` gives **9 replicas** — still driven by the larger demand,
+pulled down because the dissenter is trusted more. Note 9 is neither analyzer's
+number and neither analyzer's rounding; this is why rounding once at the caller
+matters. Swap the scores and every `(s_i - s_e)+` is zero, leaving the extremum
+untouched: trusting the conservative voter more never moves the result away from
+safety.
+
+`score` is consumed here and nowhere else. It is a belief weight over votes, not
+a priority and not a budget multiplier — model `priority` is the only fair-share
+weight. See
+[AnalyzerScoreConfig Fields](saturation-scaling-config.md#analyzerscoreconfig-fields)
+for the operator-facing description.
 
 `needsScaleDownForRole` keeps its own boolean all-agree shape rather than
 delegating: it is a veto, not a magnitude.

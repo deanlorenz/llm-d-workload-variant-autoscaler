@@ -315,10 +315,22 @@ is selected and the engine falls back to V1 (see
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
 | `name` | string | Analyzer name (must match a `RegisterAnalyzer` call) | required |
-| `enabled` | bool | Reserved — placeholder for future combine logic | `true` |
-| `score` | float64 | Reserved — placeholder for future combine logic | `1.0` |
+| `enabled` | bool | Whether this analyzer votes in the combine at all (an enabled-but-stale analyzer is also excluded — see [How results combine](multi-analyzer-pipeline.md#how-results-combine)) | `true` |
+| `score` | float64 | Belief weight over this analyzer's replica votes — see below | `1.0` |
 | `scaleUpThreshold` | float64 | Per-analyzer override for the scale-up threshold; honored by the engine post-step (see Universal Threshold Post-Step below) | global `scaleUpThreshold` |
 | `scaleDownBoundary` | float64 | Per-analyzer override for the scale-down boundary; honored by the engine post-step (see Universal Threshold Post-Step below) | global `scaleDownBoundary` |
+
+#### What `score` means
+
+`score` is a **belief weight over votes**: how much to trust one analyzer's replica opinion against another's when they disagree about the same `(variant, role)`. It is applied at exactly one place — inside the optimizer's combine ([How results combine](multi-analyzer-pipeline.md#how-results-combine)) — and nowhere else.
+
+It is **not** a priority and **not** a budget multiplier. Scaling happens in two stages: combine the analyzers' votes into one replica number per `(variant, role)` using `score`, then fair-share GPUs across models using each model's `priority`. `score` belongs to the first stage only, so raising it never enlarges a model's claim on the cluster — it only changes which analyzer's replica count the model's own combine lands on. (The unrelated `K2Priority` in the queueing-model analyzer is a name collision; it is not this field and has nothing to do with the combine.)
+
+**`1.0` everywhere reproduces the plain max/min exactly.** That is the default and what every shipped config uses, so the weighting is inert unless you deliberately turn it on. With uniform scores the combine is the plain cross-analyzer maximum on scale-up and minimum on scale-down.
+
+**Raising one analyzer's score pulls the combined number toward that analyzer's own vote, and never outside the votes cast.** The result always lands in `[min vote, max vote]` — the combine cannot invent a replica count no analyzer asked for. Concretely, if the throughput analyzer's demand implies 10 replicas at `score: 1.0` and saturation's implies 5 at `score: 2.0`, the combine yields 8.33 → **9 replicas**: still driven by throughput's larger demand, but pulled down because saturation is trusted twice as much. Trust the conservative voter more on scale-down and the result simply stays at the safe end; there is no configuration that makes the combine less safe than the most conservative live analyzer's vote plus the pull of a better-trusted dissenter.
+
+**When would I change it?** When two analyzers measure genuinely different things and one is known to be better calibrated for your workload — for example a request-rate model you trust while a KV-cache model is still being tuned. Prefer fixing the mis-calibrated analyzer's own configuration first; `score` is the escape hatch for when you cannot. Leave it at the default if you have no specific reason, and change one analyzer at a time: because only the *excess* over the binding analyzer's score has any effect, raising every analyzer's score together changes nothing.
 
 ### Analyzer responsibilities and the universal threshold post-step
 

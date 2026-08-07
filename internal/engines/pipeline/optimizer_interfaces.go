@@ -21,7 +21,7 @@ import (
 type NamedAnalyzerResult struct {
 	Name              string
 	Result            *domain.AnalyzerResult
-	Score             float64            // per-analyzer weight from AnalyzerScoreConfig; used for fair-share priority
+	Score             float64            // belief weight from AnalyzerScoreConfig: how far the per-(variant, role) combine pulls toward this analyzer's replica vote; 0 reads as the 1.0 default. Not a priority and not a budget multiplier
 	Remaining         float64            // mutable remaining required capacity; P-scope for disaggregated, model-scope otherwise
 	Spare             float64            // mutable remaining spare capacity; model-scope (non-disaggregated only)
 	RoleSpare         map[string]float64 // per-role mutable spare; set by initRoleState; nil for non-disaggregated

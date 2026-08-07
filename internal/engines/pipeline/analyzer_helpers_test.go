@@ -37,6 +37,12 @@ func makeNamed(name string, rc, sc float64, vcs ...any) NamedAnalyzerResult {
 	}
 }
 
+// withScore sets the belief weight the combine gives one entry's votes.
+func withScore(e NamedAnalyzerResult, score float64) NamedAnalyzerResult {
+	e.Score = score
+	return e
+}
+
 var _ = Describe("analyzer helpers", func() {
 
 	Describe("applyAllocation", func() {
@@ -547,13 +553,14 @@ var _ = Describe("the cross-analyzer combine core", func() {
 		It("excludes an analyzer with no PRC for the variant, so it cannot dilute the weighting", func() {
 			// A third analyzer that does not size "v" must leave the combine
 			// exactly as the two-analyzer ballot found it. If it were counted in
-			// the score denominator, sum_j s_j would be 4 instead of 3 and the
-			// result would drift to 8.75 -- a silent analyzer would make the
-			// system trust the binder MORE.
+			// the score denominator, sum_j s_j would be 8 instead of 3 and the
+			// result would drift from 8.333 to 9.375 -- an analyzer that says
+			// nothing about "v" would make the system trust the binder MORE, and
+			// the more heavily it were trusted elsewhere the worse the drift.
 			s := []NamedAnalyzerResult{
-				makeNamed("sat", 100, 0, "v", 10.0),     // rd = 10
-				makeNamed("ta", 50, 0, "v", 10.0),       // rd = 5
-				makeNamed("lat", 999, 0, "other", 10.0), // sizes a different variant only
+				withScore(makeNamed("sat", 100, 0, "v", 10.0), 1),     // rd = 10
+				withScore(makeNamed("ta", 50, 0, "v", 10.0), 2),       // rd = 5
+				withScore(makeNamed("lat", 999, 0, "other", 10.0), 5), // sizes a different variant only
 			}
 			_, ps := initRoleState(s)
 
@@ -561,7 +568,6 @@ var _ = Describe("the cross-analyzer combine core", func() {
 			Expect(votes).To(HaveLen(2))
 			Expect([]int{votes[0].Index, votes[1].Index}).To(Equal([]int{0, 1}))
 
-			votes[0].Score, votes[1].Score = 1, 2
 			got, gotBinder := combineVotes(votes, true)
 
 			want, wantBinder := combineVotes([]replicaVote{
@@ -588,6 +594,107 @@ var _ = Describe("the cross-analyzer combine core", func() {
 			votes := votesFromTotalDemand([]NamedAnalyzerResult{pd, flat}, "prefill", "pf")
 			Expect(votes).To(HaveLen(1))
 			Expect(votes[0].Index).To(Equal(0))
+		})
+	})
+
+	// A configured score only ever means one thing: how far the combine pulls the
+	// agreed replica count toward that analyzer's own vote. These fixtures drive
+	// the two directions through the real call sites, so they fail if the
+	// collectors stop reading the ballot's scores -- with uniform weights the
+	// scale-up case reads 10 instead of 9 and the scale-down case 5 instead of 6.
+	Describe("configured scores reaching the combine", func() {
+		It("pulls scale-up sizing toward the better-trusted dissenter without dropping below its vote", func() {
+			// Throughput wants 10 replicas and is the default-trusted voter;
+			// saturation wants 5 and is trusted twice as much.
+			//   e = 10 (throughput binds), s_e = 1, sum s = 3
+			//   correction = (10-5)*(2-1)/3 = 1.667  ->  v* = 8.333  ->  ceil = 9
+			// Nine is distinguishable from BOTH votes, which is the point: the
+			// result is neither analyzer's number and neither analyzer's rounding.
+			s := []NamedAnalyzerResult{
+				withScore(makeNamed("saturation", 50, 0, "v", 10.0), 2),  // rd = 5
+				withScore(makeNamed("throughput", 100, 0, "v", 10.0), 1), // rd = 10
+			}
+			_, ps := initRoleState(s)
+
+			value, binder := combineVotes(votesFromPickerState(s, ps, domain.RoleBoth, "v"), true)
+			Expect(value).To(BeNumerically("~", 8.3333333, 1e-6))
+			Expect(binder).To(Equal(1), "throughput's vote binds even though saturation is trusted more")
+
+			Expect(roleBottleneckReplicas(s, ps, domain.RoleBoth, "v")).To(Equal(9))
+		})
+
+		It("pulls scale-down removal toward the better-trusted dissenter without exceeding its vote", func() {
+			// Mirror image, scores swapped: saturation says 5 replicas are
+			// removable (default trust), throughput says 10 and is trusted twice
+			// as much.
+			//   e = 5 (saturation binds -- the conservative vote), s_e = 1, sum s = 3
+			//   correction = (5-10)*(2-1)/3 = -1.667  ->  v* = 6.667  ->  floor = 6
+			// Six stays above saturation's own 5 and below throughput's 10: the
+			// combine never invents a number outside the votes it was given.
+			s := []NamedAnalyzerResult{
+				withScore(makeNamed("saturation", 0, 50, "v", 10.0), 1),  // spare = 5 replicas
+				withScore(makeNamed("throughput", 0, 100, "v", 10.0), 2), // spare = 10 replicas
+			}
+			initRoleState(s)
+
+			value, binder := combineVotes(votesFromRoleSpare(s, domain.RoleBoth, "v"), false)
+			Expect(value).To(BeNumerically("~", 6.6666667, 1e-6))
+			Expect(binder).To(Equal(0), "saturation's conservative vote binds")
+
+			Expect(safeRemovalReplicasForRole(s, "v", domain.RoleBoth)).To(Equal(6))
+		})
+
+		It("holds scale-down at the safe extremum when the conservative analyzer is the better-trusted one", func() {
+			// Same votes as above with the trust the other way round: saturation
+			// says 5 removable and is trusted twice as much as throughput's 10.
+			// Every (s_i - s_e)+ is then zero, so no correction is applied and the
+			// result stays at the conservative extremum. The direction that
+			// matters for safety needs no special case in the formula.
+			s := []NamedAnalyzerResult{
+				withScore(makeNamed("saturation", 0, 50, "v", 10.0), 2),
+				withScore(makeNamed("throughput", 0, 100, "v", 10.0), 1),
+			}
+			initRoleState(s)
+
+			value, binder := combineVotes(votesFromRoleSpare(s, domain.RoleBoth, "v"), false)
+			Expect(value).To(Equal(5.0))
+			Expect(binder).To(Equal(0))
+
+			Expect(safeRemovalReplicasForRole(s, "v", domain.RoleBoth)).To(Equal(5))
+		})
+
+		It("holds scale-up at the binder's vote when the binder is also the better-trusted one", func() {
+			// Throughput wants 10 AND is trusted twice as much as saturation's 5:
+			// the less-trusted dissenter has no pull, so sizing stays at 10.
+			s := []NamedAnalyzerResult{
+				withScore(makeNamed("saturation", 50, 0, "v", 10.0), 1),
+				withScore(makeNamed("throughput", 100, 0, "v", 10.0), 2),
+			}
+			_, ps := initRoleState(s)
+
+			value, binder := combineVotes(votesFromPickerState(s, ps, domain.RoleBoth, "v"), true)
+			Expect(value).To(Equal(10.0))
+			Expect(binder).To(Equal(1))
+
+			Expect(roleBottleneckReplicas(s, ps, domain.RoleBoth, "v")).To(Equal(10))
+		})
+
+		It("treats an unset score as the 1.0 default so a hand-built entry cannot out-weigh a configured one", func() {
+			// Only reachable off the config path, which coerces a zero score to
+			// 1.0. Left as 0 the entry would contribute nothing to sum s while
+			// still appearing in the excess term, quietly over-correcting.
+			s := []NamedAnalyzerResult{
+				makeNamed("saturation", 50, 0, "v", 10.0), // score unset -> 1.0
+				withScore(makeNamed("throughput", 100, 0, "v", 10.0), 1),
+			}
+			_, ps := initRoleState(s)
+
+			votes := votesFromPickerState(s, ps, domain.RoleBoth, "v")
+			Expect(votes[0].Score).To(Equal(1.0))
+
+			// Uniform weights after coercion, so the plain extremum.
+			value, _ := combineVotes(votes, true)
+			Expect(value).To(Equal(10.0))
 		})
 	})
 })

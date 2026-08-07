@@ -409,9 +409,22 @@ func combineVotes(votes []replicaVote, up bool) (float64, int) {
 // about a (variant, role) cannot dilute the correction and so cannot make the
 // system trust the binder more by staying silent.
 //
-// Every vote weighs 1.0 for now, so combineVotes' correction term is
-// unreachable from the pipeline and this extraction cannot move a number.
-// Reading each entry's configured Score is a separate step.
+// Every collector weighs its votes with voteScore, so an analyzer's configured
+// score reaches the combine and nowhere else. All shipped configs leave it at
+// the 1.0 default, which zeroes every correction term and yields the plain
+// extremum.
+
+// voteScore is the belief weight the combine gives one analyzer's vote. Zero or
+// negative means "unset" and reads as the 1.0 default, matching the config
+// layer's own coercion: an entry built without a score must not silently
+// out-weigh or under-weigh a configured one, and a mixed ballot must never see a
+// 0 in the (s_i - s_e)+ term.
+func voteScore(e NamedAnalyzerResult) float64 {
+	if e.Score > 0 {
+		return e.Score
+	}
+	return 1.0
+}
 
 // votesFromPickerState collects the scale-up ballot for (role, variant) from
 // picker-local remaining demand: state[i][role] / PRC_i[variant] replicas per
@@ -426,7 +439,7 @@ func votesFromPickerState(s []NamedAnalyzerResult, state RolePairedState, role, 
 		if prc <= 0 {
 			continue
 		}
-		out = append(out, replicaVote{Index: i, Value: state[i][role] / prc, Score: 1.0})
+		out = append(out, replicaVote{Index: i, Value: state[i][role] / prc, Score: voteScore(e)})
 	}
 	return out
 }
@@ -453,7 +466,7 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 		if prc <= 0 {
 			continue
 		}
-		out = append(out, replicaVote{Index: i, Value: demand / prc, Score: 1.0})
+		out = append(out, replicaVote{Index: i, Value: demand / prc, Score: voteScore(e)})
 	}
 	return out
 }
@@ -483,7 +496,7 @@ func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replica
 		if prc <= 0 {
 			continue
 		}
-		out = append(out, replicaVote{Index: i, Value: e.RoleSpare[role] / prc, Score: 1.0})
+		out = append(out, replicaVote{Index: i, Value: e.RoleSpare[role] / prc, Score: voteScore(e)})
 	}
 	return out
 }

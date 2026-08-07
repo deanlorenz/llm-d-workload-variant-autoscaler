@@ -383,9 +383,14 @@ func (e *Engine) pruneLastGoodAnalysis(activeKeys map[string]bool) {
 }
 
 // scoreForAnalyzer returns the AnalyzerScoreConfig.Score for the named analyzer,
-// defaulting to 1.0 when the analyzer has no explicit entry in cfg.Analyzers.
-// This value is the per-analyzer weight used by GreedyByScoreOptimizer for
-// fair-share priority ordering across models.
+// defaulting to 1.0 when the analyzer has no explicit entry in cfg.Analyzers or
+// when its score is unset.
+//
+// This value is a belief weight over votes: it says how far the optimizer's
+// per-(variant, role) combine pulls the agreed replica count toward this
+// analyzer's own opinion when analyzers disagree. It is not a priority across
+// models — that is the model's own priority — and it never scales a capacity or
+// a GPU budget.
 func scoreForAnalyzer(analyzerName string, cfg config.SaturationScalingConfig) float64 {
 	for _, aw := range cfg.Analyzers {
 		if aw.EffectiveType() == analyzerName {

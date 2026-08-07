@@ -107,9 +107,12 @@ type ScaleToZeroEnvelope struct {
 // so that externally-registered analyzers (see Engine.RegisterAnalyzer) work.
 const limiterTypeGPUInventory = "gpu-inventory"
 
-// AnalyzerScoreConfig configures an individual analyzer's weight in the
-// composite scoring function. Per-analyzer threshold overrides are optional;
-// when nil, the global top-level thresholds are used.
+// AnalyzerScoreConfig configures an individual analyzer's participation in the
+// optimizer's cross-analyzer combine: whether it votes (Enabled) and how much
+// its vote is believed against the others' (Score). Score is a belief weight
+// over replica votes, not a priority and not a budget multiplier — model
+// priority is what weights fair share. Per-analyzer threshold overrides are
+// optional; when nil, the global top-level thresholds are used.
 //
 // Type and Parameters implement the ScalingPolicy plugin envelope (Phase 1 of
 // the proposal in llm-d/llm-d-workload-variant-autoscaler#1245):
