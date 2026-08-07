@@ -1532,6 +1532,15 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
   7. The new fall-through fixture is **multi-variant within one role** — every existing fsv fixture is
      single-variant-per-role, where the error is identically zero.
   8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
+  9. **Three** fsv-formula locations updated across **two** dev-guide files, not one — plan §5 (amended
+     2026-08-07) found a third copy the earlier revision missed: `multi-analyzer-pipeline.md:622` and `:675`,
+     **plus `quota-limiter.md:284`** (`### Fair-share interaction`, "priority × score × unmet demand"). A
+     C6c that edits only `multi-analyzer-pipeline.md` leaves a stale Score-bearing formula shipped in
+     `quota-limiter.md`. While there, the worked example below it (~L309-325, "Wants" 3/4/4, mean ≈ 3.67)
+     already reasons in replicas, so its "worked-example caveat" hedge should go and **no number in it
+     changes** — if a number does change, the fsv conversion is wrong.
+  10. Do **not** trust §5's `~L` line numbers: they are as-of `f6485980`, PR-1's *pre-rebase* tip, whereas
+      PR-2's base is `075a208e`. §5 says to grep the heading text, and every entry supplies it — use that.
 
 ---
 
@@ -1671,5 +1680,43 @@ unfalsifiable — the suite would have been edited to be green rather than shown
    and a `[TA]`-only sub-case (§4's wording requires both).
 4. §4a: the message must not carry `#1513`'s plans-side framing — the PR number itself is a real GitHub
    reference and is fine.
+
+---
+
+## C10 — plan arithmetic independently re-derived (so review goes straight to the code)
+
+Every number in §2e.3 and §5's C10 block checks out by hand, on the shipped fixture
+(`analyzer_test.go:266-274`: `A=0.073 B=0.006 KV_max=1024000 KVreq=4600`). `N_sat = k·KV_max/KVreq`,
+`ITL_sat = A·k + B`, `μ_sat = N_sat/ITL_sat`:
+
+| k | `N_sat` | `ITL_sat` | `μ_sat` | note |
+|---|---|---|---|---|
+| 0.85 | 189.2174 | 0.06805 | 2780.56 | today (deleted `DefaultKSat`) |
+| 0.80 | 178.0870 | 0.06440 | 2765.33 | post-C10 default (`DefaultKvCacheThreshold`) |
+| 0.50 | 111.3043 | 0.04250 | **2618.93** | the C10 `KvCacheThreshold: 0.5` fixture |
+
+Default-path shift = `2765.33/2780.56 − 1` = **−0.548%**, matching §2e.3. My earlier ~5.9% figure was the
+numerator alone; §2e.3 now records the correction and, correctly, tells the coder to keep the 6% figure out
+of the commit message.
+
+**Two things I had queued to raise and did not, because the plan already covers them.** Recording the
+checks so they are not re-done:
+
+- **The default moves 0.85 → 0.80, so every existing TA fixture re-bases**, since no TA test sets
+  `input.Config` and all take the fallback. §2e.2 states the fallback choice and why ("A 0.85 nil-config
+  fallback would keep a second definition of 'full' alive in exactly the path the TA unit tests exercise"),
+  and §2e.3 works out that the three `TotalSupply` assertions sit at `±10%` (`muSat*0.10`), so a 0.55% shift
+  cannot go red. Verified: `2780.56` and `2765.33` are both inside `2782.0 ± 278.2`.
+- **The dangerous case is a green gate on a wrong expectation.** §2e.3 already names it: re-deriving by
+  scaling `0.80/0.85 = 0.9412` alone lands ~5% off, which the ±10% tolerance swallows. This is why the new
+  k=0.5 fixture must *not* inherit the `muSat*0.10` idiom.
+
+**At C10 review, therefore, the arithmetic is settled and I check only:** that the k=0.5 fixture asserts
+`2618.9` within `~1%` (band `[2592.7, 2645.1]`) and not a `muSat*0.10` band; that it goes **red** when I flip
+`resolveKSat` back to `0.85` on a scratch extract (2780.56 is outside the band — the fixture genuinely
+discriminates); that `resolveKSat` threads to all **four** sites of §2e.2's table; that `DefaultKSat` greps
+to zero while `DefaultNearKSatMargin` survives with re-anchored prose; that the `:259-264` derivation comment
+no longer spells `0.85`; and that the five `throughput-analyzer.md` locations in §5 are all edited, including
+the constants-table row swap and the *retained* EPP half of the known-limitations line.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
