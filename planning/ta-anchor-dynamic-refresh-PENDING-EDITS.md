@@ -25,7 +25,8 @@ review the batch as a list rather than as prose spread over many turns.
 | A3 | `:1324` | same inversion | " |
 | A4 | `:1608-1612` | same inversion | " |
 | A5 | `:2199-2200` | same inversion | " |
-| A6 | `:288` | Cap placement: the one-replica ceiling must sit at the **granting site**, never in the `MaxReplicas` headroom branch — `cost_aware_optimizer.go:106` returns `math.MaxInt` when `MaxReplicas == nil`, so a cap placed there is a no-op | my verification |
+| A6 | `:288` | Cap placement: the one-replica ceiling must sit at the **granting site**, never in the `MaxReplicas` headroom branch. Widened from one site to **three**, all verified at `eb12089a`: `cost_aware_optimizer.go:104-111` (the `return …, math.MaxInt` at `:111` is *outside* the `MaxReplicas != nil` block); `greedy_score_optimizer.go:711-717` (clamp wholly inside the nil-guard); `rescale.go:454-460` (worst — a `for wantGPUs-spent >= g` loop whose **only** exit is a `break` guarded by `MaxReplicas != nil && > 0`, so an unset ceiling means replicas are granted until the GPU budget is exhausted). `MaxReplicas` is `*int` and nil/`0` are treated alike as unbounded, and the sentinel's population is never-seen zero-replica variants — the least likely to be tuned | my verification, then reviewer F42 independently at all 3 sites |
+| A19 | §C11 | Record the **post-freeze ordering dependency**: C6e's `firstDraw` floor at `greedy_score_optimizer.go:702` *raises* `capN` after `replicasToCover` at `:701` and before both bounds (`:710` pool, `:711-717` headroom). A ceiling placed next to `replicasToCover` — the natural reading of the Type-1 instruction — is therefore overwritten on the first draw. Single-role case is benign (`:702` raises to exactly 1 = the ceiling); the breach needs two roles resolving to the same sentinel variant in one pre-commit window, which **neither the reviewer nor I have established as reachable**. This is why the clamp shape is `min(cap, 1 - targets[v])` and not `min(cap, 1)` | reviewer F43 + my verification |
 | A7 | §C6c items 2/3/4 | corrections carried from the currency-pivot read | my verification |
 | A8 | §C6d items 1/1b/2 | ditto | " |
 | A9 | §4 | Commit-message reword cost is **13**, not nine or ten: 14 commits, 13 token-bearing, 10 token-bearing subjects, `34b18bc5` the only clean one. Supersedes the "9 now vs 16 later" framing | reviewer F-recount |
@@ -56,6 +57,18 @@ review the batch as a list rather than as prose spread over many turns.
   CURRENT.md.
 - Post-freeze Type-1 rationale touches: the claim-pricing rationale at `referenceVariantForRole:829-838`
   and **Finding 27**'s `:1530-1533`. The reviewer recommends deciding them **together**. Dean's, not mine.
+- **Post-freeze Type-1 `(D-b)` amendment — the third such item, and the only one that is a *text
+  defect* rather than a rationale touch.** `(D-b)` says to fold the one-replica ceiling into the
+  per-site `headroom` computation "including its `headroom <= 0 → continue`" / "same clamp, same
+  skip" / "add the ceiling to that same `break` condition". Followed literally that nests the
+  ceiling inside a nil-guard at all three grant sites (A6), so the ceiling does not exist on an
+  untuned variant — which is the sentinel's whole population. Correct shape is an **unconditional
+  sibling** clamp, `cap = min(cap, 1 - targets[v])`, with its own `continue`/`break`, placed after
+  the pool bound (A19). **Needed whichever way the C11 diff goes.** I am not amending it: Dean
+  divided scope so the plan reviewer handles Type 1 and I own the derived Type 3 only, and
+  post-freeze Type-1 changes go through Dean. The handoff routes the amendment to me as "Type-1
+  owner" — a label the same reviewer declined for himself — so this is a genuine routing conflict
+  for Dean to settle, not something to resolve by guessing.
 - Routing: who owns post-freeze Type-1. The internal code reviewer has declined the "Type-1 owner"
   label I used in two handoffs; that error is also now in shipped code (see B3).
 
@@ -63,5 +76,9 @@ review the batch as a list rather than as prose spread over many turns.
 
 Handoffs feeding this batch, all read at their stated states:
 `plan__ta-anchor-c6e-two-adjacent-defects.md.WIP`, `plan__ta-anchor-c6f-w4-no-spend-is-false.md.WIP`,
-`plan__ta-anchor-claim-pricing-verdict-and-c6e-gap.md.WIP`; reviewer write-up
-`planning/ta-anchor-dynamic-refresh-review.md` @ `ded9dc5f`. Branch tip at time of writing: `537b0153`.
+`plan__ta-anchor-claim-pricing-verdict-and-c6e-gap.md.WIP`,
+`plan__ta-anchor-c11-ceiling-nil-maxreplicas-escape.md.WIP` (Findings 42/43, pre-registered at
+`470f4b8d` *before* the C11 diff existed); reviewer write-up
+`planning/ta-anchor-dynamic-refresh-review.md` @ `ded9dc5f`. Branch tip when the A19/A6-widening rows
+were added: `eb12089a`, with **six** source files modified and uncommitted (C11 in flight, touching
+all three grant sites).
