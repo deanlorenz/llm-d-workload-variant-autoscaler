@@ -3,9 +3,18 @@
 **Type:** 6 (review) · **Status:** DRAFT (partial — C1–C5, C7, C8, C6a, C6b reviewed; C6c, C6d, C10,
 C9 not yet landed) · **Branch:** `ta-anchor-dynamic-refresh`, tip `d9f3b97e` (base
 `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
-[`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) (tip `62c37c46`)
-§1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot grep ·
-**Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-07 (rolling).
+[`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) **at plan revision
+`e0aa9bad`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
+grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-07 (rolling).
+
+**Plan-revision trail.** This review spans plan revisions `62c37c46` → `e0aa9bad` (16 revisions
+total, 8 of them inside one 8-hour window on 2026-08-07). Findings are raised against whichever
+revision was current when written, and each finding that has since been folded into the plan names
+its closing revision inline in its own section. **Re-point this header on every future pass** —
+it was itself stale at `62c37c46` by 8 commits until 2026-08-07, the same failure mode Finding 21
+documents in the coder. Doc-structure findings about the mission's Type 1/3/6 layering are **out of
+reviewer scope** and were handed to the planner in
+`session/handoffs/plan__ta-anchor-doc-taxonomy-findings.md`, not recorded here.
 
 ## Scope of this pass
 
