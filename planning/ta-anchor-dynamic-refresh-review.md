@@ -1737,6 +1737,31 @@ unfalsifiable — the suite would have been edited to be green rather than shown
 4. §4a: the message must not carry `#1513`'s plans-side framing — the PR number itself is a real GitHub
    reference and is fine.
 
+**5. There are two adjacent files whose names both read "characterization goldens", and only one of them
+is in C9's removal scope.** §4 scopes the removal to "the *sat-only* characterization goldens (landed via
+their own PR #1513)". Checked provenance with `--diff-filter=A`:
+
+| File | Specs | Added by | In C9's removal scope? |
+|---|---|---|---|
+| `optimizer_characterization_test.go` | 8 (smoke, A1–A4, B1–B2, C1) | `35b336ea` — #1513's own harness commit | **Yes** — this is the sat-only suite |
+| `optimizer_combine_characterization_test.go` | 1 (two-analyzer scale-up, throughput demand dominates) | `a0795e36` — PR-1's C2, "derive the per-model anchor on demand" | **No** — not sat-only, not a #1513 artifact |
+
+The second file is a test **PR-1 shipped inside its own commit**, and it is already a `[sat, TA]` golden —
+which makes it the natural host for the multi-vote suite §4 line 958 asks C9 to add, not something to
+delete. A `git rm` that reaches for "the characterization goldens" and takes both would silently remove
+PR-1 coverage in a commit whose stated purpose is removing #1513's, and the §4b classification owed would
+be for the wrong file.
+
+**6. Spec-count arithmetic makes both of the above mechanically checkable.** Baseline measured by me on a
+clean extract of `d9f3b97e` (C6b): **334 of 334 specs pass** in `internal/engines/pipeline`. So after C9:
+
+- `optimizer_characterization_test.go` gone, `optimizer_combine_characterization_test.go` still present;
+- spec count = `334 − 8 + (specs the multi-vote suite adds)` — if it comes out at `334 − 9 + n`, the
+  combine golden went with them.
+
+Recording the baseline number here because after C9 there is no cheap way to recover it: the count is the
+only artifact that distinguishes "removed 8" from "removed 9".
+
 ---
 
 ## C10 — plan arithmetic independently re-derived (so review goes straight to the code)
