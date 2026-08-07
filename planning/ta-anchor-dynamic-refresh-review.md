@@ -5309,6 +5309,13 @@ a `MaxReplicas` local at all.
 
 ## Operational observation — the status file has fallen nine commits behind
 
+> **RESOLVED by the coder itself, 2026-08-08T00:50Z — no action needed.** The status file now reads
+> `C9a LANDED — tip 757fc6f5` and is current with the branch; the nine-commit gap below is closed, and
+> the superseded `C6d`/`330fcd26` text is retained there as explicitly-marked history. Left in place
+> because the failure mode it describes is worth keeping on the record: the gap opened and closed without
+> anyone outside the coder's session noticing, which is the property that made it worth writing down. It
+> also dates my own observation — it was accurate for about four hours.
+
 Not a code finding; recorded because the status file is the one channel designed to answer "where is the
 coder?" without interrupting it, and right now it answers wrongly.
 
@@ -5466,3 +5473,53 @@ only so the exactness of the surrounding claims is not read as exactness here to
   dev-guide-plus-goldens commit is still ahead of us, so the sweep and the remaining doc corrections
   (`analyzer_helpers.go:213-216`, the path/filename class, Finding 46's constraint on describing the
   from-zero ceiling) all remain pending there.
+
+---
+
+## C9 is now decomposed in the status file — one scoping match, one gap
+
+The coder's status file at `2026-08-08T00:50Z` breaks the last plan item into five sub-commits. Recording
+it because it changes what I should be watching for, and because one of the five closes a question I had
+open while another opens a risk.
+
+| sub-item | content | state |
+|---|---|---|
+| C9a | the two homeless doc items (`U5` + `W3`), docs-only | **DONE — `757fc6f5`** |
+| C9b | rest of the dev-guide prose + four `analyzer_helpers.go` prose repairs | not started |
+| C9c | the `[sat, TA]` multi-vote golden suite + the Invariant 7 direct test | not started |
+| C9d | explicit removal of the sat-only goldens the multi-vote suite supersedes | not started |
+| C9e | the §4a token sweep, **scoped to the PR-2 delta** | not started |
+
+**The C9e scoping is right, and it matches my ledger exactly.** The status file states "47 of 54
+locations; the 7 inherited at base `075a208e` are out of scope" — 54 − 7 = 47, and both the total and the
+inherited count are the figures in my corrected ledger. Scoping the sweep to the delta is also the correct
+call on its own merits: the 7 inherited locations are pre-existing on `main` and belong to the separate
+governance cleanup, not to this PR. Fixing them here would inflate the diff with unrelated churn and take
+credit for someone else's backlog item.
+
+**C9b confirms two of my findings are being actioned as written** — the scale-from-zero section is slated
+to be written as **DEFERRED** rather than as an active guard (Finding 46, which is the constraint that
+matters most in that section, because describing an unshipped tag-writer as a live mechanism would be the
+worst kind of doc defect: confidently wrong about a safety property), and Finding 29's `mean` →
+`allocationMean` rename is in.
+
+### The gap: Finding 51's site is in neither list
+
+C9b's four prose-repair sites in `analyzer_helpers.go` are `:65-69`, `:176-182`, `:184-192`, `:280-286`.
+Finding 51's site is **`:216-218`** — between the third and fourth, and in none of them. So on the current
+decomposition that comment is reached only by C9e, the token sweep.
+
+That is exactly the failure mode Finding 51 was written to flag. A token-only strip turns
+
+```go
+// (N2 deterministic tie-break): once PR-2 admits multiple non-saturation voters, …
+```
+
+into something like "once this change admits multiple non-saturation voters, …" — still future-tense about
+a condition `votingResults` (`:315-323`) already satisfies on this branch. The comment would come out of
+the sweep §4a-clean and still wrong, and a clean sweep is precisely the thing nobody re-reads afterwards.
+So the residual risk here is higher than for the other 46 locations, not lower.
+
+I am not directing where it gets fixed — C9b and C9e are both plausible homes, and the sub-item split is
+the coder's to make. The point is only that "§4a-clean" and "true" come apart at this one location, so
+whichever commit takes it needs to do a prose rewrite and not a token substitution.
