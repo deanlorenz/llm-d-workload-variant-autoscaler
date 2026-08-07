@@ -38,7 +38,7 @@
     {
       "capability": "Queue (a) material",
       "verdict": "PASS",
-      "detail": "p95=155.0"
+      "detail": "p95=4.0 max=7 (vs engine queue max=530)"
     },
     {
       "capability": "Queue (c) material",

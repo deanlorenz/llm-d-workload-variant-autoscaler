@@ -45,6 +45,12 @@ MIN_FIT_N = 8       # minimum stable intervals for a usable A
 MAX_DT = 40.0       # reject scrape intervals longer than this (missed rounds)
 STABLE_DRUN = 25    # |delta running| tolerated inside a "stable" interval
 
+# anchor validation: engine occupancy must not exceed request-derived in-system
+# count (see anchor_offset). Tolerances absorb per-pod scrape skew, nothing more.
+OVER_L_FLOOR = 3.0      # requests of slack at small occupancy
+OVER_L_REL = 0.10       # ... or this fraction of occupancy, whichever is larger
+OVER_L_MAX_FRAC = 0.05  # fraction of scrapes allowed to exceed that slack
+
 GAUGE = {
     'run':  'vllm:num_requests_running',
     'wait': 'vllm:num_requests_waiting',
@@ -336,9 +342,19 @@ def anchor_offset(requests, pods, guess=None, span=180, step=1.0):
     """Put a monotonic-clock demand trace on the scrape clock (plan section 2).
 
     Cross-correlate in-system count from the request trace against summed per-pod
-    `vllm:num_requests_running` from the scrapes, scanning offsets around `guess`.
-    Reported, not hidden: a poor correlation means the anchor is untrustworthy and
-    every arrival-time-dependent panel should be read with that in mind.
+    engine occupancy from the scrapes, scanning offsets around `guess`.
+
+    The engine-side signal is `num_requests_running + num_requests_waiting`, not
+    `running` alone. `running` is clipped at the engine's own concurrency limit
+    (the per-pod KV ceiling), so once a pod saturates it flattens into a plateau
+    while the request-derived count keeps climbing. Correlating a clipped signal
+    lets the maximum sit anywhere along that plateau: on the 2026-08-07 staircase
+    run `running` alone peaked at corr 0.945 a full 32 s late, where
+    `running + waiting` scores 1.000 at the true alignment.
+
+    Reported, not hidden: a poor correlation, or engine occupancy exceeding the
+    request-derived in-system count, means the anchor is untrustworthy and every
+    arrival-time-dependent panel should be read with that in mind.
     """
     if not requests or not pods:
         return {'offset': guess or 0.0, 'corr': None, 'method': 'none'}
@@ -346,9 +362,11 @@ def anchor_offset(requests, pods, guess=None, span=180, step=1.0):
     obs = {}
     for samples in pods.values():
         for s in samples:
-            if s['g'].get('run') is not None:
-                k = round(s['t'])
-                obs[k] = obs.get(k, 0.0) + s['g']['run']
+            run, wait = s['g'].get('run'), s['g'].get('wait')
+            if run is None and wait is None:
+                continue
+            k = round(s['t'])
+            obs[k] = obs.get(k, 0.0) + (run or 0.0) + (wait or 0.0)
     if len(obs) < 5:
         return {'offset': guess or 0.0, 'corr': None, 'method': 'insufficient-scrapes'}
 
@@ -376,17 +394,21 @@ def anchor_offset(requests, pods, guess=None, span=180, step=1.0):
     dev_o = [v - mo for v in ov]
     norm_o = math.sqrt(sum(d * d for d in dev_o)) or 1.0
 
-    best = None
-    n_steps = int(span / step)
-    for i in range(-n_steps, n_steps + 1):
-        off = guess + i * step
-        # in-system count of the shifted demand trace, sampled at the scrape times
+    def in_system(off):
+        """in-system count of the shifted demand trace, sampled at the scrape times"""
         pv, cur, j = [], 0, 0
         for t in ot:
             while j < len(ev) and ev[j][0] + off <= t:
                 cur += ev[j][1]
                 j += 1
             pv.append(cur)
+        return pv
+
+    best = None
+    n_steps = int(span / step)
+    for i in range(-n_steps, n_steps + 1):
+        off = guess + i * step
+        pv = in_system(off)
         mp = sum(pv) / len(pv)
         dev_p = [v - mp for v in pv]
         norm_p = math.sqrt(sum(d * d for d in dev_p))
@@ -397,9 +419,36 @@ def anchor_offset(requests, pods, guess=None, span=180, step=1.0):
             best = {'offset': off, 'corr': corr}
     if best is None:
         return {'offset': guess, 'corr': None, 'method': 'degenerate'}
+
+    # Independent physical check at the chosen offset. Every request an engine
+    # holds has arrived and has not yet departed, and the client's clock is the
+    # outer one on both ends (it sends before the engine admits, and sees the last
+    # token after the engine emits it), so engine occupancy can never exceed the
+    # request-derived in-system count. Correlation is scale-free and blind to this,
+    # which is how the `running`-only anchor shipped; a mis-anchored trace cannot
+    # satisfy it.
+    #
+    # The tolerance covers measurement skew, not error: pods are scraped at
+    # independent instants, so a sum over pods mixes instants up to a scrape period
+    # apart, and during a ramp the true count moves several requests per second.
+    # On the 2026-08-07 staircase this is a clean separation - at the true offset
+    # the worst excess is 1.6% of occupancy and nothing trips the tolerance, while
+    # every offset 2 s or more away puts 17-40% of samples over it (engines holding
+    # requests that, on the shifted clock, had not arrived yet).
+    pv = in_system(best['offset'])
+    viol = worst = 0
+    for o, p in zip(ov, pv):
+        if o > p + max(OVER_L_FLOOR, OVER_L_REL * o):
+            viol += 1
+        if o > 0:
+            worst = max(worst, (o - p) / o)
     best.update(method='cross-correlation', guess=guess,
                 shift_from_guess_s=best['offset'] - guess,
-                trustworthy=best['corr'] >= 0.6)
+                signal='run+wait', n_scrapes=len(ot),
+                over_l_samples=viol, over_l_frac=viol / len(ot),
+                over_l_worst_rel=worst,
+                trustworthy=(best['corr'] >= 0.6
+                             and viol <= OVER_L_MAX_FRAC * len(ot)))
     return best
 
 
@@ -864,8 +913,15 @@ def coverage(ivs, fit, sat, knee, lag, cap, router, qseries, pods, requests, sha
         row('Drain-vs-kill measurable',
             bool(lag.get('scaledown_observed')) and bool(requests),
             'needs a scale-down and a per-request trace'),
+        # PASS here means "observable at all", not "a meaningful share of the
+        # backlog" - so the detail carries the engine queue alongside it for scale.
+        # Queue (a) is recovered by subtraction and is extremely anchor-sensitive:
+        # a mis-anchored demand trace inflates it (a 32 s error read p95=155 on a
+        # run whose true p95 is 4).
         row('Queue (a) material', bool(qflow) and (pct(qflow, 0.95) or 0) > 1,
-            f"p95={pct(qflow, 0.95)}" if qflow else 'no demand trace'),
+            f"p95={pct(qflow, 0.95)} max={max(qflow):.0f} "
+            f"(vs engine queue max={max(qeng):.0f})" if qflow and qeng
+            else (f"p95={pct(qflow, 0.95)}" if qflow else 'no demand trace')),
         row('Queue (c) material', bool(qeng) and max(qeng) > 1,
             f"max={max(qeng) if qeng else None}"),
         row('Router oscillation observable', len(pods) >= 2,
@@ -905,7 +961,7 @@ def coverage(ivs, fit, sat, knee, lag, cap, router, qseries, pods, requests, sha
 # self-checks (section 8.4) - fail loudly, never silently
 # --------------------------------------------------------------------------- #
 
-def self_checks(requests, ivs, cap, meta):
+def self_checks(requests, ivs, cap, meta, anchor=None):
     out = []
 
     def chk(name, ok, detail):
@@ -927,6 +983,18 @@ def self_checks(requests, ivs, cap, meta):
         err = abs(cap['max_conc_pred'] - cap['max_conc_obs']) / cap['max_conc_pred']
         chk('capacity model vs observed peak concurrency', err < 0.25,
             f"pred={cap['max_conc_pred']:.1f} obs={cap['max_conc_obs']} err={err:.1%}")
+    if anchor and anchor.get('over_l_frac') is not None:
+        # A mis-anchored request trace shows up here as engines holding requests
+        # that, on the shifted clock, have not arrived yet or have already left.
+        # This is the check that would have caught the `running`-only correlation.
+        n, corr = anchor.get('n_scrapes') or 0, anchor.get('corr')
+        chk('engine occupancy never exceeds request-derived in-system count',
+            anchor['over_l_frac'] <= OVER_L_MAX_FRAC,
+            f"over-L samples={anchor.get('over_l_samples')}/{n} "
+            f"({anchor['over_l_frac']:.1%}), worst excess "
+            f"{anchor.get('over_l_worst_rel', 0):.1%} of occupancy; anchor shift "
+            f"{anchor.get('shift_from_guess_s')}s on {anchor.get('signal')} "
+            f"at corr={'None' if corr is None else format(corr, '.4f')}")
     return out
 
 
@@ -979,8 +1047,14 @@ def build(run_dir, want_per_request=True, head=None):
                 if r['t_dep'] is not None:
                     r['t_dep'] += off
         if not anchor.get('trustworthy', True):
-            warn(f"time anchor is weak (corr={anchor.get('corr')}); arrival-time "
-                 'panels are unreliable for this run')
+            # Name the criterion that actually failed: a high correlation with a
+            # failing physical check is a different diagnosis from a low one.
+            why = (f"corr={anchor.get('corr')}" if (anchor.get('corr') or 1.0) < 0.6
+                   else f"engine occupancy exceeds request-derived in-system count "
+                        f"on {anchor.get('over_l_frac', 0):.0%} of scrapes despite "
+                        f"corr={anchor.get('corr')}")
+            warn(f'time anchor is weak ({why}); arrival-time panels are '
+                 'unreliable for this run')
 
     shape = {}
     oks = [r for r in requests if r['outcome'] == 'ok']
@@ -1038,7 +1112,7 @@ def build(run_dir, want_per_request=True, head=None):
             'stable_intervals': len(ivs), 'all_intervals': len(all_ivs),
             'wva_processed_present': sorted(wva),
         },
-        'self_checks': self_checks(requests, all_ivs, cap, meta),
+        'self_checks': self_checks(requests, all_ivs, cap, meta, anchor),
     }
     cov = coverage(ivs, fit, sat, knee, lag, cap, router, qseries,
                    pods, requests, shape)
