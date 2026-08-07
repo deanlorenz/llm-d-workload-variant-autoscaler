@@ -93,6 +93,31 @@ review the batch as a list rather than as prose spread over many turns.
   is **(3)**, and by decision rather than by default: it is the only branch that preserves current
   behavior, and it lands admission and ranking together on one real fix instead of a synthetic value.
   Needs a **DEFERRED** classification with design intent, not a silent narrowing.
+  **Reviewer Finding 44 makes the failure the whole reachable domain, not a point in it** (verified at
+  `b6bb525c`): `aCarrier := binding; if satNR != nil { aCarrier = satNR }` (`:237-240`) plus `:211-213`
+  means that when saturation binds, `binding == satNR == aCarrier` is **one pointer**, so `bByName`
+  (`:260-263`) is built from the identical slice the merge iterates (`:265`) and the no-variant `else`
+  is unreachable; `:230-232` returns nil when nothing qualifies. The write site is therefore reachable
+  **only** with saturation present-but-not-binding and another analyzer binding-and-omitting — and in
+  that state all three sub-cases are unsizable: sat `!Enabled` and sat `Enabled && !Live` never enter
+  the `Enabled && Live` voting set (`:318`), while sat `Enabled && Live && !Informative` *does* vote but
+  carries only NoData/Error rows at PRC 0, so the ballot-side `prc <= 0` gate skips it. `(D-a)` as
+  written **cannot scale a variant from zero in any configuration.** Two consequences: (a) there is no
+  *"only admit when saturation votes"* narrowing — the natural thing to reach for — because when
+  saturation votes it also binds and the branch is unreachable, so that version is a feature that never
+  fires and the amendment should say so; (b) **option 2 is out**, not merely weakest: in sub-case 3
+  saturation *is* in the voting set pricing nothing usable, so a floor would grant a replica on the
+  strength of a no-data ballot, contradicting the abstain-as-a-pricing-rule invariant. **The fork
+  therefore collapses from a mechanism question to a scope question:** option 1 is the only mechanism
+  that works (same state, one currency, cost = a synthetic value entering the vote — the `N8` question
+  proper), and option 3 is "not in PR-2". Reviewer declines to choose between 1 and 3; my
+  recommendation stays **(3)**.
+- **Shipped production-prose defect, same amendment.** `analyzer_helpers.go:185-188`'s premise is false
+  (`ResultIsInformative` is any-variant per `:57-62`, so a healthy binder can be informative in
+  aggregate yet price nothing for one variant — the expected shape for a never-measured from-zero
+  variant), *and* the sentence is incoherent about its subject: "a binder omits a variant only when the
+  binder itself is … not-binding". Conclusion holds; re-justify on `:189-192`. Note this is **new PR-2
+  prose**, which per A10 is the first production `.go` doc comment surface this mission touches.
 - Routing: who owns post-freeze Type-1. The internal code reviewer has declined the "Type-1 owner"
   label I used in two handoffs; that error is also now in shipped code (see B3).
 
