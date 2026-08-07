@@ -2,9 +2,11 @@
 .venv/
 __pycache__/
 traces/
-# Staged publishable bundles (publish_result.sh). These belong on the `viz-results`
-# orphan branch, never on `plans` — committing them here would duplicate every result
-# into this branch's history. Rebuild any time from real-trace/<label>/.
+# Staged publishable bundles (publish_result.sh). Ignored ONLY because this directory
+# currently sits on `plans`, an orphan branch of internal planning state that results
+# have no business landing in. Once the directory moves to its own `viz-tools` branch
+# (plan §14.6), results/ becomes a normal tracked directory there and this line comes
+# out — that is the decision, not an accident. Rebuild any time from real-trace/<label>/.
 results/
 # out/ IS committed (rendered HTML + figures, so the deck is viewable without a Python env)
 # ...except the sweep-table cache, which is a local recompute-skip artifact (design §8.1 item 10(d)).
