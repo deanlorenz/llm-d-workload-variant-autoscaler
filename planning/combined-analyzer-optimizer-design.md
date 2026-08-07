@@ -7,10 +7,53 @@
 for the unit/currency contract ([§ units](#units)), the enablement vocabulary and supported configs
 ([§ configs](#configs)), the combine rule ([§ combine](#combine)), the anchor contract
 ([§ anchor](#anchor)), the fair-share metric ([§ limited](#limited)), and the bug/finding inventory
-([§ bugs](#bugs), [§ findings](#findings)). **Design questions that are still open are named
-explicitly in [§ open](#open)** (numbered `W1`–`W5`); anything *not* listed there is settled and may
-be relied on by task plans without re-deriving it. Task plans (Type 3) decide *how* and *when*, never
-*what* — a "what" question surfaced mid-implementation belongs in [§ open](#open), not in the plan.
+([§ bugs](#bugs), [§ findings](#findings), [§ unit-findings](#unit-findings)). **Design questions that
+are still open are named explicitly in [§ open](#open)** — see the decision queue at the top of that
+section, which indexes every open item with who decides it and what it blocks. As of **2026-08-07 the
+queue is EMPTY**: the five `W` questions are all answered, the `N8` rationale is closed, and the last
+item to open — `FZ-admission`, from Dean's own follow-up — is answered *and* decided (mechanism and cap
+both, folded into PR-2). Anything *not* on that queue is settled and may be relied on by task plans
+without re-deriving it. Task plans (Type 3) decide *how* and *when*, never *what* — a "what" question
+surfaced mid-implementation belongs in [§ open](#open), not in the plan, and a design choice this doc
+declines to make is a defect in this doc, not latitude for the coder (Dean 2026-08-07: *"don't leave
+design decsions to coder."*).
+
+**Ownership and freeze — ✅ FROZEN 2026-08-07.** Sole write ownership sat with the **plan-review session**
+(Dean, 2026-08-07) while the [§ open](#open) queue was being drained; that queue is now **empty**, every
+`W` question and every finding is dispositioned, and **ownership is released back to the mission
+planner**, which may proceed with the Type-3 refresh. Post-freeze changes go through Dean, not through a
+concurrent edit. Where this doc and the Type 3 disagree, **this doc governs and the task plan is refreshed
+from it, not the reverse**. The delta the Type 3 does not yet reflect — the refresh's pick-up list:
+
+1. The [§ bugs](#bugs) #5 currency pivot targets **GPU space, not replica space**.
+2. Emitted series: **rename nothing, and add nothing now** — option (d)'s target shape is recorded but
+   deferred ([§ units-observability](#units-observability)).
+3. **`W1`** — one fair-share entitlement per **model**, spent **jointly** across its roles
+   (`Σ_role spend ≤ budget`). Both current spend sites are defects, not just mis-united.
+4. **`W2`** — **priority orders; it never scales an entitlement** (invariant 11). The claim is
+   unweighted; `priority × claim` survives only as a sort key. **Deferred to a future TODO** — it is
+   TA-neutral, and `W3` already works without it.
+5. **`W3`** — explicit `priority: 0` = *last in line, takes the leftovers*; unset defaults to `1`.
+   **No API change** — `0.00001` already expresses it and already behaves correctly
+   ([§ open](#open) carries the trace); what is missing is documentation.
+6. **`W4`** — **no conversion factor ⇒ no spend.** A voter that cannot price a variant abstains; it is
+   not exempt from the budget.
+7. **`W5`** — the per-site unit table ([§ open-what](#open-what)); `fairShareCap` becomes a
+   whole-replica **`floor` fill**, not `ceil`-of-a-division.
+8. **`FZ-admission`** — a never-seen variant is admitted only when saturation binds; under a TA binder it
+   abstains at `PRC = 0` and only the reactive path can raise it ([§ findings](#findings)). **Folds into
+   PR-2**, with the mechanism (a `Reason`-tagged `PRC = 1` sentinel) and the cap (a one-replica **target**
+   ceiling at the three grant sites) both **decided in this doc**, not left to the task plan.
+
+Items 3 and 4 are **behavior changes** and must not ride inside the status-quo-preserving currency
+conversion. All placements are now settled — `W1` and item 8 into PR-2, `W2` (with `U4`) to a future TODO
+as TA-neutral — so the [§ open](#open) queue is empty and the doc is freezable.
+
+**Unit audit.** The six unit rules are stated in [§ units-rules](#units-rules) and the currency
+lattice they range over in [§ units-lattice](#units-lattice). The audit of the shipped code against
+them — verdict per rule at both the current tip and the PR-2 end state, plus the `U1`–`U6` residuals a
+complete PR-2 does not fix — is [§ unit-findings](#unit-findings). The audit checked **coherence of
+units only**, never whether the arithmetic is right.
 
 **Code currency.** Math and mechanism claims re-verified against worktree
 `ta-anchor-dynamic-refresh` @ `d9f3b97e` (PR-2 through C6b) on **2026-08-07**. **Function, field and
@@ -35,30 +78,40 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 
 ## TOC {#toc}
 
-- [Why this doc exists {#why}](#why-this-doc-exists-why) L63:104
-- [Units, currencies & legal conversions {#units}](#units-currencies--legal-conversions-units) L105:213
-  - [The one contract {#units-contract}](#the-one-contract-units-contract) L112:123
-  - [Per-analyzer currencies (concrete, today) {#units-currencies}](#per-analyzer-currencies-concrete-today-units-currencies) L124:158
-  - [The threshold-inflated quantities {#units-thresholds}](#the-threshold-inflated-quantities-units-thresholds) L159:188
-  - [Legal conversions {#units-conversions}](#legal-conversions-units-conversions) L189:213
-- [Enablement vocabulary and the supported configs {#configs}](#enablement-vocabulary-and-the-supported-configs-configs) L214:262
-- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L263:309
-- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L310:379
-  - [One vote is a pass-through, algebraically {#combine-onevote}](#one-vote-is-a-pass-through-algebraically-combine-onevote) L342:362
-  - [Score is a belief weight, never a budget weight {#combine-score}](#score-is-a-belief-weight-never-a-budget-weight-combine-score) L363:379
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L380:648
-  - [The two-phase mechanism {#anchor-twophase}](#the-two-phase-mechanism-anchor-twophase) L545:580
-  - [What the anchor is a workaround for {#anchor-completeness}](#what-the-anchor-is-a-workaround-for-anchor-completeness) L581:618
-  - [Multi-vote semantics that must be pinned down {#anchor-multivote}](#multi-vote-semantics-that-must-be-pinned-down-anchor-multivote) L619:648
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L649:707
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L708:850
-- [Traced findings: liveness, binding and role coverage {#findings}](#traced-findings-liveness-binding-and-role-coverage-findings) L851:900
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L901:931
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L932:965
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L966:1064
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L1065:1138
-- [Open questions {#open}](#open-questions-open) L1139:1288
-  - [Design-level "what" questions surfaced by the currency fix (W1–W5) {#open-what}](#design-level-what-questions-surfaced-by-the-currency-fix-w1w5-open-what) L1182:1288
+- [Why this doc exists {#why}](#why-this-doc-exists-why) L115:156
+- [Units, currencies & legal conversions {#units}](#units-currencies--legal-conversions-units) L157:499
+  - [The one contract {#units-contract}](#the-one-contract-units-contract) L164:175
+  - [The six unit rules {#units-rules}](#the-six-unit-rules-units-rules) L176:229
+  - [Per-analyzer currencies (concrete, today) {#units-currencies}](#per-analyzer-currencies-concrete-today-units-currencies) L230:264
+  - [The currency lattice actually in the code {#units-lattice}](#the-currency-lattice-actually-in-the-code-units-lattice) L265:296
+  - [The threshold-inflated quantities {#units-thresholds}](#the-threshold-inflated-quantities-units-thresholds) L297:326
+  - [Legal conversions {#units-conversions}](#legal-conversions-units-conversions) L327:390
+    - [Conversion discipline — `R6` made enforceable {#units-conversions-discipline}](#conversion-discipline--r6-made-enforceable-units-conversions-discipline) L359:390
+  - [Roles are distinct voters {#units-roles}](#roles-are-distinct-voters-units-roles) L391:420
+  - [Integral replicas at every commitment point {#units-integral}](#integral-replicas-at-every-commitment-point-units-integral) L421:459
+  - [Emitted series and their units {#units-observability}](#emitted-series-and-their-units-units-observability) L460:499
+- [Enablement vocabulary and the supported configs {#configs}](#enablement-vocabulary-and-the-supported-configs-configs) L500:548
+- [The core abstraction: replica-demand & coverage {#abstraction}](#the-core-abstraction-replica-demand--coverage-abstraction) L549:603
+- [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L604:682
+  - [One vote is a pass-through, algebraically {#combine-onevote}](#one-vote-is-a-pass-through-algebraically-combine-onevote) L636:656
+  - [Score is a belief weight, never a budget weight {#combine-score}](#score-is-a-belief-weight-never-a-budget-weight-combine-score) L657:682
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L683:951
+  - [The two-phase mechanism {#anchor-twophase}](#the-two-phase-mechanism-anchor-twophase) L848:883
+  - [What the anchor is a workaround for {#anchor-completeness}](#what-the-anchor-is-a-workaround-for-anchor-completeness) L884:921
+  - [Multi-vote semantics that must be pinned down {#anchor-multivote}](#multi-vote-semantics-that-must-be-pinned-down-anchor-multivote) L922:951
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L952:1010
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L1011:1307
+- [Traced findings: liveness, binding and role coverage {#findings}](#traced-findings-liveness-binding-and-role-coverage-findings) L1308:1630
+- [Unit-audit findings {#unit-findings}](#unit-audit-findings-unit-findings) L1631:1717
+  - [Verdict per rule — at the tip and at PR-2 complete {#unit-findings-verdict}](#verdict-per-rule--at-the-tip-and-at-pr-2-complete-unit-findings-verdict) L1641:1664
+  - [Residuals — what a complete PR-2 does not fix {#unit-findings-residuals}](#residuals--what-a-complete-pr-2-does-not-fix-unit-findings-residuals) L1665:1686
+  - [TA exposure — which defects enabling TA creates, amplifies, or leaves alone {#unit-findings-exposure}](#ta-exposure--which-defects-enabling-ta-creates-amplifies-or-leaves-alone-unit-findings-exposure) L1687:1717
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L1718:1748
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L1749:1782
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L1783:1924
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L1925:2034
+- [Open questions {#open}](#open-questions-open) L2035:2536
+  - [Design-level "what" questions surfaced by the currency fix (W1–W5) {#open-what}](#design-level-what-questions-surfaced-by-the-currency-fix-w1w5-open-what) L2172:2536
 
 ## Why this doc exists {#why}
 
@@ -121,6 +174,60 @@ across analyzers *before* converting — mixing KV tokens with requests per seco
 
 [↑ TOC](#toc)
 
+### The six unit rules {#units-rules}
+
+*(Dean, 2026-08-07 — stated as the audit criteria for the currency work, then verified against
+worktree `ta-anchor-dynamic-refresh` @ `d9f3b97e` **and** against the PR-2 end state. Verdict per
+rule in [§ unit-findings](#unit-findings).)*
+
+**`R1` — Phase I may speak in the analyzer's own metric; nothing downstream may compute in it.**
+The metric unit may be *carried* — observability depends on it ([§ invariants](#invariants) #3) —
+but the unit of computation, of remainders, of bookkeeping and of comparison is never the
+analyzer's metric. **This holds per role as well as per analyzer:** even for one analyzer, even
+saturation, the prefill role's metric and the decode role's metric mean different things and may
+not be compared or summed directly ([§ units-roles](#units-roles)).
+
+**`R2` — actual allocation and cost-based scale up/down are in replicas.** The question an
+allocation step asks is *"how many replicas does this allocation need to support this model under
+this shared GPU limit"* — so the currency of a commitment is a replica count, and it is **integral
+at the point of commitment** ([§ units-integral](#units-integral)).
+
+**`R3` — combining across roles or across variants happens in a shared currency, and which one
+depends on what is being combined.** Two sub-rules, because rates and footprints do not combine the
+same way:
+
+- **`R3a` — rates across roles or variants combine in coverage.** Coverage is dimensionless, so
+  `min`/`max` across roles and variants is meaningful. A *sum* of rates across roles is not.
+- **`R3b` — resource footprints across roles or variants combine in GPUs.** GPUs are the one
+  currency in which `Σ_role` is legal, because the GPU pool is what is actually shared. A footprint
+  sum is legal in GPU space and **illegal in metric space and in replica space**: replicas of
+  different variants are not fungible against the pool (`GPUsPerReplica` varies), and metrics of
+  different roles are not commensurable at all.
+
+**`R4` — Score combines analyzers *within* one scaled object; priority combines *across* scaled
+objects.** Score is a belief weight and belongs strictly inside the combine
+([§ combine](#combine-score)); priority orders and rations *between* models. Neither may appear in
+the other's place — a Score multiplying a budget, or a priority inside one model's per-iteration
+cap, is a category error.
+
+**`R5` — all of the above hold for fallback values.** A fallback is a value that enters the same
+arithmetic, so a fallback in the wrong currency is the same bug as a primary in the wrong currency —
+and harder to see, because it fires rarely.
+
+**`R6` — values may still carry Phase-I units; the conversion must happen before (or in) any
+computation.** R1–R5 are not claims about what is *stored*; they are claims about what is *computed
+on*. A field may hold the analyzer's metric all the way to a consumer, provided the consumer
+converts before it computes. This is the rule that makes the others enforceable mechanically
+([§ units-conversions](#units-conversions) "Conversion discipline").
+
+> **The mechanical form of `R6`** — the audit rule that located every violation in
+> [§ unit-findings](#unit-findings): *a site that reads `RequiredCapacity`, `SpareCapacity`,
+> `TotalDemand`, `RoleSpare` or `PerReplicaCapacity` and does **not** divide by that same entry's
+> PRC is computing in the analyzer's metric.* Every site that routes through the cross-analyzer
+> combine passes by construction; **every violation found was a site that bypasses the combine.**
+
+[↑ TOC](#toc)
+
 ### Per-analyzer currencies (concrete, today) {#units-currencies}
 
 | Analyzer | PRC unit | What demand counts |
@@ -153,6 +260,38 @@ fallback record charges an absolute-KV-token queue addend against `EffectiveMaxB
 *per-step* token budget — documented in-code as pre-existing and tracked separately. It is listed
 here so a reader does not mistake it for one of the combine bugs; it lives entirely inside one
 analyzer.
+
+[↑ TOC](#toc)
+
+### The currency lattice actually in the code {#units-lattice}
+
+**There are four currencies in the shipped code, not two.** Naming them together with their *actual
+carriers* is what makes an audit mechanical: to classify a site, look up which currency its inputs
+are in and whether it converted. Field and function names below are authoritative; line numbers are
+deliberately omitted because they drift.
+
+| Currency | What it measures | Carried by | `Σ` legal? |
+|---|---|---|---|
+| **analyzer metric** | the analyzer's private unit, **per role** | `RequiredCapacity`, `SpareCapacity`, `TotalDemand`, `PerReplicaCapacity`, `RoleCapacities[role].{Required,Spare,TotalDemand}`, `RoleSpare`, `pickerState[i][role]` | **no** — not across analyzers, not across roles |
+| **replicas** | a commitment | `replicaVote.Value`, `roleBottleneckReplicas`, `safeRemovalReplicasForRole`, the paired-commit `k`, `targets[variant]`, `MinReplicas`/`MaxReplicas` | **no** — not across variants (not fungible against the pool) |
+| **GPUs** | the shared, rationed resource | `available[accType]`, `rescaleInput.{Demand,FloorGPUs,CapGPUs}`, `roleDemandGPUs`, `modelDemandGPUs`, `distributeGPUsByWeight`, `gpusPerReplicaFromState` | **yes** — the only additive currency |
+| **coverage** | dimensionless satisfaction | `utilByRole`, `deltaUtil`, `VariantCapacity.Utilization`, `cov = n / rd` | **no** (`min`/`max` yes, `Σ` no) |
+
+Read it as a partial order of conversions, not a set of synonyms:
+
+```
+analyzer metric ──÷ PRC──▶ replicas ──× gpusPerReplica──▶ GPUs
+        │                     │
+        └──── n·PRC/demand ───┴──▶ coverage        (dimensionless; no way back)
+```
+
+Two consequences, stated because the code violates them in exactly the places the audit found:
+
+- **metric → replicas is per `(analyzer, role, variant)`.** There is no model-wide or even role-wide
+  PRC to divide by, so any conversion that picks *one* PRC for a whole role is an approximation and
+  must say so ([§ units-integral](#units-integral)).
+- **coverage is terminal.** Once a quantity is dimensionless you cannot recover a replica or GPU
+  count from it without re-multiplying by a demand you name explicitly.
 
 [↑ TOC](#toc)
 
@@ -208,6 +347,154 @@ These are the only sanctioned ways to cross a unit boundary:
 
 Anywhere PRC appears **standalone** in sizing or ordering — outside the four rows above — is a
 smell; see the PRC = 1 mental experiment in [§ abstraction](#abstraction).
+
+> **Caveat on the `costEfficiency` row.** "Demand cancels" holds within a role **for one analyzer**;
+> under multi-vote it holds only while the variants being ranked share a binder. Two variants in one
+> role can bind to *different* analyzers ([§ combine](#combine) — binding is per `(role, variant)`),
+> and then `Cost / PRC` compares dollars-per-KV-token against dollars-per-request-per-second: a
+> ratio of two different currencies. The **batch** form used in [§ sort](#sort)
+> (`Cost × combinedDesiredReplicas`) is immune because it is denominated in replicas; the
+> **marginal** form is the exposed one. Not wrong in any shipped config (one binder per role today),
+> and not fixed here — recorded as [§ unit-findings](#unit-findings) `U3`.
+
+#### Conversion discipline — `R6` made enforceable {#units-conversions-discipline}
+
+*(Dean, 2026-08-07.)* Every function that computes on a value from another currency performs the
+conversion **explicitly, at initialization**, and names it: `X.toReplicas()`, `X.toCoverage()`,
+`X.toGPUs()`. Three reasons this is a rule and not a style preference:
+
+- It moves the audit from "read the whole function and infer the units" to "find the conversion call
+  at the top." A function with a foreign input and no conversion call is a violation on sight.
+- It puts the **choice of divisor** on one visible line — which is the only place the round-trip rule
+  above can actually be checked, because that is where the reference PRC (or `gpusPerReplica`) is
+  captured, once.
+- **The conversion functions already exist.** `analyzer_helpers.go`'s collectors are the sanctioned
+  conversions: `roleBottleneckReplicas` (metric → replicas, `max_i`), `safeRemovalReplicasForRole`
+  (metric → replicas, `min_i`), and the `utilByRole` / `deltaUtil` pair (metric → coverage). The
+  discipline is to *route through them* rather than re-derive a division in place. Every `R1`
+  violation the audit found is a site that did its own division — or none.
+
+> **Coder-checklist invariant.** Any commit touching an allocation, budget, cap, clamp, sort key or
+> remainder must answer, per site: **which currency is this in, where was it converted, and which
+> factor was captured?** A site that cannot answer is a finding, not a style nit. This belongs in the
+> reviewer checklist for *every* commit in this mission, not only the currency commits.
+
+**Compile-time enforcement is available, and is the strongest form of this rule.** Go can carry the
+lattice in the type system — `type Replicas float64`, `type Coverage float64`, `type GPUs float64`,
+with conversion methods as the only way between them — at which point every violation in
+[§ unit-findings](#unit-findings) becomes a build error instead of a review finding. This is **not**
+proposed for this mission: it touches every signature in the pipeline. It is recorded because it is
+the answer to "how do we stop this class of bug from coming back", and because a future refactor
+that is already touching those signatures should take it.
+
+[↑ TOC](#toc)
+
+### Roles are distinct voters {#units-roles}
+
+**RULE (Dean, 2026-08-07): treat different roles as different analyzers.** The units *look* the same
+because they share a field name and a producer, but a prefill role's metric and a decode role's
+metric are different quantities, produced by role-specific demand accounting; nothing makes them
+commensurable. The correct key is **`(analyzer, role)`** — exactly what [§ abstraction](#abstraction)
+already observes descriptively and [§ invariants](#invariants) #6 records. What is new is the
+**disposition: this is a rule to be enforced, not a curiosity to be noted.**
+
+**What the rule forbids, concretely** — any `Σ_role`, `max_role` or `min_role` over **metric-space**
+or **replica-space** per-role quantities, and any silent fallback from a role-level number to a
+model-level one:
+
+| Site | The role-mixing step | Status under this rule |
+|---|---|---|
+| `fairShareValue` | `Σ_role pickerState[i][role]` — sums per-role metric-space remainders | **fixed by the currency pivot** *iff* it lands in GPU space ([§ limited](#limited)); a replica-space pivot converts the sum but leaves it illegal |
+| `fairShareValue`'s zero-result fallback | `max_{i,role} pickerState[i][role]` — maxes across roles in metric space | same; `R5` makes this a first-class site, not an edge case |
+| the fair-share role pick | a **scalar** cross-role budget caps a **single** role's pick | pre-existing; the *unit* half is fixed by GPU space, the *policy* half is [§ open](#open) `W1` |
+| the `allocateForModel` clamp | each role clamped independently against that same cross-role scalar | as above — **and** the "sat-only is inert because `bound ≥ d_role`" argument *rests on the illegal sum* and does not survive this rule ([§ bugs](#bugs) #5 site (iv)) |
+| emitted `decision.RequiredCapacity` / `SpareCapacity` | falls back from `RoleCapacities[role]` to the **model-level** RC/SC when the role key is missing | **open** — see [§ units-observability](#units-observability) / `U5` |
+
+**Why GPU space is the resolution, and not a coincidence.** `R3b` says footprints sum legally in
+GPUs. The roles of one model draw from the *same* GPU pool, so `Σ_role gpus[role]` is a real
+quantity — the model's footprint — while `Σ_role tokens[role]` and `Σ_role replicas[role]` are not.
+Denominating the cross-role budget in GPUs therefore **fixes the role-mixing and the analyzer-mixing
+with one change**, instead of fixing the second and merely converting the first. That is the design
+reason for [§ limited](#limited)'s GPU-space decision, over and above "GPUs are what is scarce."
+
+[↑ TOC](#toc)
+
+### Integral replicas at every commitment point {#units-integral}
+
+`R3b` denominates the *budget* in GPUs; `R2` says the *commitment* is a replica count. Those are
+consistent only if the quantization is done right — and the wrong way is seductive: divide a GPU
+share by `GPUsPerReplica` and round. `ceil` over-commits GPUs that do not exist, `floor` silently
+strands the remainder, and with heterogeneous `GPUsPerReplica` inside one role neither is a fair
+split.
+
+> **RULE: never round a GPU share into replicas.** Commit whole replicas while a whole replica's
+> worth of the resource remains, and return the remainder to the pool.
+
+The rescale layer already does exactly this, and it is the reference implementation for every future
+commitment site:
+
+- `fillRole` commits inside `for wantGPUs - spent >= g` — a replica is added only when a **whole**
+  replica's GPUs fit, so `spent` is always a multiple of `g` and never exceeds the grant.
+- the caller decrements the pool by **`spent`, not by `want`**, so the quantization remainder returns
+  to the pool rather than being lost or double-spent.
+- `shrinkRole`'s `maxRemovable` uses **integer division** of the remaining GPU delta by `g` — whole
+  replicas in the shed direction too.
+- `roleDemandGPUs` `ceil`s the **replica** count *first* and multiplies by `gpusPerReplica` *after* —
+  the replica count is made integral **before** the currency changes, never after.
+
+So the GPU-space prescription needs no new rounding policy; it needs new sites to adopt the one that
+already ships. A commitment site computing `round(gpuShare / g)` is a finding even where the
+arithmetic looks equivalent in the homogeneous case.
+
+**The residual: the reference-variant approximation.** `roleDemandGPUs` — and any GPU-denominated
+fair-share numerator — converts a whole role's demand through **one reference variant's**
+`PerReplicaCapacity` and `GPUsPerReplica` (`roleDemandGPUs` uses the cheapest variant's). That is a
+homogeneous-role approximation, and it is the *same* weakness as the reference-PRC choice in the
+fair-share cap: **one class, two dimensions.** It is neither introduced nor fixed by the currency
+work. What the currency work *does* change: in GPU space the spend-time factor is `GPUsPerReplica` —
+**immutable deployment topology** — instead of the anchor's per-iteration-refreshed
+`PerReplicaCapacity`, so the capture-vs-re-derive hazard of [§ invariants](#invariants) #9 **does not
+arise for the cap at all**. The approximation survives; the drift hazard stops existing.
+
+[↑ TOC](#toc)
+
+### Emitted series and their units {#units-observability}
+
+`R1` permits *carrying* the analyzer's metric to a consumer, and observability is such a consumer.
+It is also the one place where "carried, never computed on" is not the end of the story: a human
+comparing two points on a time series is performing a computation the code cannot type-check.
+
+**The problem (traced 2026-08-07).** `buildDecisionsWithOptimizer` copies the binding analyzer's
+`RequiredCapacity` and `SpareCapacity` onto the emitted decision, so the emitted series **inherits
+the binder's unit**. Under multi-vote the binder can flip between cycles *and* between variants, so
+one series silently changes unit mid-flight — KV tokens for one scrape, requests per second for the
+next — with no label change to signal it. A dashboard plotting it, or an alert with a fixed
+threshold on it, is wrong in a way nothing in the code can catch. The same site also falls back from
+`RoleCapacities[role]` to **model-level** RC/SC when the role key is missing, mixing a role quantity
+with a model quantity ([§ units-roles](#units-roles)).
+
+**Decision (Dean, 2026-08-07) — option (d): emit both, and rename nothing.**
+
+| Series | Unit | Disposition |
+|---|---|---|
+| the **existing** observer series | unchanged (binder-inherited) | **name and semantics preserved** — current dashboards keep working. A hard constraint, not a preference: a rename is a silent break for anyone plotting it. |
+| **per-analyzer** raw series | that analyzer's own metric, carried on an analyzer label | **deferred** (see below). Unit-stable by construction: the unit becomes a property of the label, so no series ever changes unit. |
+| **dimensionless / coverage** series | coverage | **deferred** (see below). Coverage is comparable across analyzers, roles and models, which is exactly what a dashboard or an alert threshold needs. |
+
+> **Narrowed 2026-08-07 (Dean): *"no new series now."*** Option (d) stands, but only its
+> **rename-nothing** half is in scope. The two additions above are the **recorded target shape**, not
+> work in PR-2 — nothing is emitted, nothing is renamed, and no metric is redefined in place.
+>
+> What this leaves is a **documented limitation** rather than a fix, and the trade is deliberate: the
+> defect is observability-only (it cannot missize or misgate a decision — [§ units-rules](#units-rules)
+> `R1` permits carrying the metric to a consumer), whereas adding series is a permanent external
+> contract that is far harder to withdraw than to postpone. Recorded as [§ unit-findings](#unit-findings)
+> `U5`. When it is picked up, the table above is the specification; until then a dashboard author needs
+> to know that the existing series' unit is binder-dependent, which is the point of writing it down.
+
+*(Distinct from the `Utilization` gauge question in [§ open](#open) #6, which is about current-load
+vs anticipated-coverage semantics on a **different** series and whose answer is "no code change, add
+a doc note". Both are observability; neither is the other.)*
 
 [↑ TOC](#toc)
 
@@ -300,10 +587,18 @@ pending via RC).
 Legacy-complexity note (Dean): `rd` is **not** a clean matrix. Each `(analyzer, role)` can be a
 completely separate analyzer — the metric need not mean the same thing per role, and its
 computation can differ. The role-combine (coordinated P/D scaling) math is solid and does **not**
-require all roles to share the same analyzer set; it works entirely in replicas and coverage.
-Demand is already per-role, so logically it's equivalent to indexing demand per
-`(analyzer, variant, role)` or per `(analyzer, scaled-object-target)`. We are **not** changing the
-role model now.
+require all roles to share the same analyzer set; **where it works in replicas and coverage it is
+already correct**. Demand is already per-role, so logically it's equivalent to indexing demand per
+`(analyzer, variant, role)` or per `(analyzer, scaled-object-target)`.
+
+> **Escalated 2026-08-07 (Dean).** This stopped being a descriptive note and became a rule:
+> *different roles are treated like different analyzers* — see
+> [§ units-roles](#units-roles) for the rule and the list of sites that violate it. Two clarifications
+> so the escalation is not over-read: **(1)** the *role model* itself — which analyzer serves which
+> role, and how P/D coordination combines them — is **unchanged**; what changes is that per-role
+> quantities may no longer be summed or compared outside GPU space. **(2)** the clause above holds
+> only *where* the code is in replicas and coverage; the greedy fair-share path
+> ([§ limited](#limited)) is **not**, which is precisely the finding.
 
 [↑ TOC](#toc)
 
@@ -374,6 +669,15 @@ that are design decisions, not implementation detail:
 - **A Score of 0 must not silently delete a vote's veto power.** Believing an analyzer's *number*
   not at all is different from removing it from the electorate; scale-down safety comes from the
   `Live` veto, which Score does not gate. See the abstain-vs-veto rule in [§ anchor](#anchor).
+- **A `0` vote is not a veto once the combine weights by dominance.** Under the pre-refactor
+  arithmetic a zero could be relied on to pull a result to zero; under dominance weighting it cannot.
+  Any veto — notably the per-variant scale-down veto — must therefore be expressed **outside** the
+  combine and return before it, never encoded as a zero-valued vote. Recorded so a later refactor
+  does not "simplify" it back into the combine ([§ unit-findings](#unit-findings) `U6`).
+- **One coercion site, not two.** Score currently reaches the arithmetic through two different
+  coercions — the combine's own (`Score ≤ 0 → 1.0`) and a raw `e.Score` read in the fair-share
+  metric. Removing Score from `fsv` collapses these to one, which is a real (if incidental)
+  simplification: there is then exactly one place that decides what a missing or zero Score means.
 
 [↑ TOC](#toc)
 
@@ -766,9 +1070,45 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
    common units, summing over-counts vs the binding `max_i` and misorders models.
 
    **The currency pivot.** The fix is not local: it changes the unit `fsv` (and therefore `mean`,
-   `target`, and every comparison built on them) is denominated in, from *mixed analyzer-private
-   capacity* to **replicas**. Because the unit changes, every site that produces or consumes that
-   number must move in the **same commit** or the units desync silently — five sites, not one:
+   `target`, and every comparison built on them) is denominated in, away from *mixed analyzer-private
+   capacity*. Because the unit changes, every site that produces or consumes that number must move in
+   the **same commit** or the units desync silently — five sites, not one.
+
+   > **DECIDED 2026-08-07 (Dean): the target currency is GPUs, not replicas.** The five-site
+   > *structure* below is unchanged and remains the specification of *which* sites move together; the
+   > *currency* is GPUs. Where a site's formula below names a replica count or a PRC-based factor,
+   > read the GPU-space factor from this block.
+   >
+   > - **Why GPUs.** `Σ_role` is legal in GPU space and illegal in both metric and replica space
+   >   ([§ units-rules](#units-rules) `R3b`). A replica-space pivot fixes the analyzer-mixing and
+   >   **introduces** a role-mixing violation in its place; a GPU-space pivot fixes both at once
+   >   ([§ units-roles](#units-roles)). GPUs are also what is actually rationed, so the budget finally
+   >   denominates in the resource it is a share of.
+   > - **What disappears.** The `prcRef` machinery of site (ii) — the copied value map, the
+   >   capture-before-refresh requirement, the "do not re-derive in the closure" grep step — **stops
+   >   existing** rather than getting solved: in GPU space the spend-time factor is `GPUsPerReplica`,
+   >   immutable deployment topology, so [§ invariants](#invariants) #9's drift hazard cannot arise
+   >   here. The cap becomes a whole-replica fill against `GPUsPerReplica`, per
+   >   [§ units-integral](#units-integral) — **not** a division-and-round.
+   > - **What survives.** The reference-variant approximation in the numerator (one role's demand
+   >   converted through one variant's PRC and `GPUsPerReplica`), now the *same* approximation
+   >   `roleDemandGPUs` already makes — one weakness in one class rather than two.
+   > - **Sat-only exposure: no new class.** GPU space adds no sat-only risk beyond the ordering change
+   >   [§ limited](#limited) already concedes; it adds a `GPUsPerReplica` factor to that same
+   >   ordering. Dean's instruction is explicit: *"if sat-only needs fixing too we have to fix it
+   >   now"* — so the sat-only path is fixed in this commit rather than deferred, and the sat-only
+   >   fixture must **vary `GPUsPerReplica`** across the two models or it cannot detect the factor at
+   >   all.
+   > - **Not covered by this decision, but since ANSWERED separately:** whether one model should have a
+   >   *single* cross-role budget at all ([§ open](#open) `W1`) and the `priority` leak (`W2` / `U4`).
+   >   Both were answered by Dean on 2026-08-07 and both are **behavior changes that do not belong in
+   >   this conversion commit** — `W1` makes role spend a joint debit against one model-level GPU
+   >   balance, `W2` removes `priority` from the claim. This commit stays status-quo-preserving in both
+   >   respects; the two changes land separately (queue in [§ open](#open)). Where a site's formula
+   >   below still shows `priority ×` or a shared-`target` spend, that is **deliberately** today's
+   >   behavior in the new currency, not a prescription for the end state.
+   >
+   > The task plan's per-site formulas are refreshed from this block, not the reverse.
 
    - **(i) `fairShareValue`** — replace `Σ_i Score_i × Σ_role ps[i][role]` with a combined
      replica-space quantity, `priority × Σ_role (max_i rd_i[role] − current[role])`. **Score leaves
@@ -779,6 +1119,19 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
      `max_i rd_i` per role, so the numerator is a read rather than a re-derivation. Contrast the
      earlier note "the anchor does not reach fsv": true *as fsv is written today* (it walks `ps`), and
      the fix is precisely to re-point it.
+
+     > **`priority` follows `Score` out — later, not here (`W2`, decided 2026-08-07).** The end-state
+     > formula is `Σ_role (max_i rd_i[role] − current[role])` with **no leading `priority`**: the same
+     > argument that evicted `Score` ("a belief weight is not a budget weight") applies verbatim to
+     > `priority` ("a rank is not a budget weight"). The `priority ×` shown above is retained **only**
+     > because removing it changes allocations, which this conversion commit must not do. Two numbers
+     > exist in the end state — the unweighted **claim** (spent) and the ordering key `priority × claim`
+     > (compared, never spent) — and only `sortByRemainingDesc` may read the second.
+
+     > **Naming.** With `priority` gone from the quantity, "fair-share *value*" no longer describes
+     > what this returns. It returns a **claim in GPUs**. Renaming is optional and cosmetic, but if the
+     > coder does rename, the [§ units-rules](#units-rules) `R6` grep terms in the task plan move with
+     > it — call it out in the handoff rather than doing it silently.
    - **(ii) `fairShareRolePick` → `fairShareCap`** — today `ceil(target / vc.PerReplicaCapacity)`
      divides the fsv-unit `target` (`= w.remaining − mean`) by the anchor's PRC. Once `target` is
      replicas this division is a **double conversion** — but the correct replacement is **not** a bare
@@ -797,12 +1150,41 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
      re-derivation drifts in value *and* in identity (PRC feeds `costEfficiency`, which reorders the
      cost sort that chooses "the cheapest variant"). **A bare `ceil(target)` here silently rescales
      every non-reference candidate's cap by `PRC_ref/PRC_vc`.**
+
+     > **⚠ SUPERSEDED by the GPU decision above — retained as the derivation only.** In GPU space the
+     > entire formula, the `PRC_ref` value map, and the capture-before-refresh ordering rule **stop
+     > existing**. What replaces them:
+     >
+     > ```
+     > fairShareCap = floor( remaining_GPUs / GPUsPerReplica[vc] )     // whole-replica fill
+     > capN         = min( fairShareCap, gpusAvail / GPUsPerReplica[vc] )
+     > ```
+     >
+     > `GPUsPerReplica` is deployment topology and is never rewritten mid-cycle, so there is no
+     > round-trip and no drift hazard — invariant #9 does not apply here at all. Note **`floor`, not
+     > `ceil`**: this is a budget, and a partial replica is not affordable ([§ units-integral](#units-integral)).
+     > `ceil` was the pre-existing rounding and over-grants by up to one replica at every boundary;
+     > changing it is a **one-replica behavior change at the boundary** and needs a fixture that lands
+     > mid-replica, or it will not be observed. Flag it in the commit message — it is the one place the
+     > conversion is not value-neutral.
+     >
+     > `remaining_GPUs` is the model's balance, decremented as each role spends (`W1`) — not a fresh
+     > copy of `target` per role. That decrement is the `W1` behavior change and lands separately; until
+     > it does, this reads `target` per role exactly as today.
    - **(iii) scale-down tie-break `sortVariantsForScaleDown`** — a **second** `Σ_i Score_i × PRC_i[v]`
      site. Lower severity: it only orders scale-down candidates within a role (a tie-break), never
      sizes; but it is the same wrong-operator/mixed-unit pattern. Fix: tie-break on the *binder's* PRC
      (which requires the function to learn which role it is ordering), name-ascending as the final
      key, and give a variant with no scale-down ballot at all the same key today's weighted sum yields
      for that input, so that edge does not move.
+
+     > **The unit of this key is dimensionless — coverage per GPU freed** ([§ open](#open) `W5` row 7).
+     > Scale-down ordering asks "which removal costs the least coverage per GPU it returns to the pool",
+     > which is a ratio of two like quantities and therefore has no unit. Two consequences: it is
+     > **never spent** (it is a comparator input only, like the `W2` ordering key), and it must combine
+     > across analyzers with **`max_i`, not `Σ_i`** — the current `Σ_i Score_i · prcForVariant(…)` sums
+     > raw PRCs across analyzers, i.e. it adds KV tokens to req/s, which is the same defect as site (i)
+     > in a place where it only misorders rather than missizes.
    - **(iv) the picker-state clamp in `allocateForModel`** — it clamps `ps[i][role]` (raw
      analyzer-private capacity) against `target` (now replicas). Clamping capacity against a replica
      count *is* the bug. The cheap correct shape converts the **bound** into each analyzer's own
@@ -814,11 +1196,36 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
 
      `ps` stays raw capacity, which is what every downstream consumer expects
      (`roleBottleneckReplicas` divides by `PRC_i`; `allocateForModelPaired` and
-     `applyDeallocationForRole` decrement in capacity). An analyzer with **no PRC** for the reference
-     variant is left **unclamped**: no conversion factor exists, zeroing it would delete its vote, and
-     it cannot participate in the picker for that variant anyway — so the un-enforced budget is
-     harmless. Making `ps` itself replica-space would instead ripple through `initRoleState`,
-     `roleBottleneckReplicas`, `allocateForModelPaired` and `applyDeallocationForRole`.
+     `applyDeallocationForRole` decrement in capacity). Making `ps` itself replica-space would instead
+     ripple through `initRoleState`, `roleBottleneckReplicas`, `allocateForModelPaired` and
+     `applyDeallocationForRole`.
+
+     > **✏️ CORRECTED 2026-08-07 (Dean, `W4`).** This site previously read: *"An analyzer with **no
+     > PRC** for the reference variant is left **unclamped**: no conversion factor exists, zeroing it
+     > would delete its vote, and it cannot participate in the picker for that variant anyway — so the
+     > un-enforced budget is harmless."* That is **withdrawn**. Dean, verbatim: *"you should not be able
+     > to exceed budget even if you don't know the price of an item."*
+     >
+     > The rule is **no conversion factor ⇒ no spend**: such an entry contributes nothing for that
+     > variant — not to the claim, not to the pick. It abstains rather than being exempted. The
+     > "harmless" reading rested on `votesFromPickerState`'s independent `prc <= 0` filter happening to
+     > exclude the same entry; that made the outcome right and the reasoning wrong, and it would break
+     > silently the moment either filter is edited. See [§ open](#open) `W4` for the rule and its test.
+     >
+     > Practically, the observable behavior today is close to what the rule prescribes, so this is
+     > mostly a **statement** change — but it is the statement that a future edit gets checked against,
+     > which is the entire point of writing it down once.
+
+     > **Correction 2026-08-07 — the sat-only inertness argument does not hold.** The argument that
+     > this clamp is inert in a `[sat]`-only config because the bound is `≥` the role's own demand
+     > relies on `target` being a **sum over roles** of quantities that may be added — i.e. on exactly
+     > the step [§ units-roles](#units-roles) now forbids. With one analyzer and one role the clamp is
+     > inert for the trivial reason that the bound equals the demand; with **two roles** the
+     > cross-role sum is what makes the bound comfortably large, and that sum is not a legal
+     > quantity in metric or replica space. So: `[sat]`-only **single-role** inertness stands;
+     > `[sat]`-only **P/D** inertness is not established by that argument and must not be asserted
+     > on it. The conversion factor here is each analyzer's *own* `Result` PRC, which is never
+     > rewritten in place, so this site has no round-trip hazard in either currency.
    - **(v) `fairShareValue`'s zero-result fallback** — when the weighted result is zero, `fsv`
      returns `max_{i,role} ps[i][role]`: raw remaining demand in an analyzer-private unit. Two things
      follow from the pivot. Its trigger **narrows** (with Score gone, only a non-positive `priority`
@@ -829,22 +1236,73 @@ active — i.e. exactly what enabling/disabling other analyzers will do.
      priority should not silently strand a model that genuinely needs replicas, since `fsv = 0`
      excludes it from the active set and it is then never allocated at all.
 
+     > **✏️ SUPERSEDED 2026-08-07 (`W2` + `W3`): this fallback is DEAD CODE — delete it, do not
+     > re-denominate it.** The prescription above ("return the unweighted demand") was written while
+     > `W2` was open. With `W2` answered, `priority` is no longer a factor in the claim, so **no
+     > priority value can drive the weighted result to zero** — and `Score` had already left (site (i)).
+     > The branch's last remaining trigger is a genuinely zero claim, and for that case `0` is the
+     > **correct answer**, not a condition to paper over: a model no analyzer can size claims nothing
+     > and is properly excluded from the active set. The original worry — "a mis-configured priority
+     > should not strand a model" — is answered upstream instead, by `W3`: explicit `priority: 0` means
+     > *last in line*, not *claim nothing*, so such a model is never stranded in the first place.
+     >
+     > Sequencing: the deletion depends on `W2` having landed. Until then the branch is still reachable
+     > and must keep working in the new currency, so the conversion commit converts it and the later
+     > `W2` commit deletes it. Classification for the coder's handoff: **DEPRECATED** — *"priority-zero
+     > fallback in `fairShareValue` — removed; `priority` no longer scales the claim, so the branch is
+     > unreachable, and a zero claim is the correct output rather than a condition to substitute a
+     > manufactured one for."*
+
    **Multi-role (P/D) divergence, made visible by the fix but not caused by it.** `target` is a
    **scalar** summed over roles, while the cap is applied **per role**. So the per-role cap is already
    cross-role contaminated: today it is `ceil((Σ_role' d_role') / PRC_vc)`, and after the fix
    `ceil((Σ_role' d_role' · PRC_ref[role] / PRC_ref[role']) / PRC_vc)`. The two agree **iff all
-   per-role reference PRCs are equal**. Whether the fair-share budget should be per-role at all is an
-   open design question ([§ open](#open) `W1`) — the fix must not be read as answering it. Note that
-   fixtures which give prefill and decode the *same* reference PRC cannot distinguish the two forms,
-   so coverage there is coincidental, not deliberate.
+   per-role reference PRCs are equal**. How the fair-share budget should treat roles was `W1`, **now
+   answered** (see the block below) — but the fix must still not be read as *implementing* that answer.
+   Note that fixtures which give prefill and decode the *same* reference PRC cannot distinguish the two
+   forms, so coverage there is coincidental, not deliberate.
+
+   **In GPU space this paragraph changes character.** The cross-role sum stops being a *unit* error
+   (GPUs are additive across roles, `R3b`) and becomes purely a **policy** question — and that question
+   is now **answered**. The equal-reference-PRC caveat above becomes an equal-`GPUsPerReplica` caveat,
+   and fixtures must vary it for the same reason.
+
+   > **`W1` ANSWERED 2026-08-07 (Dean): one entitlement per model, spent jointly across its roles.**
+   > Neither "a single scalar with role erased" (today) nor "one budget per role" — see [§ open](#open)
+   > `W1` for the derivation. The consequence for this paragraph is that **both** current spend sites
+   > are defects, not merely mis-united:
+   >
+   > | Site | Today | Under `W1` |
+   > |---|---|---|
+   > | (ii) cap | every role is handed the same whole-model `target` | each role sizes against the **remaining** balance |
+   > | (iv) clamp | each `(analyzer, role)` clamps against the **full** `target` independently | `Σ_role spend ≤ target` — a **double-spend** today, in a P/D model |
+   >
+   > What currently prevents a real over-allocation is the downstream GPU-pool check
+   > (`min(fairShareCap, gpusAvail/gpusPerReplica)`): the **pool** is enforced, the **fair share** is
+   > not. Same shape as `W4` — safety by a second mechanism, not by the rule.
+   >
+   > This is a **behavior change** and is therefore **not** part of this conversion commit. It also
+   > **requires** GPU space to state at all: `Σ_role spend ≤ budget` is well-formed only where roles
+   > share a currency (invariant 10) — a third thing the pivot unlocks, alongside `R3` and `U1`. It
+   > makes `fairShareRolePick`'s `_ = roles` placeholder live, though what it needs is a **sequenced
+   > draw** against one balance, not the static per-role *split* that comment anticipates.
 
    **`priority` leaks into the cap, and the fix makes the leak newly misleading.** `target =
    remaining − mean` and `remaining = priority × demand`, so `ceil(target)` is a **priority-scaled**
    replica count, not a replica count. This is pre-existing and unchanged by the fix (today's
    `target / PRC` is equally priority-scaled, so the number moves identically) — but after the fix the
-   expression *reads* like a replica count. Whether priority belongs at the spend or only in the
-   ordering is [§ open](#open) `W2`; until that is answered the honest description is
-   "priority-scaled replicas."
+   expression *reads* like a replica count. The currency pivot does not touch this leak in either
+   space, so within **this commit** naming it accurately remains the whole obligation: the honest
+   description is "priority-scaled replicas" — or, in GPU space, "priority-scaled GPUs".
+
+   > **`W2` ANSWERED 2026-08-07 (Dean): priority orders, it never scales an entitlement.** So the leak
+   > is no longer something to name and live with — it is a **defect to remove**, in its own commit. The
+   > claim becomes unweighted; `priority × claim` survives **only** as `sortByRemainingDesc`'s
+   > comparator input, never as a quantity. Knock-ons: `computeMean` averages unweighted claims (today
+   > one high-priority model shifts every other model's `target` — a scarcity signal leaking out of a
+   > ranking); site (v)'s deliberate `priority` drop turns out to have been *right*, and then becomes
+   > dead; and [§ unit-findings](#unit-findings) `U4` is **no longer a surviving `R4` violation** but a
+   > scheduled fix. See [§ open](#open) `W2` and [§ invariants](#invariants) invariant 11.
 
 [↑ TOC](#toc)
 
@@ -876,8 +1334,9 @@ about tomorrow.
 | **`N5`** | Saturation reports `Cost = 0` for a zero-replica variant; the (a) identity merge propagates it to **all three configs**, and `costEfficiency = Cost / PRC = 0` then ranks that variant cheapest. | Real defect, **not** an anchor defect | Root fix is a **separate saturation bug**. `N8` removes only the *fallback* half of the exposure. File separately. |
 | **`N6`** | The queueing-model analyzer is refused with an explicit error rather than silently mis-handled. | Deliberate scope boundary | DEFERRED, by design ([§ anchor](#anchor-twophase)). |
 | **`N7`** | Voters that decompose roles differently permanently veto per-role scale-down: the veto requires every live voter to report positive spare for the role, and a map-miss reads as `0.0` spare — so a non-disaggregated voter, seeded only with a both-roles entry, vetoes forever. | Design gap — needs a rule | **Open.** Needs abstain-vs-veto semantics ([§ anchor](#anchor-multivote)). Failure mode is **stuck-high, not unsafe** — which is why it is a correctness-of-model issue rather than a safety one. |
-| **`N8`** | **Drop the (b)-sizing fallback entirely** rather than `Live`-gate it. The fallback fires exactly when saturation is untrustworthy, so gating it is nearly vacuous; and mixing saturation's sizing into a TA-bound anchor mixes metric scales, which is the very error this design exists to remove. Abstain (`PRC = 0`) instead. | Design decision | **Adopted.** Dissolves `N1` and the fallback half of `N5`, and **revises** the enablement-gated-fallback decision recorded in the anchor task's plan. Lands in the dynamic-refresh task. |
-| **`N9`** | The reactive from-zero engine is a separate controller runnable, takes no budget limiter, and wakes **every** inactive variant rather than the cheapest. It is the only mechanism that wakes a fully-cold model under the saturation-only default. | Pre-existing, out of scope | Out of anchor scope entirely; relevant to any future cost/budget layer over from-zero. |
+| **`N8`** | **Drop the (b)-sizing fallback entirely** rather than `Live`-gate it. The fallback fires exactly when saturation is untrustworthy, so gating it is nearly vacuous; and mixing saturation's sizing into a TA-bound anchor mixes metric scales, which is the very error this design exists to remove. Abstain (`PRC = 0`) instead. | Design decision | **Adopted and landed** (dynamic-refresh task, the liveness-hardening commit) — dissolves `N1` and the fallback half of `N5`, and **revises** the enablement-gated-fallback decision recorded in the anchor task's plan. ⚠ **Dean 2026-08-07: "discuss further later — not blocking now"**, and separately *"was not blocking PR-1. Can't remember the details."* The code ships this way; the *design rationale* is not closed. See the restatement below. |
+| **`N9`** | The reactive from-zero engine is a separate controller runnable, takes no budget limiter, and wakes **every** inactive variant rather than the cheapest. It is the only mechanism that wakes a fully-cold model under the saturation-only default. | Pre-existing, out of scope | Out of anchor scope entirely; relevant to any future cost/budget layer over from-zero. Under a TA binder it becomes the *only* admission path at all — see `FZ-admission`. |
+| **`FZ-admission`** | A variant nobody has ever measured is admitted only when **saturation binds** — saturation seeds a zero-replica PRC analytically from the deployment spec, TA can only replay its own measurement. Under a TA binder the variant sits in the anchor at `PRC = 0` and every eligibility gate skips it, leaving only the reactive path (`N9`), which is late (model-level trigger) and unranked. | Real gap, **TA-CREATED** | **Adopted — folds into PR-2** (Dean, 2026-08-07). Verified at his request; not a borrow. Fix: a `PRC = 1` **admission sentinel** in the binder's own currency at the anchor's no-variant branch, gated on `ReplicaCount == 0`, tagged by its own `Reason`, plus a **one-replica target ceiling** at the three grant sites (which is what keeps it legal under `W4`). Mechanism and cap are **decided in the block below** — not left to the task plan. Retires the deferred partial from-zero picker as a separate item; the `N9` residual stays out of scope. |
 
 **Why `VG-up` was deferred rather than fixed in the anchor task** (Dean, 2026-08-06). As shipped, a dead
 analyzer causes no spurious scale-up *or* scale-down: scale-down is `Live`-filtered at both gates, and
@@ -889,12 +1348,371 @@ the deferral: scale-up safety is *emergent*, resting on "dead ⇒ `RC = 0`". **A
 carries forward a stale-but-informative `RC > 0` with an aged timestamp breaks it silently** — no test
 fails, the system just scales on stale belief.
 
+**`N8` restated (Dean 2026-08-07: *"was not blocking PR-1. Can't remember the details"*).** Both halves
+of that are right, and here is the detail, compactly. Nothing below is a new decision.
+
+- **What the (b)-sizing fallback was.** When `bindingAnchor` merged (a) identity from saturation with
+  (b) sizing from the binding analyzer, a variant the **binder** did not size fell back to
+  **saturation's** sizing — gated on saturation being `Enabled`.
+- **The choice.** Two ways to handle a stale saturation reaching that path: `Live`-gate the fallback, or
+  drop it. **`N8` = drop it.** Two reasons: gating is nearly vacuous (the fallback fires precisely when
+  saturation is *not* binding, i.e. when it is already the less trustworthy voter), and using
+  saturation's PRC to size a TA-bound anchor **mixes metric scales** — KV tokens sizing a req/s
+  decision — which is the exact error this whole design exists to remove. The replacement is to
+  **abstain**: `PRC = 0`, no sizing, no vote for that variant. Same rule `W4` states generally: no
+  conversion factor ⇒ no spend.
+- **Why it did not block PR-1.** PR-1 shipped **opt-in** and its default config is `[sat]`-only, where
+  saturation *is* the binder, so the fallback never fires. Reachable only in `[sat,TA]` with saturation
+  enabled-but-not-binding — a config PR-1 does not turn on by itself.
+- **Status.** Adopted and **landed** in the dynamic-refresh liveness-hardening commit (`952d2fff`).
+  Dissolves `N1` and the fallback half of `N5`, and revises the enablement-gated-fallback decision
+  recorded in the anchor task's plan.
+- **~~The live question, for the later discussion.~~** — **CLOSED 2026-08-07 (Dean). Abstain is the
+  answer, on principle, and no legitimate borrow site exists.** See the block below.
+
+**`N8` CLOSED 2026-08-07 — abstain, and the borrow has nowhere to live** *(Dean: "can't vote if you have
+no info. The binding anchor is for the code that uses the old satEntry not for actual scale voting —
+live+enabled needed to vote not a fallback. Demand is per the whole anchor so whatever units it holds
+should also be for any PRC.")*
+
+Three principles, each of which independently kills the fallback:
+
+1. **No info ⇒ no vote.** Abstaining is not a degraded answer, it is *the* answer. A fallback value is
+   not a vote; it is a guess wearing a vote's clothes.
+2. **The anchor is a compatibility shim, not a voting mechanism.** It exists to feed the code that used
+   to read `satEntry`. Voting requires `Enabled && Live` at the ballot, which a borrowed value by
+   definition does not have — so a borrowed value must never reach a vote.
+3. **Unit closure within one anchor.** The anchor's model-level demand (`TotalDemand`, `RequiredCapacity`,
+   `SpareCapacity`, `RoleCapacities`) comes from the **binder**
+   (`analyzer_helpers.go:176-188`).
+   Any PRC in the same anchor is the divisor for that demand, so it must be in the binder's metric.
+   A borrowed saturation PRC is a different currency in the same fraction — the R6 violation, inside one
+   struct.
+
+*Principle 3 also bounds where a borrow could ever be legal: only code that uses PRC and never divides
+demand by it.* Dean's question — where is that, is it partial-scale-from-zero? — has a checkable answer.
+The full inventory of **anchor**-PRC consumers, verified at `d9f3b97e`:
+
+| Consumer | Uses demand ÷ PRC? | Site |
+|---|---|---|
+| `fairShareCap = ceil(target / PRC)` | **yes** — the fair-share budget divided by PRC | `greedy_score_optimizer.go:411-423` |
+| `costEfficiency = Cost / PRC` (via `sortByCostEfficiencyAsc`, used by both `costGreedyRolePick` and rescale's fill) | **no** — pure ranking key | `cost_aware_optimizer.go:228-243`, `rescale.go:572` |
+| `PRC <= 0 { continue }` eligibility gates | **no** — this *is* the abstain mechanism | `cost_aware_optimizer.go:95,125,239`; `greedy_score_optimizer.go:411`; `rescale.go:443,573` |
+| scale-up replica count (`roleBottleneckReplicas` → `votesFromPickerState`) | yes, but reads the **raw ballot** `e.Result`, never the anchor | `analyzer_helpers.go:498-524` |
+
+So a PRC-without-demand consumer does exist — the cost ranking — and Dean's instinct about where the
+pressure comes from is right: it is the **selection** of a variant that has no demand-derived sizing of
+its own, which is the partial-scale-from-zero shape (a zero-replica variant needs `PRC > 0` merely to
+clear the gates and be rankable). **But it is not a place a borrow can be confined, for two reasons:**
+
+- **The field is shared.** Ranking and sizing read the *same* `vc.PerReplicaCapacity`. A borrowed value
+  that makes a variant rankable is the same value that then sizes it at
+  `ceil(target / PRC)` — so the borrow cannot stay on the demand-free side of the line.
+- **The case is already covered without borrowing.** The anchor task's TA scale-from-zero complement has
+  the **binder itself** emit a PRC (and only a PRC) for its zero-replica variants. When TA binds, TA
+  supplies the number, in TA's own metric — unit-closed, no borrow. What remains after that is only
+  "the binder has no data for this variant at all", which is exactly principle 1: abstain.
+
+**Consequence for the deferred item:** the **borrow** question has nothing left to decide, and `N8`
+leaves the open queue on that axis. What remains is not a borrow and not the same question: **admitting a
+variant nobody has ever measured.** Dean reopened exactly that axis and asked for it to be verified; the
+verification follows, and it ends in a fix that folds into PR-2.
+
+**`FZ-admission` — a never-seen variant cannot be admitted when TA binds** *(Dean 2026-08-07: "partial
+from zero needs to work with TA. I want to verify it wll -- variants that where never seen before come up
+and should be allowed in somehow.")*
+
+Verified at `d9f3b97e`. **Admission of a never-seen variant is *saturation's* capability, and TA has no
+equivalent** — the two analyzers reach a zero-replica PRC by structurally different means:
+
+| | saturation | ThroughputAnalyzer |
+|---|---|---|
+| Zero-replica PRC is… | **analytic** — from the variant's own *spec* | **measured** — replayed from its own *history* |
+| Source | `LoadFromScaleTarget` parses the scale target's engine args into `EngineParams` and stores a record tagged `LearnedFrom: "deployment"` (`capacity_store.go:88-131`) — called for **every** VA every cycle, inactive ones included (`saturation/engine_v2.go:39-53`) | `st.lastPerReplicaSupply`, persisted from a cycle in which the variant *was* live (`throughput/analyzer.go:400-414`) |
+| Never-seen variant gets | **`PRC > 0`.** Ladder branch 2 fires (`saturation_v2/analyzer.go:421-425`): `estimateStoredCapacity` derives k2 from the spec plus model-level workload averages, bounded by its own k1 and by a compatible live sibling, falling back to raw `EffectiveMaxBatchedTokens` (`:530-563`) — which `resolveEffectiveMaxBatchedTokens` never leaves at zero (`deployment_parser.go:272-303`). Labeled `satReasonP0Store`. | **nothing** — `if !ok \|\| st.lastPerReplicaSupply <= 0 { continue }`, and the code says so: *"A never-seen variant (no persisted supply) gets nothing, so its per-replica capacity stays zero and it is not proactively selectable."* |
+
+The spec is a source TA has no analogue for: a deployment manifest states a *token* budget; nothing in it
+states a *request rate*. So this is not an omission in the anchor task's scale-from-zero complement —
+there is no TA-side number it could have emitted.
+
+Outcome per configuration:
+
+| Config | Binder | Never-seen variant | Admitted? |
+|---|---|---|---|
+| `[sat]`-only (goldens-frozen default) | sat | identity **and** sizing from saturation → `PRC > 0` † | **yes** |
+| `[sat,TA]`, saturation binding | sat | sizing from saturation → `PRC > 0` † | **yes** |
+| `[sat,TA]`, TA binding (saturation enabled but dead / non-informative) | TA | identity from saturation (a), sizing from TA → **`PRC = 0`** | **no** |
+| `[TA]`-only (saturation present but not voting) | TA | identity from saturation (a), sizing from TA → **`PRC = 0`** | **no** |
+
+† Conditional on the deployment parse succeeding: with no scale target for the VA the pre-population is
+skipped (`saturation/engine_v2.go:42-46`) and the ladder falls through to `satReasonNoData` with `PRC = 0`,
+so even saturation-binding admission is not unconditional.
+
+**The variant is never missing from the anchor — in any configuration.** The merge iterates the *identity
+carrier's* variant list, and the identity carrier is **always saturation**: `runAnalyzersAndScore` appends
+the saturation entry unconditionally (`Enabled: false` in `[TA]`-only, but present), and `bindingAnchor`
+locates it **by name, not by vote** (`analyzer_helpers.go:133-139, 170-173`). Saturation's analyzer also
+runs unconditionally — that is the known "saturation cannot be disabled" gap — so its ladder emits an entry
+for **every** configured variant, never-seen ones included.
+
+The consequence is sharper than "TA has no number": **saturation has already computed a positive PRC for
+that variant, and it reaches nothing.** Precisely where that value lives and where it stops — it is not
+"used, then discarded", it is **never consumed**:
+
+| Stage | What happens to saturation's PRC for the never-seen variant |
+|---|---|
+| saturation's ladder | computed — `estimateStoredCapacity` off the deployment record, `PRC > 0`, `Reason: satReasonP0Store` |
+| ballot packaging | **carried, intact.** `runAnalyzersAndScore` appends the whole result; nothing is stripped here, and the full ballot survives to both consumers |
+| anchor merge | **not copied.** The merge takes identity fields from the (a) carrier — `VariantName`, `AcceleratorName`, `Cost`, `Role`, `ReplicaCount`, `PendingReplicas` (`analyzer_helpers.go:199-206`) — and takes `PerReplicaCapacity` *only* from `bByName`, the binder's map (`:207-212`). Saturation's number is simply never read; `out.PerReplicaCapacity` keeps its zero value |
+| vote prune | **excluded.** `votingResults` keeps `Enabled && Live`, and in both failing configs saturation fails it — not enabled (`[TA]`-only) or not live (`[sat,TA]`, TA binding) — so the combine math does not see the number either |
+
+So it is dropped twice over, on two independent paths, and neither drop is a bug: importing it into the
+anchor is the borrow `N8` rejects (KV-tokens sizing a req/s anchor), and letting a dead or disabled
+analyzer vote is what the liveness gates exist to prevent. **The value is correctly unused — the mistake is
+only that its absence is spelled `PRC = 0`, which the pickers read as "not a candidate".** At
+`PerReplicaCapacity == 0` every eligibility gate filters the variant out
+(`cost_aware_optimizer.go:95,125,239`; `greedy_score_optimizer.go:411`; `rescale.go:443,573`). The gap is
+that **abstain is the only vocabulary available for "new"**, and those are different states: *no opinion
+about a variant we know* versus *a variant nobody has measured yet*. The sentinel replaces the missing
+vocabulary; it does not revive the discarded number.
+
+It also means the fix has a **slot to write into in every configuration** — the `else` branch at
+`analyzer_helpers.go:213` — rather than needing the anchor's variant list to be completed first.
+
+**What is left without proactive admission: the reactive path, and it is coarse.** The `scalefromzero`
+engine tests inactivity **per variant** (`isInactive` = that VA's scale target at 0,
+`utils/variant.go:91-93`) but **triggers per model** (EPP flow-control queue depth keyed by modelID,
+`:265-280`), and on trigger brings up **every** inactive VA of that model at 1 replica — with an
+acknowledged TODO that it should pick the cheapest instead (`scalefromzero/engine.go:293-324`, TODO at
+`:318`). So under a TA binder a brand-new variant is admitted only *after the model backs up*, and then
+unranked by cost. That is the honest answer to *"should be allowed in somehow"*: today, under a TA binder,
+only late and only unranked. (That engine's coarseness is `N9` above; what is new here is that under a TA
+binder it stops being a *backstop* and becomes the **only** admission path.)
+
+**Why this is not the rejected borrow — and what unblocks it.** The borrow had nowhere to live because
+ranking and sizing read the *same* field, so any value admitted to make a variant rankable is the same
+value that then sizes it at `target / PRC`. Admission, however, does not need a capacity at all:
+
+- **Eligibility** needs a *predicate* — "is this a candidate?" — for which `PRC > 0` is standing in as a
+  proxy for "we know something". A never-seen variant is a candidate for a different reason.
+- **Ranking** among never-seen candidates is well-defined *without* a capacity: they are all equally
+  unmeasured, so cost per replica (equivalently per GPU, via `GPUsPerReplica`) totally orders them.
+  `Cost / PRC` is only needed to rank a *measured* variant against another measured variant.
+- **Sizing** at admission is **exactly 1 replica** — not a division. One replica is the minimum bite that
+  produces the measurement; the next cycle sizes it properly from live data.
+
+So proactive from-zero admission is expressible with no borrowed PRC and no currency mixing: *admit
+never-seen variants as candidates, order them by cost, size them at 1*. This also makes saturation's
+analytic path unremarkable rather than privileged — its last-resort seed is `EffectiveMaxBatchedTokens`,
+a batch-size limit rather than a KV-cache capacity at threshold, so saturation's own never-seen number is
+a proxy too. Admission was always a different question from sizing; saturation merely happens to own a
+proxy it can dress up as one.
+
+**The fix, as proposed** *(Dean 2026-08-07: "the anchor no-variant fallback sets PRC=1 for unknown never
+seen if TA is binding? sat remains as is?")* — **confirmed as the right shape and the right site**: the
+`else` branch at `analyzer_helpers.go:213`, the one place that currently decides "binder omitted this
+variant ⇒ `PRC = 0`". Saturation is untouched — it keeps its analytic ladder, and when it binds nothing
+changes at all. The sentinel is in **the binder's own currency**, so it is a declared minimum, not a
+borrowed measurement; `N8` stays intact. Two refinements the one-liner needs:
+
+1. **Guard on `ReplicaCount == 0`, not only on "TA is binding."** The binder also omits variants that *are*
+   running but have no usable metric this cycle, and there abstain remains right: the variant is already
+   up, so admission is moot and sizing must not be fabricated. Because TA's own scale-from-zero complement
+   already covers *previously-live* zero-replica variants from persisted supply, "binder omitted it **and**
+   `ReplicaCount == 0`" is precisely "never seen". `ReplicaCount` comes from the (a) identity, so it is
+   already in hand at the merge site (`analyzer_helpers.go:204`).
+
+2. **`PRC = 1` admits and ranks correctly but does *not* size — it needs a companion one-replica cap.** In
+   the binder's currency `PRC = 1` reads as *"one replica serves 1 req/s"*, so any site that turns demand
+   into replicas will buy roughly `demand` of them:
+   - **eligibility** — clears every `PRC <= 0` gate. ✅ This is the whole point, and it rides the gates
+     that already exist rather than adding a predicate at six sites.
+   - **ranking** — `costEfficiency = Cost / PRC` degenerates to `Cost`, which totally orders the never-seen
+     peers by cost, exactly as wanted. And because measured PRCs are ≫ 1, a never-seen variant ranks
+     *behind* every measured option — conservative, and desirable: it wins only when nothing measured can
+     absorb the load.
+   - **sizing** — ⚠ `fairShareCap`-style `target / PRC`, and `fillRole`'s `targets[v]++` loop (bounded
+     only by `MaxReplicas`), both read `1` as a real capacity. Unclamped, a single never-seen variant can
+     absorb the whole budget one request-per-second at a time. **Admission must be explicitly capped at
+     one replica**; the sentinel cannot be trusted to bound itself.
+
+   The cap is not merely a safety belt — it is what makes the sentinel **legal under `W4`**. `W4` says a
+   voter that cannot price a variant may not thereby escape the budget. Here the sentinel deliberately does
+   *not* price capacity; the cap prices the **spend** — exactly one replica, `GPUsPerReplica` GPUs, charged
+   to the budget like any other. Unpriced capacity, bounded spend.
+
+   The self-clamping alternative — seed `PRC = TotalDemand` so that `ceil(demand / PRC) = 1` — is worse: it
+   makes the never-seen variant rank *best* precisely when scale-up is needed. Prefer the explicit cap; it
+   states the intent (*one bite, then measure*) instead of leaning on an arithmetic coincidence.
+
+So the shape is: *when the binder is not saturation and the (a) identity shows `ReplicaCount == 0` and the
+binder omitted the variant, set `PerReplicaCapacity = 1` as an admission sentinel* — plus a one-replica cap
+wherever that sentinel can be spent. **Which cycle admits it is unchanged from today's abstain behavior for
+one cycle only:** the variant becomes selectable immediately, and once it is up, TA's live measurement
+replaces the sentinel on the next pass.
+
+**Decision — mechanism and cap, decided here** *(Dean 2026-08-07: "don't leave design decsions to
+coder.")*. Two things the task plan does not get to choose:
+
+**(D-a) The sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`.** The alternative — leave
+`PerReplicaCapacity` at `0` and add a separate *admissible* predicate — is **rejected**: it would have to
+be threaded through six independent `PRC <= 0` gates (`cost_aware_optimizer.go:95`, `:125`, `:239`;
+`greedy_score_optimizer.go:411`; `rescale.go:443`, `:573`), and it splits eligibility from ranking across
+two fields that must then be kept in agreement. Writing the sentinel into the field those gates already
+read costs one branch and keeps both properties on one value. The merge sets `Reason` to a dedicated
+constant alongside it — a pipeline-side sibling of the `satReason*` family; the exact spelling is the
+coder's, the *existence of the tag* is not. This reuses existing plumbing, so it adds no metric series
+([§ units-observability](#units-observability)), and it is what the cap keys on.
+
+The tag is safe to key on because `Reason` and `PerReplicaCapacity` move as a **set** at every site that
+writes them — the build-time merge (`analyzer_helpers.go:207-212`) and the per-iteration refresh
+(`refreshAnchorSizing:569-572`) both copy the pair together. So the tag cannot outlive the sentinel: the
+first cycle a voting entry actually sizes the variant, the real PRC and the real reason replace both at
+once. The refresh's two `continue` branches (`:562`, `:566`) leave the sentinel standing, which is right —
+nothing has measured it yet.
+
+**(D-b) The cap is a per-variant ceiling of *one replica*, expressed in replicas, at the three sites that
+grant.** The bound is on the variant's **target**, not on a single iteration, so a repeated allocation
+loop cannot buy a second replica by going round again. All three grant sites already contain the exact
+mechanism to say it:
+
+| Grant site | Grants by | Where the ceiling binds |
+|---|---|---|
+| `costGreedyRolePick` (`cost_aware_optimizer.go:85-109`) | returns `(variant, cap)`; `cap` = `MaxReplicas − targets[v]`, else `MaxInt` | fold into that same `headroom` computation (`:100-104`), **including its `headroom <= 0 → continue`** |
+| `fairShareRolePick` (`greedy_score_optimizer.go:398-437`) | same `(variant, cap)` slot, `capN` clamped by `headroom` (`:425-431`) then `capN > 0` guard (`:432`) | same clamp, same skip |
+| `fillRole` (`rescale.go:431-460`) | `targets[v]++` in a loop bounded only by `MaxReplicas` (`:452`) | add the ceiling to that same `break` condition |
+
+The `→ continue` half is not decoration: a picker that *returns* `cap = 0` sets `n = 0` → `utilByRole = 0`
+→ `deltaUtil = 0` → `break`, killing the whole allocation loop for the model instead of moving to the next
+variant. The ceiling must skip the variant, exactly as `MaxReplicas` exhaustion already does.
+
+Everything else that reads the anchor's PRC either cannot over-grant or never sees the sentinel, and needs
+no change:
+
+- `allocateForModelPaired`'s `k` (`analyzer_helpers.go:750`, `:766`, `:788`) inherits the bound instead of
+  needing its own: with `prc = 1`, `deltaUtil ≤ n·1/demand`, so `k = floor(deltaUtil·demand/1) ≤ n`, and
+  `n = min(bottleneck, cap)` is already capped by (D-b). **This is a consequence, not the mechanism** — do
+  not implement the cap by leaning on it.
+- `applyAllocation` (`analyzer_helpers.go:71-85`) decrements each analyzer's `Remaining` from
+  `prcForVariant(s[i].Result, …)` — the **ballot**, never the anchor — so the sentinel never reaches it.
+  (An earlier pass of this section named it as a hazard alongside `fairShareCap`; that was wrong, and the
+  hazard there is `fillRole` instead.)
+- `roleDemandGPUs` (`rescale.go:569-590`) takes only topology and the cost sort from the anchor; the
+  replica count comes from `votesFromTotalDemand`, where no voter carries the variant ⇒ no binder ⇒ `0` ⇒
+  hold. Safe by the same abstain rule that created the gap.
+- every scale-down and reclaim path (`scaleDownVariantSet:125`, `reclaimRole`, `rescale.go:488`, `:511`)
+  computes `removable = current − minReplicas`, which is `≤ 0` for a variant at zero replicas. Skipped.
+- `TotalCapacity = ReplicaCount × PerReplicaCapacity` (`analyzer_helpers.go:220`, `:573`) is `0 × 1 = 0`,
+  so the sentinel never inflates aggregate capacity — it moves eligibility and the cost ordering, nothing
+  else.
+
+Line numbers are as of `ta-anchor-dynamic-refresh@d9f3b97e`; the task plan re-verifies them against its
+own tip.
+
+**Disposition — folds into PR-2** *(Dean 2026-08-07: "everything folds into PR-2")*, consistent with
+*"I lean towards folding everything in here… all are surfaced with TA is enabled so must be fixed"*. By
+the [§ unit-findings-exposure](#unit-findings-exposure) test this is **TA-CREATED**: under `[sat]`-only it
+cannot occur, because saturation always binds and always seeds, so the `[sat]`-only goldens cannot cover
+it in either direction — deferring it would ship `[TA]`-only and TA-binding `[sat,TA]` with no proactive
+from-zero admission at all. This also retires the deferred *partial* scale-from-zero picker as a separate
+scope item: its trigger is now named (the abstain gate cannot express *new*) and its mechanism is decided
+above. The dev-guide note beside the sibling `Cost = 0` limitation (`N5`) is no longer a substitute for the
+fix, but the **`N9` residual stays** — the reactive path remains model-triggered and unranked, and that is
+out of anchor scope.
+
 **The invariant the liveness fixes must establish.** Once the vote prune is `Live`-filtered, the binder
 set is a subset of the voting set, so: **a non-nil anchor implies a non-empty voting set.** The
 contrapositive is the safety property worth naming — an empty voting set implies a nil anchor, which
 implies **hold**, never an unguarded scale-down. Deriving the anchor from the **full** ballot (before
 pruning) is what keeps identity available even when every voter is dead, so the two must not be
 collapsed into one filtered pass.
+
+[↑ TOC](#toc)
+
+## Unit-audit findings {#unit-findings}
+
+**Provenance.** A rule-by-rule audit of the shipped *and planned* math against
+[§ units-rules](#units-rules), run by the plan reviewer (2026-08-07) against worktree
+`ta-anchor-dynamic-refresh` @ `d9f3b97e` (PR-2 through the anchor-sizing commit) **and** against the
+PR-2 end state. Dean's framing: *"I am not checking the full correct math, just the units."* Where
+this section and the task plan disagree, this section governs. `U*` identifiers are local to this
+section; the `N*` / `VG-*` labels in [§ findings](#findings) come from the code trace and are not
+renumbered.
+
+### Verdict per rule — at the tip and at PR-2 complete {#unit-findings-verdict}
+
+Both columns matter: the tip tells us what is broken now, the end state tells us whether the planned
+work actually fixes it. A rule that passes at the tip can be *broken by* a fix, which is exactly what
+happened to `R3`.
+
+| Rule | At the tip (`d9f3b97e`) | At PR-2 complete |
+|---|---|---|
+| `R6` convert before computing | **conforms at the combine boundary** — everything routed through the combine converts | **conforms, and the boundary widens** — the currency pivot routes the fair-share metric, the scale-down tie-break and the picker clamp through the same collectors |
+| `R1` never compute in the metric | **4 violations**, every one a site that *bypasses* the combine: `fairShareValue`'s weighted sum, its zero-result fallback, `sortVariantsForScaleDown`'s tie-break, `allocateForModel`'s clamp | **all 4 fixed** — [§ bugs](#bugs) #5 sites (i)/(iii)/(iv)/(v) |
+| `R4` Score inside, priority across | `fairShareValue` violates **both** directions — Score weights a budget, priority scales a within-model cap | **conforms in the Score direction** (Score leaves `fsv`); the priority direction survives → `U4` |
+| `R5` fallbacks too | 1 latent violation — `fairShareValue`'s `max_{i,role}` fallback | **conforms** — site (v) |
+| `R2` allocation in replicas | 1 violation — the cap's numerator is not a replica count | **fixed in the Score dimension**; still priority-scaled → `U4` |
+| `R3` combine across roles/variants in a shared currency | honored in exactly **one** place (`deltaUtil = min_role utilByRole`) | **depends on the space**: GPU space conforms; a replica-space pivot would have *introduced* a new violation (`Σ_role` of replica counts). This is why [§ limited](#limited) resolves to GPUs. |
+
+> **The single most useful observation from the audit.** Every `R1` violation is a site that
+> **bypasses the cross-analyzer combine**, and no site that routes *through* the combine violates any
+> rule. The combine is not merely correct — it is the *only* place the conversion happens. That is why
+> widening its boundary is structurally right where patching four call sites would not be, and why
+> the mechanical `R6` test in [§ units-rules](#units-rules) finds violations reliably rather than
+> by luck.
+
+[↑ TOC](#toc)
+
+### Residuals — what a complete PR-2 does not fix {#unit-findings-residuals}
+
+| ID | Finding | Class | Disposition |
+|---|---|---|---|
+| **`U1`** | **Roles are summed and compared in non-additive currencies.** Site list in [§ units-roles](#units-roles). | Escalated by Dean to a **rule**; needs a fix | **Fixed by the GPU-space pivot** — which is *why* GPU space is decided rather than optional. Not covered for the emitted series (→ `U5`). |
+| **`U2`** | **PRC homogeneity within a role is assumed but never stated.** Three sites depend on a role's variants having commensurable PRCs: `costEfficiency`'s cross-variant ranking, the fair-share cap's reference-PRC round trip, and the scale-down tie-break's binder-PRC key. Per-variant sizing refresh makes the assumption false in principle. | Undocumented invariant | **Stated here; GPU space removes the *cap*'s dependence.** The tie-break's unit-cleanliness rests on an undocumented fact — the scale-down iteration never invokes the sizing refresh. **Dean 2026-08-07: pin it with a test — approved.** See the test note below. |
+| **`U3`** | **`costEfficiency` is dollars-per-metric.** Immune in the batch form, exposed in the marginal form; harmless while one binder serves a whole role. | Acknowledged (Dean: "ok") | No fix now. Caveat recorded in [§ units-conversions](#units-conversions). |
+| **`U4`** | **`priority` sits inside one model's per-iteration cap**, so the cap is priority-scaled replicas (or GPUs), not replicas. `R4` puts priority strictly *across* scaled objects. | Pre-existing `R4` violation | **`W2` decides the target state; the fix is a FUTURE TODO (Dean 2026-08-07).** Priority orders only, and the multiplication should go — but the defect is **TA-neutral** (see the exposure table below), so it does not meet the *"surfaced when TA is enabled ⇒ must be fixed now"* bar. Not a PR-2 blocker. |
+| **`U5`** | **The emitted `RequiredCapacity` / `SpareCapacity` series inherits the binder's unit** and falls back from role level to model level. | Real, observability-only | **Documented limitation — no code change now.** Option (d)'s *"rename nothing"* half stands; its *"add series"* half is **deferred** (Dean 2026-08-07: *"no new series now"*). [§ units-observability](#units-observability). |
+| **`U6`** | **A `0` vote is no longer absolute** once the combine weights by dominance, so a veto expressed as a zero value is not a veto. | Design consequence of the combine change | Correct as planned — the per-variant scale-down veto returns **before** the combine. Recorded in [§ combine](#combine-score) so a later refactor does not fold it back in. |
+
+**`U2`'s test — approved 2026-08-07 (Dean: *"test U2 -- yes"*).** What it pins: **the scale-down
+iteration never invokes the per-variant sizing refresh**, so every PRC the tie-break compares was
+produced in one pass and the comparison is over commensurable values. The assertion is a *negative*
+one — that a call does not happen — so a plain value check will not catch a regression: use a counting
+or fake sizing hook and assert **zero invocations** across a multi-variant, multi-iteration scale-down.
+Without it, a future refactor that adds a mid-iteration refresh silently reintroduces a mixed-basis
+comparison in the one place that has no dimensional signal to give it away (the tie-break key is
+dimensionless, per [§ bugs](#bugs) #5 site (iii)). Placement: alongside the site-(iii) commit.
+
+[↑ TOC](#toc)
+
+### TA exposure — which defects enabling TA creates, amplifies, or leaves alone {#unit-findings-exposure}
+
+Dean's scoping criterion (2026-08-07) is *"all are surfaced with TA is enabled so must be fixed"*. That
+is a sharp test, so it is worth applying it honestly per defect rather than to the group. The three
+categories behave differently, and only the first is *created* by enabling TA.
+
+| Defect | Category | Why | Fix now? |
+|---|---|---|---|
+| **Currency mixing** — `fairShareValue`'s `Σ_i Score_i × Σ_role ps[i][role]`, the scale-down tie-break's `Σ_i Score_i · prcForVariant`, the cross-analyzer clamp | **TA-CREATED** | Meaningless the instant a second *metric* votes: KV tokens added to req/s. With one analyzer there is only one currency and nothing to mix. | **Yes — this is the PR** |
+| **Joint-role budget (`W1`)** — the per-`(analyzer, role)` clamp against the full `target`; `fairShareRolePick` sizing one role from the whole budget | **TA-AMPLIFIED** | Pre-existing: with `[sat]`-only + P/D there are already 2 independent full-budget draws. TA makes it `|analyzers| × |roles|` — 4 instead of 2 — but does not create it. | **Yes, and cheap** — it lives in the same expressions the currency conversion already rewrites, and it is why `_ = roles` exists |
+| **`priority` in the claim (`W2`/`U4`)** | **TA-NEUTRAL** | Identical with one analyzer or five: `fairShareValue(req.Priority, …)` weights the claim regardless of how many vote. Enabling TA changes neither its presence nor its magnitude structurally. | **No — future TODO.** Verified not to block the one semantics that needed it ([§ open](#open) item 2) |
+
+**The reason this classification is load-bearing rather than bookkeeping:** all three land in overlapping
+expressions, so "fold everything" is *cheaper per-item* than deferring — but the three have **different
+`[sat]`-only exposure**, which is what the characterization goldens gate. Currency conversion is
+value-neutral in `[sat]`-only except at the `floor`/`ceil` cap boundary; `W1` changes `[sat]`-only P/D
+allocation whenever the budget binds; `W2` changes `computeMean` for any multi-model contended cycle with
+unequal priorities. Each landing as its **own commit** with the per-commit goldens already in the branch's
+gate battery is what converts that difference from a risk into a signal — the goldens say which of the
+three actually moves default-config behavior, before any of them is on top of the others.
+
+**What the audit did *not* examine.** Whether the arithmetic is *right* — only whether the units are
+coherent. A dimensionally-clean formula can still be the wrong formula. Three of the `W` items in
+[§ open](#open) were exactly that kind of question, which is why they went to Dean rather than being
+resolved here; all five are now answered, and the one residual that looked like it survived — `W5`'s
+cross-model mean — turned out to be **already-settled design, not an open question**: it is a
+water-fill approximation ([§ limited](#limited)), and the implementation is the
+`fairShareScaleUp` loop.
 
 [↑ TOC](#toc)
 
@@ -1060,6 +1878,49 @@ Confirmed against code (Dean, 2026-08-02):
    single vote, so **no saturation-only golden can catch a violation of this rule** — it only bites in
    a multi-analyzer configuration, which is exactly the configuration that has no golden.
 
+   **The rule is general; one of its two instances is now designed away.** A round trip whose factor is
+   **immutable** — `GPUsPerReplica`, read from deployment state and never rewritten — has neither
+   failure mode. That is why the GPU-space fair-share decision ([§ limited](#limited)) makes the
+   captured-value-map requirement *unnecessary* rather than *satisfied*. The rule still governs every
+   PRC-denominated round trip that remains, and remains the thing to check first when a budget behaves
+   as though it were scaled by an unexplained ratio.
+
+10. **Roles are distinct voters: `Σ_role` is legal in GPUs and illegal in metric and replica space.**
+    The full rule and its site list are in [§ units-roles](#units-roles). Stated here because it is the
+    invariant most easily lost in a refactor: per-role fields share a name and a producer, so summing
+    them *looks* like aggregating one quantity, and nothing in the type system objects. Corollaries
+    worth keeping in view: a role-level number may never silently fall back to a model-level number;
+    a fixture in which prefill and decode share the same PRC (or the same `GPUsPerReplica`) cannot
+    distinguish a correct implementation from a role-mixing one, so such coverage is coincidental;
+    and P/D is the only configuration in which the violation is observable at all, which is why it
+    survived this long.
+
+    **Corollary — the shared-pool corollary (`W1`, 2026-08-07).** The reason `Σ_role` must be *legal
+    somewhere* is that roles genuinely share one resource: prefill and decode compete for the same
+    GPUs. So a budget over a multi-role model is one balance with several withdrawers, and the
+    constraint that binds it is **joint**: `Σ_role spend[role] ≤ budget`. Two failure modes follow, and
+    the code contains one of each:
+    - **Erasing role** — hand every role the same whole-model budget (today: `fairShareRolePick`'s
+      shared `target`, `allocateForModel`'s per-role clamp against the full `target`). The sum is
+      unbounded: a **double-spend**.
+    - **Splitting role into independent entitlements** — give each role its own budget. The sum
+      over-commits the pool by construction.
+    Neither is a unit error; both are accounting errors that only a GPU-denominated joint constraint
+    can even express. See [§ open](#open) `W1`.
+
+11. **Priority orders; it never scales an entitlement.** `priority` (across models) and `Score`
+    (across analyzers) are both **ranking weights**, and neither may multiply a quantity that is later
+    spent. The general form: *a sort key is not a quantity.* Two numbers must exist wherever ranking
+    and spending meet — the **claim** (unweighted, spent) and the **ordering key** (weighted, compared,
+    never assigned to anything that reduces a budget). The mechanical check a reviewer can run: if a
+    dimensionless weight appears in an expression that ends up on the left of a budget decrement, the
+    invariant is broken. Decided 2026-08-07 ([§ open](#open) `W2`); the surviving violation is
+    [§ unit-findings](#unit-findings) `U4`, whose **fix is a future TODO** — it is TA-neutral, so it does
+    not meet this mission's *"surfaced when TA is enabled"* bar. Note the two levels were
+    already inconsistent before this: `Score` was evicted from `fsv` early ([§ bugs](#bugs) #5 site
+    (i)) while `priority` was left in, on no stated principle — this invariant is what makes them
+    agree.
+
 [↑ TOC](#toc)
 
 ## Limited-mode (greedy fair-share) path {#limited}
@@ -1107,17 +1968,53 @@ models; allocation spends GPUs directly; and PRC survives **only** in the `deman
 the cost-efficiency sort, exactly as the mental experiment predicts. This is the "simplifies
 cross-analyzer math" half of the PRC=1 experiment made concrete.
 
-> ⚠️ **GPU space vs replica space — this prescription is not the shipped decision.** The paragraph
-> above was written before the fix was scoped, and it asserts two things the implementation does not
-> do: (1) the metric is denominated in **GPUs** (`× gpusPerReplica`); (2) therefore
-> `fairShareCap` "collapses to `target` replicas (no PRC division)". The fix denominates in
-> **replicas**, not GPUs, and the cap is **not** a bare `ceil(target)` — it is a round-trip rescale
-> `ceil(target · PRC_ref[role] / PRC_vc)` ([§ bugs](#bugs) #5 site (ii)). Replica space is the
-> smaller change: GPU space would require every fair-share consumer to learn `gpusPerReplica`, and
-> heterogeneous-accelerator roles make `gpusPerReplica` variant-dependent — so the two spaces are
-> *not* interchangeable by a constant factor. **Which space the fair-share budget should ultimately
-> live in is open** ([§ open](#open) `W5`); replica space is what ships, and the GPU-space argument
-> is retained because it is the one that connects the budget to the resource actually being rationed.
+> ✅ **DECIDED 2026-08-07 (Dean): GPU space. The prescription above is the shipped decision.** An
+> earlier revision of this block said the opposite — that replica space ships and GPU space was the
+> open option ([§ open](#open) `W5`). That is **superseded**; the reasoning that overturned it:
+>
+> - **A replica-space budget cannot be summed across roles.** `Σ_role` is legal only in GPUs
+>   ([§ units-rules](#units-rules) `R3b`), and the fair-share numerator *is* a cross-role sum. Replica
+>   space fixes the analyzer-mixing and leaves a role-mixing violation in its place; GPU space fixes
+>   both with one change ([§ units-roles](#units-roles)).
+> - **The round-trip hazard disappears instead of being managed.** In replica space the cap needs
+>   `ceil(target · PRC_ref[role] / PRC_vc)` with `PRC_ref` captured as a copied value map before the
+>   anchor's sizing is refreshed. In GPU space the spend-time factor is `GPUsPerReplica` — immutable
+>   deployment topology — so [§ invariants](#invariants) #9's value- and identity-drift hazard cannot
+>   arise here at all.
+> - **`gpusPerReplica` being variant-dependent is an argument *for*, not against.** That is precisely
+>   why replicas are not fungible against the pool. The consumer does have to learn `gpusPerReplica` —
+>   and that is the honest cost of denominating a budget in the resource being rationed.
+> - **The cap is still not a bare `ceil(target)`.** It is a **whole-replica fill** against
+>   `GPUsPerReplica`, per [§ units-integral](#units-integral) — never a division-and-round. The
+>   original prescription's "collapses to `target` replicas (no PRC division)" was wrong for that
+>   reason, and remains wrong.
+> - **Sat-only:** GPU space introduces no new *class* of sat-only exposure — only a `GPUsPerReplica`
+>   factor on the ordering change already conceded below. Per Dean, if the sat-only path needs a fix it
+>   is fixed **now**, not deferred; and the sat-only fixture must **vary `GPUsPerReplica`** or it
+>   cannot detect that factor.
+>
+> **`W5` closed 2026-08-07.** The per-site half — "each site decides its own unit individually",
+> Dean's standard rather than one global declaration — is now resolved as a **nine-row unit table**
+> ([§ open-what](#open-what) `W5`). No residual: the cross-model mean, the one thing the audit had
+> flagged as a possible policy gap, is **settled design** — Dean, 2026-08-07: *"cross-model mean is
+> water fill approximation. already dsicussed. not here."* The table is agnostic to it either way.
+
+> **✏️ Two amendments to the prescription above, from `W1` and `W2` (2026-08-07).**
+>
+> ```
+> claim         = Σ_role ( desired[role] − current[role] ) × gpusPerReplica     // NO priority
+>                 where desired[role] = max_i ceil(demand_i / PRC_i)
+> ordering key  = priority × claim                                             // sort only, never spent
+> spend         = Σ_role spend[role] ≤ claim − mean                            // one balance per model
+> ```
+>
+> - **`priority` leaves the quantity** (invariant 11): it multiplies the *ordering key* only. The
+>   `priority ×` in the block above is today's behavior, retained there because the currency conversion
+>   must be value-neutral — it is **not** the end state.
+> - **The cross-role `Σ` is a spend constraint, not just a numerator** (`W1`): the roles draw against
+>   one balance and each draw decrements it, rather than each role receiving a copy of the whole
+>   figure. This is the shape the current code gets wrong in two places, and it is expressible only
+>   here, in GPU space.
 
 **Verdict.** The replica-demand/coverage abstraction *does* cover limited-mode, and PRC drops out of
 most of the fair-share loop the same way — but limited-mode has **two** leak sites, not one: (a) the
@@ -1137,6 +2034,89 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
 [↑ TOC](#toc)
 
 ## Open questions {#open}
+
+**Decision queue as of 2026-08-07 (second pass).** Everything still open in this doc, in one place, so
+the freeze is auditable.
+
+✅ **The queue is EMPTY.** The last item — `FZ-admission`, opened by Dean's own follow-up — was answered
+and then decided on 2026-08-07. *Can a never-seen variant be admitted when TA binds?* **Verified: no**
+(full evidence in [§ findings](#findings)). Only saturation can seed a never-measured variant, analytically
+from its deployment spec; TA's zero-replica PRC is replayed measurement, so under a TA binder a brand-new
+variant sits in the anchor at `PRC = 0` and every eligibility gate skips it, leaving only the reactive
+`scalefromzero` path — which fires once the *model* backs up and then raises **all** inactive variants,
+unranked by cost. **Decided: the fix folds into PR-2**, with both design choices settled in this doc rather
+than handed down — a `Reason`-tagged `PRC = 1` **admission sentinel** in the binder's own currency at the
+anchor's no-variant branch (gated on `ReplicaCount == 0`), plus a **one-replica target ceiling** at the
+three sites that grant replicas, which is what keeps unpriced capacity from escaping the `W4` budget rule.
+No borrowed PRC, no new currency, no new metric series.
+
+**Everything else is closed.** Not to be reopened: `W1`, `W2`, `W3`, `W4`, `W5` (all five —
+[§ open-what](#open-what)), the observability scope call (*"no new series now"* —
+[§ units-observability](#units-observability)), the `U2` test (approved), and the three items that were
+still open at the first pass of this section — **now all three answered**:
+
+| Was open | Decision (Dean, 2026-08-07) | Consequence |
+|---|---|---|
+| **Sequencing of the `W1` + `W2` behavior changes** — PR-2 or a follow-up? | **Fold into PR-2** — *"can fold it in PR-2. Too many things to track for next PRs."* Governing principle for this mission: *"I lean towards folding everything in here. Not as clean, but all are surfaced with TA is enabled so must be fixed."* | The task plan's commit map absorbs `W1` (and the currency pivot) as their own commits. C6c stops being purely status-quo-preserving **by decision, not by accident** — that must be explicit in the plan so a reviewer does not read a behavior change as a botched conversion. Exposure per defect: [§ unit-findings-exposure](#unit-findings-exposure). |
+| **`priority` unset-vs-explicit-`0`** — needs an optional field to make explicit `0` expressible? | **No API change** — *"leave it. 0.00001 does the same. (verify)"* | **Verified — it does, and it already works today.** See the verification below. `W3`'s *"last in line, take the leftovers"* semantics are reachable **now**, with no CRD change; what they need is *documentation*, not code. |
+| **`N8` rationale** — abstain, or inherit saturation's sizing? | **Abstain** — *"can't vote if you have no info… live+enabled needed to vote not a fallback."* | Closed with a checkable result: **no legitimate borrow site exists**. Full argument + the anchor-PRC consumer inventory in [§ findings](#findings). The *borrow* axis is closed; Dean's follow-up opened the distinct *admission* axis — `FZ-admission` — which is now answered and folded into PR-2 (see above), leaving nothing open on either. |
+
+**What "everything folds into PR-2" means concretely** *(Dean 2026-08-07)* — the full fold-in list, so the
+Type-3 refresh has one place to pick up from and nothing has to be re-derived from prose:
+
+| Folds into PR-2 | Where the decision lives |
+|---|---|
+| The currency pivot itself (`W5`'s per-site unit table; `fairShareCap` → whole-replica GPU-space `floor` fill) | [§ open-what](#open-what) `W5`, [§ units-rules](#units-rules) |
+| `W1` — one fair-share entitlement per **model**, spent jointly across roles | [§ open-what](#open-what) `W1`; both spend sites are defects |
+| `W4` — "no conversion factor ⇒ no spend", as one stated rule rather than accidental safety | [§ open-what](#open-what) `W4` |
+| `FZ-admission` — the `Reason`-tagged `PRC = 1` sentinel + the one-replica **target** ceiling at the three grant sites | [§ findings](#findings), decision block (D-a)/(D-b) |
+| `VG-up` — prune the combine ballot on `Enabled && Live` | [§ findings](#findings) `VG-up` |
+| The four arithmetic bugs and the per-iteration re-binding already in the task plan | [§ bugs](#bugs) |
+
+**Not** in PR-2, and deliberately so: `W2`/`U4` (priority inside the claim) — **TA-neutral**, so it fails
+this mission's own *"surfaced when TA is enabled ⇒ must be fixed now"* bar and becomes a future TODO;
+`U5`'s new observability series (*"no new series now"*); `N9`'s reactive from-zero engine (model-triggered
+and unranked, out of anchor scope); `AnalyzerName` validation (a separate change); and the saturation
+`Cost = 0`-for-zero-replica bug (`N5`, a separate pre-existing fix). `W3` needs no work at all beyond
+documentation.
+
+**Verification of the `0.00001` idiom (asked for explicitly; traced at `d9f3b97e`).** It is expressible,
+and it produces exactly the intended behavior — for a reason worth writing down, because it is not
+obvious from the formula alone.
+
+*Expressible:*
+
+- `ApplyDefaults` rewrites **only exactly `0`** (`if c.Priority == 0 { c.Priority = DefaultPriority }`,
+  `saturation_scaling.go:275-276`), so `0.00001` passes through untouched.
+- Validation admits it: `if c.Priority < 0 { error }` (`:398-399`) — the bound is `>= 0`.
+- The per-model override merge honors it: `if override.Priority != 0` (`:362-363`) — a `0.00001`
+  override applies, where a `0` override would be silently ignored as "unset".
+
+*And it behaves as "last in line, takes the leftovers"* — via the water-fill loop
+`fairShareScaleUp` (`greedy_score_optimizer.go:202-261`), not via the claim formula:
+
+1. The loop processes **only `active[0]`** per turn — the model with the largest `remaining` after
+   `sortByRemainingDesc`. A `1e-5` priority puts the model at the tail, so it is never touched while any
+   other model is active. → *last in line.*
+2. Other models drain out: each is removed (`remaining = -1`) when it cannot allocate or is still above
+   the mean after allocating.
+3. Its near-zero `remaining` **lowers** `computeMean`, which **raises** `target = remaining − mean` for
+   whoever is at the head. → *"take what you want."*
+4. When it is the last one standing, `len(active) == 1` sets `allocationMean = 0`, so
+   `target = remaining` — its budget unlocks in full, and `fairShareCap = ceil(target / PRC)` yields at
+   least 1 replica for any positive target. It then keeps drawing, one turn at a time, until either its
+   demand is served or `totalGPUs == 0` stops the loop. → *uses the leftovers.*
+
+An explicit `0` would **not** do this today: `ApplyDefaults` turns it into `1.0`, i.e. normal priority —
+the opposite of the intent. So `0.00001` is not a workaround for a missing feature; it is the *only*
+expression of the feature, and the API gap is a documentation gap. **Worth noting for the future `W2`
+fix:** it keeps working afterwards, but through a different mechanism — the tail position moves from the
+claim to the ordering key, and step 3 disappears (an unweighted mean no longer reads the low-priority
+model as ~0). The behavior a user sees is preserved; the reason changes.
+
+Not on this queue, deliberately: the *arithmetic*. This doc's unit audit
+([§ unit-findings](#unit-findings)) checked only that the currencies are coherent, never that the
+formulas are right.
 
 1. ~~Anchor refresh granularity / does the cost-sort need its own binding resolution?~~ — *Fully
    resolved 2026-08-03.* Refresh each allocation iteration (Dean); and the sort is already re-run
@@ -1179,26 +2159,49 @@ combined `desired`. `applyAllocation` decrements per-analyzer PRC. The paired-co
    clear" — on inspection it is neither a bug nor small-and-clear as a semantics change; the
    doc-note is the small-and-clear part.)
 
+   *Reconciled with the 2026-08-07 emitted-series decision.* [§ units-observability](#units-observability)
+   decides option (d) — **keep every existing series' name and semantics** — and, per Dean's *"no new
+   series now"*, defers the additions. This item is the same decision reached independently for one
+   specific gauge: do not redefine `Utilization`; a separate signal is the right shape *if* an
+   anticipated-coverage view is ever wanted, but it is not being added now. The two do not conflict, and
+   the reason is the same in both places: a redefinition-in-place is invisible to whoever is plotting the
+   series, and a new series is a permanent external contract — easier to postpone than to withdraw. The
+   one thing the newer section adds here is *which* new series to prefer **when the deferral lifts** — a
+   dimensionless/coverage one, since that is the currency the pipeline's terminal comparisons are already
+   in.
+
 ### Design-level "what" questions surfaced by the currency fix (W1–W5) {#open-what}
 
-**Provenance and status.** These five were surfaced by a coder implementing the [§ bugs](#bugs) #5
-currency pivot (2026-08-07) and were **migrated here from the task plan**, which is the wrong
-instrument for them: they are properties of the fair-share *model*, not of a commit. They are **open**
-— nothing below is decided. They are recorded so that the fix's silence on them is not read as a
-decision.
+**Provenance.** These five were surfaced by a coder implementing the [§ bugs](#bugs) #5 currency pivot
+(2026-08-07) and were **migrated here from the task plan**, which is the wrong instrument for them:
+they are properties of the fair-share *model*, not of a commit.
 
-**The rule the currency fix follows:** every W item is **status-quo-preserving**. The fix changes the
-*currency* of the fair-share budget and nothing else; wherever a W question is live it reproduces
-whatever today's code answers, in the new units. A coder must not resolve a W item while implementing
-— a site that cannot be converted without picking a side is a handoff, not a judgment call.
+> **✅ All five ANSWERED by Dean, 2026-08-07.** The question text is retained below because it is the
+> derivation, but each now carries its answer. What the answers change, in one line each:
+>
+> | | Answer | Consequence |
+> |---|---|---|
+> | `W1` | One budget per **model**, spent **jointly across roles** | Role must appear in the *spend accounting*. Both current spend sites are wrong, not just mis-united. |
+> | `W2` | Priority is **ordering only**; the assignment carries no priority | The claim and the ordering key split into two numbers. `U4` is the defect — but its **fix is deferred** (TA-neutral; see [§ unit-findings-exposure](#unit-findings-exposure)). |
+> | `W3` | Explicit `0` = "last in line, I take the leftovers"; unset = `1` | **No API change** (Dean: *"leave it. 0.00001 does the same"*) — `0.00001` already spells it, and it **works today**, verified in [§ open-what](#open-what) `W3`. The gap is documentation, not API. |
+> | `W4` | **No** — you cannot exceed the budget just because an item has no price | "No conversion factor ⇒ no spend." Today's accidental safety becomes one rule. |
+> | `W5` | Answerable from the lattice; no further input needed | Resolved as a per-site unit table below. **No residual** — the cross-model mean is settled water-fill design, not an open policy question. |
+>
+> Two of these are **behavior changes beyond the currency pivot** (`W1`'s joint role accounting,
+> `W2`'s de-prioritized spend), and their sequencing is now settled: `W1` folds **into PR-2**, `W2`
+> becomes a future TODO, and `W3` needs no API work at all. See the (now-empty)
+> [§ open](#open) decision queue for the reasoning, and
+> [§ unit-findings-exposure](#unit-findings-exposure) for why the two split that way.
 
-**How these get resolved (Dean, 2026-08-07).** Dean and the plan reviewer work these in this doc, and
-the resolution standard is explicit: **decide the correct unit at each place, individually** — not one
-global "the budget is in replicas" declaration. `W5` in particular is not answerable as a single
-choice; each of the [§ bugs](#bugs) #5 sites, `computeMean`, `sortByRemainingDesc` and the cap has to
-name its own unit and be shown consistent with its neighbors. The task plan is refreshed **after**
-this section freezes, and coding resumes after that — see [§ units](#units) for the vocabulary this
-resolution has to be written in.
+**The rule the currency fix followed while these were open** — retained because it explains the shape
+of the landed commits: every W item was **status-quo-preserving**; the fix changed the *currency* and
+nothing else. That rule is now spent. Where an answer above mandates a behavior change, the change is
+deliberate and must be committed and tested as such, not smuggled in as part of a conversion.
+
+**Resolution standard (Dean, 2026-08-07).** **Decide the correct unit at each place, individually** —
+not one global "the budget is in replicas" declaration. `W5` is resolved that way below, site by site.
+The task plan is refreshed **after** this section freezes, and coding resumes after that — see
+[§ units](#units) for the vocabulary the refresh has to be written in.
 
 ---
 
@@ -1220,6 +2223,63 @@ carries a `roles` parameter kept alive by a `_ =` assignment for "future per-rol
 Deciding W1 the per-role way makes that parameter live and makes the cap's numerator a single role's
 demand, at which point the divergence disappears rather than being converted.
 
+> **✅ RESOLVED 2026-08-07 (Dean).** Verbatim: *"two roles can compete on the same GPU. How can we not
+> include role??"*
+>
+> The question as posed above is a **false dichotomy**, and that is the clarification. Both of its
+> horns are wrong for the same reason — they each erase one half of what a role is:
+>
+> - *One budget per `(model, role)`* would give prefill and decode **independent entitlements**. But
+>   they draw from **one shared GPU pool**, so two independent entitlements over-commit it by
+>   construction: each role could be individually within budget while the model as a whole is over.
+> - *One scalar per model, with role erased*, is what the code does today — and erasing role is
+>   exactly how the double-spend happens (below).
+>
+> **The answer is neither: one entitlement per model, spent jointly across its roles.**
+>
+> | | Entitlement (how much the model may hold) | Spend accounting (who consumed it) |
+> |---|---|---|
+> | Granularity | **per model** — one number | **per role** — each role's draw is a separate debit |
+> | Constraint | `budget` | `Σ_role spend[role] ≤ budget` |
+> | Unit | **GPUs** (`W5`) | **GPUs** — the only space the sum is legal in |
+>
+> So role **is** included — it appears in the *accounting*, never as a second entitlement. Dean's
+> premise is the derivation: because the roles compete for the same GPUs, the constraint that binds
+> them is a **joint** one, and a joint constraint needs each role's spend to be visible and
+> subtracted from a shared remainder as it is taken. The budget is a pool with one balance and
+> several withdrawers, not several pools.
+>
+> **Both current spend sites violate this, and neither is merely mis-united:**
+>
+> | Site | Code | What it does | Why it is wrong |
+> |---|---|---|---|
+> | (ii) cap | `fairShareRolePick` — one `target` passed to every role; `_ = roles // … future per-role budget splitting` | Sizes **one** role's pick with the **whole** model's budget | A P/D model's prefill pick is sized by prefill *plus* decode demand |
+> | (iv) clamp | `allocateForModel` — `ps[i][role] > target → target`, per `(i, role)` | Clamps **each** role independently against the **full** `target` | Both roles may separately draw the entire budget: a **double-spend**, not an over-cap |
+>
+> The only thing standing between that double-spend and a real over-allocation today is the
+> downstream GPU-pool check (`min(fairShareCap, gpusAvail/gpusPerReplica)`) — the *pool* is enforced,
+> the *fair share* is not. That is the same shape as `W4`: safety by a second mechanism happening to
+> agree, rather than by the rule being stated once.
+>
+> **Two consequences worth stating explicitly.**
+>
+> 1. **The joint constraint is expressible only in GPU space.** `Σ_role` over metric or replicas is
+>    forbidden by [§ invariants](#invariants) invariant 10 — prefill tokens and decode tokens are
+>    different currencies, and a prefill replica and a decode replica are different goods. In GPUs
+>    they are the same good, so `Σ_role spend ≤ budget` is a well-formed sentence. This is a third
+>    thing the `W5` GPU pivot unlocks, alongside `R3` and `U1`.
+> 2. **`fairShareRolePick`'s `roles` parameter becomes live.** The `_ =` placeholder was put there for
+>    "future per-role budget splitting"; what it actually needs is not a *split* of the budget into
+>    per-role shares but a *sequenced draw* against the shared balance — iterate the roles,
+>    subtracting each role's GPU spend from the remainder before sizing the next. A static split
+>    would under-serve whichever role is cheaper to satisfy.
+>
+> **Sequencing.** This is a **behavior change**, not a currency conversion: it changes allocations in
+> any multi-role model even after units are fixed. It therefore does **not** belong inside the
+> status-quo-preserving [§ bugs](#bugs) #5 conversion commit, and needs its own commit, its own
+> multi-role test, and a call on whether it lands in PR-2 at all — see the [§ open](#open) decision
+> queue.
+
 **W2 — Should the budget be priority-scaled where it is *spent*, or only where models are *ordered*?**
 
 `remaining = priority × …`, so `target` is priority-scaled and the cap lets a priority-10 model take up
@@ -1234,6 +2294,44 @@ priority-scaled on one path and not the other), and `computeMean` averages prior
 across models, so one high-priority model shifts every other model's `target`. Until this is decided,
 the honest description of the cap is "**priority-scaled** replicas", not "replicas" — dividing
 `priority` out is a behavior change beyond the currency fix.
+
+> **✅ RESOLVED 2026-08-07 (Dean).** Verbatim: *"piority is ordering. decide what each get. acctual
+> assign has no priority."*
+>
+> **Priority orders; it does not scale.** It decides *who is served first* — and therefore, when GPUs
+> run out, who gets served at all — but the number a model may hold is its own demand, unmultiplied.
+> The two jobs `priority` currently does are split into two numbers:
+>
+> | | Number | Definition | Where it may be read |
+> |---|---|---|---|
+> | Ordering key | `priority × claim` (or any monotone function of the pair) | ranks models against each other | `sortByRemainingDesc` **only** |
+> | Claim | `claim`, **unweighted** | how many GPUs this model may hold | `computeMean`, `target`, the cap, the clamp |
+>
+> The ordering key is *never spent*. It is a comparator input and nothing else — which is exactly the
+> [§ invariants](#invariants) formulation: **a sort key is not a quantity**.
+>
+> **What this decides downstream:**
+>
+> - **`computeMean` averages unweighted claims.** Today it means over priority-scaled values, so one
+>   high-priority model shifts every other model's `target` — a scarcity signal leaking out of a
+>   ranking. Gone.
+> - **`U4` stops being a naming obligation and becomes a defect to fix.** The doc's previous position
+>   was "until `W2` is decided, describe the cap honestly as *priority-scaled* replicas." `W2` is
+>   decided: the multiplication is wrong, so the fix is to remove it, not to name it. See
+>   [§ unit-findings](#unit-findings).
+> - **The site-(v) fallback's `priority` drop turns out to be *correct*** — and then becomes moot.
+>   It returns unweighted demand, which under this answer is simply what a claim is. But with
+>   `priority` out of the claim, `priority = 0` can no longer zero `fsv`, so the branch that reaches
+>   the fallback stops existing: it becomes **dead code to delete**, not a formula to re-denominate.
+>   See `W3` and [§ bugs](#bugs) #5 site (v).
+> - **Consistency with the existing model.** This is the same move the doc already makes one level
+>   down for scores: *"`Score` leaves `fsv` entirely"* ([§ bugs](#bugs) #5 site (i)). Both weights —
+>   `Score` across analyzers, `priority` across models — are ranking inputs, not multipliers on a
+>   quantity. `W2` makes the two levels agree.
+>
+> **Sequencing.** Like `W1`, this changes allocations independently of units, so it is a separate
+> commit from the currency conversion, with its own test asserting that a priority-10 model's single-
+> iteration hold equals its own demand. Placement is on the [§ open](#open) queue.
 
 **W3 — What does `priority: 0` mean?**
 
@@ -1252,6 +2350,61 @@ readings, all defensible:
 Note the fallback has to be fixed either way, because [§ bugs](#bugs) #5's finding (b) depends on it: a
 wholly-unactionable model computes `0` on the primary path and falls through.
 
+> **✅ RESOLVED 2026-08-07 (Dean).** Verbatim: *"it is to compare competing model and decide who get
+> more than fairshare. I'd say the explict 0 means I am last in line, take what you want, I will use
+> the leftovers. This should be only if explicit. If default then all should be 1."*
+>
+> **`priority: 0` means "last in line" — lowest rank, still fully eligible, takes whatever is left
+> over.** It is a *deprioritization*, not an opt-out and not an error:
+>
+> | | `priority: 0`, explicit | `priority` unset |
+> |---|---|---|
+> | Ordering | **last** — after every model with `priority > 0` | ranked at `1` |
+> | Eligibility | **eligible** — stays in the active set | eligible |
+> | What it gets | the **leftovers**: whatever GPUs remain after the ranked models are served | its fair share |
+> | Claim | its own demand, unweighted (per `W2`) | its own demand, unweighted |
+>
+> Note this is coherent only *because* of `W2`. Once `priority` is out of the claim, "rank last" and
+> "claim my full demand" are not in tension: a `priority: 0` model asks for exactly what it needs and
+> simply waits its turn. Under the old coupling, `priority: 0` meant *claim nothing*, which is why the
+> fallback had to exist at all. The framing in Dean's answer — priority *"is to compare competing
+> model and decide who get more than fairshare"* — is the same statement from the pool's side: rank
+> governs who gets served out of a scarce pool, not how large anyone's ask is.
+>
+> **`priority: 0` is unreachable through the public API — and that is now decided to be acceptable, not
+> a defect to fix.** The semantics above are only expressible if *explicit `0`* and *unset* are
+> distinguishable, and they are not: `ApplyDefaults` rewrites `Priority == 0 → 1.0` unconditionally
+> (`saturation_scaling.go:275-276`), so a user who writes `priority: 0` gets `1.0`.
+>
+> **✏️ Dean 2026-08-07: no API change** — *"leave it. 0.00001 does the same. (verify)"* — **verified, and
+> it works today.** `0.00001` survives `ApplyDefaults` (only exactly `0` is rewritten), passes validation
+> (`>= 0`), applies as an override (`!= 0`), and reaches all four "last in line, takes the leftovers"
+> behaviors through the `fairShareScaleUp` water-fill loop. The step-by-step trace is on the
+> [§ open](#open) queue table, where the decision is recorded.
+>
+> Two consequences worth stating precisely, because they are easy to get backwards:
+>
+> - **`0.00001` is not a workaround for a missing feature — it is the feature's only spelling.** Explicit
+>   `0` is the value that does *not* work (it becomes `1.0`, i.e. normal priority — the opposite of the
+>   intent). So the gap is **documentation**, not API: the user-facing docs should name the idiom.
+> - **It works today, before `W2`,** which is why nothing is blocked. Its mechanism *changes* when `W2`
+>   lands — the tail position moves from the weighted claim to the ordering key — but the observable
+>   behavior is preserved. That makes `W2`/`U4` safely deferrable
+>   ([§ unit-findings-exposure](#unit-findings-exposure)).
+>
+> **Disposition of the site-(v) fallback: delete it as dead.** Of the three readings above, the third
+> is what obtains, but for a different reason than that bullet gives. It is not dead because
+> `ApplyDefaults` makes `priority: 0` unreachable — it is dead because `W2` removes `priority` from
+> the claim, so no priority value can drive `fsv` to `0` any more. The remaining way to reach `fsv = 0`
+> is a genuinely zero claim (a wholly-unactionable model), and for that case falling back to
+> `max_{i,role} ps[i][role]` is wrong on its own terms: it manufactures a claim out of the same
+> `pickerState` that just summed to nothing. That is [§ bugs](#bugs) #5's finding (b), and the correct
+> answer there is `0` — an unactionable model claims nothing and is excluded from the active set, which
+> is what "no analyzer can size me" should mean. The deletion needs a **DEPRECATED** classification in
+> the coder's handoff ("priority-zero fallback — removed; `priority` no longer scales the claim, so the
+> branch is unreachable, and a zero claim is now the correct output rather than a condition to
+> paper over").
+
 **W4 — Is a voter that cannot size the reference variant exempt from the budget?**
 
 Site (iv) leaves an analyzer with no PRC for the reference variant **unclamped** — there is no
@@ -1265,24 +2418,120 @@ question is which rule is wanted: (a) exempt from the budget (today), (b) exclud
 demand altogether — finding (b)'s direction applied consistently, which would make the exemption
 vacuous rather than harmless, or (c) clamped through some *other* variant the analyzer can size.
 
+> **✅ RESOLVED 2026-08-07 (Dean).** Verbatim: *"no. you should not be able to exceed budget even if
+> you don't know the price of an item."*
+>
+> **Option (b): no conversion factor ⇒ no spend.** Not exempt. A voter that cannot price the variant
+> it wants is not thereby licensed to draw from the pool without being charged — it is simply unable
+> to place an order:
+>
+> > **Rule.** A ballot entry with no usable conversion factor for a variant (`PRC ≤ 0`, or absent)
+> > contributes **nothing** for that variant: it enters neither the model's claim nor the pick. It is
+> > not clamped-then-spent, and it is not spent-unclamped. It abstains.
+>
+> This is the only one of the three options that keeps the budget an actual bound. Option (a) —
+> today's exemption — makes "budget" mean "budget, except for entries we cannot measure", which is
+> precisely the sentence Dean's answer rejects; and note that an unmeasurable entry is exactly the one
+> most likely to be stale or wrong, so exempting it inverts the risk. Option (c) — clamp through some
+> *other* variant — silently substitutes one variant's economics for another's and is a
+> currency-mixing bug in a new place.
+>
+> **What changes in the code is smaller than what changes in the reasoning.** `votesFromPickerState`
+> already filters `prc <= 0`, so the observable behavior today is largely what the rule prescribes.
+> The change is that this stops being a coincidence: one rule now covers it, stated once, instead of
+> the outcome depending on two filters in different functions happening to agree. Concretely:
+>
+> | | Before | After |
+> |---|---|---|
+> | Basis of safety | `votesFromPickerState`'s `prc <= 0` filter happens to exclude the same entry the clamp skipped | one rule, applied at claim construction |
+> | If either filter is edited | silent over-allocation, no test fails | the rule is the invariant; the test asserts it |
+> | Claim construction | entry contributes raw metric, unclamped | entry contributes nothing |
+>
+> **This corrects a statement elsewhere in this doc.** [§ bugs](#bugs) #5 site (iv) currently says such
+> an analyzer "is left **unclamped** … so the un-enforced budget is harmless." Under this answer that
+> is no longer the prescription — it is a description of a defect. That passage is amended in place;
+> see the correction block there.
+>
+> **Test.** A `[sat,TA]` fixture where one analyzer has no PRC for the reference variant must produce
+> the same allocation as the same fixture with that analyzer absent from the ballot. That equality is
+> the rule, and it is what a future edit to either filter would break.
+
 **W5 — Is the mean of models' fair-share values a meaningful reference, and in what unit?**
 
 `computeMean` is a plain arithmetic mean over active models' `remaining`, and `sortByRemainingDesc`
 orders by the same number. Today it averages tokens against req/s across models with unequal PRCs —
-that is [§ bugs](#bugs) #5, and the currency fix repairs it. Two questions survive the fix:
+that is [§ bugs](#bugs) #5, and the currency fix repairs it.
 
-1. **Is a cross-model mean the right reference at all?** `target = remaining − mean` means one model
-   with a large claim raises the mean and *shrinks every other model's* target. The `allocationMean`
-   adjustment patches the case where that would zero out the leader, which reads like a symptom being
-   managed rather than a model being applied. A pool- or accelerator-scoped reference is the obvious
-   alternative and is not what the code does.
-2. **Replicas of different variants are not fungible.** The cap yields a replica count blind to
-   `GPUsPerReplica`, so one 1-GPU replica and one 8-GPU replica draw identically against the budget.
-   The pick *does* respect GPUs immediately afterward (`min(fairShareCap, gpusAvail/gpusPerReplica)`)
-   and `roleDemandGPUs` shows the codebase already has a GPU-denominated notion of demand — `fsv`
-   simply does not use it. **A replica-space budget is more coherent than a tokens-vs-req/s one and
-   still is not a resource-space one.** This is also the open half of [§ limited](#limited)'s GPU-space
-   prescription: saying so here keeps "we fixed the currency" from being read as "the currency is now
-   right".
+> **✅ RESOLVED 2026-08-07.** Verbatim: *"why not clear from context. If you need my input I need more
+> iformation."* — It is clear from context. Recorded here rather than escalated, and the units below
+> are **derived**, not chosen: each follows from the lattice ([§ units-lattice](#units-lattice)) plus
+> the four answers `W1`–`W4`. Nothing in this table is a preference.
+>
+> The *budget currency* half was already decided (**GPUs** — [§ bugs](#bugs) #5, [§ limited](#limited)).
+> What that decision left open was Dean's own standard: **each site names its own unit**. Site by site:
+>
+> | # | Site | Quantity | Unit | Rule |
+> |---|---|---|---|---|
+> | 0 | ballot entry → claim | per-`(analyzer, variant, role)` demand | **GPUs** | convert **at entry**: `toGPUs() = (metric ÷ PRC) × GPUsPerReplica`. No `PRC` ⇒ contributes nothing (`W4`). |
+> | 1 | across analyzers, one role | per-role claim | **GPUs** | `max_i` — dominance, matching the binding rule. Never `Σ_i` ([§ combine](#combine)). |
+> | 2 | across roles, one model | model claim | **GPUs** | `Σ_role` — legal here and only here (invariant 10). |
+> | 3 | `computeMean` | reference level across models | **GPUs** | mean of **unweighted** claims (`W2`). |
+> | 4 | `target = claim − mean` | this model's entitlement | **GPUs** | **one** per model; roles debit a shared remainder, `Σ_role spend ≤ target` (`W1`). |
+> | 5 | `sortByRemainingDesc` | ordering key | **none — dimensionless rank** | `priority × claim`; a comparator input that is **never spent** (`W2`). |
+> | 6 | `fairShareCap` | how many replicas this variant may add | **replicas (integral)** | whole-replica **fill** of the remaining GPU budget: `floor(remaining_GPUs / GPUsPerReplica)`, then `min` with the real pool. Not a divide-and-round ([§ units-integral](#units-integral)). |
+> | 7 | site (iii) tie-break | scale-down ordering | **none — coverage per GPU freed** | dimensionless ratio; `max_i`, not `Σ_i`. |
+> | 8 | site (iv) clamp | per-analyzer bound | **that analyzer's own metric** | convert the GPU bound *down* into analyzer `i`'s metric through **its own** `PRC` and the variant's `GPUsPerReplica`; `ps` stays raw. No factor ⇒ no spend (`W4`). |
+> | 9 | site (v) fallback | — | — | **dead** (`W2`/`W3`) — delete, do not re-denominate. |
+>
+> Three properties make this a closed system rather than nine independent choices:
+>
+> - **One conversion boundary.** Row 0 is the only place a `PRC` is applied on the way *in*; row 8 is
+>   the only place one is applied on the way *back out*, and it converts a bound, never a quantity.
+>   Everything between rows 1 and 6 is GPUs. This is what [§ units-conversions](#units-conversions)'
+>   discipline asks for: convert once, at a named boundary, not incidentally mid-expression.
+> - **The round-trip hazard is gone, not solved.** With the numerator in GPUs and the spend-time
+>   factor `GPUsPerReplica` — immutable deployment topology — there is no captured-PRC value map, no
+>   capture-before-refresh ordering requirement, and no [§ invariants](#invariants) #9 drift. Site
+>   (ii)'s `prcRef` machinery simply has nothing to do.
+> - **Only rows 5 and 7 are dimensionless, and neither is ever spent.** Both are ordering keys. That
+>   is the invariant a reviewer can check mechanically: *if a number has no unit, it must not appear on
+>   the left of an assignment that reduces a budget.*
+>
+> **No residual survives.** The one thing the audit had held back as a possible policy gap — the
+> cross-model mean — is settled design; see immediately below.
+
+**Residuals — none open. Both are recorded for their derivations:**
+
+1. ~~**Is a cross-model mean the right reference at all?**~~ — **SETTLED DESIGN, never a residual.**
+   Dean, 2026-08-07: *"cross-model mean is water fill approximation. already dsicussed. not here."*
+   The audit flagged it because `target = remaining − mean` lets one model with a large claim raise the
+   mean and *shrink every other model's* target, and because the `allocationMean` adjustment read like
+   a symptom being managed rather than a model being applied. Both readings were local to one
+   expression. Read as a whole, `fairShareScaleUp` (`greedy_score_optimizer.go:202-261`) is a
+   **water-fill loop**, and the mean is the *water level*, not a quota:
+   - each turn recomputes the mean over the still-active models only (`filterActive` keeps
+     `remaining > 0`, `computeMean` averages them), so the level falls as claimants drain out;
+   - `sortByRemainingDesc` then serves **only the head** — the largest outstanding claim — so filling
+     proceeds top-down toward a common level;
+   - `allocationMean` is the level adjustment, not a patch: when the head is already at or below the
+     mean it lowers the bar by `remaining / len(active)` so the turn is not wasted, and when one model
+     is left it drops the bar to `0` so that model takes the **whole** remaining pool;
+   - the *approximation* in Dean's phrase is the one-bite rule: a model still above the mean after its
+     turn is dropped (`remaining = -1`) rather than re-served, so the fill converges in one pass
+     instead of iterating to an exact level.
+
+   That same terminal step is what makes `priority: 0.00001` behave as "last in line, take the
+   leftovers" — the full trace is in [§ open](#open)'s `W3` verification. **The unit table above is
+   agnostic either way**: rows 3–4 are correct in GPUs whatever the reference level is. Nothing here is
+   a decision-queue item and nothing here is a PR-2 item.
+2. ~~**Replicas of different variants are not fungible.**~~ — **RESOLVED 2026-08-07 (Dean): the budget
+   is GPUs.** This was the argument *for* the resolution, so it is recorded rather than deleted: a
+   replica-denominated budget is blind to `GPUsPerReplica`, so one 1-GPU replica and one 8-GPU replica
+   would draw identically against the pool. The pick already respects GPUs immediately afterward
+   (`min(fairShareCap, gpusAvail/gpusPerReplica)`) and `roleDemandGPUs` already carries a
+   GPU-denominated notion of demand — `fsv` simply did not use it. Non-fungibility of replicas is
+   exactly why the pool cannot be denominated in them. See [§ bugs](#bugs) #5's decision block for what
+   the pivot to GPU space does and does not change, and [§ limited](#limited) for the superseded
+   replica-space prescription.
 
 [↑ TOC](#toc)
