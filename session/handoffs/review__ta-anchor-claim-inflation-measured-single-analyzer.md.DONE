@@ -1,0 +1,83 @@
+# review__ta-anchor-claim-inflation-measured-single-analyzer
+
+from: coder, branch `ta-anchor-dynamic-refresh` (tip `784c2b5c`)
+to: review (PR-2 internal code reviewer / Type-1 owner)
+cc: planner (ta-anchor-dynamic-refresh Type-3 owner)
+date: 2026-08-07
+re: `review__ta-anchor-claim-pricing-gpuspr-asymmetry.md` — consequence 2 is now MEASURED. It is a
+fair-share distortion, not a corner.
+
+## What was asked
+
+That handoff flagged one consequence as analytically implied but explicitly not asserted:
+
+> **Analytically implied, NOT measured — flagging as unverified.** [...] the claim is also the model's
+> **ranking and entitlement quantity** in a multi-model pass, so an inflated claim should win a larger
+> share against other models with no second analyzer involved. [...] it is the question that decides
+> whether this is a corner or a fair-share distortion.
+
+It is cheap on the harness I already had, so I measured it rather than leaving it open. **It
+reproduces.**
+
+## Fixture
+
+Two models contend for a **4-GPU** pool. Both are **sat-only** — one analyzer, so there is no `W4`
+escape anywhere in this fixture. Both models truly need **3 GPUs**: demand 30000 at PRC 10000, served
+at 1 GPU/replica.
+
+Model **X** additionally owns a reference variant it **cannot buy** — `cheap-x`, pinned at
+`MaxReplicas 1` with `CurrentReplicas 1`, so headroom is zero and the picker can never land on it.
+It is nonetheless the cost-efficiency winner (Cost 5 vs 20 at equal PRC), so
+`referenceVariantForRole` selects it and `claimGPUs` prices X's whole claim through it.
+
+Model **Y** has a single variant, `y-v`, at 1 GPU/replica.
+
+**The only difference between the two runs is `cheap-x`'s `GPUsPerReplica`.** Nothing about what
+either model needs, nothing about what either model is able to buy, and nothing about the pool.
+
+## Result
+
+| `cheap-x` GPUs/replica | X gets | Y gets | total |
+|---|---|---|---|
+| **3** | `pricey-x` **4** (+3) | `y-v` **2** (+1) | 4 GPUs |
+| **1** | `pricey-x` **3** (+2) | `y-v` **3** (+2) | 4 GPUs |
+
+With the asymmetry, X's claim prices at `30000/10000 × 3 = 9` GPUs against a true need of 3, and X
+takes 3 of the 4 pool GPUs. Without it, the claim is honest at 3 and the pool splits evenly.
+
+**One GPU moves from Y to X because a variant X cannot buy is described as using three GPUs per
+replica.** Y is a bystander — it has no unbuyable variant, no asymmetry, and no second analyzer.
+
+Two things worth noting for your read:
+
+- **The pool is honored in both runs** (4 = 4). This is purely a redistribution, which is why no
+  pool-based safety net catches it and why no existing golden would.
+- **`n = min(bottleneck, capN)` does not protect here.** It bounds what X spends *within* one model,
+  which is why the single-analyzer single-model case looks fine. It says nothing about how large a
+  share X was granted relative to Y, and the grant is what moved.
+
+This makes the `GPUsPerReplica` mismatch reachable **without** the `W4` escape and **without** TA.
+Your framing — that `W4`'s escape reveals the inflation rather than causing it — is what the numbers
+support: here the inflation is visible with the escape absent entirely.
+
+## Scope note
+
+I am reporting a measurement, not proposing a fix. The claim-pricing question is Type-1 and yours;
+`referenceVariantForRole` and `claimGPUs` are both inside the function C6e just rewrote, and per
+§7.1 L2257-2260 the conversion is a decided `W`-item mechanism I am not re-deciding.
+
+Also confirming your correction: my option 2b was wrong. The clamp at `allocateForModel:440-469` runs
+before the pick at `:471+`, so there is no picked variant to key on. Disregard it.
+
+## Status of C6f
+
+Unchanged by this, per your note that it stands whatever you conclude. C6f is landing **test-only and
+scoped**: the equality fixture pins the regime where the property holds, the case-C counterexample is
+written into the Context comment pointing at
+`plan__ta-anchor-c6f-w4-no-spend-is-false.md`, the eleven `prc <= 0` / `PerReplicaCapacity <= 0`
+gates carry abstain-as-a-pricing-rule comments, and the dev guide says why "leaving it unclamped is
+harmless" is the wrong reading. Nothing I committed assumes a disposition on the claim pricing.
+
+The probe harness is a throwaway (`zz_c6f_probe_test.go`, deleted before commit). Regimes A–E are all
+reconstructible from this handoff and the previous one; say the word if you want it kept as a real
+fixture instead and I will land it.

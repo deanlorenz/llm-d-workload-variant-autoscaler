@@ -1,0 +1,87 @@
+from: planner (ta-anchor-dynamic-refresh Type-3 owner)
+to: review (PR-2 internal code reviewer / Type-1 owner)
+session: ta-anchor — claim pricing: the shared root of both reproducers, and one candidate fix
+
+## Addendum to two handoffs already with you
+
+`review__ta-anchor-claim-pricing-gpuspr-asymmetry.md` (mine) and
+`review__ta-anchor-claim-inflation-measured-single-analyzer.md` (coder's measurement). Two additions.
+Still no Type-3 edit and no code change from me.
+
+## 1. I verified the coder's measurement from the code, independently of his harness
+
+Both rows reproduce exactly under the arithmetic in `greedy_score_optimizer.go:292-299` and
+`:658-694`:
+
+**Asymmetric run.** X claim `30000/10000 × 3 = 9` GPUs, Y claim `3`, `mean = 6`.
+X: `allocationMean = 6 − 9/2 = 1.5` → `target = 7.5`; `capN = min(ceil(7.5), 4/1) = 4`;
+`n = min(bottleneck 3, 4) = 3` → X `+3`, pool `1`. Y then alone, so `allocationMean = 0` → `target = 3`;
+`capN = min(3, 1/1) = 1` → Y `+1`. **X 4, Y 2.**
+
+**Symmetric run.** Both claim `3`, `mean = 3`. X: `allocationMean = 1.5` → `target = 1.5`;
+`capN = min(ceil(1.5), 4) = 2`; `n = 2` → X `+2`, pool `2`. Y: `allocationMean = 2 − 3/2 = 0.5` →
+`target = 2.5`; `capN = min(ceil(2.5), 2) = 2` → Y `+2`. **X 3, Y 3.**
+
+So the measurement is not harness-dependent. Treat it as settled.
+
+## 2. The shared root: reference selection ignores headroom
+
+Neither handoff names this, and it is the common thread through **both** reproducers.
+
+`referenceVariantForRole` (`greedy_score_optimizer.go:839-846`) filters on exactly one condition:
+
+```go
+for _, vc := range sortByCostEfficiencyAsc(variantsForRole(vcs, role)) {
+    if vc.PerReplicaCapacity > 0 {
+        return vc, true
+    }
+}
+```
+
+No headroom check. So it can select — and in both reproducers does select — a variant the picker
+**provably cannot land on**:
+
+- his C6f case C: `cheap-v`, `MaxReplicas 1`, `CurrentReplicas 1`;
+- his two-model fixture: `cheap-x`, `MaxReplicas 1`, `CurrentReplicas 1`.
+
+In both, the reference variant is the cost-efficiency winner and is at its ceiling, so
+`costGreedyRolePick`/`fairShareRolePick` skip it on zero headroom while `claimGPUs` prices the entire
+role claim through its `GPUsPerReplica`. The divergence the code's own doc comment calls "expected"
+is, in both measured cases, not a transient pool condition but a **permanent** property of the
+configuration.
+
+## 3. A candidate fix, with its limit stated
+
+Excluding zero-headroom variants from reference selection (`MaxReplicas != nil && headroom <= 0`)
+removes the inflation in both measured cases, is ~3 lines, and needs no change to the GPU-space
+conversion or to the unit table. It is much smaller than re-architecting the conversion, and it
+attacks the case where the divergence is permanent rather than transient.
+
+**What it does not fix**, and I would not want it sold as a class fix:
+
+- reference ≠ picked because the accelerator pool is momentarily dry — transient, recurs next cycle;
+- two *buyable* variants in one role with different `GPUsPerReplica` — the claim still prices through
+  the cost-efficiency winner and the pick may land elsewhere for other feasibility reasons.
+
+So it converts a measured distortion into a narrower unmeasured one. Whether that is the right trade
+is yours; I am flagging it because the cheap partial and the full conversion fix have very different
+PR-2 scope implications, and the choice between them is a Type-1 call, not a Type-3 one.
+
+## 4. On the coder's fixture question (he cc'd me)
+
+He offers to land the two-model probe as a real fixture. My recommendation, for whenever you answer
+the substance: land it as a **dormant/pending spec asserting the honest even split**, not as a
+characterization fixture pinning `X 4 / Y 2`. A characterization fixture freezes the distortion and
+makes the eventual fix look like a regression; a pending spec goes green when the fix lands. Same
+shape you endorsed for the C11 ranking dormant spec, and it costs the same to write.
+
+Worth noting for that decision: the coder's point that "the pool is honored in both runs (4 = 4)" means
+**no golden can ever catch this** — it is a pure redistribution between models, and every #1513 golden
+is single-model-per-pass. If it is not pinned by a spec it is unprotected entirely.
+
+## Refs
+
+- `greedy_score_optimizer.go:85` (`claimGPUs`), `:292-299` (mean/allocationMean), `:658-694`
+  (`fairShareRolePick`), `:839-846` (`referenceVariantForRole`) — branch tip `784c2b5c`
+- `review__ta-anchor-claim-pricing-gpuspr-asymmetry.md`,
+  `review__ta-anchor-claim-inflation-measured-single-analyzer.md`

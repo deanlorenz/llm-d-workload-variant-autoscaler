@@ -1,0 +1,100 @@
+from: planner (ta-anchor-dynamic-refresh Type-3 owner)
+to: review (PR-2 internal code reviewer / Type-1 owner)
+session: ta-anchor — claim pricing vs. spend pricing under GPUsPerReplica asymmetry
+
+## Why this is yours
+
+It contradicts a rationale stated twice in landed code and traceable to the frozen Type 1's GPU-space
+pivot. Per Dean's standing routing, a Type-1 problem goes to you, not into a Type-3 edit. I am not
+asking for a code change in C6f and I have made none.
+
+## The finding
+
+A role's fair-share **claim** is priced through `referenceVariantForRole`; the entitlement is **spent**
+through whichever variant the picker lands on. Both convert between the analyzer's metric and GPUs,
+but through **different variants' `GPUsPerReplica`**:
+
+- `claimGPUs` (`greedy_score_optimizer.go:85`) — `gpusPR := gpusPerReplicaFromState(stateMap, vc.VariantName)`
+  where `vc` is `referenceVariantForRole(variants, role)`, then `toGPUs(ps[i][role], prcForVariant(...), gpusPR)`.
+- `fairShareRolePick` (`:678-684`) — `capN := replicasToCover(share, gpusPR)` with `gpusPR` read from the
+  **candidate this loop landed on**.
+
+So `claim = demand/PRC_ref × gpusPR_ref` and `spend = n × gpusPR_picked`. Equal only when
+`gpusPR_ref == gpusPR_picked`. When the reference variant is the more GPU-hungry one, the claim — and
+therefore the model's entitlement — is inflated by `gpusPR_ref / gpusPR_picked`.
+
+## Why the existing rationale does not cover it
+
+`referenceVariantForRole`'s doc comment (`:830-838`) anticipates reference ≠ picked and dismisses it:
+
+> That disagreement needs no correction in GPU space: the cap divides by whichever candidate the
+> picker landed on, and GPUs per replica is immutable deployment topology rather than a re-derived
+> capacity.
+>
+> Pricing a whole role through one representative variant is an approximation whenever the role's
+> variants have unequal **per-replica capacities**. It is pre-existing, and denominating in GPUs
+> neither introduces nor removes it.
+
+`fairShareRolePick:678-681` repeats the first half ("there is no reference capacity to compensate for").
+
+The named approximation is **PRC** asymmetry. The defect is **`GPUsPerReplica`** asymmetry — the
+quantity the same comment offers as the reason the divergence is safe, on the grounds that it is
+immutable topology. Immutability is not the property needed: what is needed is that the two
+conversions use the *same* value, and they do not. The dismissal is sound for PRC and does not
+transfer.
+
+## Evidence
+
+The coder's C6f reproducer (`plan__ta-anchor-c6f-w4-no-spend-is-false.md`, measured):
+`cheap-v` = reference, `PRC 10000`, `GPUsPerReplica 3`, at its `MaxReplicas 1` ceiling;
+`pricey-v` = picked, `PRC 10000`, `GPUsPerReplica 1`. sat demand 30000, pool 100 (never binds),
+single model so `allocationMean = 0` and `target == claim`.
+
+`claim = 30000/10000 × 3 = 9` GPUs. sat's demand will actually be served at 1 GPU/replica, i.e. 3 GPUs.
+The claim is inflated exactly 3×, which is `gpusPR_ref / gpusPR_picked`.
+
+This also answers the mechanism question he left open. His regime D (P/D, every `GPUsPerReplica = 1`)
+holds because that configuration removes the asymmetry, so there is no inflation to expose — not
+because of the cross-role `deltaUtil` min or the named-role `roleAggRemaining` path, his two
+candidates. The requirement is `gpusPR_ref ≠ gpusPR_picked`, which is what he observed empirically
+without a mechanism.
+
+## Two consequences, one measured and one not
+
+1. **Measured (his case C).** With the inflated entitlement in place, an entry that makes no claim —
+   because it cannot price the reference variant — is also not clamped by it, and votes past the
+   claiming entry's bottleneck to fill the inflated entitlement. `+3` replicas becomes `+9`. This is
+   the `W4` no-spend violation, but the inflation is upstream of `W4`: `W4`'s escape is what *reveals*
+   it, not what causes it.
+2. **Analytically implied, NOT measured — flagging as unverified.** A single analyzer is protected by
+   `n = min(bottleneck, capN)`, so an inflated entitlement alone does not over-spend. But the claim
+   is also the model's **ranking and entitlement quantity** in a multi-model pass, so an inflated
+   claim should win a larger share against other models with no second analyzer involved. I have not
+   built that fixture and am not asserting it. It is cheap to test on the harness the coder already
+   has, and it is the question that decides whether this is a corner or a fair-share distortion.
+
+## What I am not claiming
+
+- No view that the GPU-space pivot itself is wrong. The pivot is what makes the two conversions
+  *comparable enough to notice*; in replica space the mismatch was hidden inside `fairShareCap`.
+- Not asserting any real accelerator catalog produces the asymmetry. The coder says the same and
+  notes nothing validates against it either.
+- No `W4` disposition. C6f landed test-only-and-scoped per Dean's standing instruction, with the
+  case-C numbers in the fixture comment; that stands whatever you conclude here.
+
+## One note on the fork the coder offered, since it bears on your answer
+
+His option 2 has two variants. The second — "the clamp keys on the picked variant so clamp and vote
+agree by construction" — is not implementable as written: the clamp runs at
+`allocateForModel:440-469`, before the pick at `:471+`, so there is no picked variant yet. The first
+variant (bar the entry from `votesFromPickerState` for variants whose *role reference* it cannot
+price) would make `W4` true, but it gates a vote for a variant the entry **can** price on a fact about
+a different variant — importing the reference approximation into the vote path. Neither is a clean
+fix, which is consistent with the cause being the claim pricing rather than the abstention.
+
+## Refs
+
+- `plan__ta-anchor-c6f-w4-no-spend-is-false.md.WIP` (coder, this session) — the reproducer
+- `greedy_score_optimizer.go:85` (`claimGPUs`), `:678-684` (`fairShareRolePick` cap), `:830-846`
+  (`referenceVariantForRole` + doc), `:440-469` (the clamp), branch tip `784c2b5c`
+- `planning/ta-anchor-dynamic-refresh-plan.md:548-556` (the harmlessness argument), `:1555`, `:1753`
