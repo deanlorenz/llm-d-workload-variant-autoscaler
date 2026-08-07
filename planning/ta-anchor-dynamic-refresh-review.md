@@ -2187,3 +2187,101 @@ GitHub PR exists. **Not verified:** that each token has a faithful prose replace
 the coder's work.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Finding 20 (should-fix, pre-emptive — plan-side) — §4's fall-through fixture cannot go red at `Optimize()` level; site (ii) is observable only by calling the picker directly
+
+**Status:** open, handoff sent. **Scope:** plan §4 C6c fixture wording (L960-980) and the §2d.5
+motivation table (L676-700). No code implication for PR-1 or for commits already landed.
+
+### What the plan specifies
+
+§4's C6c bullet designates a *fall-through cap* fixture as the guard for lock-step site (ii)
+(`fairShareCap`'s `prcRef` rescale):
+
+> a **fall-through cap** fixture for site (ii): one role, two variants with different PRCs **and**
+> different costs, the cheaper-efficiency one made infeasible via `MaxReplicas` headroom, asserting the
+> cap the **pricier** variant receives — red without the `prcRef` rescale (5 instead of 25 on §2d.5's
+> numbers)
+
+and §2d.5's table motivates the rescale as an allocation-outcome defect:
+
+> | today | **25** = `ceil(50000/2000)` |
+> | (i)+(ii) without the rescale | **5** = `ceil(5)` |
+> | (i)+(ii) with the `prcRef` rescale | **25** = `ceil(5 × 10000/2000)` ✓ |
+>
+> A silent 5× under-allocation, on exactly the path the cost-aware optimizer exists to serve
+
+Every other fixture in the §4 C6c list is an `Optimize()`-level scenario, and this one is described
+in `Optimize()` vocabulary (`MaxReplicas` headroom, per-role variants, costs). The natural reading is
+an end-to-end fixture asserting `TargetReplicas`.
+
+### What I measured
+
+Built the plan's own scenario at PR-2 base `d9f3b97e` in a `/tmp` extract, with a one-line knob on
+`greedy_score_optimizer.go:423` forcing the cap denominator to the reference PRC (10000) instead of
+`vc.PerReplicaCapacity` — which reproduces the "(i)+(ii) without the rescale" cap value of **5**
+exactly, against the real value of **25**. Three probes, `PerReplicaCapacity` 10000 (`v1`, cheapest
+efficiency, pinned infeasible via `MaxReplicas: 1`) vs 2000 (`v2`), demand 50000:
+
+| Probe | real cap | simulated missing rescale | discriminates? |
+|---|---|---|---|
+| single-role, `Optimize()` | `map[v1:1 v2:26]` | `map[v1:1 v2:26]` | **no** |
+| P/D, `Optimize()` (joint Δ_util trim in play) | `map[d1:6 p1:1 p2:26]` | `map[d1:6 p1:1 p2:26]` | **no** |
+| direct `fairShareRolePick` call | `variant=v2 capN=25` | `variant=v2 capN=5` | **yes** |
+
+And at the extreme: forcing `fairShareCap` to **1** still yields `v2 → 26`. The only difference is
+**25 loop iterations instead of 1**.
+
+### Why the end-to-end fixture is blind
+
+`allocateForModelPaired` (`analyzer_helpers.go:717-800`) loops `for anyRoleNeedsScaleUp(pickerState,
+roles)` and re-invokes `pick` every iteration. So the two bounds do different jobs:
+
+- **`ps` (site (iv)'s clamp) bounds the allocation total** — the loop runs until per-role demand is
+  exhausted.
+- **`fairShareCap` (site (ii)) bounds only per-iteration progress** — understate it and the loop takes
+  more turns to reach the same total.
+
+There is no iteration bound on that loop, so an understated cap costs iterations, not replicas. The
+plan's `5` and `25` are therefore **cap values, not allocation outcomes** — which is why they match my
+unit probe to the digit and are invisible in both `Optimize()` probes.
+
+### Consequences
+
+1. **The fixture's level must be specified, and only one level works.** As worded, a coder who writes
+   this as an `Optimize()` scenario produces a test that is green with *and* without the rescale — a
+   fixture that reads as a guard and is not one. The guard has to be a direct call to the closure
+   returned by `fairShareRolePick`, asserting the returned `capN`. That is observable (25 vs 5) and it
+   is the only level at which the plan's own numbers are reachable. Worth noting the plan's phrase
+   "asserting the cap the pricier variant receives" is already *compatible* with the unit level — the
+   fix is to say so explicitly rather than leave it to inference, because everything around it is
+   end-to-end.
+2. **§2d.5's "silent 5× under-allocation" does not reproduce end-to-end.** In both scenarios I ran, the
+   final decision is identical with and without the rescale. As an outcome claim the sentence is not
+   supported; as a claim about the per-iteration cap it is exact. Whether that reframing weakens the
+   case for site (ii) is **the planner's call, not mine** — a 5× understated cap is still a real defect
+   in the picker's contract, it is still worth fixing, and "the loop happens to compensate today" is a
+   thin invariant to rely on. I am flagging that the *stated* motivation and the *measurable* effect are
+   not the same thing, so the plan doesn't rest a fixture on an effect that isn't there.
+
+### Caveats — what I did not verify
+
+- This is a **simulation at the pre-C6c base**, not a run of C6c. It reproduces the cap *value*
+  faithfully, and shows the loop compensates **in the current architecture**.
+- Post-C6c, site (iv)'s clamp moves to replica space along with `target`. Whether the loop still
+  compensates once `ps` and `target` are both converted is **not** established by this probe — the `k`
+  computation in `allocateForModelPaired` reads `demand/prc`, and I have not traced the converted
+  currency through it. **I re-check this against the coder's actual C6c code**, and if the conversion
+  breaks the compensation then §2d.5's outcome claim becomes true post-C6c and this finding's
+  consequence 2 falls away (consequence 1 stands either way — an end-to-end fixture that is green both
+  ways today needs re-proving, not assuming).
+- I did not test a GPU-scarce pool. Within a single `allocateForModel` call the pool drains identically
+  regardless of iteration count, so I do not expect a difference, but I did not measure it.
+
+**Verified:** all six probe results above, run twice; the `Optimize()` outputs are byte-identical
+across the knob; the extreme cap=1 case; that the scratch tree is a `/tmp` extract and no worktree file
+was modified. **Not verified:** the post-C6c currency question above; GPU-scarce behaviour.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
