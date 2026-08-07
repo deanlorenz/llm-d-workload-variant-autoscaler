@@ -34,8 +34,8 @@ uv run --with matplotlib render_real_trace.py \
   --bundle real-trace/staircase-20260803/bundle.json
 ```
 
-`results/` is where *published* bundles land (see **Sharing results** below) — tracked, and
-empty until someone publishes one.
+`results/` is where *published* bundles land (see **Sharing results** below). It is tracked
+and carries nothing but its own `README.md` until someone publishes a run.
 
 ## Requirements
 

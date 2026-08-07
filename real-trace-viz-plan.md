@@ -1140,7 +1140,7 @@ was checked and **holds**: `README.md` has no `plans/` dependency.
 
 > **Superseded in part (Dean, 2026-08-07).** Rev 4 designed this as a separate `viz-results`
 > orphan branch. Dean chose *"just dir under viz tools"*, so results are a **tracked `results/`
-> directory on `autoscaling-viz`** (§14.4/§14.6) — tracked and, as of this writing, empty. The
+> directory on `autoscaling-viz`** (§14.4/§14.6), holding no published run yet. The
 > layout, the rules, and the validation below are unchanged and still load-bearing; only the
 > destination moved. `viz-results` is **retired** — archived as `archive/viz-results` → `3e8117c5`
 > and deleted (§14.6). One consequence is a live defect rather than a tidy-up: `publish_result.sh
@@ -1172,6 +1172,13 @@ results/<YYYYMMDD>-<label>/
 A normal tracked directory on `autoscaling-viz`. The `.gitignore` line that hid it while the tools
 lived on `plans` came out with the migration, and the `.gitignore` now records *why* it went — an
 unexplained absence is the kind of thing a later session re-adds.
+
+**Dropping the ignore line was necessary but not sufficient, and that gap was live for a day.**
+Git cannot track an empty directory, so "tracked and empty" is not a state it can represent — with
+no file inside, `results/` simply did not exist, while this section and the README both described it
+as present. It is now held open by `results/README.md`, which also carries the §15.1 layout and the
+§15.2 rules at the point of use, so someone publishing a run does not have to find this plan first.
+The general form of the mistake is worth keeping: *un-ignoring a path does not create it.*
 
 ### 15.2 Rules
 
