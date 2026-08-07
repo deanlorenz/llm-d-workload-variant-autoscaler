@@ -1550,6 +1550,79 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			Expect(spent).To(Equal(7), "two voters, still one 7-GPU entitlement")
 		})
 
+		// The two Optimize()-level specs above are genuine discriminators for the
+		// per-(analyzer, role) CLAMP, but not for the picker's own ledger: in both,
+		// each role's demand already exceeds the whole-model entitlement, so
+		// bounding each role by `target` independently lands on the same numbers.
+		// §C6e asks for the other shape — roles that would EACH individually fit
+		// inside the entitlement and only jointly overrun it. That shape is what
+		// separates one shared balance from one budget per role, and at
+		// Optimize() level it is not observable: the round-up in replicasToCover
+		// and the downstream pool both move the totals, so a direct call to the
+		// returned closure is the only place the balance itself is visible. Same
+		// technique, and same reason, as the round-the-entitlement-up spec above.
+		//
+		// Entitlement 6 GPUs. Either role alone fits: decode would take 3 replicas
+		// at 2 GPUs, prefill 6 at 1 GPU — 6 GPUs each. Together they want 12.
+		balanceVariants := []domain.VariantCapacity{
+			{VariantName: "decode-v", AcceleratorName: "A100", Cost: 5.0, Role: "decode", ReplicaCount: 1, PerReplicaCapacity: 4000},
+			{VariantName: "prefill-v", AcceleratorName: "A100", Cost: 5.0, Role: "prefill", ReplicaCount: 1, PerReplicaCapacity: 5000},
+		}
+		balanceStates := map[string]domain.VariantReplicaState{
+			"decode-v":  {VariantName: "decode-v", CurrentReplicas: 1, GPUsPerReplica: 2, Role: "decode"},
+			"prefill-v": {VariantName: "prefill-v", CurrentReplicas: 1, GPUsPerReplica: 1, Role: "prefill"},
+		}
+		// Deliberately far larger than the entitlement: a pool that could bind
+		// would mask the balance, which is the masking §C6e names.
+		balancePool := map[string]int{"A100": 100}
+		balanceRoles := []string{"decode", "prefill"}
+		balanceBallot := []NamedAnalyzerResult{
+			{Name: domain.SaturationAnalyzerName, Result: &domain.AnalyzerResult{}, Enabled: true, Live: true},
+		}
+
+		It("hands the second role the remainder, not the entitlement over again", func() {
+			targets := map[string]int{"decode-v": 1, "prefill-v": 1}
+			pick := fairShareRolePick(6, balanceBallot, balanceRoles)
+
+			// Decode sorts first, so it draws against the balance less the one GPU
+			// held back for prefill: 5 GPUs at 2 per replica, rounded up.
+			v, capN := pick("decode", balanceBallot, balanceVariants, balanceStates, balancePool, targets)
+			Expect(v).To(Equal("decode-v"))
+			Expect(capN).To(Equal(3))
+
+			// Prefill draws second. One budget per role would size it against the
+			// full 6 GPUs again and hand it 6 replicas — each role fitting on its
+			// own, the pair overrunning by 100%. One shared balance leaves it what
+			// decode did not reserve.
+			v, capN = pick("prefill", balanceBallot, balanceVariants, balanceStates, balancePool, targets)
+			Expect(v).To(Equal("prefill-v"))
+			Expect(capN).To(Equal(1), "the remainder of one balance, not a second copy of the entitlement")
+		})
+
+		It("does not hand back the whole entitlement on the next iteration", func() {
+			// committed0 is snapshotted at the first draw and the spend is measured
+			// against it, so a later iteration is bounded by what the earlier one
+			// actually committed. Without that the model draws a full entitlement
+			// every time round and buys the same GPUs again — which no
+			// single-iteration fixture can see.
+			targets := map[string]int{"decode-v": 1, "prefill-v": 1}
+			pick := fairShareRolePick(6, balanceBallot, balanceRoles)
+
+			_, capN := pick("decode", balanceBallot, balanceVariants, balanceStates, balancePool, targets)
+			Expect(capN).To(Equal(3))
+			_, capN = pick("prefill", balanceBallot, balanceVariants, balanceStates, balancePool, targets)
+			Expect(capN).To(Equal(1))
+
+			// The caller commits both grants — 6 GPUs for decode, 1 for prefill —
+			// and the loop comes round again.
+			targets["decode-v"] = 4
+			targets["prefill-v"] = 2
+
+			v, capN := pick("decode", balanceBallot, balanceVariants, balanceStates, balancePool, targets)
+			Expect(v).To(BeEmpty(), "the entitlement is spent; the second iteration buys nothing")
+			Expect(capN).To(Equal(0))
+		})
+
 		It("draws the roles in a deterministic order", func() {
 			// The draw is sequenced, so which role is sized against the full
 			// balance and which against the remainder is decided by the order the
