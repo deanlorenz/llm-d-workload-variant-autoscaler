@@ -3478,3 +3478,362 @@ the verification and the two refinements here and routing them to the planner; t
 Dean's call, as the handoff itself says.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## C6e review (`784c2b5c`) — `pipeline: one fair-share entitlement per model, drawn in sequence`
+
+3 files, +420/−21 (production +241, test +154 additions-only, dev-guide +46). DCO signed. Reviewed
+against plan §C6e (`1a116e7a`).
+
+**What landed, and it is good work.** Three coordinated changes: (a) a new `debitCommittedDemand`
+called after `initRoleState` and before the clamp, charging already-committed replicas against the
+entitlement; (b) the clamp restructured from role-outer/entry-inner to entry-outer/role-inner over a
+hoisted `roleRefs` slice, carrying a per-entry running `balance` with an unconditional one-replica
+floor; (c) `fairShareRolePick` gains a `committed0` snapshot and a per-role `reserved` ledger, with a
+per-draw holdback for roles that have not yet drawn, `firstDraw`, and `capN := replicasToCover(share,
+gpusPR)` — replacing the pre-C6c `fairShareCap := ceil(target / PRC)` and the `_ = s; _ = roles`
+stubs.
+
+**Verified sound, independently:**
+
+- **The starvation guarantee holds.** `reserved[first] ≤ balance − 1` ⇒ `share_last ≥ 1` ⇒
+  `replicasToCover(≥1, gpusPR) ≥ 1`, so the last role always draws at least one replica.
+  Holdback-on-every-draw paired with `replicasToCover`'s round-up is a sound combination, not a
+  coincidence.
+- **The `reserved`-clear heuristic matches its only caller.** `allocateForModelPaired` is
+  all-roles-or-nothing and commits after the full pick sweep, so "same role draws twice ⇒ clear all
+  reservations" is exactly right.
+- **The fixture arithmetic reproduces.** decode-v 4, prefill-v 2, spent 7, mean-v 1 all re-derived
+  from the code, and the inline counterfactual (prefill-v 7, decode-v 4, 12 GPUs out of a 7-GPU pool,
+  `available` → −5) reproduces exactly. A genuine characterization, not a fitted expectation.
+- **The test diff is additions-only** (+154, zero deletions) — independent evidence that no existing
+  spec moved.
+
+### Correction to my own pre-registered expectation
+
+I wrote, before this commit existed:
+
+> C6e is the first commit in the sequence where **a moving `[sat]`-only P/D golden is expected, not a
+> bug** … If the coder's commit reports "no golden moved," that is the signal to look harder, the
+> inverse of the rule for C1–C6d.
+
+**That was wrong in its premise, and the commit is right.** The coder's reasoning — `target` is
+`w.remaining − allocationMean`, and `allocationMean = 0` whenever `len(active) == 1`, so a
+single-model fixture gets `target == claim` — is correct, and the conclusion generalises further than
+the commit claims. Because `claimGPUs` (`:85-106`) **sums** role claims in GPUs, the entitlement for a
+single active model equals exactly the roles' combined spend; the shared balance therefore binds at
+exactly the sum and never below it. So **`W1` is unreachable without multi-model contention**, and
+"every existing golden is single-model" stops being an assertion that needs checking and becomes a
+sufficient proof that no golden *can* move. It is also precisely why the new fixture needs a second
+mean-setter model to observe anything at all — which the coder's own comment says.
+
+### Finding 28 (should-fix, test-only) — the suite pins site (iv) but not site (ii); the whole ledger apparatus is asserted by nothing
+
+Plan §C6e names **two** defects to pin: the per-role budget in `fairShareRolePick`, and the
+per-`(analyzer, role)` clamp against the full target. The suite pins one.
+
+The structural reason is short: **with a single analyzer entry, the clamp's per-entry running balance
+and the picker's per-model ledger are the same constraint.** Spec 1 is sat-only — one entry — so it
+cannot separate them. Fixing the clamp alone introduces a shared balance across roles *there*, which
+produces the sequenced split by itself. Tracing confirms the digits: decode-v 4, prefill-v 2, spent 7
+— identical to the assertions.
+
+| variant of the fix | spec 1 (sat-only) | spec 2 (two voters) |
+|---|---|---|
+| neither site fixed (pre-C6e) | RED | RED |
+| picker budget only | — | **RED** (decode-v 2, prefill-v 2, spent 3) |
+| **clamp only** | **GREEN** | **GREEN** (decode-v 4, prefill-v 2, spent 7) |
+| both (as landed) | GREEN | GREEN |
+
+So spec 2 *is* a genuine discriminator for the clamp — that part works. But no spec goes red when the
+picker-budget half is reverted, which means `committed0`, `reserved`, the per-draw holdback and
+`firstDraw` — the largest and most intricate part of a +241 production diff — are pinned by no
+assertion in the branch.
+
+"Both specs fail on the old code" is true, since the old code had neither fix. It is a strictly weaker
+property than "each named defect is pinned", and it is the property the suite actually has.
+
+Two details sharpen this rather than soften it:
+
+1. **The fixture comment asserts a causal story the assertion cannot distinguish.** At the draw split
+   it reads: *"Decode draws first and its share is 7 less the one GPU held back for prefill, so it
+   takes 6 / 2 = 3 replicas; prefill draws against the 1 GPU that is left and takes 1."* That
+   describes the picker holdback. The same digits arise from the clamp acting alone.
+2. **The plan asked for a fixture shape that would have discriminated, and it was not used.** §C6e
+   asks for "roles that would each individually fit but jointly overrun." In the shipped fixture both
+   roles individually *exceed* `target` — which is exactly what lets the clamp-only variant pass.
+
+**The discriminating technique is already established one commit earlier, by this same coder.**
+`34b18bc5`'s message: *"the cap is asserted by calling the returned pick closure, because at the
+optimizer level the cap bounds per-iteration progress while a separate bound governs the allocation
+total, and a fixture there stays green either way."* That is this problem, named and solved, in the
+immediately preceding commit.
+
+This is **Finding 20's shape recurring** — and Finding 20 was promoted into the plan, so the general
+instruction is already there. C6e is where it was not applied.
+
+### Finding 29 (should-fix, dev-guide) — "gets `mean == 0`" is false under the section's own use of `mean`
+
+The new "Fair-share iteration" paragraph says the single-model case "gets `mean == 0`". What
+`fairShareScaleUp:292-297` zeroes is the separate `allocationMean`. `mean` itself (`:285`,
+`computeMean(active)`) is **not** zero for a single active model — it equals that model's own
+remaining — and it keeps governing the `w.remaining > mean` drop check at `:308`.
+
+This matters because the same dev-guide section uses `mean` in steps 1–3 as the **water level**, so
+"mean == 0" reads as "the water level is zero", which is the inverse of what happens: the water level
+is the model's entire claim, which is why `target == claim` and why no golden moves. The mechanism the
+paragraph explains is right; the variable name is wrong, and wrong in the direction that makes the
+explanation self-defeating.
+
+### Finding 30 (nit, test-only) — the deliberate behaviour change is declared in the commit message but not in the `It()`
+
+§C6e requires the expected `[sat]`-only movement be stated "in the commit message **and** in the
+`It()`". The commit message does it. All three `It()` descriptions read as pure invariants ("spends
+one shared balance across the roles, never one per role" / "does not multiply the entitlement by the
+number of analyzers" / "draws the roles in a deterministic order"). Same root as Finding 28: a fixture
+built to a different shape than the one specified.
+
+### Four candidate findings verified and retracted — none filed
+
+Recorded because the verification is the load-bearing part, and because at C6c I nearly filed a
+materially false finding by writing it up before reading the coder's account.
+
+1. **`debitCommittedDemand`'s nil guard too coarse for a partly-seeded entry** — retracted:
+   `initRoleState` seeds all-or-nothing per entry, so `if _, seeded := ps[i][role]; !seeded` is exact.
+2. **Currency mixing in `balance := target − float64(spentGPUs)`** — retracted: `claimGPUs` already
+   denominates `target` in GPUs. I also correct my own intermediate claim that the ledger makes `W2`
+   non-linear: the pre-C6e per-role cap was already linear in priority, so C6e is a strict tightening
+   and changes nothing for `W2`.
+3. **Mixed-ballot phantom role** — retracted as theoretical: both analyzers publish `RoleCapacities`.
+4. **The `RoleBoth`/`freshPs` half-applied debit** (`:346-351`) — retracted, and this one took two
+   source reads to kill: `saturation_v2/analyzer.go` `aggregateByRole` returns `nil` when
+   `!hasDisaggregation`, and `throughput/analyzer.go` `aggregateRoleCapacities` returns `nil` when
+   `len(byRole)==0 || (len(byRole)==1 && hasBoth)`. So `RoleCapacities == nil` ⟺ non-disaggregated,
+   exactly as `analyzer_helpers.go:275` documents, and the debit's nil guard is exact. (Also checked:
+   `saturation/engine_v2.go:508` writes inside `range r.RoleCapacities`, so a nil map is a no-op, not
+   a panic.)
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Claim pricing under `GPUsPerReplica` asymmetry — three handoffs adjudicated
+
+Three artifacts routed to me as `review__`: the planner's
+`ta-anchor-claim-pricing-gpuspr-asymmetry`, the coder's measured
+`ta-anchor-claim-inflation-measured-single-analyzer`, and the planner's addendum
+`ta-anchor-claim-pricing-headroom-root`.
+
+**Verdict: the defect is real, and the measurement stands.** Verified at tip:
+
+- `claimGPUs:86-97` takes **both** conversion factors from the reference variant — `gpusPR :=
+  gpusPerReplicaFromState(stateMap, vc.VariantName)` and `prcForVariant(e.Result, vc.VariantName)`,
+  where `vc = referenceVariantForRole(...)`.
+- `referenceVariantForRole:840-843` filters on `vc.PerReplicaCapacity > 0` and nothing else — **no
+  headroom check**, confirming the planner's addendum.
+- So `claim = demand/PRC_ref × gpusPR_ref` while `spend = n × gpusPR_picked`, equal only when the two
+  variants agree on `GPUsPerReplica`.
+
+**I re-derived both rows of the coder's two-model measurement from the code and both reproduce**
+(X +3 / Y +1 asymmetric; X +2 / Y +2 symmetric, the latter over three iterations). One GPU moves from
+Y to X because a variant X provably cannot buy is described as consuming three GPUs per replica. The
+pool is honored in both runs (4 = 4), so this is a pure redistribution between models — which is why
+no pool check and no `#1513` golden can catch it: every golden is single-model per pass.
+
+### Finding 31 (should-fix — Type-1 rationale defect, not a C6e code defect) — the doc comment's dismissal answers a question about the *cap*, and the reference is chosen by money-efficiency but used to denominate a GPU quantity
+
+`referenceVariantForRole`'s doc comment (`:829-838`) anticipates reference ≠ picked and dismisses it:
+
+> That disagreement needs no correction in GPU space: the cap divides by whichever candidate the
+> picker landed on, and GPUs per replica is immutable deployment topology rather than a re-derived
+> capacity.
+
+Two things are wrong with this. The planner's handoff identifies the first:
+
+1. **It names the wrong approximation.** The paragraph that follows scopes the acknowledged
+   imprecision to unequal **per-replica capacities**. The defect is in **`GPUsPerReplica`** — the very
+   quantity offered as the reason the divergence is safe. Immutability is not the property needed;
+   agreement between the two conversions is, and they do not agree.
+2. **It is an answer about the cap, not the claim** — my addition. "The cap divides by whichever
+   candidate the picker landed on" is *true and irrelevant*: the cap is consistent with the spend by
+   construction. The **claim** is not, and the claim is the model's ranking key and its per-pass
+   `target`. The sentence closes a question nobody needed answered while leaving the one that matters
+   untouched.
+
+**The deeper statement, which no handoff makes.** `sortByCostEfficiencyAsc` orders by `Cost / PRC` —
+*money* per unit of served capacity. The reference variant is therefore the **money-cheapest** one, and
+its `GPUsPerReplica` is then used to denominate a **GPU** quantity. Nothing ties the money-cheapest
+variant to the GPU cost of serving the role's demand. That is the category mismatch;
+headroom-blindness is the sub-case where the resulting divergence is *permanent and predictable*
+rather than transient, which is why both reproducers are built on it. So headroom is the shared
+**trigger**, not the shared root.
+
+**Consequence for the fix menu.** The planner's headroom filter removes both measured cases, is ~3
+lines, and — as the planner says honestly — converts a measured distortion into a narrower unmeasured
+one. It does not address the class, because it does not make the claim consumption-faithful.
+
+**Option (d), which none of the three handoffs raises:** select the reference *for pricing* by **GPU**
+efficiency — the minimum of `gpusPR / PRC` over the role's feasible candidates — rather than by cost
+efficiency. Properties: the claim becomes a true lower bound on the GPUs needed to serve the role, so
+it can never be inflated; it is headroom-independent, so it also covers the transient case the
+headroom filter misses; it degenerates to today's value whenever the role's variants share a
+`GPUsPerReplica`, which is every existing fixture; and under-claiming is the conservative direction
+for fair share (lower rank, lower `target`) while spend stays bounded by the cap, which already
+converts through the picked variant. Cost is comparable to the headroom filter. Its limit: it changes
+pricing only, not pick order, so the money-cheapest variant is still what gets bought — the claim
+becomes a floor on the model's true GPU need rather than a prediction of its spend.
+
+**Disposition is not mine.** The Type 1 is frozen at `8c2a9b04` and outside my write scope; a
+post-freeze touch to its GPU-space rationale is Dean's call, exactly as recorded for Finding 27's
+`:1530-1533`. Both handoffs address me as "Type-1 owner"; my role is internal code reviewer, and the
+choice between accept-and-document, the cheap partial, and option (d) has PR-2 scope implications
+belonging to Dean and the Type-3 owner. **Recorded, routed, not decided.**
+
+### Finding 32 (should-fix, process) — the addendum's "treat it as settled" rests on a derivation that cannot execute
+
+The addendum states it verified the coder's measurement "independently of his harness" and concludes
+*"the measurement is not harness-dependent. Treat it as settled."* The derivation it gives applies the
+`w.remaining <= mean` branch (`:295-296`) to compute `allocationMean = 6 − 9/2 = 1.5`. But `w` is
+`active[0]` **after `sortByRemainingDesc`** (`:289-290`) — the **maximum** — so `w.remaining <= mean`
+is unreachable unless every active model's remaining is equal. In the asymmetric run `9 ≠ 3`, so the
+real values are `allocationMean = mean = 6` and `target = 3`, not `7.5`.
+
+The row's *outcome* survives: `n = min(bottleneck 3, capN)` and the bottleneck binds at 3 either way,
+so the derivation reaches the right answer for the wrong reason. The symmetric row's first step is
+correct (`3 <= 3` genuinely holds), then takes the same unreachable branch; the true path is three
+iterations (X +2, Y +1, Y +1) arriving at the same X 3 / Y 3.
+
+So **the measurement is confirmed — by my re-derivation, not by the addendum's.** Worth recording
+because the addendum explicitly upgraded the finding to *settled* on the strength of that arithmetic,
+and the identical slip would materially change any fixture where `capN` rather than the bottleneck
+binds — which is most of the interesting ones.
+
+### The coder's fixture question resolved itself, correctly, without me
+
+The coder offered: *"say the word if you want it kept as a real fixture instead and I will land it."*
+I did not answer it — a reviewer cannot direct a coder, and the fixture decision belongs in the Type 3.
+It resolved anyway: `537b0153` landed the dormant-spec shape the **planner** recommended (see below).
+Recording the non-answer because the offer was addressed to me and the right response to a misrouted
+question is to leave it misrouted, not to accept the authority being offered.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## C6f landed (`a679f2ad`) — review pending; credit for pre-empting Finding 31
+
+`pipeline: abstain is not exempt -- make W4 a tested property (C6f)`, 6 files +246/−3.
+
+**Verified: the production edits are comment-only.** Stripping comment and blank lines from the diff
+of all four production files leaves exactly two hunks, both a `continue` whose trailing comment moved
+above it. So "test-only plus comments and prose; no behaviour change, and therefore no golden moved"
+is accurate as stated — checked rather than taken.
+
+Credit, ahead of the full review: the message states the claim-pricing mechanism correctly and
+unprompted (reference vs picked, the `GPUsPerReplica` disagreement, `claimGPUs` pricing through one
+value and `fairShareRolePick` spending through the other), declares in capitals that the abstention
+property is **not fully gated by these fixtures**, puts the scope warning where a reader of the file
+will see it, and declines to assume a disposition. It also revises the plan's own expectation — §C6f
+lists C6f among the commits whose goldens should move, and the message explains why that expectation
+does not survive C6f's own answer, since the `continue` at the per-role clamp already *is* the
+abstention. That is the right way to disagree with a plan: in writing, with the reason.
+
+Full C6f review pending, including the eleven gate comments' entry-abstains vs variant-unpriced split.
+
+---
+
+## `537b0153` review — `pipeline: pin the claim-pricing distortion as a dormant spec`
+
+Test-only, +88/−0, one file. DCO signed. **Not in the plan** — the coder says so in the first line and
+isolates it in its own commit so it can be reverted without touching C6f. Correct instinct, and the
+right granularity.
+
+**Verified, and this is the best-shaped artifact on the branch:**
+
+- **`PIt` is real.** Ginkgo v2.28.1 `core_dsl.go` does define `PIt`; the coder says it checked the
+  vendored source rather than assuming, and there was no prior `PIt`/`XIt` precedent in the tree —
+  both claims hold.
+- **It asserts the honest split, not today's numbers** — `pricey-x 3`, `y-v 3`, `cheap-x 1`. This is
+  the planner's recommended shape and the correct one: a characterization fixture pinning `X 4 / Y 2`
+  would freeze the distortion and make the eventual fix read as a regression.
+- **It asserts both sides of the redistribution.** `Expect(dm["y-v"]...).To(Equal(3), "Y is a
+  bystander and must not be starved")` is the load-bearing assertion — the failure mode is a transfer,
+  so pinning X alone would miss it. The inline comment says exactly this.
+- **"Red when enabled" is a verified claim, not a placeholder** — X reaches 4 where the spec wants 3.
+  A dormant spec nobody ever ran red would be worthless; this one was.
+- **The fixture is minimal and its unbuyability is structural**, not contrived: `MaxReplicas: &one`
+  with `CurrentReplicas: 1` pins `cheap-x` at its ceiling while `Cost: 5.0` vs `20.0` at equal PRC
+  makes it the cost-efficiency winner and therefore the reference. One analyzer, no abstention escape.
+- **The comment says it encodes a premise, not a decision,** and states the delete condition. That is
+  the honest way to carry a spec whose expected value is an open question.
+
+This closes the coverage gap I recorded above: the measured distortion is no longer unprotected.
+
+### Finding 33 (should-fix, §4a — new class) — plans-branch handoff paths are now cited inside shipped test comments
+
+Two code comments now point at the orphan `plans` branch by path:
+
+- `greedy_score_optimizer_test.go:1602` — `plans/session/handoffs/plan__ta-anchor-c6f-w4-no-spend-is-false.md` (C6f)
+- `greedy_score_optimizer_test.go:1741` — `Refs: plans/session/handoffs/review__ta-anchor-claim-pricing-gpuspr-asymmetry.md, review__ta-anchor-claim-inflation-measured-single-analyzer.md, review__ta-anchor-claim-pricing-headroom-root.md` (this commit)
+
+§4a bans plans-branch section identifiers *and* pointers to plans-branch documents. These are the
+worse class: a token like `W4` is at least guessable from context, whereas a path into an orphan
+branch a reader of merged code cannot check out is unresolvable by construction — and these
+specifically point at *handoffs*, the most ephemeral artifacts in the workspace, which are renamed to
+`.DONE` and `git rm`-ed in a later sync commit. The reference will be dead before the PR merges.
+
+The intent is right and worth preserving: a reader who finds a dormant spec needs to know where the
+open question lives. The §4a-compliant form is prose — "the measured two-model reproducer and the
+open pricing question are recorded in the internal design review" — with no path. **These are the
+first plans-branch *paths* PR-2 has put in code**; earlier leaks were all bare tokens. Base
+`075a208e` has exactly one such path anywhere in the tree, `docs/developer-guide/throughput-analyzer.md:698`
+(`plans/planning/TA-Plan.md`, `TA-PR4-plan.md`) — pre-existing, already in `main`, already tracked in
+`governance-follow-ups.md`. That precedent explains the habit; it does not license extending it.
+
+Also new in this commit, same family: `Measured on this exact fixture at 784c2b5c` cites a
+pre-rebase branch SHA that will not survive the `rebase -i` the branch already needs.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## §4a — definitive recount at `537b0153` (supersedes every earlier figure in this doc)
+
+I have miscounted this twice by under-matching, so this pass enumerates per commit and per file rather
+than reporting a total.
+
+**Commit messages — 14 commits · 13 token-bearing · 10 token-bearing subjects · 1 fully clean.**
+`34b18bc5` (C6c) remains the only §4a-compliant message on the branch. `537b0153`'s subject is clean;
+its body carries `C6f`, `W4`, `Type-1 owner`.
+
+This supersedes CURRENT.md's "all nine (6/9 subjects, 8/9 bodies)", Finding 13's "all nine" at L1372,
+and my own "ten" at L3195 — all three are stale, and each was accurate when written.
+
+**Code and docs — attribution against base `075a208e`, which is what makes this actionable:**
+
+| surface | at base (inherited) | PR-2-introduced | at tip |
+|---|---|---|---|
+| production `.go` doc comments | **0** | **19** | 19 |
+| test `.go` comments / descriptions | 11 (of which 3 are `config_test.go`'s generic local "Test 1/2/3" enumeration, not a plans ref) | ~30 | 41 |
+| dev-guide `.md` | 1 — `throughput-analyzer.md:698`, a plans-branch *path* | 4 — `multi-analyzer-pipeline.md` `N7`×2, `N8`, "Type-1 owner" | 5 |
+| plans-branch **paths** in `.go` | 0 | **2** (Finding 33) | 2 |
+
+The attribution is the finding here: **PR-1 leaked into test comments only; PR-2 is the first to put
+plans-branch tokens into production doc comments** — 19 lines across `analyzer_helpers.go` (12),
+`rescale.go` (4), `greedy_score_optimizer.go` (2), `optimizer_interfaces.go` (1). C6e's own production
+delta is +2, both new: `(W1)` at `greedy_score_optimizer.go:330` and `(Bug #1)` at `:338`, in
+`debitCommittedDemand`'s doc comment.
+
+CURRENT.md's figure of "32 code/doc token locations" is now **~49 lines** (19 production + ~30 test),
+plus 4 dev-guide and 2 paths. Growth is roughly linear in commits, so the C9 cleanup gets bigger with
+every commit that ships prose.
+
+**Reword cost, restated with the corrected magnitude:** 13 commits to reword, not nine and not ten,
+and it rises with C11/C10/C9. The branch still needs a force-push regardless
+(`origin/…@f6485980` is orphaned), so the `rebase -i` remains ~free until PR-2 opens, at which point
+it becomes a live-PR history rewrite. Recommendation unchanged; magnitude corrected. The ~49 code
+locations are C9's natural host and are genuinely unhurried — **except Finding 33's two paths**, which
+should not ship even in a draft PR, because the artifacts they name are scheduled for deletion.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
