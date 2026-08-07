@@ -6745,3 +6745,181 @@ Stated in advance for the same reason: if C9e leaves `analyzer_helpers.go:659` i
 for instance that a design-doc filename is judged materially different from a handoff path because the
 design doc is the durable artifact — that is a defensible position and I will record it as a disagreement,
 not a miss. What I would score as a miss is silence: the site absent from both the diff and the message.
+
+---
+
+## C9e — `a9afb740` — scored against R1–R4
+
+**Commit:** `a9afb740` *"docs: make every reference in shipped comments resolvable from main"* — 15 files,
+**+106/−83**. Comments and prose only, plus one disclosed identifier rename. Bars pre-registered in
+`42229a1b`, re-read before the diff. **PR-2 is code-complete at this tip: 25 commits on `075a208e`.**
+
+The title is already the answer to Findings 58/59. "Resolvable from `main`" is a **class**, not a pattern —
+the reframing those findings argued for, arrived at without being told to.
+
+### R1 — PASS in substance; the bar itself was mis-specified
+
+**The count question resolves in the coder's favour, and my figure was the short one.** The close-out
+handoff derives **54 introduced + 8 inherited** by `git blame` against `git rev-list 075a208e..HEAD`
+*before* reading the planner's figure, converging with the plan's independently-reached "54 locations."
+My pre-registration said 49 in-scope + 7 inherited. Both are correct **at their own tips**: C9c and C9d
+*created* sites after my enumeration — 28 dangling `A1..C1` labels plus tokens in two new files. Mine was
+as-of `2ae440e3`; the coder's is as-of `4e369f10`. Not a discrepancy — different clocks.
+
+The inherited 7→8 gap is **my instrument**, not the coder's arithmetic (Finding 60). All 8 verified present
+at HEAD and at base `075a208e`.
+
+R1 asked for a per-site trail for all in-scope sites. **That was the wrong instrument for a sweep, and the
+error is mine.** For C9d's deletions the trail was load-bearing because a silently-dropped scenario is
+invisible without the pre-image. For a sweep the end state is **directly verifiable by me**: I ran the
+class grep over `*.go` and `docs/`, and the only survivors are inherited. R1's purpose — no silent misses
+— is met by verification. I record the letter as unmet and the bar as mine to have specified better,
+rather than scoring a shortfall the artifact does not have.
+
+### R2 — PASS, explicitly and by example
+
+*"The repair is not a strip."* Verified: `"abstains (N7)" → "abstains"` where the prose already carried the
+substance; `"C11's territory" → "the from-zero admission exception's territory"`; `"not C11's to close" →
+"not this ceiling's to close"`; two sites where the referent had to be replaced rather than removed. Five
+squash-falsified sites went first — the `optimizer_dynamic_refresh_test.go` header claiming "red before C2
+and green after," an `optimizer_liveness_test.go` spec titled for "PR-2 C7," `k_sat_test.go:163`'s "Pre-C10
+this priced at k = 0.85."
+
+**One case exceeds the bar.** C9d's deletion of the A-definitions left the multi-vote tables' "M1 mirrors
+A1" labels as 28 dangling references. Rewriting all 28 would have satisfied R2 and lost the mapping; the
+seven names are instead **defined in that file's own header**, so the labels keep their referent and gain a
+resolvable one. That is a repair of a regression the previous commit caused, caught without being reported.
+
+### R3 — PASS, verified mechanically rather than from the message
+
+Both traps survive: `T1-ols` still **35 occurrences across 11 files** (an unexported constant in another
+package — stripping any breaks compilation), and `greedy_score_optimizer.go:453` still uses "floor" for the
+indivisible-unit **round-up** policy. The message names both and says they were "verified and deliberately
+left standing"; I checked the tree, not the claim.
+
+### R4 — the guard fired, and I am obeying it
+
+My class grep returns **2** surviving in-scope-shaped hits; the coder's broader instrument lists **8**. All
+are inherited — present at base — and **all already ship in `main`** (verified against `upstream/main`).
+Per R4 as written: *"the correct reading of that number is 'delta-only scoping worked as designed,' not
+'the sweep is short.'"* Not scored as shortfall. They belong to the pre-existing `main`-side cleanup class
+already tracked in `governance-follow-ups.md`.
+
+### Finding 58 — closed, and better than the deletion I proposed
+
+Grep for `combined-analyzer-optimizer-design` across `*.go` and `docs/` is now **empty**. The citation was
+**repointed**, not stripped: `refreshAnchorSizing`'s single-vote no-op now cites
+`docs/developer-guide/multi-analyzer-pipeline.md` § "Scale-up path" → "Per-iteration anchor refresh," on the
+reasoning that *"deleting that citation would have cost a reader the explanation; the dev guide had acquired
+it in the meantime."* My pre-committed "defensible disagreement" branch went unused — the site was neither
+left silently nor stripped, and the message independently reconstructs the seam argument.
+
+---
+
+## Finding 60 — my own §4a instrument excluded a category the rule names
+
+**Class:** reviewer-instrument defect. **Not a code finding.**
+
+My sweep filtered candidate lines to `//` comments and `docs/` prose. `greedy_score_optimizer_test.go:810`
+is `It("T1.3: priority × Score weighting drives fair-share ordering", ...)` — the token sits in a **test
+description**, which §4a names explicitly alongside comments and commit messages. My filter excluded a whole
+category the rule enumerates, which is why I found 2 of the 8 inherited sites.
+
+This is the third instance of one shape, and the shape is the finding: **an instrument matched to a
+sub-form of the question answers a narrower question than the one asked.** `4fb49ac6` matched *paths*; my
+enumeration matched *identifiers*; my filter matched *comment syntax*. Each was internally consistent and
+each left a seam. Only the class question — "does this name something a `main` reader cannot open" — spans
+them, which is what C9e's title says.
+
+## Finding 61 — the class has token-free members, so no pattern can ever span it
+
+**Severity: minor** (inherited; out of PR-2's scope). Recorded because it settles the method question.
+
+Three of the 8 inherited sites carry **no token at all**:
+
+| Site | Text |
+|---|---|
+| `throughput/analyzer.go:362` | "diverging from **the plan's** specified RequestRate-weighted model" |
+| `throughput/analyzer_test.go:1205` | "Specs 1–5 from **plan §3.4**" |
+| `pipeline/analyzer_helpers.go:411` | "**Design § Architecture/D**: (model, role) is the unit of allocation" |
+
+No `N`/`W`/`U`/`C`-family regex reaches these, and no path regex does either — they reference plans-branch
+documents in ordinary prose. Any future §4a sweep specified as a token list is **guaranteed** to miss this
+sub-class. The coder's class-based check found them; both prior pattern-based sweeps could not have.
+
+## Finding 62 — C9e's own message reintroduces the token list it removed
+
+**Severity: minor.** Affects the reword ledger, not the code.
+
+Verified independently over `rev-list 075a208e..HEAD`: **21 of 25** commit messages carry a plans-branch
+token. The close-out handoff says "21 of 24" — numerator exact, denominator one short (25 commits, not 24) —
+and says *"C9e's own message is written token-free,"* which is **false as stated**: it contains
+`N2, N3, N7, N8, W1, W4, U2, T1.4` and `PR-2 C2, C7, C10, C11, C6e, D-b`.
+
+In substance the coder is nearly right — the tokens appear only as the **object of description**, and a
+§4a-cleanup commit arguably cannot describe its own work without naming what it removed. But a `main`
+reader meeting that enumeration in `git log` has exactly the problem §4a exists to prevent, and the rule
+carries no quoting exemption. It should not be recorded as an exception. The fix in a reword is available in
+the message itself: it already says "plan-item labels" and "per-commit labels" one clause earlier, so
+dropping the enumerations costs nothing.
+
+**Ledger for Dean: 21 of 25.**
+
+## Finding 63 — `throughput-analyzer.md:609` is a broken link, filed under the wrong class
+
+**Severity: minor** (inherited; a one-character fix). **Correcting my own near-miss:** I first read this as
+a coder false positive because the filename exists.
+
+`docs/developer-guide/throughput-analyzer.md:609` links `` [`saturation-scaling-config.md`](../saturation-scaling-config.md) ``.
+From `docs/developer-guide/` the `../` resolves to `docs/saturation-scaling-config.md`, which is **absent**;
+the real file is `docs/developer-guide/saturation-scaling-config.md`, in the same directory. The `../` is
+one level too high.
+
+So it *is* a genuine "not resolvable from `main`" site — but it is the `cmd/main.go:167` class (a stale
+in-repo link) rather than the plans-branch-reference class the handoff files it under. Both are Dean's or
+the planner's, not PR-2's. Worth stating precisely because **the filename existing is not the link
+resolving**, and checking resolution rather than existence is what separated the two.
+
+## Finding 47 — CLOSED by `79a590d6`, verified independently, exceeding the ask
+
+I asked for roughly a 15-line `fillRole` fixture. `Describe("fillRole")` at `rescale_test.go:183` lands
+**five** specs, and the discrimination is structural rather than argued: `wantGPUs = 10` against
+`PerReplicaCapacity: 1`, `GPUsPerReplica: 1`, `MaxReplicas: nil`, so removing the clamp moves the result
+1 → 10 — a **10× margin**, no interpretation needed.
+
+| Spec | Role |
+|---|---|
+| grants one replica out of the whole role's GPUs | positive; my proposed assertion verbatim at `:213` |
+| does not top up on a second pass | idempotence — the bound is on the target, not the invocation |
+| **absorbs the whole role when the same variant is untagged** | **negative control**; "the measure of what the tag buys: 10 rather than 1" |
+| honours a configured `MaxReplicas` when it is tighter | the ceiling does not displace the existing bound |
+| takes the admission ceiling over a looser `MaxReplicas` | the interaction in the other direction |
+
+The negative control is the spec my own bar would have asked for and my finding did not. The commit message
+also concedes the reachability argument rather than restating it as its own: `fillRole`'s only pre-clamp
+gates are `PerReplicaCapacity <= 0`, "which a sentinel at 1 passes by construction."
+
+## Design question correctly routed, not decided — the `both`-shape publication split
+
+Recorded as a **strength**, since the tempting failure here is a silent coder-side design fork.
+
+With both analyzers voting, saturation binds the *anchor* — so model-level `RequiredCapacity`/`SpareCapacity`
+stay saturation's — while the per-(role, variant) *sizing* binder is whichever entry demands more replicas.
+Two published shapes follow and look like defects:
+
+- **M1 `both`** publishes saturation's `RequiredCapacity` 15000 beside a replica count driven by
+  throughput's 40000.
+- **M2 `both`** publishes saturation's `SpareCapacity` 30000 on a decision **forbidden to spend any of it**
+  — one live voter reporting explicit zero spare vetoes the role.
+
+The coder froze both as goldens with the oddity named, and wrote *"I am not treating this as a bug; I am
+refusing to decide it."* That is the right disposition: a golden that pins a possibly-wrong-but-specified
+behavior **with the oddity stated** is auditable, and if the Type 1 moves, the goldens move with it. Quietly
+"correcting" either would have been an unrecorded design fork inside a test commit. Routed to the planner as
+a Type-1 question, which is where it belongs.
+
+Note the same discipline on the rounding fork: the new suite avoids `replicasToCover`'s ceil/floor question
+**by construction** — 1e6-GPU pools where the entitlement never binds, and a quota fixture leaving exactly
+2 free GPUs at 2 per replica, where ceil and floor agree at 1 — with the exposure named rather than
+implied: *"avoiding it is not the same as it being absent."* If the fork resolves to floor, nothing in the
+new suite has to move.
