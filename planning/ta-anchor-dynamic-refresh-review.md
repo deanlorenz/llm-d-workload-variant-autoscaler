@@ -6149,3 +6149,55 @@ One boundary to keep visible: `79a590d6` proves the *guard*, using a fixture-man
 `ReasonFromZeroAdmission` tag. That is the correct way to test a dormant guard, and it gives **no**
 coverage of the *trigger*, because nothing in production writes the tag. That is not a gap in the test —
 it is precisely Finding 46, and the two must not be collapsed into each other.
+
+### Finding 56 — the one-line fix is `st.role`, not `vs.Role`, and that voids the shape-2 safety argument
+
+Three parties now disagree about what the upstream fix actually says: the designer's handoff §2 states
+`Role: vs.Role`; the planner's A36 corrects it to `Role: st.role`. The object is in the shared bare repo,
+so this is settleable rather than arguable. At `a38d7b73`, hunk `@@ -408,6 +415,7 @@`:
+
+```go
++			Role:               st.role,
+```
+
+**The planner is right.** The value comes from the *persisted* per-variant state, not from the
+`VariantStates` loop variable.
+
+This is not pedantry, because the whole safety case for shape 2 ("one line on the branch now") was that
+the text is *identical to `main`*, hence a clean no-op at rebase time. Written as `vs.Role` it is a
+**different expression**, so that argument fails on its own terms: even granting that `:253` keeps the two
+in sync so behaviour matches, the rebase would then meet a real conflict on that line rather than a
+no-op, and resolving it means re-deciding the same question under conflict pressure. Combined with the
+attribution above, shape 1 (rebase) is now the better option on three independent grounds — it is due
+anyway, it brings the two operator-visible fixes, and it is the only one whose safety argument survives
+contact with the actual hunk.
+
+### Finding 57 — the phantom bucket has a second, quieter consequence that neither handoff derives
+
+Upstream's replacement comment at `a38d7b73` names **two** effects of a blank-role entry, not one:
+
+> "would therefore manufacture a phantom `both` bucket — which **dilutes each role's demand share** and
+> leaves the paired allocator unable to pick a variant for it"
+
+Both handoffs derive only the second. The first is independently reachable and has its own blast radius.
+`distributeDemandByRole:923-935` builds its role set with `RolePrefill` **excluded**, then computes
+`share := demand / float64(len(roles))`. On a disaggregated model:
+
+- correct: `roles = {decode}` → `len == 1` → decode receives the **full** model decode demand
+- with the phantom: `roles = {decode, both}` → `len == 2` → decode receives **half**
+
+So decode's arrival demand is understated by exactly **2×**, and that share flows into
+`aggregateRoleCapacities` → TA's `RoleCapacities[decode].TotalDemand` → the engine's threshold post-step,
+which is what writes per-role `RequiredCapacity`/`SpareCapacity`. Those are published values.
+
+Why it matters separately from the break: the allocation `break` means no scale-up *decisions*, but the
+corrupted per-role RC/SC is computed and **reported** regardless, on a path that does not depend on the
+pick succeeding. So an operator watching per-role required-capacity sees a halved decode requirement,
+which reads as a healthy under-subscribed role rather than as a stalled one. That is the same
+failure-signature problem as the `OptimizationReady=True`-with-no-event bug `a38d7b73` also fixes: the
+cluster stops acting and the telemetry does not say so.
+
+Neither the designer's chain nor A36 is wrong; both simply stop at the loud effect. Recording the quiet
+one because it survives every workaround that only addresses the `break` — including "turn the `break`
+into a skip", which the designer already rejected for other reasons, and which would leave the dilution
+fully intact while making the symptom *less* visible.
