@@ -12,6 +12,25 @@ Two things live here:
   autoscaling model used to reason about scaling policy on made-up traces. Untouched
   by the real-trace path; ignore it unless you are working on the model.
 
+## Getting it
+
+Everything you need is this one directory — no repo layout assumptions, no config
+outside it.
+
+> **Note (2026-08-07):** this currently lives on the `plans` branch of a private
+> working repo and is **not yet cloneable on its own**. It is being moved to a
+> dedicated `viz-tools` branch, after which the line below works. Until then, copy
+> the directory.
+
+```bash
+git clone -b viz-tools <fork-url> viz-tools && cd viz-tools
+```
+
+Worked examples ship with it under `real-trace/` (and, after the move, `results/`):
+each carries a `bundle.json`, a `coverage.json`, and a rendered `panels.png`, so you
+can see what the output looks like — and re-render it — before pointing anything at
+your own data or a cluster.
+
 ## Requirements
 
 Python 3.9+ and, for rendering only, `matplotlib`. `fetch_run.sh` and
