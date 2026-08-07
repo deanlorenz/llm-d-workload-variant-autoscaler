@@ -4,11 +4,18 @@
 C9 not yet landed) · **Branch:** `ta-anchor-dynamic-refresh`, tip `d9f3b97e` (base
 `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
 [`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) **at plan revision
-`e0aa9bad`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
+`1a116e7a`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
 grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-07 (rolling).
 
-**Plan-revision trail.** This review spans plan revisions `62c37c46` → `e0aa9bad` (16 revisions
-total, 8 of them inside one 8-hour window on 2026-08-07). Findings are raised against whichever
+> ⚠️ **C6c was redesigned on 2026-08-07 (plan `1a116e7a`): replica space → GPU space, and `prcRef`
+> is gone entirely.** Everything in this review that reasons about `prcRef` is **historical**, and one
+> earlier verified claim of mine is now **void and under-warning** (goldens *can* move on site (ii)).
+> Read [§ C6c design pivot to GPU space](#c6c-design-pivot-to-gpu-space-plan-1a116e7a--what-in-this-review-is-now-historical)
+> **before** using any pre-pivot C6c material here as guidance. Findings 19, 20 and 21 are unaffected;
+> Finding 20 was *promoted* into the plan.
+
+**Plan-revision trail.** This review spans plan revisions `62c37c46` → `1a116e7a` (20 revisions
+total, 12 of them inside one ~17-hour window on 2026-08-07). Findings are raised against whichever
 revision was current when written, and each finding that has since been folded into the plan names
 its closing revision inline in its own section. **Re-point this header on every future pass** —
 it was itself stale at `62c37c46` by 8 commits until 2026-08-07, the same failure mode Finding 21
@@ -1500,6 +1507,17 @@ and I verified its load-bearing claims against the code at `d9f3b97e` rather tha
 
 ### Claims I verified in code (all confirmed; one is stronger than the plan states)
 
+> ⚠️ **The fourth row is VOID as of plan `1a116e7a`** — and it is the one row here that under-warns, so
+> do not carry it forward. It concluded "**no golden can move on (ii) at any fixture shape**," which was
+> true in **replica space** (the cap divided the `prcRef` rescale straight back out). GPU space replaces
+> the cap with `floor(remaining_GPUs / GPUsPerReplica)`, and **`ceil → floor` does not cancel**: the
+> sat-only goldens *do* reach the cap at `sorted[0]` (one active model ⇒ `allocationMean = 0` ⇒
+> `target = fsv`, generally fractional). The plan retracted its own matching claim in §2d.5 *Goldens* and
+> now requires: run the goldens **per commit**, and if one moves, **prove** the delta is exactly the
+> one-replica `floor` boundary and take it to Dean via a `plan__` handoff before touching a golden. Rows
+> 1–3 stand as written (row 3's no-mutation check on `sortByCostEfficiencyAsc` is still useful — C2's
+> input integrity does not depend on the pivot).
+
 | Plan claim | Verdict |
 |---|---|
 | `costEfficiency` returns `math.MaxFloat64` for `PRC <= 0`, so `sorted[0]` is the first `PRC > 0` entry | **Confirmed** — `cost_aware_optimizer.go`, the `if vc.PerReplicaCapacity <= 0 { return math.MaxFloat64 }` guard |
@@ -1507,7 +1525,13 @@ and I verified its load-bearing claims against the code at `d9f3b97e` rather tha
 | `sort.Slice` deterministic for identical input ⇒ `prcRef` bit-identical on both sides | **Confirmed**, and safer than the argument needs: `sortByCostEfficiencyAsc` does `make` + `copy` **before** sorting, so it never mutates its input. Both sides can sort the same slice with no ordering dependence between the calls, and no side effect on `w.anchor.VariantCapacities` for later consumers (`refreshAnchorSizing` iterates that slice — I checked specifically because an in-place sort would have perturbed C2's input; it does not) |
 | the rescale is neutral because "for `vc == v_role` the ratio is exactly 1" | **Confirmed, and understated.** `combineVotes` returns `float64` with no internal `ceil`, so `target` after (i) is an unrounded `demand/prcRef`; the rescale is then `ceil((demand/prcRef) × prcRef / vc.PRC)`, and `prcRef` **cancels for every candidate**, not just for `v_role`. So site (ii) reproduces today's `ceil(demand/vc.PRC)` for the whole loop, and **no golden can move on (ii) at any fixture shape** — a stronger ship-gate argument than the one written, which only covers the single-variant case |
 
-### Finding 15 (low / latent, no action requested — recorded so I check it at C6c, not a handoff) — the `prcRef` round-trip can push an exact-integer quotient over a `ceil` boundary
+### Finding 15 — **MOOT** (plan `1a116e7a`: the round trip no longer exists) — the `prcRef` round-trip can push an exact-integer quotient over a `ceil` boundary
+
+> Historical. The mechanism was *divide by one PRC, multiply by another*; GPU space has one conversion
+> **in** (row 0) and one **out** (row 8), and the cap divides by `GPUsPerReplica` — immutable topology.
+> Nothing to keep in sync, so there is no round-trip to push a quotient over a boundary. A *different*
+> boundary hazard is now deliberate at row 6 (`ceil → floor`); it is not this one, and it is specified
+> rather than latent. Nothing for me to check at C6c from this finding.
 
 The cancellation above is algebraic, not bit-exact. `fl(fl(fl(d/p) × p) / q)` carries up to three roundings,
 so it can land at `(d/q)(1 + ~3·2⁻⁵³)`. Where `d/q` is **exactly** an integer *n*, `math.Ceil` then returns
@@ -2021,7 +2045,20 @@ the mid-loop one, exactly as §2d.4 (c) claims. No finding.
 
 ---
 
-## Finding 18 (should-fix, pre-emptive — plan-side) — §2d.5's `prcRef` neutrality assumes the anchor slice is stable, but C2's own refresh rewrites it mid-loop
+## Finding 18 — **CLOSED (`5b1e1606`), then MOOT (`1a116e7a`)** — §2d.5's `prcRef` neutrality assumes the anchor slice is stable, but C2's own refresh rewrites it mid-loop
+
+> Historical, and worth keeping only as the reason the pivot is *safer*, not merely different. This
+> finding was correct against the replica-space design and the planner folded the fix (capture `prcRef`
+> before the refresh, thread it, forbid in-closure derivation). The frozen Type 1 then **deleted the
+> whole construction** — plan §2d.5 *What stops existing* now retires by name every artifact this finding
+> produced: the threaded `prcRef` parameter, the copied value map, the capture-before-refresh ordering at
+> `greedy_score_optimizer.go:310`, the grep forbidding in-closure derivation, and the 5× fall-through cap
+> table with its value-drift / identity-drift pair. Plan §2d.5 closure property 2 states the reason: the
+> hazard is **gone, not solved** — in GPU space the cap divides by immutable topology, so invariant 9's
+> drift cannot reach it. **Do not port any requirement from this section into the C6c review.** What does
+> survive the pivot is the *reference-variant approximation in the numerator* (rows 0–2 price a claim
+> using `referenceVariantForRole`'s candidate, exact only if the picker lands there) — that is an
+> approximation, not the round-trip error this finding was about.
 
 **Handoff sent** (`plan__ta-anchor-c6c-prcref-refresh-currency.md`) — C6c is still unwritten, so this is free
 to fix now. Found by chasing a *different* question (are the goldens sensitive to the rescale?) into the
@@ -2558,5 +2595,120 @@ signature and both callers; `safeRemovalReplicasForRole:633`'s ballot call; the 
 "priority-scaled" from the plan; site (v)'s and L1047's fixture coverage. **Not verified:** whether
 the coder's Q3 shape survives contact with `applyDeallocationForRole` (not read at this depth) — that
 is a C6c-review item, not a precondition for answering Q3.
+
+---
+
+## C6c design pivot to GPU space (plan `1a116e7a`) — what in this review is now historical
+
+**No code changed. This is a spec pivot, and it lands on my review doc rather than on the branch** —
+the coder had not written C6c when it happened, so there is nothing here to re-review, only material of
+mine to retire before it misleads someone. Recorded on 2026-08-07 after reading plan §2d.5 as rewritten
+from the now-**frozen** Type 1 (`combined-analyzer-optimizer-design.md`, `Status: FINAL`, authoritative —
+which also actions the T1 finding I handed the planner).
+
+**What changed.** fsv's currency pivots from **replica space** to **GPU space**, with one conversion
+function applied once per ballot entry:
+
+```
+toGPUs(metric, PRC, GPUsPerReplica) = (metric / PRC) × GPUsPerReplica
+```
+
+Nine per-site unit rows now govern (Type 1 `W5` is the authority; plan §2d.5's table is derived detail).
+The two that matter most to a reviewer: row 6 makes `fairShareCap` a whole-replica **`floor`** fill
+(`floor(remaining_GPUs / GPUsPerReplica)`, then `min` with the real pool) — **not `ceil`** — and row 8
+keeps site (iv)'s clamp in *that analyzer's own metric*, converting the GPU bound back down through its
+own PRC and `GPUsPerReplica` with `ps` left raw. Rows 5 and 7 are dimensionless and **never spent**;
+the plan's mechanical check is worth stealing verbatim for the diff read: *if a number has no unit, it
+must not appear on the left of an assignment that reduces a budget.*
+
+### Supersession map — precise, because three of my findings are NOT affected
+
+| mine | status under `1a116e7a` | why |
+|---|---|---|
+| **Finding 15** | **MOOT** | the round trip it depended on no longer exists (one conversion in, one out) |
+| **Finding 18** (+ its `5b1e1606` closure, *Sharpening*, *Scope*) | **CLOSED then MOOT** | correct against replica space; §2d.5 *What stops existing* retires by name every artifact it produced |
+| my 4th verified claim, "no golden can move on (ii) at any fixture shape" | **VOID — and it under-warns** | `ceil → floor` does not cancel; see the inline marker at that table |
+| C6c checklist items **2, 3, 8** | **retired** | item 3 (`prcRef` same-slice sourcing) is the deleted requirement; item 8's prediction is the void claim; item 2's site list survives but **site (iii) moved to C6d** |
+| **Finding 19** (§4a plans-branch tokens) | **unaffected** | orthogonal to currency; the 31-token PR-2 delta and the 9/6 commit-message counts stand |
+| **Finding 20** (cap bounds iterations, not replicas) | **unaffected — and PROMOTED** | plan §2d.5 now carries it as a standing fact: cap enters only at `n = min(bottleneckReplicas, capN)` (`:760`), `k`'s `min(1, n)` floor (`:788`) and drain driven by `k` (`:816`/`:819`), so an understated cap costs iterations not replicas — *which is why a cap of `0` is a different animal and §2f requires skip, not zero-cap*. My caveat still holds: both probes ran with `refreshAnchorSizing` inert |
+| **Finding 21** (staleness) | **unaffected, and now doubly evidenced** | the pivot is a second, larger instance: my own header sat at `e0aa9bad` while the plan reached `1a116e7a` |
+
+**My Finding 21 triage was adopted essentially verbatim.** The plan's DECIDED box declining the
+cross-site `cheapestSizedVariantForRole` extraction rests on all four points I verified: the loops take
+the first **feasible** candidate (not the cheapest), they **must** fall through past the reference variant
+when the accelerator pool is dry (`greedy_score_optimizer.go:420`) or the cheap variant is at
+`MaxReplicas` (`:427`), there are **four** such loops not three, and `rescale.go` stays out of C6c. Two
+helper extractions *are* sanctioned — the row-0 `toGPUs` conversion and the row-6 whole-replica `floor`
+fill — because C11 makes three grant sites share one ceiling. Signature decided as option (a):
+`fairShareValue(priority, s, ps, roles, variants)`. The reference picker is
+`referenceVariantForRole(vcs, role) (domain.VariantCapacity, bool)` — named for *denominating the claim*,
+not for picking what gets allocated; fsv's reference and the picker's landing variant are **allowed and
+expected to disagree**.
+
+### C6c review checklist — rebuilt against GPU space
+
+Replaces items 2/3/8 above; items 1, 4, 5, 6, 7, 9, 10 carry over unchanged (`Score` gone from all six
+names; fallback **kept** not deleted, else a §4b DEPRECATED classification is owed; the `:53-60` doc
+comment rewritten; T1.4 asserting replica number **and** binder index; the multi-variant-within-one-role
+fall-through fixture; six fsv-formula copies — four docs incl. both `quota-limiter.md` sites, two code,
+one of them the exported **type** comment at `:15-18`; and §5's `~L` numbers are as-of `f6485980`, so
+grep the heading text).
+
+1. **`toGPUs` is the only conversion in, row 8 the only one out.** Any third conversion, or a
+   compensating factor anywhere in rows 1–6, is a defect — the pivot's whole claim is that rows 1–6 are
+   uniformly GPUs.
+2. **Row 1 is `max_i` across analyzers, row 2 `Σ_role` across roles.** A `Σ_i` across analyzers is the
+   bug the pivot exists to fix; `Σ_role` is legal **only** at row 2 (invariant 10).
+3. **Row 0's `W4` rule: no PRC ⇒ contributes nothing.** Not "contributes its raw metric," not zero-then-spent.
+4. **Site (ii) is `floor`, and the `ceil → floor` change is called out in the commit message.** The plan
+   states this is *not* status-quo-preserving at the boundary; a commit that ships it silently is a
+   finding regardless of whether tests pass.
+5. **Goldens per commit, and treat a move as a bug until proven otherwise.** The plan's escalation path
+   is mandatory: prove the delta is exactly one replica on a mid-replica share, then `plan__` handoff to
+   Dean *before* adjusting any golden. I re-run them myself on a scratch extract rather than accept a
+   report — and unlike the old item 8, green goldens are now genuinely informative here.
+6. **Site (iii) is out of C6c** — it moved to C6d (the coder's Q5 leaning, accepted). If the C6c diff
+   touches the scale-down tie-break, that is a scope finding.
+7. **The two fixture cancellation traps.** The `[sat]`-only ordering fixture **must vary
+   `GPUsPerReplica` across the two models** — equal values cancel the new factor and the fixture cannot
+   detect the pivot at all. Same trap multi-role: prefill and decode sharing either PRC *or*
+   `GPUsPerReplica` cannot distinguish correct from role-mixing.
+8. **New: the mid-replica `floor` boundary fixture must call the closure directly.** Finding 20's
+   measurement is why — at `Optimize()` level the cap only costs iterations, so an end-to-end fixture
+   cannot go red on a one-replica cap delta.
+9. **Invariant 7 needs a *direct* test, not an inference from goldens** — assert `anchor ==
+   saturationEntry` field-for-field before/during/after allocation, and assert the per-iteration sizing
+   refresh is **not** invoked. Observe the `withSatEntry`-stability rule (carried from the #1513 review,
+   Finding 2).
+10. **Do not accept "the sat-only goldens cover the combine."** Plan invariant 8 makes a one-analyzer
+    ballot an algebraic pass-through (`b = 0`, `excess = 0`), so those goldens cannot cover combine
+    arithmetic — the plan calls asserting otherwise a **category error**, and I should too.
+11. **Site (iv)'s `[sat]`-only inertness is SINGLE-ROLE ONLY.** The plan flags this explicitly; do not
+    let a `[sat]`-only P/D fixture be read as evidence (iv) is inert.
+
+### Three new commit rows arrived with the pivot — not yet reviewed, and two change behavior
+
+Also new since my last pass, so my "13-item / 15-row" framing is itself stale: §1.1 is now **C1–C11**.
+
+- **C6e (`W1`)** — one fair-share entitlement per **model**, `Σ_role spend ≤ target`. **TA-AMPLIFIED, not
+  TA-created:** `[sat]`-only P/D already makes two independent full-budget draws (one per role); TA makes
+  it `|analyzers| × |roles|` = 4. **This changes `[sat]`-only P/D behavior whenever the budget binds** —
+  needs a `[sat]`-only P/D fixture *and* a `[sat,TA]` one, and a §4b classification if anything is removed.
+- **C6f (`W4`)** — no conversion factor ⇒ no spend. TA-CREATED (a single analyzer is always its own
+  conversion factor), so `[sat]`-only goldens cannot cover it either way.
+- **C11 (`FZ-admission`)** — a never-measured variant is invisible when `PRC <= 0`. TA-CREATED; this is
+  the row that makes three grant sites share one ceiling, hence the two sanctioned helper extractions.
+  Worth checking against my **Finding 16** (anchor PRC 0 excludes a variant from scale-down entirely) —
+  same `PRC <= 0` predicate, different path; C11 may or may not subsume it, and I should not assume.
+
+**Verified for this section:** plan §2d.5 as rewritten (L924:1050) — the `toGPUs` formula, all nine unit
+rows, the three closure properties, the five *What stops existing* bullets, the *What survives* paragraph,
+the per-site `[sat]`-only table, the two deliberate behavior changes, the fixture-cancellation
+requirement, and the retracted goldens claim; §1.1's C6c/C6e/C6f/C11 rows (L268-271); the §5 dev-guide map
+rows for C6c/C6e/C6f/C11 (L1911-1919); the DECIDED boxes at L400-438; and the Type 1 header now reading
+`Status: FINAL (frozen 2026-08-07) · AUTHORITATIVE`. **Not verified:** §7.1's `W1`–`W5` answers at
+L2224:2283 (read only as far as the §2d.5 cross-references required) and the Type 1's own `W5` unit table —
+I am trusting plan §2d.5's reproduction of it, which the plan itself flags as derived detail. Both are
+C6c-review reads, not preconditions for retiring stale material.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
