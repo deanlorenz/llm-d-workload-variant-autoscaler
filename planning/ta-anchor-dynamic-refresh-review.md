@@ -593,9 +593,30 @@ at `r = 0.0822`.
    (a `KvCacheThreshold: 0.5` case asserting PRC tracks config) is the one that carries real signal,
    because 0.5 vs 0.85 is a big enough move to escape the tolerance. Verify that fixture exists and that
    its expected value is derived with the **denominator included**: at `k=0.5`,
-   `μ = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9` — a 5.8% drop from 2780.56, which
-   *does* clear ±10%… but only just. If the coder writes that fixture with a tolerance ≥ ~6% it asserts
-   nothing.
+   `μ = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.3043/0.0425 = 2618.93`.
+
+   **Sharpened 2026-08-07 — the exact threshold, because "tight tolerance" is not a number and the
+   default here is on the wrong side of it.** The gap the fixture must resolve is
+   `2780.56 / 2618.93 = 1.06172`, i.e. **6.17%**. A Gomega `BeNumerically("~", 2618.93, tol)` therefore
+   stays **green at k=0.85** — the very state it is supposed to catch — for any relative `tol ≥ 6.17%`.
+   The conventional tolerance in this exact file is `muSat*0.10` = **±10%**, used at all three existing
+   `TotalSupply` sites. So the single most likely way to write this fixture — copy the neighbouring
+   assertion's shape — produces a test that passes before *and* after C10 and pins nothing. Plan §1.1
+   asks for "**tight tolerance**" and §2e.3 for red-before-green, but neither states the bound, and the
+   local idiom violates it.
+
+   Required: relative tolerance **< 6.17%**, and materially so — **±1%** gives the band
+   `[2592.7, 2645.1]`, which excludes 2780.56 with room to spare. I will check this by flipping the
+   resolver back to 0.85 on a scratch extract and confirming the fixture actually goes red; a fixture
+   asserted as red-before-green in the commit message but green at both values is the same
+   passes-for-the-wrong-reason failure as Finding 11's, and neither the ±10% idiom nor a green suite
+   will surface it.
+
+   One reassurance in the other direction: at `k=0.5` the numerator-only error would give
+   `2782.0 × (0.5/0.85) = 1636.5` against a correct 2618.93 — a 60% miss that any sane tolerance
+   catches. So this fixture is self-protecting against the 0.9412-class error and vulnerable only to the
+   too-loose-tolerance one. The `k=0.80` default-config expectations are the reverse: immune to
+   looseness (they barely move) and fully exposed to the numerator-only error.
 
 **What this does *not* undermine:** the fix itself is still correct and worth landing. The two real
 defects §2e.1 identifies stand independently of magnitude — saturation and TA genuinely disagree on the
@@ -609,7 +630,9 @@ review as received wisdom.
 **Recommended verification when C10 lands** (I will run these):
 - Re-derive every moved TA expectation with the full two-place ratio; flag any that match the
   numerator-only 0.9412 scaling instead.
-- Confirm the `KvCacheThreshold: 0.5` fixture's tolerance is tight enough to actually fail at 0.85.
+- Confirm the `KvCacheThreshold: 0.5` fixture asserts **2618.93** with relative tolerance **< 6.17%**
+  (±1% recommended) — not the file's ±10% idiom, which would leave it green at 0.85. Verified by
+  flipping the resolver back to 0.85 on a scratch extract and watching it go red, not by reading it.
 - Confirm `DefaultKSat` greps to zero and `DefaultNearKSatMargin` survives with re-anchored prose.
 - Confirm the `TODO: unify with the system-wide k_sat used by the EPP` moved onto `resolveKSat`.
 
