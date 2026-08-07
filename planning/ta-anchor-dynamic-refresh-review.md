@@ -1538,8 +1538,9 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
   7. The new fall-through fixture is **multi-variant within one role** — every existing fsv fixture is
      single-variant-per-role, where the error is identically zero.
   8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
-  9. **Six** fsv-formula locations updated — four in the dev guide, two in code (revised upward from the
-     plan's "three across two files"; see **Finding 17**). Docs: `multi-analyzer-pipeline.md:622` and
+  9. **Six** fsv-formula locations updated — four in the dev guide, two in code. **The plan now says six
+     too** (`9f09b91d`, folding **Finding 17** — verify against the plan's own §5/§6 text, not against this
+     item, since the plan is what the coder reads). Docs: `multi-analyzer-pipeline.md:622` and
      `:675`, `quota-limiter.md:284` (`### Fair-share interaction`, "priority × score × unmet demand") and
      `quota-limiter.md:328` (the parenthetical caveat, "priority × score × demand"). Code:
      `greedy_score_optimizer.go:53-60` (`fairShareValue`'s own doc comment, already in plan §5) and
@@ -1883,7 +1884,23 @@ from the same `resolveKSat` result the consumer uses, not a second resolution an
 
 ---
 
-## Finding 17 (should-fix, pre-emptive — plan-side undercount) — the Score-bearing fsv formula is written in **six** places, and the two the plan misses both slip §6's greps as worded
+## Finding 17 (should-fix, pre-emptive — plan-side undercount) — **CLOSED** (`9f09b91d`) — the Score-bearing fsv formula is written in **six** places, and the two the plan misses both slip §6's greps as worded
+
+**Closed 2026-08-07 by plan commit `9f09b91d`**, ~9 minutes after the handoff went out and before C6c was
+written — the cheap window held. All four suggested edits landed, and one landed stronger than asked: I had
+suggested changing `quota-limiter.md`'s "one location" to two, and the planner instead specified **deleting**
+the `:327-329` parenthetical rather than softening it, on the grounds that a softened copy still survives
+§6's grep-to-zero and costs the same mid-commit round-trip. That is the right call and it is now the plan's
+instruction. Verified after the fold-in: the plan says "**Six copies total**" in §5 and "**four places**" for
+the doc-half grep in §6; §6's code-grep criterion now names `greedy_score_optimizer.go`'s file- and
+type-level doc comments explicitly, which is the only path by which `:15-18` is reachable; the four cited
+doc line numbers (`:284`, `:328`, `:622`, `:675`) match my measured grep exactly; and the TOC line ranges
+(§5 L995:1096, §6 L1097:1180, §7 L1181:1231) resolve to the real headings, so the refresh ran after the
+content edits. **At C6c review, check the diff against the plan's text, not against this finding** — the
+plan is what the coder reads, and it is now the more precise of the two.
+
+Original finding follows, kept because it records the *method* (measure the denominator before reviewing the
+sweep) that produced it.
 
 **Handoff sent** (`plan__ta-anchor-c6c-fsv-formula-copies.md`), because C6c is not yet written and this is
 free to fix now and a coder round-trip after. Found by pre-measuring §6's C6c greps at `d9f3b97e` to get a
