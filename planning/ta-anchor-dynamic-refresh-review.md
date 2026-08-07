@@ -6432,3 +6432,102 @@ Dean's call, with the compiled branch being the safe one. That is consistent wit
 and does not change it: the reviewable defect is not which direction wins, it is that **the divergence is
 undeclared**, the mandated mid-replica fixture was spent on the opposite assertion, and eight endorsement
 sites would have to move together with only two reachable by the obvious grep.
+
+---
+
+## The partial-scale-from-zero verdict: Findings 56/57 confirmed by `main`, and the `[sat]` WORKS cell has two preconditions
+
+`plan__ta-anchor-partial-sfz-per-config-verdict.md` (designer → planner, cc me, `ask: decide`) retracts
+"nothing is broken" about partial scale-from-zero and traces it per config. Four of its claims bear on my
+findings; I verified the two that are new rather than accepting them.
+
+### Confirmed, and it upgrades Finding 56's evidence
+
+**Finding 56 (`st.role`, not `vs.Role`) is now confirmed by `main` itself.** I derived `st.role` from the
+in-house idiom — the live loop at `throughput/analyzer.go:400` uses `Role: state.role`, refreshed from
+`vs.Role` each cycle at `:253`. The designer verified against `a38d7b73` in `Main/` and I re-ran it:
+
+```
++			Role:               st.role,
+```
+
+Byte-identical. That matters beyond being right: it is what preserves the clean-no-op-at-rebase property
+Dean's *"line now, rebase later"* depends on. Under the earlier `vs.Role` reading that property was void.
+
+**Finding 57 (the 2× decode dilution) is credited as independently underived** — *"neither my earlier
+handoff nor the planner's derived it."* And the provenance call in `386e6477` stands: PR-1-inherited, not
+a PR-2 regression.
+
+Also confirmed: `saturation_v2/analyzer.go` sets `Role: vs.Role` in the `append` **outside** the capacity
+ladder, so it is set on every path including `satReasonNoData`. Sat cannot manufacture a phantom role
+bucket. The asymmetry with TA is structural, not incidental.
+
+### The three-tier ladder is real
+
+Verified at `2ae440e3`, `saturation_v2/analyzer.go`: an `if / else if / else if / else` chain — live
+median over ready replicas → own stored record (`capacityStore.Get`, `rec.EffectiveCapacity > 0`) →
+`lookupCompatibleCapacity` cross-variant → `satReasonNoData`. And the design intent is written out at
+`capacity_store.go:121-128`, verbatim as quoted: *"Provide a conservative capacity estimate so that
+brand-new variants with no live data or compatible siblings can still be considered for scale-up."*
+
+So the retraction is right and the `[sat]`-only config is the one that works **by design**, not by luck.
+
+### But "called per-VA unconditionally — no pods required" is two claims, and only one holds
+
+The pod-independence holds and is the load-bearing half: `LoadFromScaleTarget` parses the Deployment/LWS
+**spec** via `ParseEngineArgs`, so a variant at zero replicas is fine. **"Unconditionally" does not.**
+`internal/engines/saturation/engine_v2.go:38-50` — note the path is `engines/saturation/`, not
+`engines/analyzers/saturation/` as cited:
+
+```go
+for _, va := range variantAutoscalings {
+	key := utils.GetNamespacedKey(va.Namespace, va.GetScaleTargetName())
+	scaleTarget := scaleTargets[key]
+	if scaleTarget == nil {
+		logger.V(logging.DEBUG).Info("No scale target found for VA, skipping capacity store pre-population", ...)
+		continue
+	}
+	...
+	e.capacityStore.LoadFromScaleTarget(namespace, modelID, va.Name, accelerator, gpuCount, scaleTarget)
+```
+
+So tier 2 has **two** preconditions, both pod-independent but neither vacuous:
+
+1. **The scale target must resolve** in `scaleTargets[key]`. Miss ⇒ no pre-population, silently, at
+   `DEBUG`. In the posed scenario the Deployment/LWS still exists (scaled to 0, not deleted), so this
+   normally holds — which is why the verdict survives. It is a precondition, not a defect.
+2. **The parsed engine args must yield a positive budget.** `capacity_store.go:126-128` sets
+   `record.EffectiveCapacity = params.EffectiveMaxBatchedTokens` only
+   `if record.EffectiveCapacity <= 0 && params.EffectiveMaxBatchedTokens > 0`. A spec that does not
+   expose `--max-num-batched-tokens` (or an equivalent the parser recognises) leaves
+   `EffectiveCapacity` at 0, so `rec.EffectiveCapacity > 0` fails and the ladder falls through to
+   tier 3, then to `satReasonNoData`.
+
+Neither breaks the retraction. Both matter because **§5's deferral grounds rest on the word "works"**:
+*"partial scale-from-zero works in every config where saturation votes."* With the preconditions stated,
+the accurate form is *works wherever sat can price the cold variant from spec or from a compatible
+sibling* — which is the common case and a sound basis for deferring, but is not unconditional, and the
+gap is **silent at DEBUG** exactly like the `[TA]`-only cell the deferral is about.
+
+### The self-diagnosis survives one layer into its own correction
+
+§2 of that handoff diagnoses §9's failure as *"mechanism-complete, use-case-blind"* — verdicts answering
+a **consistency** predicate read as answers to a **liveness** predicate — and §2(c) names the specific
+habit: *a caveat recorded, then dropped one line later.* That is exactly right, and it is the most useful
+paragraph in the mission for how these docs should be audited.
+
+It also recurs in the corrected text. §1.1's ladder is described tier-by-tier and correctly; the table
+one screen up compresses it to **WORKS**, and the preconditions do not travel. Same shape, one layer
+down, in the document written to fix it. Not a reason to distrust the verdict — the verdict is right —
+but a reason to think the fix for §9 is **structural** rather than editorial: if a per-config table's
+cells cannot carry their preconditions, the preconditions have to live in the cell (a footnote marker,
+a third column) or they will keep being dropped by the next person who reads only the table. That is a
+stronger version of the handoff's own proposed remedy (*"add a liveness verdict alongside the
+consistency verdict"*), and it generalises past this one map.
+
+### Not my call, and not blocking
+
+`ask: decide` is addressed to the planner and the disposition is Dean's. I take no position on defer vs
+close-in-PR-2; the review-relevant content is that the two findings the verdict rests on are confirmed,
+one of them by `main`, and that the deferral's grounds should carry the two preconditions above rather
+than the unqualified "works". Nothing here asks the coder to stop.
