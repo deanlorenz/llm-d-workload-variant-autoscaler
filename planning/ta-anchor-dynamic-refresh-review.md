@@ -2711,4 +2711,93 @@ L2224:2283 (read only as far as the §2d.5 cross-references required) and the Ty
 I am trusting plan §2d.5's reproduction of it, which the plan itself flags as derived detail. Both are
 C6c-review reads, not preconditions for retiring stale material.
 
+---
+
+## C11 pre-measurement — another session's ranking correction, independently confirmed (with two refinements)
+
+**No handoff from me.** `session/handoffs/plan__ta-anchor-c11-ranking-claim-correction.md` (from the
+Type-1 owner session, `.WIP` with a planner as I write) already requests the plan-doc edits, and C11 is
+four commits out. This is my *review-side* record — what I will check in the C11 diff — plus my
+verification of its central claim, which I did not take on trust. Everything below is read at the
+**committed** baseline `d9f3b97e` via `git show`, not the working tree (the coder is mid-edit on C6c).
+
+**Its central claim is correct, and it inverts something on my own checklist.** I had C11 down as
+"the sentinel ranks behind measured options" from the Type 1. It does the opposite:
+
+- `variantCost` / `variantAccel` are built **only** from `inputMetrics`
+  (`saturation_v2/analyzer.go:352-360`), and `cost := variantCost[vs.VariantName]` /
+  `accelerator := variantAccel[...]` are plain map lookups — a zero-replica variant misses both, so
+  **`Cost = 0` and `AcceleratorName = ""`**, emitted as such at `:441-446`.
+- The `if accelerator == "" { accelerator = replicas[0].AcceleratorName }` fix-up cannot rescue it: it
+  is inside a block that indexes `replicas[0]`, which requires replicas to exist.
+- `bindingAnchor` copies `Cost` from the (a) carrier verbatim (`analyzer_helpers.go:202`), so the
+  anchor inherits the zero.
+- `costEfficiency` = `Cost / PRC` with a `PRC <= 0 → MaxFloat64` guard
+  (`cost_aware_optimizer.go:237-242`). With the C11 sentinel `PRC = 1`: `0 / 1 = 0`, the **minimum**
+  attainable value for any non-negative cost, and `sortByCostEfficiencyAsc` sorts **ascending**
+  (`:228-235`) ⇒ the sentinel sorts **first**, unconditionally.
+- Peers tie at `0` under unstable `sort.Slice` ⇒ **never assert which never-measured peer wins.**
+- Path asymmetry confirmed: `costGreedyRolePick` takes `_ map[string]int` and ignores the budget
+  (`cost_aware_optimizer.go:85-109`), whereas `fairShareRolePick` does
+  `gpusAvail := available[vc.AcceleratorName]; if gpusAvail < gpusPR { continue }`
+  (`greedy_score_optimizer.go:419-422`) — with `AcceleratorName == ""` that is `available[""] = 0 < 1`,
+  so the sentinel is **skipped on the fair-share path regardless of PRC**. Eligibility and ranking are
+  therefore only observable through the **cost** optimizer.
+
+### Refinement 1 — "unbounded grant" would be wrong, and I nearly wrote it
+
+`costGreedyRolePick` returns `math.MaxInt` when `MaxReplicas` is nil, which reads like an unbounded
+grant to a never-measured variant. It is not: the returned count becomes `capByRole[role]` and is
+immediately `min`'d — `n = min(roleBottleneckReplicas(...), capByRole[role])`
+(`analyzer_helpers.go:758`). `MaxInt` defers the bound to `roleBottleneckReplicas`; it does not escape
+one. I checked this before recording it, and the check killed the finding I was about to write.
+
+### Refinement 2 — the real hazard is mis-*sizing*, not mis-ranking, and it is a factor of the true PRC
+
+This is the sharper reason the cap is load-bearing, and neither the Type 1 nor the correction handoff
+states it. `PRC = 1` is not a neutral placeholder — it is a *denominator*, and both bounds divide by it:
+
+- `roleBottleneckReplicas` sizes the need as demand ÷ PRC, so a sentinel PRC of `1` inflates the
+  computed replica need by the ratio of the variant's true PRC to 1 (with the PRC magnitudes in this
+  codebase — thousands — that is a three-to-four-order-of-magnitude inflation, not a rounding error);
+- `k = max(floor(deltaUtil × demand / prc), min(1, n))` (`:788`) divides by the same `prc`, and `k` is
+  what drives allocation and pool drain (`:816`, `:819`) — my promoted Finding 20 material.
+
+**The arithmetic does close, and cleanly:** if the one-replica ceiling clamps `n` to 1, then
+`utilByRole = n × prc / demand = 1/demand`, so
+`k = max(floor((1/demand) × demand / 1), min(1, 1)) = 1`. A ceiling applied at `n` propagates to `k`
+correctly and the inflation is fully neutralised. **But that is precisely why the ceiling's placement is
+the whole ballgame:** it must land where `capByRole`/`n` is formed, at *every* granting site. A C11 that
+caps the fair-share path and misses the cost path would pass a fair-share fixture (where the sentinel is
+already skipped on the empty `AcceleratorName`) while leaving the one path that can actually select the
+sentinel sized by a PRC of 1.
+
+### C11 checklist (replaces "check vs Finding 16" as the whole entry)
+
+1. **Expect the sentinel to sort FIRST.** Do not raise a finding that it fails to rank last — the Type 1
+   `:1530-1533` rationale is wrong and is being corrected in the Type 3. Verify against the corrected
+   plan text, not against the Type 1.
+2. **The one-replica ceiling is present at every granting site, and clamps `n`/`capByRole`** — not only
+   the pick's return value on one path. This is the single assertion I care most about in C11.
+3. **Specs must run through the cost optimizer**, or they assert nothing about eligibility/ranking.
+4. **The fixture must produce `Cost = 0` the way production does** — no replica metrics for that variant.
+   A rigged non-zero `Cost` encodes an invariant production does not have.
+5. **No assertion about which never-measured peer wins** (tie at 0, unstable sort).
+6. **Self-healing pinned by a spec**, ideally: after admission the variant has metrics and ranks normally.
+   The design rests on this, and it is cheap to assert.
+7. **`analyzer_helpers.go:213-216` must be updated** — *"Not proactively selectable; genuine cold-starts
+   fall to the reactive scale-from-zero engine"* is the exact claim C11 reverses. Verified present at
+   `d9f3b97e`. §4a applies: name *the saturation zero-replica cost bug* in prose, no plans-branch token.
+8. **`N5` and the empty-`AcceleratorName` half must NOT be fixed in C11** (both out of PR-2; the latter
+   would move `[sat]`-only goldens). If the diff fixes either, that is a scope finding.
+9. **Finding 16 is NOT subsumed.** Same `PRC <= 0` population, different path: mine is *scale-down*
+   exclusion, C11 is *scale-up* admission. C11's sentinel makes PRC positive for the never-measured
+   case, so it may incidentally narrow Finding 16's population — but Finding 16 also covers variants
+   that go PRC-0 for other reasons (binder abstention, N8), which C11 does not touch. Keep it open.
+
+**Verified:** every line reference above at `d9f3b97e`. **Not verified:** the ceiling's actual insertion
+points (C11 is unwritten), and whether `roleBottleneckReplicas`' internals bound the sentinel some other
+way — I read its call site and its `min`, not its body, so item 2 stays an assertion to check rather than
+a defect I am claiming.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
