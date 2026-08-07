@@ -46,19 +46,19 @@ coupled one. **Sibling docs:** [`multi-analyzer-design.md`](multi-analyzer-desig
 - [The combining rule (binding analyzer) {#combine}](#the-combining-rule-binding-analyzer-combine) L310:379
   - [One vote is a pass-through, algebraically {#combine-onevote}](#one-vote-is-a-pass-through-algebraically-combine-onevote) L342:362
   - [Score is a belief weight, never a budget weight {#combine-score}](#score-is-a-belief-weight-never-a-budget-weight-combine-score) L363:379
-- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L380:650
+- [The binding-analyzer anchor (renamed SatEntry) {#anchor}](#the-binding-analyzer-anchor-renamed-satentry-anchor) L380:648
   - [The two-phase mechanism {#anchor-twophase}](#the-two-phase-mechanism-anchor-twophase) L545:580
   - [What the anchor is a workaround for {#anchor-completeness}](#what-the-anchor-is-a-workaround-for-anchor-completeness) L581:618
-  - [Multi-vote semantics that must be pinned down {#anchor-multivote}](#multi-vote-semantics-that-must-be-pinned-down-anchor-multivote) L619:650
-- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L651:709
-- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L710:852
-- [Traced findings: liveness, binding and role coverage {#findings}](#traced-findings-liveness-binding-and-role-coverage-findings) L853:902
-- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L903:933
-- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L934:967
-- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L968:1066
-- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L1067:1140
-- [Open questions {#open}](#open-questions-open) L1141:1282
-  - [Design-level "what" questions surfaced by the currency fix (W1–W5) {#open-what}](#design-level-what-questions-surfaced-by-the-currency-fix-w1w5-open-what) L1184:1282
+  - [Multi-vote semantics that must be pinned down {#anchor-multivote}](#multi-vote-semantics-that-must-be-pinned-down-anchor-multivote) L619:648
+- [Current code: the two-PRC split and every saturation-only site {#trace}](#current-code-the-two-prc-split-and-every-saturation-only-site-trace) L649:707
+- [Latent bugs surfaced by the trace {#bugs}](#latent-bugs-surfaced-by-the-trace-bugs) L708:850
+- [Traced findings: liveness, binding and role coverage {#findings}](#traced-findings-liveness-binding-and-role-coverage-findings) L851:900
+- [How the cost-efficiency sort changes {#sort}](#how-the-cost-efficiency-sort-changes-sort) L901:931
+- [Rescale layer trace {#rescale}](#rescale-layer-trace-rescale) L932:965
+- [Bottom-line invariants {#invariants}](#bottom-line-invariants-invariants) L966:1064
+- [Limited-mode (greedy fair-share) path {#limited}](#limited-mode-greedy-fair-share-path-limited) L1065:1138
+- [Open questions {#open}](#open-questions-open) L1139:1288
+  - [Design-level "what" questions surfaced by the currency fix (W1–W5) {#open-what}](#design-level-what-questions-surfaced-by-the-currency-fix-w1w5-open-what) L1182:1288
 
 ## Why this doc exists {#why}
 
@@ -622,16 +622,14 @@ Three properties are latent while at most one non-sat analyzer can vote, and bec
 multiple voters are admitted. The first two are **rules, not observations** — a task plan may build on
 them:
 
-- **Binder tie-break — RULE: saturation binds if present, else lowest analyzer index.** The current
+- **Binder tie-break — RULE: lowest analyzer index.** *(Dean-confirmed 2026-08-07.)* The current
   "more than one qualifying non-sat binder ⇒ return nil ⇒ hold" behavior becomes a live hazard the
-  moment two healthy voters can qualify: it would silently freeze the model every cycle. The rule must
-  be **deterministic and stable across allocation iterations** — an unstable tie-break combined with
-  per-iteration refresh would let the binding oscillate mid-water-fill, which is worse than either
-  choice. Lowest-index is the cheap stable key; saturation-first keeps the identity carrier and the
-  sizing source aligned in the common case. *(Recorded here as the design rule because the
-  dynamic-refresh task plan already builds on it and cited this section for it; Dean to confirm on
-  review — I cannot source a prior explicit confirmation of the tie-break itself, only of the
-  abstain rule below.)* See [§ findings](#findings) `N2`.
+  moment two healthy voters can qualify: it would silently freeze the model every cycle. Anything
+  deterministic suffices, and index order is deterministic — so no saturation-first special case is
+  warranted. The rationale for keeping it that simple: **the tie is rare, its scope is a single
+  analysis, and the ballot is fixed within an analysis** — per-iteration refresh re-reads each
+  entry's spare/remaining values, not the analyzer list, so index order cannot shift mid-water-fill
+  and the binding cannot oscillate. See [§ findings](#findings) `N2`.
 - **Abstain, don't veto — RULE: a voter with no opinion on role `R` abstains on `R`** (excluded from
   that role's spare test), rather than vetoing it. Today a map-miss reads as `0.0` spare and therefore
   as a veto, so a live coarser-grained voter permanently blocks per-role scale-down for a P/D model.
@@ -1193,6 +1191,14 @@ decision.
 *currency* of the fair-share budget and nothing else; wherever a W question is live it reproduces
 whatever today's code answers, in the new units. A coder must not resolve a W item while implementing
 — a site that cannot be converted without picking a side is a handoff, not a judgment call.
+
+**How these get resolved (Dean, 2026-08-07).** Dean and the plan reviewer work these in this doc, and
+the resolution standard is explicit: **decide the correct unit at each place, individually** — not one
+global "the budget is in replicas" declaration. `W5` in particular is not answerable as a single
+choice; each of the [§ bugs](#bugs) #5 sites, `computeMean`, `sortByRemainingDesc` and the cap has to
+name its own unit and be shown consistent with its neighbors. The task plan is refreshed **after**
+this section freezes, and coding resumes after that — see [§ units](#units) for the vocabulary this
+resolution has to be written in.
 
 ---
 

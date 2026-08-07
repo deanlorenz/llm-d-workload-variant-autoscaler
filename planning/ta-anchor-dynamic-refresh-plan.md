@@ -57,29 +57,29 @@ authority for *what* is correct; this plan decides only *how* and *when*.
 ## TOC
 
 - [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L84:151
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L152:217
-  - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L192:217
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L218:451
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L452:524
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L525:554
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L555:969
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L562:581
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L582:629
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L630:692
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L693:766
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L767:911
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L912:950
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L951:969
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L970:1112
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L979:1014
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1015:1051
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1052:1112
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1113:1147
-- [§4 Ship gate & tests](#4-ship-gate--tests) L1148:1312
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1313:1437
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1438:1573
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1574:1658
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — pointer](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--pointer) L1615:1658
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L152:219
+  - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L194:219
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L220:453
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L454:526
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L527:556
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L557:971
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L564:583
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L584:631
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L632:694
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L695:768
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L769:913
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L914:952
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L953:971
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L972:1114
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L981:1016
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1017:1053
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1054:1114
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1115:1149
+- [§4 Ship gate & tests](#4-ship-gate--tests) L1150:1314
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1315:1439
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1440:1575
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1576:1660
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — pointer](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--pointer) L1617:1660
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -175,10 +175,12 @@ name-checks, per Dean's model. The anchor is derived on demand by the PR-1 Phase
    whenever >1 non-saturation analyzer qualifies as a binder for a variant (`analyzer_helpers.go:150`).
    Safe under PR-1 (sat-only or TA-only ballots), but PR-2 admits ≥2 voters, so a genuine multi-binder
    tie becomes a **silent permanent hold**. The multi-vote combine must replace nil-on-ambiguity with
-   a deterministic tie-break — **saturation-if-present, else lowest analyzer index**, which is now
-   stated as the design rule in § anchor "Multi-vote semantics" (it must also be **stable across
-   allocation iterations**, or the binding can oscillate mid-water-fill under C2's per-iteration
-   refresh). Add a two-binder fixture asserting the tie-break, not a hold. (Lands in **C1**.)
+   a deterministic tie-break — **lowest analyzer index, with no saturation-first special case**
+   (Dean-confirmed 2026-08-07; stated as the design rule in § anchor "Multi-vote semantics"). The tie is
+   rare, its scope is one analysis, and the ballot is fixed within an analysis — C2's per-iteration
+   refresh re-reads each entry's values, not the analyzer list, so index order cannot shift and the
+   binding cannot oscillate mid-water-fill. Add a two-binder fixture asserting the tie-break, not a
+   hold. (Lands in **C1**.)
 5. **Abstain-vs-veto on role coverage — design § findings `N7`.** The scale-down role list is
    `rolesOf(anchor.VariantCapacities)`, and `needsScaleDownForRole` (`analyzer_helpers.go:683-702`
    at C6b's tip `d9f3b97e`; the `:445-457` this doc cited was pre-C7/C6a)
@@ -196,7 +198,7 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 
 | # | Commit scope | Red-first test | Dev-guide (§5) | Detail |
 |---|---|---|---|---|
-| **C1** | Admit two-vote path + **N2** deterministic binder tie-break (sat-if-present, else lowest index) — replace nil-on-ambiguity in `bindingAnchor`. Enabler. | two-binder fixture asserts tie-break, not hold | pipeline "How results combine" | §1 item 4 |
+| **C1** | Admit two-vote path + **N2** deterministic binder tie-break (**lowest analyzer index**, no sat-first case) — replace nil-on-ambiguity in `bindingAnchor`. Enabler. | two-binder fixture asserts tie-break, not hold | pipeline "How results combine" | §1 item 4 |
 | **C2** | **Per-iteration dynamic refresh** — re-invoke the Phase-2 getter each allocation iteration so the per-(role,variant) binding re-selects as remaining demand shifts. | fixture where binding flips mid-water-fill | pipeline "Scale-up path", "Data flow per optimize cycle" | §3 |
 | **C3** | **Bug #2** `roleAggRemaining` — max in replica space (`max_i rd_i`), not raw mixed-unit RC. | two-vote MAX fixture | sat-config "Shared aggregation helpers" | §2 #2 |
 | **C4** | **Bug #1** `allocateForModelPaired` decrement — per-analyzer `k·PRC_i` (or replica units), not `k·PRC_sat` uniformly. Paired with C3. | two-vote allocation fixture | pipeline "Scale-up path" | §2 #1 |
