@@ -4390,3 +4390,158 @@ test files and the dev guide.
 while the branch is unpushed, still a live-PR history rewrite once PR-2 opens.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## C11 pre-registration — written against the frozen Type 1, before the diff exists
+
+*Recorded at coder tip `eb12089a` with C11 uncommitted (`analyzer_helpers.go`,
+`cost_aware_optimizer.go`, `greedy_score_optimizer.go`, `rescale.go` modified). Pre-registering makes
+these falsifiable: if the diff refutes a prediction below, that is recorded as a miss, not quietly
+dropped. The Finding 27 pre-review is the precedent, and the option-(d) retraction is why the habit
+exists.*
+
+Reviewed against the **frozen Type 1** decision block `(D-a)`/`(D-b)`, not the derived Type 3 — the
+mechanism and cap were decided in the Type 1 precisely so they would not be coder latitude, so that is
+the text C11 answers to. Line numbers in `(D-a)`/`(D-b)` are stated as of `d9f3b97e`; C6a–C6f moved all
+three grant sites, so every one is re-derived at `eb12089a` below.
+
+### Already verified — the `(D-a)` "rides the existing gates" claim holds
+
+`(D-a)` rejects a separate *admissible* predicate on the grounds that it would need threading through
+**six** independent anchor-`PRC <= 0` gates. I counted them at the tip. Exactly six, and they are the
+same six:
+
+| `(D-a)` says (`@d9f3b97e`) | at `eb12089a` | function |
+|---|---|---|
+| `cost_aware_optimizer.go:95` | `:100` | `costGreedyRolePick` |
+| `cost_aware_optimizer.go:125` | `:135` | (second cost path) |
+| `cost_aware_optimizer.go:239` | `:284` | (third cost path) |
+| `greedy_score_optimizer.go:411` | `:686` | `fairShareRolePick` (fn now at `:621`) |
+| `rescale.go:443` | `:446` | `fillRole` |
+| `rescale.go:573` | `:579` | `roleDemandGPUs` neighbourhood |
+
+No seventh gate has appeared, so no site admits the sentinel unaudited. The five `prc <= 0` gates in
+`analyzer_helpers.go` and the two in the optimizers are **ballot**-side (`prcForVariant`), so the
+sentinel never reaches them — which is `(D-a)`'s `applyAllocation` argument, and it checks out.
+
+C6f has also already pre-wired the `fairShareRolePick` gate comment (`:683-685`): *"The gate asks
+whether the variant has a price, not whether some number is zero — a variant admitted at a sentinel
+price is priced, and passes."* Correct in substance and it is what makes the sentinel work; it is also
+the forward-reference already on the ledger as Finding 36.
+
+### Finding 42 (pre-registered, MEDIUM-to-HIGH — a defect in the *governing text*, whichever way the diff goes) — `(D-b)`'s "fold into the existing `MaxReplicas` machinery" leaves the sentinel unbounded whenever `MaxReplicas` is nil, at all three grant sites
+
+`(D-b)` instructs, per site: *"fold into that same `headroom` computation, **including its
+`headroom <= 0 → continue`**"* · *"same clamp, same skip"* · *"add the ceiling to that same `break`
+condition."* At all three sites that machinery sits **behind a nil-guard**, and the ceiling folded into
+it inherits the guard:
+
+**1. `costGreedyRolePick` — `cost_aware_optimizer.go:104-111`**
+```go
+if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
+    headroom := *state.MaxReplicas - targets[vc.VariantName]
+    if headroom <= 0 { continue }
+    return vc.VariantName, headroom
+}
+return vc.VariantName, math.MaxInt        // ← outside the block the instruction names
+```
+`(D-b)` cites *"`cap` = `MaxReplicas − targets[v]`, else `MaxInt`"*, so it **saw** the `MaxInt` branch —
+and then located the fix in the other one.
+
+**2. `fairShareRolePick` — `greedy_score_optimizer.go:711-717`** — same nil-guard around the only clamp
+and the only skip.
+
+**3. `fillRole` — `rescale.go:454-460`**
+```go
+for wantGPUs-spent >= g {
+    if st.MaxReplicas != nil && *st.MaxReplicas > 0 && targets[...] >= *st.MaxReplicas { break }
+    targets[vc.VariantName]++
+```
+The worst of the three: a single `&&` chain rooted on `!= nil`, and the loop is bounded by nothing else
+but `wantGPUs`. Adding a conjunct to that chain reproduces exactly the unboundedness `(D-b)` opens by
+naming — *"`targets[v]++` in a loop bounded only by `MaxReplicas`"*.
+
+**Why this is reachable rather than theoretical.** `MaxReplicas` is `*int`
+(`internal/domain/saturation_analyzer.go:325`), the guard treats nil and `0` alike as *unbounded*, and
+the sentinel's target population is **never-seen, zero-replica variants** — the population least likely
+to carry a tuned ceiling. So the escape is not an edge case of the fix; it is the fix's default case.
+Severity is then `(D-b)`'s own worked warning, unmitigated: *"a single never-seen variant can absorb the
+whole budget one request-per-second at a time"* — at `PRC = 1`, `fillRole` buys `wantGPUs / gpusPR`
+replicas of a variant nobody has measured.
+
+**This is a Type-1 amendment either way, which is why it is worth filing before the diff.**
+- If C11 follows `(D-b)` literally → a real code defect, and the instruction caused it.
+- If C11 hoists the ceiling out of the nil-guard → correct code that **contradicts its governing text**,
+  and `(D-b)`'s per-site table is then wrong on all three rows.
+
+Only the second outcome is good code, and it still leaves the Type 1 needing a correction. The fix in
+both cases is the same shape: the ceiling is an **unconditional** clamp on the sentinel variant's
+target, applied *whether or not* `MaxReplicas` is set — i.e. `cap = min(cap, 1 - targets[v])` with its
+own `<= 0 → continue`/`break`, sibling to the `MaxReplicas` clamp rather than nested inside it. Note
+`1 - targets[v]`, not `1`: `(D-b)` is explicit that the bound is on the **target**, *"not on a single
+iteration, so a repeated allocation loop cannot buy a second replica by going round again"* — a literal
+`cap = min(cap, 1)` satisfies the sentence and not the requirement.
+
+**Routing:** planner, as a `(D-b)` amendment. Not a coder judgment call — `(D-b)` exists because Dean
+ruled *"don't leave design decsions to coder"*, so the coder deviating from it silently is the wrong
+resolution even when the deviation is correct.
+
+### Finding 43 (pre-registered, LOW-to-MEDIUM — an ordering constraint nothing states) — the one-replica ceiling is only effective if it is applied *after* C6e's `firstDraw` floor
+
+In `fairShareRolePick` at `eb12089a` the sequence is:
+
+```
+:701   capN := replicasToCover(share, gpusPR)
+:702   if firstDraw && capN < 1 { capN = 1 }      ← floor, raises to 1
+:710   capN = min(capN, gpusAvail/gpusPR)         ← pool clamp
+:711   if state.MaxReplicas != nil && ... {  capN = min(capN, headroom) }   ← headroom clamp
+:718   if capN > 0 { ... return vc.VariantName, capN }
+```
+
+The floor **raises** `capN` past every bound computed before it. So a ceiling placed with the
+`MaxReplicas` clamp is safe, and a ceiling placed next to `replicasToCover` — which is where a coder
+reading *"cap the sentinel at one replica"* might naturally put it, since that is where replica counts
+are first computed — is **silently defeated by the next line**: ceiling drives `capN` to `0`, the floor
+lifts it back to `1`, and a replica the ceiling forbade is granted.
+
+So `(D-b)`'s correctness at this site rests on the *layout* of a function C6e rewrote after `(D-b)` was
+frozen, and neither the Type 1 nor the code says so. One comment at the floor — "clamps below this line
+are authoritative; this floor deliberately precedes them" — would make the constraint explicit and
+survive the next edit to the function.
+
+**Bounded, and one part I have not established.** Finding 38 showed `firstDraw` stays true for every
+role until the caller commits, so a mis-ordered ceiling would be defeated once per role rather than
+once per model. Within a single closure the floor cannot fire on a *second* grant of the same variant,
+because `spentGPUs` goes positive after the caller writes the first grant back — so the "buy a second
+replica by going round again" hazard `(D-b)` names is not reachable *this* way. The case I have **not**
+checked is two roles resolving to the same sentinel variant in one pre-commit window (a variant serving
+both roles, or `role == "both"`), where both draws would see `firstDraw == true`. I am not asserting it
+is reachable; I am recording that I did not test it and that it is the one route by which a mis-ordered
+ceiling would breach the *target* bound rather than merely the per-role one.
+
+### Rest of the C11 checklist, to verify against the diff
+
+Mechanism `(D-a)`: sentinel written at the `analyzer_helpers.go:213` `else` branch only · guarded on
+`ReplicaCount == 0` **and** a non-saturation binder — and if the binder test is *implicit* (saturation
+always seeds, so the branch is unreachable for it), verify that claim, because a saturation config that
+fails to seed would make this a `[sat]`-only behaviour change and move the `[sat]`-only goldens, which
+`(D-a)`'s own **TA-CREATED** classification says must not happen · `Reason` set to a dedicated constant
+alongside the PRC, moving as a set at both write sites (`:207-212`, `refreshAnchorSizing:569-572`) ·
+the refresh's `continue` branches (`:562`, `:566`) must **leave the sentinel standing**.
+
+Cap `(D-b)`: all three sites, target-scoped, each with its skip/break half — the `→ continue` is
+load-bearing, since returning `cap = 0` drives `n = 0 → utilByRole = 0 → deltaUtil = 0 → break` and
+kills the model's whole allocation loop instead of moving to the next variant · **not** implemented by
+leaning on `allocateForModelPaired`'s `k` inheritance, which `(D-b)` calls *"a consequence, not the
+mechanism"* · no changes at the five sites `(D-b)` clears (`applyAllocation`, `roleDemandGPUs`, the
+scale-down/reclaim paths, `TotalCapacity`) — a change there is scope creep to flag, not to praise.
+
+Carried in from the ledger: Finding 16's `PRC <= 0` predicate; Finding 27's ranking inversion — noting
+that `(D-a)`'s ranking argument (*"because measured PRCs are ≫ 1, a never-seen variant ranks behind
+every measured option"*) is the claim the other session's `plan__ta-anchor-c11-ranking-claim-correction`
+already corrects, since `Cost = 0` collapses `Cost / PRC` to `0` and sorts the sentinel **first**;
+whether C11 inherits that hole is a diff question. And §4a: re-sweep, with the `§C6e` ×2 and dev-guide
+`Type-1 owner` of Finding 41 still outstanding going in.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
