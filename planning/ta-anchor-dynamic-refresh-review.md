@@ -3863,6 +3863,15 @@ Three things in this commit are better than the plan asked for:
   unpriced and so not selectable (the six the plan names). Both readings are defensible in
   isolation; conflating them is what let the unpriced draw read as harmless. The pricing framing
   resolves it without weakening either, as claimed.
+- **It found a MAJOR behavioral defect in a `W`-item's stated contract, measured it, refused to fix it
+  unilaterally, and kept moving.** `plan__ta-anchor-c6f-w4-no-spend-is-false.md` presents a two-option
+  fork — ship `W4` with a scoped fixture and a named hole, or change the abstention so it reaches the
+  vote — states plainly that option 2 is the one that makes `W4` true, and declines to choose because
+  it is a mechanism change beyond C6f's scope. That is exactly the escalation the conventions ask for,
+  and it took the non-blocking default rather than stopping with nothing delivered. It also reports an
+  unexplained negative result (regime D, P/D with equal `GPUsPerReplica`, holds) and says *"I do not
+  have a confirmed mechanism for why, and I am not guessing one"* — reporting an unexplained green is
+  harder than reporting a red, and most sessions would have called D confirmation of a boundary.
 
 The equality-not-magnitude choice is also right, and for the reason given: asserting a number would
 pin today's arithmetic instead of the property. Using the same model identity in both ballots so
@@ -3871,8 +3880,19 @@ stronger form of the assertion and worth keeping as a pattern.
 
 ### Finding 34 — W4's "not budget-exempt" guarantee has a reachable hole; the abstention leaves the abstainer's demand **unclamped**
 
-**Severity: MAJOR (behavioral). Derived from a full code read at `4fb49ac6`, not measured — see
-"How to confirm" below before acting on it.**
+**Severity: MAJOR (behavioral). MEASURED — but not by me, and not first.**
+
+**Attribution correction, written after I filed the paragraphs below.** I drafted this finding from a
+code read and labelled it "derived, not measured". That label was wrong and the framing gave me credit
+I had not earned. The coder had **already measured this defect**, filed it to the planner as
+`plan__ta-anchor-c6f-w4-no-spend-is-false.md`, and written the measured counterexample into the
+fixture's own `SCOPE` comment — where it says, in the shipped source, that the inflation is *"upstream
+of W4 and reachable with ONE analyzer"* and that *"W4 is NOT fully gated by them."* I read that
+comment before drafting and still framed the defect as mine to surface. It is not. **What is mine is
+the mechanism trace** — the six-link table below, and specifically links 3, 5 and 6
+(`anyRoleNeedsScaleUp`, the `combineVotes` maximum, the `firstDraw` floor), which the coder's handoff
+does not enumerate. That trace explains *why* the coder's measurement comes out the way it does; it
+does not establish the defect.
 
 W4's prose says an abstaining analyzer "contributes no claim and it spends nothing. It is not
 budget-exempt — an exempt voter draws on a budget it never contributed to." The first half is true
@@ -3914,16 +3934,39 @@ the **picked** variant while the clamp keys on the **reference** variant, so the
 in exactly the reference ≠ picked regime — and C6f's own spec 2 constructs that regime deliberately.
 The commit is one fixture parameter away from exhibiting this.
 
-**Why the shipped fixtures stay green anyway:** in spec 2, `sat`'s demand already equals `capN`
-(demand 30000 at PRC 10000 → 3 replicas; `target` = the same 3 GPUs → `capN` = 3), so the maximum in
-link 5 is 3 with or without the abstainer. Lower the claiming analyzer's demand below `capN` — or
-zero it and let the abstainer be the only positive voter — and the two ballots diverge.
+**The measurement, quoted from the coder's own reproducer** (single role, pool 100 non-binding, `sat`
+demand 30000, TA demand 100000 pricing only `pricey-v`):
 
-**How to confirm (one fixture, no production change):** take `w4Request` as it stands, set the sat
-entry's `RequiredCapacity`/`Remaining` to `0` while leaving TA's at `100000`, keep `capReference:
-true` so the picker lands on `pricey-v`. Expected under the shipped policy: `pricey-v` gains one
-replica. Expected under a conservative abstention: no grant. If the first is observed, Finding 34 is
-measured rather than derived, and the disposition question is which policy W4 actually means.
+| regime | `[sat]` | `[sat, TA]` |
+|---|---|---|
+| A — reference variant open, picker lands on it | `pricey-v` 1 | 1 |
+| B — reference at ceiling, both 1 GPU/replica | `pricey-v` 4 | 4 |
+| **C — reference at ceiling, 3 GPUs/replica vs 1** | **`pricey-v` 4** | **`pricey-v` 10** |
+
+`cheap-v` (reference) PRC 10000 at 3 GPUs/replica with `MaxReplicas: 1`; `pricey-v` (picked) PRC 10000
+at 1 GPU/replica. Case C is the equality violation: **+3 replicas becomes +9**, and the arithmetic
+names whose budget was spent — sat's claim is priced at the reference variant, `30000/10000 × 3 = 9`
+GPUs, single model so `target == claim == 9`, converted at the *picked* variant's 1 GPU/replica →
+`capN = 9`, and TA drew all nine.
+
+**Why B is green and C is not** — this is where my trace earns its place. The claim is priced through
+the reference variant and `capN` converts it through the picked one. When the two share a
+`GPUsPerReplica`, `capN` lands exactly on the replica count the claiming analyzer would have asked for
+alone, so link 5's maximum is bounded by the entitlement whatever the abstainer votes: `n =
+min(bottleneck, capN)` is capN either way. The asymmetry breaks that coincidence — it inflates the
+claim in GPUs while leaving the picked variant cheap to buy, `capN` opens to 9, and links 3–5 fill it.
+So the six-link chain is the *mechanism*, and the reference-vs-picked `GPUsPerReplica` asymmetry is the
+*enabling condition*. Neither alone is the finding.
+
+**One route in the chain is still unmeasured, and it is not the coder's.** Links 3 and 6 admit a
+second path that needs no `GPUsPerReplica` asymmetry at all: zero the claiming analyzer's demand
+entirely and leave the abstainer as the only positive voter. Then `claim = 0`, `target = 0`, `capN =
+replicasToCover(0, 1) = 0` — and `if firstDraw && capN < 1 { capN = 1 }` grants one replica anyway,
+kept alive through the pass by the unfiltered `anyRoleNeedsScaleUp`. **Untested.** The coder's regimes
+A/B/D do not cover it (all have positive sat demand), so it is neither confirmed nor excluded by the
+measurement above. If it holds, the defect is not confined to the asymmetric configuration the coder
+found and the "corner, not systemic" assessment needs revisiting; if it does not, some gate upstream
+drops the model and that gate is worth naming. Either way it is one fixture, no production change.
 
 **What I am not claiming.** I have not established that the permissive policy is *wrong* — granting
 one replica to a model some live analyzer believes is under-served may well be the intended
@@ -3953,9 +3996,16 @@ constraint. Here, C6f's suite pins the **entitlement cap** but not the **abstent
 in the aligned regime the cap subsumes the gate. Same failure mode — a fixture green for a mechanism
 other than the one named — reached from opposite ends of the same code path.
 
-The coder's own disclosure is adjacent but not the same claim. It says the gap is the *misaligned*
-regime (reference ≠ picked **and** `GPUsPerReplica` asymmetric). Finding 35 is that the gap also
-exists **inside** the regime the fixtures do cover.
+**Second attribution correction.** I wrote that the coder's disclosure was "adjacent but not the same
+claim" — that it named only the misaligned regime while Finding 35 named the aligned one. Wrong: the
+handoff says *"A and B are green only because `capN` happens to coincide with sat's own bottleneck"*,
+which is precisely the aligned-regime point, stated before I made it. **What survives as mine is the
+policy-discrimination framing** — that substituting the conservative abstention (`ps[i][role] = 0`)
+leaves the output of both shipped specs unchanged, so the suite cannot distinguish the two candidate
+policies and therefore pins neither — **and the two-role fixture** proposed below, which is a
+different shape from anything in the handoff. The bare observation that the fixtures do not gate `W4`
+is the coder's, is in the shipped `SCOPE` comment in capitals, and I should have cited it rather than
+re-derived it.
 
 **One fixture family closes both this and Finding 28:** a **two-role** model where the abstaining
 entry can price exactly one of the two roles. That separates the clamp's per-entry running balance
