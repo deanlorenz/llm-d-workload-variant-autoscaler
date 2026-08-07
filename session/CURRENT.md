@@ -247,13 +247,26 @@ rows stay here.
   repointed to `main@6bfb73e1`, signed tag `ta-0.9-test-20260730` pushed to origin, image `:ta-0.9` (digest
   `sha256:80dec0e9728f…`) pushed to quay — all Dean-authorized. See the `ta-testing` PR Status row; no
   outstanding action for this refresh.
-- **TA 0.9 release notes / Highlights — DEFERRED to code freeze.** Mechanism + drafts in
+- **TA 0.9 release notes / Highlights — ⏰ THE GATE HAS ARRIVED (2026-08-07): v0.9.0 is being cut
+  upstream right now.** Verified state: tag **`v0.9.0` already exists on upstream** (lightweight,
+  → commit **`aadaa596`** = #1509 "fix(crd): restart when KEDA or LWS CRDs are installed after
+  startup"), and asm582's release-prep **PR [#1522](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1522)
+  MERGED** 18:07:18Z (`d5d58640`, pins `config/base/manager/kustomization.yaml`
+  `newTag: main → v0.9.0`) — but **no GitHub Release is published yet** (latest is still v0.8.0), and
+  there is **no `release-0.9` branch** (release-0.6/0.7/0.8 exist). So the editorial window for the
+  hand-written `## Highlights` block is **open now and closes when asm582 publishes the release** —
+  this was the "held until code freeze" trigger. Mechanism + drafts in
   [`planning/ta-0.9-release-notes.md`](../planning/ta-0.9-release-notes.md): the ` ```release-note ``` `
   PR block is NOT auto-harvested (no `.github/release.yml`); GitHub auto-notes derive from PR
-  *titles* in `v0.8.0..v0.9.0`; the only editorial lever is a hand-written `## Highlights` block at
-  release. Highlights draft ready but held until code freeze. Do NOT create an in-repo
+  *titles* in `v0.8.0..v0.9.0`; Highlights is the only editorial lever. Do NOT create an in-repo
   `docs/CHANGELOG-v0.9.0.md`. Slack epics + Highlights notes already POSTED by Dean 2026-07-29.
   Design-docs PR (item 5) still DEFERRED post-code-freeze.
+  **⚠️ Consequence worth knowing before writing Highlights — three commits landed on `main` *after*
+  the tag point, so they are NOT in v0.9.0:** `8b3663ed` (#1511, test-only), **`57f3fe64` (#1516, the
+  anchor refactor PR-1)**, and `d5d58640` (#1522 itself). The anchor refactor is therefore **0.10.0
+  material, not a 0.9.0 highlight**. Side observation for Dean, not acted on: because the prep commit
+  is *after* the tag, the tagged `v0.9.0` tree does **not** contain the `v0.9.0` image pin — a
+  lightweight tag can be re-pointed, so this may still move; raising it upstream is Dean's call.
 - **Rescale Beta PRs — re-check against RC-2/RC-4 when they land.** PR #1452 (rescale Alpha) merged
   2026-07-28. Tracking issue [#1447](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1447)
   covers RC-1 (damping bypass) and RC-3 (#1003-deferred partition) but its text does **not** mention
