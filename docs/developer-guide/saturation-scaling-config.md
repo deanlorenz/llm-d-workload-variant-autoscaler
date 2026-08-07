@@ -444,6 +444,8 @@ totals := aggregation.AggregateByRole(variantCapacities)
 
 `AggregateByRole` canonicalizes empty role to `interfaces.RoleBoth`.
 
+These helpers aggregate **one analyzer's own** variant capacities into that analyzer's result. They are not the cross-analyzer combine: reducing several analyzers' competing replica opinions to one number is the optimizer's job, done by the single `combineVotes` core and its three collectors — see [How results combine](multi-analyzer-pipeline.md#how-results-combine).
+
 #### Engine post-step formula
 
 After each analyzer's `Analyze()` returns, the engine applies the universal threshold formula at **every scope** — model level and each `RoleCapacity` entry:

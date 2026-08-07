@@ -69,7 +69,7 @@ over it via shared free functions in `internal/engines/pipeline/`.
 │       applyAllocation → decrement Remaining              │
 │   • Scale-down: scaleDownRoleIterated                    │
 │       needsScaleDownForRole → veto gate (ALL live agree) │
-│       safeRemovalReplicasForRole → min across live       │
+│       safeRemovalReplicasForRole → combine min over live │
 │       applyDeallocationForRole → decrement RoleSpare     │
 └──────────────────────────┬───────────────────────────────┘
                            │
@@ -257,6 +257,44 @@ analyzer-written values are discarded.
 
 ## How results combine
 
+**One combine core.** Every cross-analyzer quantity — scale-up sizing,
+safe-removal counts, rescale demand — reduces one `(variant, role)` ballot to a
+single replica count through the same function:
+
+```go
+func combineVotes(votes []replicaVote, up bool) (value float64, binder int)
+```
+
+`up=true` takes the max (scale-up demand), `up=false` the min (scale-down safe
+removal). It returns **both** the count and the ballot index of the binding
+analyzer from a single evaluation, so "how many replicas" and "which analyzer
+decided that" can no longer disagree — the binder is what the per-iteration
+anchor refresh writes onto the anchor's sizing fields. Ties keep the lowest
+ballot index. An empty ballot returns `(0, -1)`, which callers read as "no basis
+to act".
+
+Rounding happens **once, at the caller** — `ceil` for scale-up, `floor` for
+scale-down — never per vote.
+
+**Who participates.** Three thin collectors, one per state source, decide
+membership:
+
+| Collector | Feeds | Vote value |
+|---|---|---|
+| `votesFromPickerState` | scale-up (`roleBottleneckReplicas`, `roleAggRemaining`) | `pickerState[i][role] / PRC_i[v]` |
+| `votesFromRoleSpare` | scale-down (`safeRemovalReplicasForRole`) | `RoleSpare[i][role] / PRC_i[v]` |
+| `votesFromTotalDemand` | rescale (`roleDemandGPUs`) | `demand_i[role] / PRC_i[v]` |
+
+All three apply the same filter: the entry must have a `Result`, a positive
+`PerReplicaCapacity` for that variant, and its own state for that role.
+`votesFromRoleSpare` additionally drops non-live entries. Keeping the filter in
+the collectors rather than in `combineVotes` is deliberate — it means an
+analyzer that says nothing about a `(variant, role)` is structurally absent from
+the combine, so it cannot influence the outcome by staying silent.
+
+`needsScaleDownForRole` keeps its own boolean all-agree shape rather than
+delegating: it is a veto, not a magnitude.
+
 **Scale-down gate** (`needsScaleDownForRole`): every **live** analyzer that
 has an opinion on a role must report `Spare > 0` for that role to scale down.
 "Has an opinion" excludes a live voter whose own `RoleSpare` simply doesn't
@@ -265,8 +303,12 @@ entry, asked about `prefill`) — that voter **abstains** rather than reading
 the map-miss as `Spare == 0` (N7): a coarser voter has no basis to veto a
 role it never sized. A live analyzer that DOES have an opinion and reports
 `RequiredCapacity > 0` (i.e., `Spare == 0`) still blocks scale-down for that
-role. `safeRemovalReplicasForRole` (the safe-removal-count computation)
-applies the same live-only, opinion-only filter.
+role. `safeRemovalReplicasForRole` (the safe-removal-count computation) reads
+the same live-only ballot (`votesFromRoleSpare`), but its opinion filter is
+weaker than the gate's: a live voter whose `RoleSpare` doesn't decompose the
+role abstains from the *gate* and still votes `0.0` on the *count*, holding
+removal at zero. The gate therefore says "may scale down" while the count says
+"by nothing" — safe, but the two filters do not yet agree.
 
 **Liveness.** An analyzer is live for the current cycle iff it produced a
 non-error, capacity-bearing result within the staleness window (a fixed
@@ -470,8 +512,8 @@ initRoleState(s)               → roles, RolePairedState (per-role demand + Rol
 anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
   refreshAnchorSizing(variants, s, ps) → re-select each variant's (role,v) binder (multi-vote only)
   pick(role, ...)              → (variant, capN): optimizer-specific variant selector
-  roleBottleneckReplicas       → max_i ceil(state[i][role] / PRC_i[v]): cross-analyzer replica sizing
-  roleAggRemaining             → the bottleneck entry's own raw demand (replica-space argmax, not a raw cross-analyzer max)
+  roleBottleneckReplicas       → ceil(combineVotes(votesFromPickerState(...), up)): cross-analyzer replica sizing
+  roleAggRemaining             → the binding entry's own raw demand (same combine, second return value)
   Δ_util = min_role util_role  → joint commit bound: trim to the least-served role
   pickerState[i][role] -= k*PRC_i[v] → per-analyzer decrement (each analyzer's OWN PRC, not the anchor's)
   applyAllocation(s, v, k)     → decrement Remaining on all NamedAnalyzerResults
@@ -489,8 +531,8 @@ from the model-level scalars, so `allocateForModelPaired` handles both the
 disaggregated and non-disaggregated cases through the same loop.
 
 **Per-iteration anchor refresh.** `refreshAnchorSizing` re-invokes the (role,
-variant) binder selection (`bindingIndexForRole`, the same argmax the cross-
-analyzer combine uses) at the head of every iteration, mutating the anchor's
+variant) binder selection — the second return value of the same `combineVotes`
+call that sizes the role — at the head of every iteration, mutating the anchor's
 `VariantCapacities` in place. With a single voter it is not called at all —
 the anchor's one-time pick from `bindingAnchor` already equals the sole
 voter's, and calling it would just reproduce the same values (see "How
@@ -521,7 +563,7 @@ for each role (sorted for determinism):
                                               (no live analyzer → false; see "How results combine")
   sortVariantsForScaleDown(s, vcs)         → cost-desc; tie-break: Score-weighted PRC asc
   scaleDownVariantSet(...)
-    safeRemovalReplicasForRole(s, v, role) → min over live i of floor(RoleSpare[i][role] / PRC_i[v])
+    safeRemovalReplicasForRole(s, v, role) → floor(combineVotes(votesFromRoleSpare(...), down)) over live i
     applyDeallocationForRole(s, v, role, n)→ decrement RoleSpare on all entries
 ```
 
@@ -554,13 +596,15 @@ group's GPU budget across them (`computeRescaleTargets`) before the additive
 fair-share path runs. Two demand quantities feed that water-fill, both
 combined across every voting entry rather than read off the anchor alone:
 
-- **`roleDemandGPUs`** converts a role's demand to a GPU count via the
-  cheapest variant on the accelerator type: `max_i ceil(demand_i[role] /
-  PRC_i[v*])` over the voting entries, using each entry's own demand
-  (model-level `TotalDemand` for the synthetic `"both"` role, or its own
-  `RoleCapacities[role].TotalDemand` for a P/D role) and its own PRC for the
-  cheapest variant `v*`. Reading only the anchor's (the binder's) demand and
-  PRC would miss a non-binding analyzer whose demand for that role is larger.
+- **`roleDemandGPUs`** converts a role's demand to a GPU count via the cheapest
+  variant `v*` on the accelerator type, through the shared combine (see
+  [How results combine](#how-results-combine)): `votesFromTotalDemand` builds
+  the ballot from each entry's own demand (model-level `TotalDemand` for the
+  synthetic `"both"` role, or its own `RoleCapacities[role].TotalDemand` for a
+  P/D role) over its own PRC for `v*`, `combineVotes` takes the scale-up
+  extremum, and `roleDemandGPUs` rounds up once. Reading only the anchor's (the
+  binder's) demand and PRC would miss a non-binding analyzer whose demand for
+  that role is larger.
 - **The water-fill weight** (`rescaleInput.Demand`, consumed as `priority ×
   demand` in `computeRescaleTargets`) uses the model's combined demand-in-GPUs
   (`modelDemandGPUs`, which sums `roleDemandGPUs` across roles) rather than

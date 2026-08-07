@@ -556,16 +556,16 @@ func modelDemandGPUs(anchor *domain.AnalyzerResult, s []NamedAnalyzerResult, sta
 }
 
 // roleDemandGPUs converts a role's token demand to a GPU count via the
-// cheapest variant on accType, combined across every voting entry (Bug #3):
-// max_i ceil(demand_i[role]/PRC_i[v*]), not just the anchor's (single-binder)
-// demand and PRC. The synthetic "both" role uses each entry's model-level
-// TotalDemand; a P/D role uses each entry's own RoleCapacities demand (an
-// entry that doesn't decompose the role contributes nothing, same as
-// roleBottleneckReplicas skipping a zero/absent PRC). anchor still supplies
-// the topology (which variants exist on accType, their PRC for the cost
-// sort) and v* itself; s supplies each voting entry's own demand and PRC for
-// v*. With a single voter this collapses to that voter's own demand/PRC,
-// byte-identical to the previous anchor-only computation.
+// cheapest variant on accType, combined across every voting entry rather than
+// read off the anchor alone (Bug #3). It runs no loop of its own: the ballot
+// comes from votesFromTotalDemand (whose doc comment carries the participation
+// rules — an entry that doesn't decompose the role, or has no PRC for v*,
+// contributes nothing), combineVotes reduces it, and the result is rounded up
+// once here. anchor still supplies the topology (which variants exist on
+// accType, their PRC for the cost sort) and v* itself; s supplies each voting
+// entry's own demand and PRC for v*. With a single voter this collapses to that
+// voter's own demand/PRC, byte-identical to the previous anchor-only
+// computation.
 func roleDemandGPUs(anchor *domain.AnalyzerResult, s []NamedAnalyzerResult, stateMap map[string]domain.VariantReplicaState, accType, role string) int {
 	var bestVariant string
 	bestGPUs := 1
@@ -581,23 +581,8 @@ func roleDemandGPUs(anchor *domain.AnalyzerResult, s []NamedAnalyzerResult, stat
 		return 0
 	}
 	replicas := 0
-	for _, e := range s {
-		if e.Result == nil {
-			continue
-		}
-		demand := e.Result.TotalDemand
-		if role != domain.RoleBoth {
-			rc, ok := e.Result.RoleCapacities[role]
-			if !ok {
-				continue
-			}
-			demand = rc.TotalDemand
-		}
-		prc := prcForVariant(e.Result, bestVariant)
-		if prc <= 0 {
-			continue
-		}
-		if n := int(math.Ceil(demand / prc)); n > replicas {
+	if value, binder := combineVotes(votesFromTotalDemand(s, role, bestVariant), true); binder >= 0 {
+		if n := int(math.Ceil(value)); n > 0 {
 			replicas = n
 		}
 	}

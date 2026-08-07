@@ -462,6 +462,136 @@ func makeNamedPD(name string, pRC, dRC, pSC, dSC float64, pDemand, dDemand float
 	}
 }
 
+var _ = Describe("the cross-analyzer combine core", func() {
+
+	Describe("combineVotes", func() {
+		It("collapses to the plain extremum when scores are uniform, both directions", func() {
+			votes := []replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 1}}
+
+			up, upBinder := combineVotes(votes, true)
+			Expect(up).To(Equal(10.0))
+			Expect(upBinder).To(Equal(0))
+
+			down, downBinder := combineVotes(votes, false)
+			Expect(down).To(Equal(5.0))
+			Expect(downBinder).To(Equal(1))
+		})
+
+		It("converges on a dominant analyzer's own vote as its score grows", func() {
+			// s_1 -> infinity pulls the result onto v_1 = 5 even though the
+			// extremum (and the binder) is analyzer 0's 10.
+			votes := []replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 1000}}
+			value, binder := combineVotes(votes, true)
+			Expect(value).To(BeNumerically("~", 5.0, 0.02))
+			Expect(binder).To(Equal(0), "the binder is still the extremum, whatever the weighting does to the number")
+		})
+
+		It("never leaves [min, max], in either direction", func() {
+			votes := []replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 2}, {Index: 2, Value: 7, Score: 3}}
+
+			// up: e=10, correction = ((10-5)*1 + (10-7)*2)/6 = 11/6
+			up, _ := combineVotes(votes, true)
+			Expect(up).To(BeNumerically("~", 10.0-11.0/6.0, 1e-9))
+			Expect(up).To(And(BeNumerically(">=", 5.0), BeNumerically("<=", 10.0)))
+
+			// down: e=5, correction = ((5-7)*1)/6 = -1/3, so the subtraction adds
+			down, _ := combineVotes(votes, false)
+			Expect(down).To(BeNumerically("~", 5.0+1.0/3.0, 1e-9))
+			Expect(down).To(And(BeNumerically(">=", 5.0), BeNumerically("<=", 10.0)))
+		})
+
+		It("is monotone in each score: raising a dissenter's pulls the result toward its vote", func() {
+			lo, _ := combineVotes([]replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 2}}, true)
+			hi, _ := combineVotes([]replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 4}}, true)
+			Expect(lo).To(BeNumerically("~", 10.0-5.0/3.0, 1e-9)) // 8.333 -- the design's worked example
+			Expect(hi).To(BeNumerically("~", 7.0, 1e-9))
+			Expect(hi).To(BeNumerically("<", lo), "more trust in the dissenter moves the result toward its 5")
+		})
+
+		It("returns a single vote unchanged, whatever its score", func() {
+			votes := []replicaVote{{Index: 3, Value: 7.5, Score: 9}}
+			up, upBinder := combineVotes(votes, true)
+			Expect(up).To(Equal(7.5))
+			Expect(upBinder).To(Equal(3))
+			down, downBinder := combineVotes(votes, false)
+			Expect(down).To(Equal(7.5))
+			Expect(downBinder).To(Equal(3))
+		})
+
+		It("signals no basis to act when nothing participates", func() {
+			value, binder := combineVotes(nil, true)
+			Expect(value).To(Equal(0.0))
+			Expect(binder).To(Equal(-1))
+		})
+
+		It("keeps the lowest ballot index on a tie, regardless of slice order", func() {
+			_, binder := combineVotes([]replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 10, Score: 1}}, true)
+			Expect(binder).To(Equal(0))
+
+			// Same tie presented out of ballot order: the tie-break reads Index,
+			// not position, so the answer does not move.
+			_, binder = combineVotes([]replicaVote{{Index: 1, Value: 10, Score: 1}, {Index: 0, Value: 10, Score: 1}}, true)
+			Expect(binder).To(Equal(0))
+		})
+
+		It("falls back to the extremum rather than dividing by zero when no vote carries a score", func() {
+			// Only reachable from a hand-built ballot -- the config layer coerces
+			// a zero score to 1.0.
+			value, binder := combineVotes([]replicaVote{{Index: 0, Value: 4}, {Index: 1, Value: 9}}, true)
+			Expect(value).To(Equal(9.0))
+			Expect(binder).To(Equal(1))
+		})
+	})
+
+	Describe("the collectors' participation filter", func() {
+		It("excludes an analyzer with no PRC for the variant, so it cannot dilute the weighting", func() {
+			// A third analyzer that does not size "v" must leave the combine
+			// exactly as the two-analyzer ballot found it. If it were counted in
+			// the score denominator, sum_j s_j would be 4 instead of 3 and the
+			// result would drift to 8.75 -- a silent analyzer would make the
+			// system trust the binder MORE.
+			s := []NamedAnalyzerResult{
+				makeNamed("sat", 100, 0, "v", 10.0),     // rd = 10
+				makeNamed("ta", 50, 0, "v", 10.0),       // rd = 5
+				makeNamed("lat", 999, 0, "other", 10.0), // sizes a different variant only
+			}
+			_, ps := initRoleState(s)
+
+			votes := votesFromPickerState(s, ps, domain.RoleBoth, "v")
+			Expect(votes).To(HaveLen(2))
+			Expect([]int{votes[0].Index, votes[1].Index}).To(Equal([]int{0, 1}))
+
+			votes[0].Score, votes[1].Score = 1, 2
+			got, gotBinder := combineVotes(votes, true)
+
+			want, wantBinder := combineVotes([]replicaVote{
+				{Index: 0, Value: 10, Score: 1},
+				{Index: 1, Value: 5, Score: 2},
+			}, true)
+
+			Expect(got).To(Equal(want))
+			Expect(gotBinder).To(Equal(wantBinder))
+		})
+
+		It("drops a non-live analyzer from the scale-down ballot", func() {
+			live := makeNamedPD("sat", 0, 0, 20000, 30000, 10000, 30000, 10000, 10000)
+			nonLive := makeNamedPD("throughput", 0, 0, 5000, 5000, 10000, 30000, 10000, 10000)
+			nonLive.Live = false
+			votes := votesFromRoleSpare([]NamedAnalyzerResult{live, nonLive}, "prefill", "pf")
+			Expect(votes).To(HaveLen(1))
+			Expect(votes[0].Index).To(Equal(0))
+		})
+
+		It("drops an analyzer that does not decompose the requested role from the rescale ballot", func() {
+			pd := makeNamedPD("sat", 0, 0, 0, 0, 10000, 30000, 10000, 10000)
+			flat := makeNamed("ta", 100, 0, "pf", 10.0) // model-level only; no RoleCapacities
+			votes := votesFromTotalDemand([]NamedAnalyzerResult{pd, flat}, "prefill", "pf")
+			Expect(votes).To(HaveLen(1))
+			Expect(votes[0].Index).To(Equal(0))
+		})
+	})
+})
+
 var _ = Describe("paired helpers", func() {
 
 	Describe("initRoleState", func() {
@@ -512,8 +642,8 @@ var _ = Describe("paired helpers", func() {
 			// A raw max would wrongly pick ta's 5000 (tokens vs a different unit's
 			// remaining) even though sat's replica-space demand is the real
 			// bottleneck. roleAggRemaining must return sat's raw value (100), the
-			// entry roleBottleneckReplicas/bindingIndexForRole also identify as
-			// the bottleneck for "v" — commensurable with sat's own PRC in the
+			// entry the combine also identifies as the binder for "v" —
+			// commensurable with sat's own PRC in the
 			// caller's n*prc/demand formula.
 			s := []NamedAnalyzerResult{
 				makeNamed("sat", 100, 0, "v", 1.0),

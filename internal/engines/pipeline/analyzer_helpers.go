@@ -329,54 +329,182 @@ func initRoleState(s []NamedAnalyzerResult) (roles []string, pickerState RolePai
 // stored on NamedAnalyzerResult (per design A10).
 type RolePairedState []map[string]float64
 
-// roleBottleneckReplicas computes the cross-analyzer bottleneck replica count
-// for variant v in a specific role. Returns max_i ceil(state[i][role] / PRC_i[v]).
-func roleBottleneckReplicas(s []NamedAnalyzerResult, state RolePairedState, role, v string) int {
-	max := 0
-	for i, e := range s {
-		if e.Result == nil {
-			continue
-		}
-		prc := prcForVariant(e.Result, v)
-		if prc <= 0 {
-			continue
-		}
-		n := int(math.Ceil(state[i][role] / prc))
-		if n > max {
-			max = n
-		}
-	}
-	return max
+// =============================================================================
+// The cross-analyzer combine — one core, three collectors
+// =============================================================================
+
+// replicaVote is one analyzer's opinion in a single (variant, role) combine,
+// already converted to replica space. Value is real-valued — rounding happens
+// once, at the caller, after the weighting.
+type replicaVote struct {
+	Index int     // ballot index — binder identity and deterministic tie-break
+	Value float64 // replicas: demand/PRC (scale-up) or spare/PRC (scale-down)
+	Score float64 // belief weight; > 0 (config coerces 0 -> 1.0)
 }
 
-// bindingIndexForRole returns the ballot index of the voting entry that
-// currently bounds variant v in role — the entry achieving
-// roleBottleneckReplicas' own max_i ceil(state[i][role]/PRC_i[v]). Ties keep
-// the lowest index (ballot order), mirroring bindingAnchor's own tie-break
-// (N2). Returns -1 if no entry has a usable (positive) PRC for v.
+// combineVotes reduces one (variant, role) ballot to a single real-valued
+// replica count plus the ballot index of the binding analyzer. up=true takes
+// the max (scale-up demand), up=false the min (scale-down safe removal).
 //
-// This is state-dependent: as pickerState is decremented each allocation
-// iteration, the entry with the largest remaining replica-demand for (role,v)
-// can change — this is the argmax_i rd_i the design's anchor refresh reads
-// (combined-analyzer-optimizer-design.md § anchor).
-func bindingIndexForRole(s []NamedAnalyzerResult, state RolePairedState, role, v string) int {
-	best := -1
-	bestN := 0
+// Higher-scored analyzers pull the result toward their own vote without it ever
+// leaving [min, max]:
+//
+//	e  = max v_i (up) | min v_i (down)             -- the binder's own vote
+//	v* = e - sum_i (e-v_i)*(s_i - s_e)+ / sum_j s_j   ((x)+ = max(x, 0))
+//
+// One expression serves both directions: for scale-down e is the min, so
+// (e - v_i) <= 0 and the subtraction adds. Uniform scores zero every
+// (s_i - s_e)+ term, collapsing v* to the plain extremum — which is what makes
+// retrofitting the per-site loops onto this core behavior-preserving.
+//
+// Ties keep the lowest ballot index. Returns (0, -1) when no vote participates,
+// which callers read as "no basis to act".
+//
+// Callers round once, after the weighting: ceil for scale-up, floor for
+// scale-down. Rounding per element and then taking the extremum agrees only
+// while all scores are uniform.
+func combineVotes(votes []replicaVote, up bool) (float64, int) {
+	if len(votes) == 0 {
+		return 0, -1
+	}
+
+	b := 0
+	for i := 1; i < len(votes); i++ {
+		switch {
+		case up && votes[i].Value > votes[b].Value:
+			b = i
+		case !up && votes[i].Value < votes[b].Value:
+			b = i
+		case votes[i].Value == votes[b].Value && votes[i].Index < votes[b].Index:
+			b = i
+		}
+	}
+
+	e := votes[b].Value
+	sumScore := 0.0
+	for _, vt := range votes {
+		sumScore += vt.Score
+	}
+	if sumScore <= 0 {
+		// No usable belief weight anywhere: take the plain extremum rather than
+		// dividing by zero. Reachable only from hand-built ballots — the config
+		// layer coerces a zero score to 1.0.
+		return e, votes[b].Index
+	}
+
+	correction := 0.0
+	for _, vt := range votes {
+		excess := vt.Score - votes[b].Score
+		if excess <= 0 {
+			continue // no more trusted than the binder, so no pull
+		}
+		correction += (e - vt.Value) * excess
+	}
+	return e - correction/sumScore, votes[b].Index
+}
+
+// The collectors below are the only places that decide who participates in a
+// combine. Keeping the filter here rather than in combineVotes is what makes
+// sum_j s_j run over participating votes alone: an analyzer that says nothing
+// about a (variant, role) cannot dilute the correction and so cannot make the
+// system trust the binder more by staying silent.
+//
+// Every vote weighs 1.0 for now, so combineVotes' correction term is
+// unreachable from the pipeline and this extraction cannot move a number.
+// Reading each entry's configured Score is a separate step.
+
+// votesFromPickerState collects the scale-up ballot for (role, variant) from
+// picker-local remaining demand: state[i][role] / PRC_i[variant] replicas per
+// participating entry.
+func votesFromPickerState(s []NamedAnalyzerResult, state RolePairedState, role, variant string) []replicaVote {
+	out := make([]replicaVote, 0, len(s))
+	for i, e := range s {
+		if e.Result == nil || i >= len(state) || state[i] == nil {
+			continue
+		}
+		prc := prcForVariant(e.Result, variant)
+		if prc <= 0 {
+			continue
+		}
+		out = append(out, replicaVote{Index: i, Value: state[i][role] / prc, Score: 1.0})
+	}
+	return out
+}
+
+// votesFromTotalDemand collects the rescale ballot for (role, variant) from
+// each entry's own reported demand: the synthetic "both" role reads model-level
+// TotalDemand, a P/D role reads that entry's own RoleCapacities demand. An
+// entry that does not decompose the role contributes nothing.
+func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []replicaVote {
+	out := make([]replicaVote, 0, len(s))
 	for i, e := range s {
 		if e.Result == nil {
 			continue
 		}
-		prc := prcForVariant(e.Result, v)
+		demand := e.Result.TotalDemand
+		if role != domain.RoleBoth {
+			rc, ok := e.Result.RoleCapacities[role]
+			if !ok {
+				continue
+			}
+			demand = rc.TotalDemand
+		}
+		prc := prcForVariant(e.Result, variant)
 		if prc <= 0 {
 			continue
 		}
-		n := int(math.Ceil(state[i][role] / prc))
-		if best == -1 || n > bestN {
-			bestN = n
-			best = i
-		}
+		out = append(out, replicaVote{Index: i, Value: demand / prc, Score: 1.0})
 	}
-	return best
+	return out
+}
+
+// votesFromRoleSpare collects the scale-down ballot for (role, variant) from
+// each entry's per-role spare: RoleSpare[role] / PRC_i[variant] removable
+// replicas per participating entry.
+//
+// Live-gated — a non-live entry (no metrics, error state, never analyzed, or
+// stale) does not constrain safe removal.
+//
+// A live entry whose RoleSpare map exists but carries no key for role still
+// votes, reading the map-miss as 0.0 and so holding removal at zero. That is
+// the pre-existing shape, preserved deliberately here: whether a role-level
+// silence should abstain instead is a behavioral question, not part of hoisting
+// the arithmetic into one place.
+func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replicaVote {
+	out := make([]replicaVote, 0, len(s))
+	for i, e := range s {
+		if !e.Live {
+			continue // non-live analyzers do not constrain the safe-removal minimum
+		}
+		if e.Result == nil || e.RoleSpare == nil {
+			continue
+		}
+		prc := prcForVariant(e.Result, variant)
+		if prc <= 0 {
+			continue
+		}
+		out = append(out, replicaVote{Index: i, Value: e.RoleSpare[role] / prc, Score: 1.0})
+	}
+	return out
+}
+
+// roleBottleneckReplicas computes the cross-analyzer bottleneck replica count
+// for variant v in a specific role: the combined scale-up vote over
+// picker-local demand (votesFromPickerState, whose doc comment carries the
+// participation rules), rounded up once. It does not run its own loop over
+// analyzers — combineVotes is the only combine.
+//
+// Clamped at zero. Picker-local demand can overshoot negative on a joint
+// commit, and a negative bottleneck is not a replica count.
+func roleBottleneckReplicas(s []NamedAnalyzerResult, state RolePairedState, role, v string) int {
+	value, binder := combineVotes(votesFromPickerState(s, state, role, v), true)
+	if binder < 0 {
+		return 0
+	}
+	if n := int(math.Ceil(value)); n > 0 {
+		return n
+	}
+	return 0
 }
 
 // variantCapacityByName returns the VariantCapacity for v in vcs, and whether
@@ -392,7 +520,8 @@ func variantCapacityByName(vcs []domain.VariantCapacity, v string) (domain.Varia
 
 // refreshAnchorSizing overwrites each entry in variants (the anchor's own
 // VariantCapacities) with the voting entry currently binding it — per (role,
-// variant), the entry bindingIndexForRole selects. Identity fields
+// variant), the binder combineVotes returns over the same votesFromPickerState
+// ballot (same participation rules) that sizes the role. Identity fields
 // (AcceleratorName, Cost, Role, replica counts) are untouched; only the
 // sizing fields (PerReplicaCapacity, Reason, TotalDemand, Utilization) move,
 // plus the recomputed TotalCapacity. Mutates variants in place — the anchor's
@@ -413,7 +542,7 @@ func refreshAnchorSizing(variants []domain.VariantCapacity, s []NamedAnalyzerRes
 		if role == "" {
 			role = domain.RoleBoth
 		}
-		idx := bindingIndexForRole(s, state, role, vc.VariantName)
+		_, idx := combineVotes(votesFromPickerState(s, state, role, vc.VariantName), true)
 		if idx < 0 || s[idx].Result == nil {
 			continue // no voting entry currently sizes this variant; leave as-is
 		}
@@ -430,17 +559,19 @@ func refreshAnchorSizing(variants []domain.VariantCapacity, s []NamedAnalyzerRes
 }
 
 // roleAggRemaining returns the raw remaining demand of the entry currently
-// bottlenecking variant v in role — the same argmax_i ceil(state[i][role] /
-// PRC_i[v]) that roleBottleneckReplicas/bindingIndexForRole use, not a raw
-// cross-analyzer max. Comparing raw RequiredCapacity directly is meaningless
+// bottlenecking variant v in role — the binder combineVotes selects over the
+// same votesFromPickerState ballot (same participation rules) that
+// roleBottleneckReplicas sizes from, not a raw cross-analyzer max, and not a
+// second private loop that could disagree with it. Comparing raw
+// RequiredCapacity directly is meaningless
 // once analyzers' units differ (saturation = tokens, throughput = req/s —
-// Bug #2); comparing in replica space and returning that entry's own raw
+// Bug #2); combining in replica space and returning that entry's own raw
 // value keeps the result commensurable with prc (that same entry's
 // PerReplicaCapacity) in the caller's n*prc/demand and k formulas. With a
 // single voter this is always that voter's own state[0][role], byte-identical
 // to the previous raw max.
 func roleAggRemaining(s []NamedAnalyzerResult, state RolePairedState, role, v string) float64 {
-	idx := bindingIndexForRole(s, state, role, v)
+	_, idx := combineVotes(votesFromPickerState(s, state, role, v), true)
 	if idx < 0 {
 		return 0
 	}
@@ -477,35 +608,20 @@ func variantsForRole(vcs []domain.VariantCapacity, role string) []domain.Variant
 }
 
 // safeRemovalReplicasForRole returns the number of replicas of variant v that
-// can safely be removed — the minimum of floor(RoleSpare[role]_i / PRC_i[v])
-// across live analyzers that have variant v and a non-zero PRC. Non-live
-// analyzers (no metrics, error state, never analyzed, or stale) are skipped
-// and do not constrain the minimum. Returns 0 if any contributing analyzer
-// has RoleSpare[role] ≤ 0 or RoleSpare is nil.
+// can safely be removed — the combined scale-down vote over each live
+// analyzer's per-role spare (votesFromRoleSpare, whose doc comment carries the
+// participation rules), rounded down once. Returns 0 when no live analyzer
+// sizes v, and clamps a negative combine to 0: an over-committed spare is not
+// a removable count.
 func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
-	smallest := math.MaxInt
-	found := false
-	for _, e := range s {
-		if !e.Live {
-			continue // non-live analyzers do not constrain the safe-removal minimum
-		}
-		if e.Result == nil || e.RoleSpare == nil {
-			continue
-		}
-		prc := prcForVariant(e.Result, v)
-		if prc <= 0 {
-			continue
-		}
-		n := int(math.Floor(e.RoleSpare[role] / prc))
-		if n < smallest {
-			smallest = n
-		}
-		found = true
-	}
-	if !found || smallest < 0 {
+	value, binder := combineVotes(votesFromRoleSpare(s, role, v), false)
+	if binder < 0 {
 		return 0
 	}
-	return smallest
+	if n := int(math.Floor(value)); n > 0 {
+		return n
+	}
+	return 0
 }
 
 // applyDeallocationForRole decrements each analyzer's RoleSpare[role] by
@@ -543,6 +659,11 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 // opinion on role reports RoleSpare[role] ≤ 0. Safety floor: if no live
 // analyzer has an opinion on this role at all, there is no current basis to
 // scale down, so this returns false.
+//
+// Deliberately keeps its own loop instead of delegating to combineVotes: this
+// is a veto, not a magnitude, and its participation rules are stricter than
+// votesFromRoleSpare's — a live entry whose RoleSpare carries no key for role
+// abstains here (N7) but still votes 0.0 on the safe-removal ballot.
 func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 	liveCount := 0
 	for _, e := range s {
@@ -666,8 +787,8 @@ func allocateForModelPaired(
 			// Decrement each analyzer's own remaining by k*PRC_i[v] -- the
 			// picked variant's PRC differs per analyzer, so a single uniform
 			// PRC (the anchor's binder) would mix units for every other
-			// analyzer (Bug #1). roleBottleneckReplicas/bindingIndexForRole
-			// divide by each analyzer's own PRC; the decrement must match.
+			// analyzer (Bug #1). The combine collects each vote as
+			// state[i][role]/PRC_i, so the decrement must match.
 			for i := range pickerState {
 				if s[i].Result == nil {
 					continue

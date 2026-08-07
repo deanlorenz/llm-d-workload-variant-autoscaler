@@ -40,7 +40,7 @@ var _ = Describe("Anchor refactor combine characterization goldens (saturation +
 		// binder is refreshed each allocation iteration to whichever entry has
 		// the larger current replica-demand for that (role, variant) — here
 		// throughput, since its implied replica count exceeds saturation's (PR-2
-		// per-iteration refresh; refreshAnchorSizing/bindingIndexForRole). Single
+		// per-iteration refresh; refreshAnchorSizing). Single
 		// non-disaggregated variant "v" with 2 live replicas (satisfies the
 		// all-live constraint).
 		//
