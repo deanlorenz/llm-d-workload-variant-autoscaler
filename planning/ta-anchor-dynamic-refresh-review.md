@@ -5785,3 +5785,25 @@ Present at the committed tip, as previously recorded: Finding 51 at `analyzer_he
 at `k_sat_test.go:163`; the `(C11)` comment at `rescale_test.go:186`. The `D-b` token appears once, at
 `cost_aware_optimizer_test.go:1001`, sharing a line with `C11`.
 
+### Commit messages — 18 of 21, recounted at the tip
+
+Same pattern, applied to `%s` + `%b` over `075a208e..757fc6f5`. **18 of 21** messages carry a token;
+three are clean (`34b18bc5`, `eb12089a`, `757fc6f5`). Frequency, most-cited first: `W4` ×10, `D-b` ×6,
+`C6f` ×6, `C11` ×6, `C6e` ×5, `W1` ×4, `C6b` ×4, `PR-1` ×3, `N7` ×3, then a long tail including `D-a` ×2
+and `Finding 47` ×1.
+
+Two observations that bear on the reword decision:
+
+**`Finding 47` is the least resolvable token on the branch.** It cites a numbered finding in *this
+review doc* — a `Status: DRAFT` Type 6 artifact on an orphan branch that will never be published
+anywhere a reader of `main` can reach. Every other token at least points at a design or plan document
+that exists as a coherent thing; this one points into my working notes. If the reword happens, this is
+the clearest single case for it.
+
+**`4fb49ac6` is a mention, not a use — and it is the weakest of the 18.** The commit whose subject is
+*"drop plans-branch paths from shipped comments"* carries a token in its own body, but the sentence is
+*"a token like `W4` is at least guessable from"* — the coder is reasoning about scoping and naming a
+token as an example of the category. A reader follows that sentence without resolving `W4`. I would not
+count it as a defect on its own; I note it because a mechanical grep will flag it, and whoever runs the
+reword should not spend effort "fixing" a sentence that is already readable.
+
