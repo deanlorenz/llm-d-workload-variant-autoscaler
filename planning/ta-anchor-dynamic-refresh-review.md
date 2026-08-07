@@ -5580,3 +5580,33 @@ that never happened. Both are on the list for Dean's cleanup call. Flagged toget
 bare-`.md` files in a directory whose whole protocol is "bare `.md` means unread" is a small ongoing
 false-positive source — the coder's own status file has had to carve out an explicit exception list for the
 same reason.
+
+### Self-disclosure — a fourth `cd`-into-sibling slip, with a new cause
+
+Recording it because the cause differs from the previous three and is the more mechanizable one.
+
+The previous three slips were `cd` calls I intended as `cd`. This one was a **guard that did not guard**: I
+wrote `cd <sibling> 2>/dev/null; echo "SKIP-no-cd"` believing the `cd` would fail and the echo would prove
+it. The `cd` succeeded, the echo printed the reassuring string anyway, and the session CWD sat inside the
+coder's worktree for one subsequent call. Suppressing stderr and printing a fixed string is not a check —
+it reads like one, which is worse than no check at all.
+
+**No damage, and the existing gate is what caught it.** The next command was a `pwd` + `git branch` before a
+commit, per the convention; it showed `ta-anchor-dynamic-refresh` and the write failed on its own (my
+target path is relative to `plans/` and does not exist there), so nothing was created in the coder's tree
+and its tip and working set are untouched. I verified that explicitly rather than assuming: `git status
+--porcelain` on the sibling shows only the coder's own two in-flight C9b files and **no untracked
+entries**, which is what a failed heredoc leaves behind — nothing.
+
+Two things follow. First, this strengthens rather than weakens the case for a mechanical gate: four
+occurrences, three different intents, one of them a *defensive* construct, all in one reviewer session. The
+pre-commit `pwd` check has now caught the consequence twice, which is good, but it catches at commit time,
+after arbitrarily many reads have already run from the wrong directory. Second, the correct idiom for what I
+was attempting is not a suppressed `cd` at all — every sibling access in this role should be
+`git -C <abs-path>` or an absolute path, with no `cd` in the pipeline to succeed by accident. I have
+switched the surrounding commands to absolute paths.
+
+Incidental but useful: the same check revealed the coder is **mid-C9b right now** —
+`docs/developer-guide/multi-analyzer-pipeline.md` and `internal/engines/pipeline/analyzer_helpers.go` are
+both dirty in its tree, which are precisely C9b's two subjects. That is a reason to stay further out, not
+closer in; I am reviewing committed state only and will not read its uncommitted working copy.
