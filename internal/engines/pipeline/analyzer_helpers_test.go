@@ -480,7 +480,7 @@ var _ = Describe("analyzer helpers", func() {
 				// a binder also omits variants that ARE up but had no usable metric
 				// this cycle, and inventing a size for something whose real size is
 				// merely unknown this cycle is never right.
-				Entry("never measured, holds no replicas", 0),
+				Entry("newcomer the binder never sized, holds no replicas", 0),
 				Entry("running, but unmeasured this cycle", 3),
 			)
 		})

@@ -63,10 +63,16 @@ func ResultIsInformative(nr NamedAnalyzerResult) bool {
 }
 
 // ReasonFromZeroAdmission marks a variant the anchor admitted on the from-zero
-// sentinel: the binding analyzer does not size it and it holds no replicas, so
-// nobody has ever measured it. Its PerReplicaCapacity is a declared minimum in
-// the binder's own currency, not a measurement, and the one-replica ceiling in
-// maxTargetReplicas keys on this tag.
+// sentinel: it holds no replicas and no analyzer this anchor sizes from prices
+// it, so there is no measurement to build a capacity out of. That is a claim
+// about the ballot, not about the world -- the variant may well have been
+// measured before and the record since lapsed (the throughput analyzer evicts
+// per-variant state on an idle window), or be measured right now by an analyzer
+// whose sizing the merge below deliberately does not borrow. Its
+// PerReplicaCapacity is a declared minimum in the binder's own currency, not a
+// measurement, and the one-replica ceiling in maxTargetReplicas keys on this tag.
+// That ceiling is dormant -- see DEFERRED below before reading any of this as
+// something the running system does.
 //
 // Deliberately NOT a member of the no-data/error family above. Those mean "no
 // usable signal"; this one means the opposite — the anchor is asserting that the
@@ -177,19 +183,24 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 // identity carrier lists, the variant keeps its identity and abstains on capacity
 // — PerReplicaCapacity stays 0 and it is not proactively selectable, because its
 // sizing must not be invented. That holds whether or not the variant is running.
-// Proactively admitting the zero-replica case, which is the one nobody has ever
-// measured, is deferred; see ReasonFromZeroAdmission for why an anchor-side
-// sentinel alone does not achieve it.
+// Proactively admitting the zero-replica case is deferred; see
+// ReasonFromZeroAdmission for why an anchor-side sentinel alone does not achieve
+// it.
 //
-// This does not fall back to saturation's own sizing for an omitted variant,
-// even when saturation votes (N8). A binder omits a variant
-// only when the binder itself
-// is enabled-but-not-binding — Enabled && !(Live && Informative) — which is
-// precisely the condition under which its own sizing is untrustworthy (stale
-// or no-data). Borrowing it would also mix metric scales across variants
-// within one anchor (the binder's sized variants carry its own PRC scale; a
-// borrowed variant would carry saturation's). When the binder binds, every
-// sized variant is the binder's — uniformly, no name-based exception.
+// This does not fall back to saturation's own sizing for an omitted variant, even
+// when saturation votes. Two independent reasons, and the first is structural:
+// when saturation binds, the omitted case cannot arise at all — the sizing map is
+// built from the binder's own capacities while the merge iterates the identity
+// carrier's, and with saturation in both roles those are the same slice, so every
+// lookup hits. A fallback could therefore only ever fire with saturation present
+// as identity carrier but *not* binding — !(Enabled && Live && Informative) —
+// which is precisely the condition under which saturation's own sizing is the
+// least trustworthy thing to borrow: stale, no-data, or not even asked for.
+// Second, borrowing it
+// would mix metric scales across variants within one anchor: the binder's sized
+// variants carry the binder's PRC scale, a borrowed one would carry saturation's.
+// When the binder binds, every sized variant is the binder's — uniformly, no
+// name-based exception.
 //
 // Builds fresh literals throughout — it never mutates the source Results or
 // their VariantCapacities slices/elements.
@@ -213,9 +224,10 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 		binding = satNR
 	default:
 		// Otherwise the lowest-ballot-index enabled+live+informative
-		// non-saturation entry binds (N2 deterministic tie-break): once PR-2
-		// admits multiple non-saturation voters, a later qualifying entry does
-		// not overwrite the earlier one — it votes without binding.
+		// non-saturation entry binds (deterministic tie-break). More than one
+		// non-saturation entry can qualify here — votingResults caps neither
+		// the count nor the kind — and when several do, a later one does not
+		// overwrite the earlier: it votes without binding.
 		for i := range s {
 			if s[i].Name == domain.SaturationAnalyzerName {
 				continue
@@ -275,12 +287,17 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 			out.Utilization = b.Utilization
 		}
 		// else: the binder omits this variant, so it abstains -- PerReplicaCapacity
-		// stays 0 -- uniformly, regardless of whether saturation votes (N8). Its
-		// sizing must not be fabricated. Previously-live variants now at zero are
-		// covered by TA's own scale-from-zero complement from persisted supply, so
-		// what reaches this branch at zero replicas is a variant nobody has ever
-		// measured; admitting that one is the deferred work described at
-		// ReasonFromZeroAdmission.
+		// stays 0 -- uniformly, regardless of whether saturation votes. Its sizing
+		// must not be fabricated. Reachable only when a saturation entry exists but
+		// does not bind: when saturation binds it is both carrier and binder, so
+		// bByName was built from the very slice being iterated and every lookup
+		// above hits. Previously-live variants now at zero are usually covered by
+		// the throughput analyzer's own scale-from-zero complement from persisted
+		// supply, so what reaches this branch at zero replicas is a variant the
+		// *binder* cannot price -- which is weaker than "never measured", since
+		// that persisted supply expires on an idle window and saturation may hold a
+		// stored capacity this merge deliberately does not borrow. Admitting it
+		// anyway is the deferred work described at ReasonFromZeroAdmission.
 
 		// TotalCapacity is recomputed (not copied) so the invariant
 		// TotalCapacity == ReplicaCount × PerReplicaCapacity holds by construction.

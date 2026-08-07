@@ -526,6 +526,60 @@ the choice can flap while load oscillates across the scale-up/scale-down
 boundary, or persist as a costlier-than-ideal allocation while load stays
 high. That flapping gap is pre-existing and not introduced by this mechanism.
 
+**Proactive admission of an unpriced variant: built, not enabled.** The rule
+above — a variant no analyzer can price is not proactively selectable — has a
+narrow intended exception. This PR ships the exception's *guard* and not its
+*trigger*, so the rule above is still the whole of today's behavior. Read this
+subsection for what the guard is for; do not read it as a description of what
+happens on a live cluster.
+
+The intended shape is three claims. **One:** a zero-replica variant that no
+analyzer on the ballot can price is *admitted* with a per-replica capacity of one,
+tagged by its own reason constant (`ReasonFromZeroAdmission`), so that the
+eligibility gates the optimizers already apply — every one of which rejects a
+non-positive per-replica capacity — stop excluding it. **Two:** that admission is
+not a capacity estimate and must never be spent as one, so the variant's target is
+ceilinged at a single replica. The phrase to carry is *unpriced capacity, bounded
+spend*. **Three:** the ceiling is on the variant's **target**, not on one
+iteration, and a picker that cannot grant the replica **skips the variant** rather
+than returning a cap of zero. That third part is the non-obvious one, and it is
+worth stating why: a returned zero makes the caller compute a utilization delta of
+zero and break out of the *whole model's* allocation loop, so a bounded-out variant
+would deny every variant behind it as well.
+
+Claims two and three ship. `maxTargetReplicas` merges the variant's configured
+`MaxReplicas` with the admission ceiling and returns the tighter of the two, and
+all three granting sites — `costGreedyRolePick`, `fairShareRolePick`, `fillRole` —
+consult it and skip rather than zero-cap. Claim one does **not** ship: nothing in
+production code writes the tag, so no variant carries it, and the ceiling's
+admission clause is reachable only from tests. For an untagged variant
+`maxTargetReplicas` is the `MaxReplicas` check verbatim, so nothing else moves.
+The admitting write is held because an anchor-only sentinel makes a variant
+*selectable* without making it *sizable*, and the two are sourced differently:
+selection reads the anchor, but the replica count comes from the ballot, via
+`votesFromPickerState` → `combineVotes` → `roleBottleneckReplicas`, which abstains
+for a variant no voting entry prices and so yields zero. The optimizer then sees a
+utilization delta of zero and breaks — the same collapse claim three guards
+against, arriving by a different route and costing the model every variant behind
+the admitted one. That is a regression rather than a missed feature. Whether the
+sentinel may instead enter the *voting* set is an N8 question; the reasoning is
+recorded at `ReasonFromZeroAdmission` in `analyzer_helpers.go`, beside the constant
+it applies to. Contrast the returning variant above, which works precisely because
+the throughput analyzer emits its persisted per-replica supply into the **ballot**
+rather than into the anchor.
+
+One property to correct while the mechanism is dormant, because it is easy to
+assume the reverse: a per-replica capacity of one does degenerate cost-per-unit
+ordering to raw cost, but that does **not** make an admitted variant sort last. Its
+`Cost` arrives as `0` from the same zero-replica lookup the limitation above
+describes, so its cost-efficiency is `0 / 1 = 0` and it sorts **first**; its
+never-measured peers all tie at `0` under an unstable sort, so the choice among
+them is arbitrary rather than cost-ordered. No sentinel value repairs this —
+`Cost = 0` zeroes the ratio for any positive capacity — and the ordering recovers
+only when the `Cost = 0` behavior itself is fixed, which is out of scope here. The
+one-replica ceiling is therefore the *only* guard on an admitted variant, not one
+of two.
+
 ---
 
 ## Data model: AnalyzerResult → NamedAnalyzerResult
@@ -765,8 +819,8 @@ next round would serve the original demand a second time.
 pool, so a model drawing its entitlement twice still could not conjure hardware
 that does not exist, and the doubled draw surfaced as a fair-share violation
 rather than as a failure: the pool was enforced, the fair share was not. It moved
-no golden either, because with a single active model the *allocation* mean is
-forced to `0` — the water level `mean` itself is unchanged, and still governs the
+no golden either, because with a single active model `allocationMean` is forced to
+`0` — the water level `mean` itself is unchanged, and still governs the
 above-the-level drop check — so `target == claim` and the entitlement can only
 bind under contention. It is stronger than that: `claimGPUs` sums the role claims
 in the same GPU currency the roles are then charged in, so with one active model
