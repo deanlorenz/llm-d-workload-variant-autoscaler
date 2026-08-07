@@ -2,12 +2,14 @@
 .venv/
 __pycache__/
 traces/
-# Staged publishable bundles (publish_result.sh). Ignored ONLY because this directory
-# currently sits on `plans`, an orphan branch of internal planning state that results
-# have no business landing in. Once the directory moves to its own `viz-tools` branch
-# (plan §14.6), results/ becomes a normal tracked directory there and this line comes
-# out — that is the decision, not an accident. Rebuild any time from real-trace/<label>/.
-results/
+# NOTE (2026-08-07): `results/` used to be ignored here, because this directory sat on
+# `plans` — an orphan branch of internal planning state that results had no business
+# landing in. That move has happened: this is now its own `autoscaling-viz` branch, whose
+# whole purpose includes holding the result corpus. So results are TRACKED and the ignore
+# line is gone. Deliberate, not an oversight.
+#
+# One rule survives the move, and it is a rule rather than a size budget: no prompt or
+# response text is ever committed, in any form. See real-trace/*/.gitignore.
 # out/ IS committed (rendered HTML + figures, so the deck is viewable without a Python env)
 # ...except the sweep-table cache, which is a local recompute-skip artifact (design §8.1 item 10(d)).
 out/.sweep-cache.json

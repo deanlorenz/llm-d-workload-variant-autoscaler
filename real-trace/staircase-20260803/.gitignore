@@ -1,8 +1,19 @@
-# Raw fetched data — regenerable via fetch_run.sh, not carried in git.
+# Raw fetched data. Two different reasons, do not conflate them.
 #
-# metrics/raw/  — 217 Prometheus scrape files, ~20 MB.
+# metrics/raw/  — 217 Prometheus scrape files, ~20 MB. This is the ONLY time-resolved
+#   metrics source and panels 2-5 do not exist without it, so it is NOT treated as
+#   disposable: the same bytes are committed one level up as `metrics-raw.tar.gz`
+#   (1.9 MB — the scrapes compress ~10.5:1). What is ignored here is only the loose
+#   *working* form, which any consumer restores with:
+#       tar xzf metrics-raw.tar.gz
+#   The earlier note here called this directory "regenerable via fetch_run.sh". That
+#   is only true while the run's original output still exists on the PVC or on the
+#   machine that produced it — and by design we no longer keep those originals (they
+#   live where they were born; we keep the processed form plus a provenance ref). So
+#   the tarball, not the fetch, is what makes this tier durable.
 #
-# per_request_head.json — 2.4 MB for only 50 records, because each inference-perf
+# per_request_head.json — ignored for a different and permanent reason: it is a rule,
+#   not a size budget. 2.4 MB for only 50 records, because each inference-perf
 #   record embeds its full prompt (~17 KB) and its full streamed SSE response
 #   (~150 KB). That is 0.86 MB of raw prompt/response text across the sample.
 #   Our own publish rule (plan §15.2) bans prompt/response text from a bundle, so
@@ -10,8 +21,20 @@
 #   this particular run are synthetic token gibberish, so this is consistency and
 #   bulk, not a leak.
 #
-# What IS committed is bundle.json (30 KB) — the extractor's stripped output, which
-# is the complete input to every panel. So a cold session can re-render the figure
-# with no cluster access; re-running the *extractor* end-to-end needs a re-fetch.
+# What IS committed is bundle.json (30 KB) — the extractor's stripped output, the
+# complete input to every panel — plus metrics-raw.tar.gz. Two different capabilities,
+# and the difference is measured, not assumed:
+#
+#   re-RENDER all panels from bundle.json          works from a clone alone
+#   re-RUN the extractor from metrics-raw.tar.gz   works from a clone alone, but scores
+#                                                  8 PASS / 7 FAIL where the committed
+#                                                  coverage.json has 12 PASS / 4 FAIL
+#
+# The four-row gap is exactly the per-request-derived rows — Queue (a), capacity-model
+# check, per-request trace present, and the demand trace behind panels 1 and 4 — because
+# per_request_head.json is deliberately not here. Panels 2, 3 and 5 and the A / B / knee /
+# boot-lag / oscillation calibrations all rebuild fully. If a future run needs a clone to
+# be self-sufficient for panels 1 and 4 too, the answer is a text-STRIPPED per-request
+# head (numeric fields only), not committing this file.
 metrics/raw/
 per_request_head.json
