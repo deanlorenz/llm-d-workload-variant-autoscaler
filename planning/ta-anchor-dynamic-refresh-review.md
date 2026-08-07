@@ -5073,3 +5073,128 @@ Its coverage was split out of the ITL/demand test work and remains open with no 
 change landing untested is *acceptable* on that basis — but per Finding 47 the question is whether the
 omission is **disclosed**. Prediction: it lands silently. Cheap to satisfy: one sentence in the commit
 message or a comment noting the pre-existing gap.
+
+---
+
+## C10 review — `1a50b418` "throughput: read k_sat from config instead of hard-coding it (C10)"
+
+9 files, +359/−64. Reviewed against plan §2e (`ta-anchor-dynamic-refresh-plan.md:1154-1251`) and the
+five predictions pre-registered above.
+
+**Net verdict: the strongest commit in PR-2.** The blocking plan defect I raised was independently
+found and fixed by a mechanism better than the one I proposed; four of five predictions hit, and the
+fifth was wrong in the coder's favour. One §4a violation (one line, cheap), one imprecision in the
+commit message, and a drive-by comment correction that I adjudicate as correct.
+
+### Finding 48 — SCORED: HIT. Real cycle, and remedy 4 was not taken.
+
+The plan's §2e.2 clearance ("the new import was verified cycle-free") was false, exactly as
+pre-registered. The coder hit it, diagnosed it identically, and disclosed it in the commit message:
+`internal/config/config_test.go` is an in-package test importing throughput to drift-check
+`throughputAnalyzerName`, so an import in the other direction is a cycle **in the config test binary**
+while `go build ./...` stays clean.
+
+The remedy is **better than my remedy 1**. I proposed a `KSat()` accessor plus a direct import;
+the coder added the accessor (`saturation_scaling.go:242-244`) *and* reads it through a structural
+interface, so throughput never imports `internal/config` at all:
+
+```go
+func resolveKSat(cfg domain.AnalyzerConfig) float64 {
+	if p, ok := cfg.(interface{ KSat() float64 }); ok {
+		if k := p.KSat(); k > 0 { return k }
+	}
+	return fallbackKSat
+}
+```
+
+This keeps the layering claim honest rather than merely working around it, and it degrades correctly
+for any future analyzer config that has not adopted the accessor (`otherAnalyzerConfig` in the test
+covers exactly that). **Remedy 4 was not taken** — `config_test.go`'s drift guard survives intact,
+which was the outcome I flagged as the one unacceptable disposition.
+
+*One imprecision, non-blocking.* The message says the cycle is such that "`go build ./...` stays clean
+and only `go vet ./internal/config/` reports it." `go test ./internal/config/` must also fail, since it
+compiles `config.go` + `config_test.go` into one package that would then import throughput — Go reports
+`import cycle not allowed in test` at build time for the test binary. So `make test` is a second net,
+not just vet. This changes nothing about the outcome (the cycle was avoided entirely) but the narrower
+claim would understate the safety net if the situation ever recurs. I have not run either command —
+I do not build in the coder's worktree — so this is reasoning from Go's test-package semantics, not a
+measured result.
+
+### Prediction scorecard
+
+| | Prediction | Outcome |
+|---|---|---|
+| **P1** | the new discriminator will reuse the ambient `muSat*0.10` window, which provably contains the broken value 2780.56 | **HIT** — avoided. `k_sat_test.go:98` sets `tolerance = 0.002` (0.2% relative) and pins `k = 0.50` alongside the default. |
+| **P2** | `DefaultKSat` reaches zero references, comments included | **HIT** — zero tree-wide. `DefaultNearKSatMargin` retained (6 refs), as planned. |
+| **P3** | the stale `0.85` derivation comment at `analyzer_test.go:259-264` is the most likely silent omission | **WRONG, in the coder's favour** — updated in full (`0.85→0.80`, `189.2→178.1`, `0.068→0.0644`, `muSat 2782.0→2765.0`) *and* extended with why the ±10% band cannot pin k_sat. |
+| **P4** | the "~6%" figure must stay out of the commit message | **HIT** — the message states **0.55%** and explains the near-cancellation ("k appears in both the numerator and the denominator … and largely divides out"). |
+| **P5** | `checkVariantGPSMismatch` gains a parameter with no test; the question is whether the omission is disclosed | **PARTIAL** — parameter added (`analyzer.go:835`, call site `:371`), still no test. Not disclosed in the commit, but the gap is a tracked, owner-less backlog item predating this work, so it is disclosed *elsewhere*. Acceptable; no finding. |
+
+**Three-way agreement on the arithmetic.** My independent derivation from the shipped fixture
+(`A=0.073, B=0.006, KV_max=1024000, KVreq=4600`) gave μ(0.85)=2780.56, μ(0.80)=2765.33,
+μ(0.50)=2618.93. The coder's table at `k_sat_test.go:80-82` is identical to the last digit, and the
+0.55% figure is the overstatement relative to the *correct* value (15.23/2765.33), which is the right
+denominator. The plan's own 6.17% was the k=0.50 discriminator gap, not the default-config effect —
+both numbers are right about different things, and C10 uses each in the correct place.
+
+### Endorsed: the `engine_v2.go` comment correction (unplanned site, +15/−6)
+
+Not in §2e. It replaces a comment asserting that `&config` "has had saturation's per-entry threshold
+overrides applied (the loop above)" and that non-saturation results "are discarded", with the opposite
+claim: nothing rewrites the config, and the other analyzers' results are consumed. Since the two
+comments contradict each other, one had to be wrong about the code. **The new one is right:**
+
+- `config config.SaturationScalingConfig` is a **by-value** parameter (`engine_v2.go:104`).
+- `resolveThresholds(analyzerName string, cfg config.SaturationScalingConfig) (scaleUp, scaleDown float64)`
+  (`:395`) takes it by value and **returns** floats — it cannot mutate the caller's copy.
+- `applyUniversalThreshold(r *domain.AnalyzerResult, scaleUp, scaleDown float64)` (`:476`) mutates the
+  **result**, not the config.
+- `Config: &config` (`:140`) therefore hands out an unrewritten struct.
+
+There is also **no loop above** — the two preceding statements are the `resolveThresholds` and
+`applyUniversalThreshold` calls. I checked PR-1's tip: the same comment, with the same "(the loop
+above)" reference and no loop, is already there. So this is an **inherited** false comment, not one
+PR-2 introduced, and the "harmless … their results are discarded" half had additionally gone stale on
+this branch, where the multi-vote combine consumes those results. Correcting it here is right and not
+scope creep: C10's whole premise is that TA now reads `KvCacheThreshold` off that same config, so a
+reader who believed the old comment would conclude TA reads a rewritten value. Disclosed in the
+message's final paragraph.
+
+### Finding 49 — §4a violation in a code comment (new instance of the class)
+
+`internal/engines/analyzers/throughput/k_sat_test.go:163`:
+
+```go
+// and whose scale-up watermark is 0.85. Pre-C10 this priced at k = 0.85;
+```
+
+`C10` is a commit-map label from the task plan. It is meaningless to a reader of the merged code, which
+is precisely what §4a forbids — and unlike the commit-message instances of this class (fixable only by
+`rebase -i` reword), this one is a one-line edit, so it belongs in C9's sweep or an amend. The prose
+already carries the meaning; "Before this change" suffices.
+
+Softer instance, same class: the commit message says "the plan has `resolveKSat` type-assert …" and
+"Two deviations from the plan". No path or filename, so it is outside the literal prohibition, but
+"the plan" does not resolve for anyone reading `main`'s history. Not worth a reword on its own — noted
+so C9's sweep can decide whether the class includes bare "the plan".
+
+### Verified sound (no action)
+
+- **The k_sat validation chain is closed.** `resolveKSat` guards `k > 0`; `ApplyDefaults` writes 0.80
+  when the field is zero (`saturation_scaling.go:294`); `Validate` rejects outside `[0,1]` (`:401`).
+  A config-driven input into capacity math is the kind of thing that wants a guard, and it has three.
+- **`fallbackKSat`'s duplication is pinned, not merely commented.** `TestFallbackKSatMatchesConfigDefault`
+  is the mirror of `config`'s existing `throughputAnalyzerName` guard, so the reciprocal duplication is
+  symmetric and both directions fail loudly on drift. The comment at `constants.go:52-67` names the
+  reason, the reciprocal, and the pinning test.
+- **`DefaultNearKSatMargin`'s comment now distinguishes margin from threshold** — "A genuine margin,
+  unlike the k_sat it is measured from, so it stays a constant." This is the distinction PR-2 has been
+  getting wrong elsewhere; here it is stated precisely.
+- **`FitITLModel`'s exported signature growth breaks nothing** — no callers outside the throughput
+  package (two dev-guide mentions only), re-verified at this tip.
+- **Dev-guide (+28) is accurate and honest.** Reframes k_sat as configuration rather than a constant,
+  keeps the watermark contrast, corrects the near-saturation example (0.75 → 0.70) with the right
+  parenthetical about which of the two operands is constant, updates the constants table, and
+  **narrows rather than deletes** the EPP open item — the remaining half (nothing holds the EPP's own
+  notion of full to the same number) is stated as still open.
