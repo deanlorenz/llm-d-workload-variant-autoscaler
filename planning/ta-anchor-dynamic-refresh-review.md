@@ -20,6 +20,12 @@ C9 (dev-guide + goldens endgame). Each commit is diffed against **PR-1's tip `07
 `main`, and every gate is re-run by me on a clean `git archive` extract rather than taken from the
 coder's report.
 
+Three **pre-emptive** sections review the *plan spec* for commits that have not been written yet
+(C10 → Finding 6, C6c → Findings 9/10, C6d → Findings 11/12). Each states the checklist I will hold
+the commit to when it lands. This is deliberate: a spec error costs a comment now and a rewrite
+later, and Finding 6 — already accepted and corrected by the planner in plan tip `62c37c46` — is the
+precedent for the pattern paying off.
+
 ## Verdict (C1 only)
 
 C1 implements the N2 deterministic binder tie-break correctly and matches the plan's description
@@ -1094,5 +1100,161 @@ candidate can diverge (which is Finding 9's mismatch arriving through a second d
   participation filter present; goldens **re-run and unmoved** (plan: if one moves, stop — do not
   rewrite a golden to accommodate this change), which I will verify by re-running them myself rather
   than reading the report.
+
+## Pre-emptive — C6d not yet written
+
+Same rationale as the C6c pass above: C6d's spec is plan §2d.4 finding **(c)**, and walking the actual
+call graph before the commit exists turned up a problem with the spec itself. Cheap to fix now.
+
+**What checks out.** `votesFromRoleSpare` at HEAD is Live-gated at the top (`if !e.Live { continue }`),
+treats `Result == nil || RoleSpare == nil` as an abstain, and its doc comment is honest about the one
+case it deliberately leaves alone. `needsScaleDownForRole` implements N7 correctly with a two-value
+lookup (`spare, ok := e.RoleSpare[role]; if !ok { continue }`) and carries a safety floor
+(`liveCount > 0`, so "nobody has an opinion on this role" does not authorise removal). The two
+functions' divergent participation rules are documented at both ends rather than left implicit.
+
+### Finding 11 (should-fix, plan defect — C6d as specified is unreachable code) — the scenario finding (c) describes is already prevented by the `needsScaleDownForRole` gate, one frame up the call stack
+
+Plan §2d.4 (c) states the bug as: a **live** analyzer reporting `RoleSpare[role] = 0` — "an explicit
+*there is no spare here*" — but carrying no per-variant PRC "is dropped from the `min`; the other
+analyzers' spare wins and replicas come off **over its objection**." The proposed fix is that such an
+analyzer "blocks removal for every variant of that role, whether or not it sizes the variant."
+
+That outcome cannot occur on the production path, because the objection is already honoured — and
+honoured at a coarser granularity than the proposed fix would achieve. The sole non-test caller of
+`safeRemovalReplicasForRole` is inside a loop guarded by the veto
+([cost_aware_optimizer.go:437-450](../../ta-anchor-dynamic-refresh/internal/engines/pipeline/cost_aware_optimizer.go#L437-L450)):
+
+```go
+for _, role := range roles {
+    if !needsScaleDownForRole(s, role) {
+        continue                    // whole role skipped — no variant of it is considered
+    }
+    ...
+    sorted := sortVariantsForScaleDown(s, roleVCs)
+    scaleDownVariantSet(ctx, sorted, targets, states,
+        func(vc domain.VariantCapacity) int {
+            return safeRemovalReplicasForRole(s, vc.VariantName, role)   // only reached past the gate
+        }, ...)
+}
+```
+
+and `needsScaleDownForRole` vetoes on a present, non-positive spare **without consulting PRC at all**
+([analyzer_helpers.go:683-703](../../ta-anchor-dynamic-refresh/internal/engines/pipeline/analyzer_helpers.go#L683-L703)):
+
+```go
+spare, ok := e.RoleSpare[role]
+if !ok { continue }              // abstain (N7)
+if spare <= 0 { return false }   // veto — PRC never enters this decision
+```
+
+So for (c)'s exact stipulation — live, `RoleSpare[role]` present and `== 0`, no PRC for the variant —
+the gate returns `false`, the role is skipped in full, and `safeRemovalReplicasForRole` is never
+called for *any* variant of that role. Verified: `git grep` finds exactly one non-test caller of each
+function, the veto at `:439` and the magnitude at `:449`, in that nesting. The abstain branch cannot
+smuggle (c) past the gate either, since (c) stipulates the key is present, and `initRoleState` never
+seeds `RoleSpare` for an entry with `Result == nil`, so the `Result == nil || RoleSpare == nil` skip
+does not apply.
+
+Two consequences worth heading off:
+
+1. **C6d risks landing dead code.** Adding a "role-level objector blocks removal" rule inside
+   `votesFromRoleSpare` changes the return value of a function that, in this scenario, is not reached.
+2. **Its natural test will pass for the wrong reason.** Every existing unit test in this area calls
+   `safeRemovalReplicasForRole` directly. A fixture built that way *will* go red before the change and
+   green after — demonstrating the new branch works, while proving nothing about production behaviour,
+   because the gate short-circuits the same input one frame up. If C6d proceeds in any form, I will
+   hold it to **at least one fixture that drives `scaleDownRoleIterated`** (or the optimizer entry
+   point) end-to-end, so the assertion covers the gate-plus-magnitude composition rather than the
+   magnitude alone.
+
+Recommendation for the planner: re-derive (c) against the gate. Either it is already satisfied — in
+which case C6d becomes a test-only commit pinning the existing behaviour, which is worth having — or
+there is a path I did not find, in which case the plan should name the caller that reaches the
+magnitude without the gate, since I could not.
+
+**Related, and it sharpens the wording:** the plan calls (c)'s desired outcome a **veto**. Inside
+`votesFromRoleSpare` a veto can only be expressed as a `0`-vote, and after C6b a `0`-vote is no longer
+absolute — the dominance correction pulls `v*` above the extremum whenever a participant carries a
+strictly higher score (Finding 8's mechanism, applied here). With every shipped config at
+`score: 1.0` the two coincide, so this is latent rather than live. But if the intent is that an
+explicit role-level "no spare" is *hard*, that belongs in the gate, where it is score-independent —
+which is exactly where it already is.
+
+### Finding 12 (should-fix, defect in PR-1 code — out of PR-2's scope to fix, worth an issue) — the scale-from-zero complement omits `Role`, so a disaggregated model can acquire a spurious `both` role capacity alongside its real per-role entries
+
+Found while establishing whether Finding 4's map-miss vote is reachable. The throughput analyzer builds
+`VariantCapacity` values at two sites, and they disagree on `Role`
+([throughput/analyzer.go:372-382](../../ta-anchor-dynamic-refresh/internal/engines/analyzers/throughput/analyzer.go#L372-L382)
+and [:409-413](../../ta-anchor-dynamic-refresh/internal/engines/analyzers/throughput/analyzer.go#L409-L413)):
+
+```go
+variantCapacities = append(variantCapacities, domain.VariantCapacity{
+    VariantName: variantName,
+    Role:        state.role,          // main loop — role set
+    ...
+})
+...
+variantCapacities = append(variantCapacities, domain.VariantCapacity{
+    VariantName:        vs.VariantName,
+    PerReplicaCapacity: st.lastPerReplicaSupply,
+    Reason:             itlReasonScaleFromZero,   // no Role field
+})
+```
+
+`AggregateByRole` maps an empty role onto `domain.RoleBoth`
+([aggregation.go:75-78](../../ta-anchor-dynamic-refresh/internal/engines/aggregation/aggregation.go#L75-L78)),
+so on a **disaggregated** model with at least one zero-replica variant, the analyzer's `byRole` becomes
+`{decode: …, both: …}`. That has `len(byRole) == 2`, so it clears `aggregateRoleCapacities`'s
+non-disaggregated early return (`len(byRole) == 1 && hasBoth`) and yields a `RoleCapacities` map holding
+a real per-role entry **and** a `both` entry. `both` is the synthetic single-role stand-in for
+non-disaggregated models — the surrounding code treats the two as mutually exclusive, and that very
+function's comment says so: *"Non-disaggregated: only a 'both' bucket (or nothing)."*
+
+Downstream, `initRoleState` takes the `RoleCapacities != nil` branch and seeds the bogus role into
+`roles`, `pickerState[i][both]` and `s[i].RoleSpare[both]`, with all-zero totals (the `:409` literal
+sets no `ReplicaCount` and no `TotalDemand`, so `TotalSupply += 0 × PRC` and `TotalDemand += 0`).
+
+Impact, stated as far as I traced it and no further: `RoleSpare[both] == 0` makes
+`needsScaleDownForRole(s, "both")` veto that role, which is harmless because no live replica sits in it;
+a zero-RC `both` role entering the scale-up role loop allocates nothing. **I did not find a case where
+it produces a wrong replica count.** So: a data-shape defect with no demonstrated numeric consequence,
+which is why I am recording it rather than treating it as blocking — but it is the only mechanism I
+found that can desync an analyzer's role-key set from its PRC-key set, which is the precondition
+Finding 4 needs. This is PR-1 code (the scale-from-zero complement); PR-2 should not fix it. It wants a
+GitHub issue, or a one-line `Role: vs.Role` addition folded into whichever PR next touches that block.
+
+### Finding 4 — status update (downgraded from "plausible bug" to "asymmetry worth closing")
+
+Finding 4 (recorded under C7) observed that `votesFromRoleSpare` reads a missing `RoleSpare[role]` as
+`0.0` and so votes to hold removal at zero, where its sibling `needsScaleDownForRole` abstains (N7).
+The code comment at HEAD confirms the asymmetry is deliberate and unresolved: *"a live entry whose
+RoleSpare map exists but carries no key for role still votes, reading the map-miss as 0.0 … whether a
+role-level silence should abstain instead is a behavioral question."*
+
+Reachability now traced. Firing it needs an analyzer that lacks the role key **but** has a positive PRC
+for a variant of that role. Both producers derive their role set from the same variant slice that
+supplies the PRCs — saturation at [analyzer.go:136](../../ta-anchor-dynamic-refresh/internal/engines/analyzers/saturation_v2/analyzer.go#L136),
+throughput via `aggregateRoleCapacities` over its own `variantCapacities` — so the two key sets are
+normally in lock-step and the case cannot arise. The one divergence path is Finding 12's role-less
+entry, and that entry exists only for variants with **no live replicas this cycle**, where a
+`safeRemovalReplicasForRole` of `0` removes nothing that was going to be removed anyway.
+
+So: real in the code, admitted in its own comment, but I cannot produce a production input where it
+changes a replica count. Recommendation unchanged in substance, softened in urgency — C6d should adopt
+the two-value lookup (`v, ok := e.RoleSpare[role]`) because it is two lines, makes the ballot agree
+with the gate it sits behind, and retires a documented open question. It should **not** be presented
+as fixing a live bug.
+
+### Outstanding — pre-C6d
+
+- Findings 11 and 12 → routed to the planner. 11 is time-sensitive (it changes what C6d should be, or
+  whether it should exist); 12 is PR-1 code and only needs a home.
+- The C6d checklist I will hold the commit to: finding (c)'s rule, if implemented, is exercised by at
+  least one fixture that goes through `scaleDownRoleIterated` rather than calling the magnitude helper
+  directly; C7's N7 abstain in `needsScaleDownForRole` is **not** regressed (the two-value lookup and
+  the `liveCount > 0` floor both survive); if the key-miss vote is converted to an abstain, the
+  `liveCount`-equivalent floor is added to the ballot too, so "every voter abstained" does not collapse
+  to an unbounded removal; goldens re-run by me and unmoved.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
