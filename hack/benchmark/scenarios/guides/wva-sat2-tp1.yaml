@@ -76,7 +76,18 @@ shared:
   # hack/benchmark/.env) so vllm:cache_config_info is emitted (required by
   # WVA Sat-2 for real KV capacity).
   # --------------------------------------------------------------------------
+  # The load-bearing key is `images.vllm` -- that is what
+  # config/templates/jinja/13_ms-values.yaml.j2 reads for the decode and
+  # prefill vllm containers (lines 382 and 785). `images.vllmOpenai` is
+  # documented upstream as "Not currently used by any template (reserved)"
+  # (llm-d-benchmark config/README.md:1339), so setting only that key -- as
+  # this scenario did until 2026-08-06 -- was inert: every deploy silently
+  # fell through to defaults.yaml's `vllm-openai_version: v0.20.2`. Both keys
+  # are set here so the pin survives if a future template switches keys.
   images:
+    vllm:
+      repository: __VLLM_IMAGE_REPO__
+      tag: __VLLM_IMAGE_TAG__
     vllmOpenai:
       repository: __VLLM_IMAGE_REPO__
       tag: __VLLM_IMAGE_TAG__

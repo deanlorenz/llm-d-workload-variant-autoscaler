@@ -47,6 +47,17 @@ BENCHMARK_REPO_URL   ?= https://github.com/llm-d/llm-d-benchmark.git
 BENCHMARK_REPO_DIR   ?= $(CURDIR)/llm-d-benchmark
 BENCHMARK_DIRECT_KEDA ?= false
 BENCHMARK_REPO_REF   ?= $(if $(filter true,$(BENCHMARK_DIRECT_KEDA)),main,v0.7.0)
+# The llm-d-benchmark clone is a checkout of OUR fork: it carries the
+# shared-cluster safety patches (presence-gates that stop the standup from
+# overwriting cluster-monitoring-config, the istio control plane, the
+# thanos-querier ClusterRole, and from installing prometheus-adapter over
+# KEDA's metrics APIService) plus, usually, unpushed local work.
+# benchmark-standup therefore leaves the clone alone by default -- a blind
+# `git reset --hard origin/<ref>` would strip those patches out from under us
+# and run the *unguarded* upstream code against a shared cluster.
+# Set to true only to deliberately force the clone back to origin, discarding
+# local commits and tracked edits.
+BENCHMARK_CLONE_FORCE_SYNC ?= false
 BENCHMARK_SPEC       ?= $(if $(filter true,$(BENCHMARK_DIRECT_KEDA)),guides/epp-keda-saturation,guides/workload-autoscaling)
 BENCHMARK_NAMESPACE  ?= # set via BENCHMARK_NAMESPACE=<namespace>
 BENCHMARK_GATEWAY_URL ?= http://infra-llmdbench-inference-gateway-istio.$(BENCHMARK_NAMESPACE).svc.cluster.local:80
@@ -355,6 +366,11 @@ test-e2e-full-with-setup:
 # llmdbenchmark binary from the benchmark repo venv
 BENCHMARK_VENV       = $(BENCHMARK_REPO_DIR)/.venv
 LLMDBENCHMARK        = $(shell command -v llmdbenchmark 2>/dev/null || echo $(BENCHMARK_VENV)/bin/llmdbenchmark)
+# Interpreter for the local plotting helpers. The benchmark venv carries the
+# plotting deps (matplotlib); the system python3 usually does not, which made
+# benchmark-plot-two-variant fail with ModuleNotFoundError. Prefer the venv,
+# fall back to python3 so the target still runs outside a prepared workspace.
+PLOT_PYTHON          ?= $(shell [ -x $(BENCHMARK_VENV)/bin/python ] && echo $(BENCHMARK_VENV)/bin/python || echo python3)
 
 # Common llmdbenchmark flags (spec + workspace + base dir for config resolution)
 BENCHMARK_CLI_FLAGS = --spec $(BENCHMARK_SPEC) --workspace $(BENCHMARK_WORKSPACE) --base-dir $(BENCHMARK_REPO_DIR)
@@ -381,15 +397,46 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	fi
 	@if [ "$(BENCHMARK_DIRECT_KEDA)" = "true" ]; then \
 		echo "Direct-KEDA mode: this feature isn't in a released llm-d-benchmark tag yet — upgrading the llm-d-benchmark checkout to '$(BENCHMARK_REPO_REF)' (unreleased)..."; \
-		if ! kubectl get crd scaledobjects.keda.sh >/dev/null 2>&1; then \
+		if ! kubectl get crd scaledobjects.keda.sh -n $(BENCHMARK_NAMESPACE) >/dev/null 2>&1; then \
 			echo "ERROR: KEDA is not installed on this cluster (scaledobjects.keda.sh CRD not found)."; \
 			echo "Install KEDA first (e.g. 'make deploy-e2e-infra SCALER_BACKEND=keda ENVIRONMENT=$(ENVIRONMENT)', or your platform's KEDA operator) and re-run."; \
 			exit 1; \
 		fi; \
 		echo "KEDA ScaledObject CRD found — proceeding with direct-KEDA standup (no WVA controller)."; \
 	fi
-	@if [ -d "$(BENCHMARK_REPO_DIR)" ]; then \
-		cd $(BENCHMARK_REPO_DIR) && git checkout -- config/scenarios config/specification config/templates 2>/dev/null || true; \
+	@# CLONE SAFETY. Upstream's standup forces the llm-d-benchmark clone back to
+	@# origin: `git checkout -- config/{scenarios,specification,templates}` plus
+	@# `git reset --hard origin/<ref>`. For us that clone is a checkout of OUR
+	@# FORK -- it carries the shared-cluster safety patches (skip the
+	@# cluster-monitoring-config overwrite, presence-gate the cluster-scoped
+	@# gateway/RBAC applies) and usually some unpushed local work. A blind reset
+	@# therefore does two bad things at once: it destroys local commits, and it
+	@# can silently run the standup with the shared-cluster guards missing.
+	@# Default is now: never rewrite the clone -- report its state and continue.
+	@# Opt in to the old destructive behaviour with BENCHMARK_CLONE_FORCE_SYNC=true.
+	@if [ -d "$(BENCHMARK_REPO_DIR)/.git" ]; then \
+		cd $(BENCHMARK_REPO_DIR) || exit 1; \
+		branch=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null); \
+		if [ "$$branch" != "$(BENCHMARK_REPO_REF)" ]; then \
+			echo "ERROR: llm-d-benchmark clone is on '$$branch' but BENCHMARK_REPO_REF=$(BENCHMARK_REPO_REF)."; \
+			echo "Refusing to switch branches automatically -- that would change which code runs against the cluster."; \
+			echo "Check out the intended branch yourself, or set BENCHMARK_REPO_REF=$$branch."; \
+			exit 1; \
+		fi; \
+		if [ "$(BENCHMARK_CLONE_FORCE_SYNC)" = "true" ]; then \
+			echo "BENCHMARK_CLONE_FORCE_SYNC=true -- forcing clone to origin/$(BENCHMARK_REPO_REF); local commits and tracked edits WILL be discarded."; \
+			git fetch --tags origin || exit 1; \
+			git reset --hard origin/$(BENCHMARK_REPO_REF) || exit 1; \
+		else \
+			git fetch --tags origin >/dev/null 2>&1 || echo "  (warning: git fetch failed; using the local clone as-is)"; \
+			ahead=$$(git rev-list --count origin/$(BENCHMARK_REPO_REF)..HEAD 2>/dev/null || echo "?"); \
+			behind=$$(git rev-list --count HEAD..origin/$(BENCHMARK_REPO_REF) 2>/dev/null || echo "?"); \
+			dirty=$$(git status --porcelain | wc -l); \
+			echo "llm-d-benchmark clone: branch $$branch @ $$(git rev-parse --short HEAD) -- left untouched"; \
+			echo "  vs origin/$(BENCHMARK_REPO_REF): ahead $$ahead, behind $$behind; working tree: $$dirty modified/untracked path(s)"; \
+			echo "  (set BENCHMARK_CLONE_FORCE_SYNC=true to force-sync to origin instead)"; \
+			[ "$$ahead" = "0" ] || echo "  NOTE: $$ahead local commit(s) are not on origin -- push them so this run is reproducible."; \
+		fi; \
 	fi
 	@missing=""; \
 	for t in helm kubectl oc helmfile yq kustomize jq crane skopeo; do \
@@ -398,8 +445,7 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	[ -x "$(LLMDBENCHMARK)" ] || missing="$$missing llmdbenchmark"; \
 	[ -d "$(BENCHMARK_REPO_DIR)/.git" ] || missing="$$missing llm-d-benchmark-clone"; \
 	if [ -z "$$missing" ]; then \
-		echo "All benchmark dependencies present -- skipping benchmark-install (its install.sh runs 'sudo apt-get update' on Ubuntu, which must not run hidden in a non-interactive shell); syncing clone only."; \
-		cd $(BENCHMARK_REPO_DIR) && git fetch --tags origin 2>/dev/null && git checkout $(BENCHMARK_REPO_REF) 2>/dev/null || true; \
+		echo "All benchmark dependencies present -- skipping benchmark-install (its install.sh runs 'sudo apt-get update' on Ubuntu, which must not run hidden in a non-interactive shell)."; \
 	else \
 		echo "ERROR: benchmark dependencies missing:$$missing"; \
 		echo "These are installed by install.sh using 'sudo' -- it must NOT be run hidden in a background/non-interactive shell."; \
@@ -407,7 +453,9 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 		echo "    make benchmark-install BENCHMARK_REPO_REF=$(BENCHMARK_REPO_REF)"; \
 		exit 1; \
 	fi
-	@cd $(BENCHMARK_REPO_DIR) && git reset --hard origin/$(BENCHMARK_REPO_REF) 2>/dev/null || true
+	@# (the upstream `git reset --hard origin/$(BENCHMARK_REPO_REF)` that used to
+	@# live here is now handled by the CLONE SAFETY block above, and only runs
+	@# when BENCHMARK_CLONE_FORCE_SYNC=true)
 	@if [ -f "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml" ]; then \
 		echo "Copying local scenario: hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml -> $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
 		mkdir -p "$(BENCHMARK_REPO_DIR)/config/scenarios/$$(dirname $(BENCHMARK_SPEC))"; \
@@ -420,15 +468,36 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 		cp "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2" \
 		   "$(BENCHMARK_REPO_DIR)/config/specification/$(BENCHMARK_SPEC).yaml.j2"; \
 	fi
+	@# The standup skips installing prometheus-adapter when this ClusterRole looks
+	@# helm-owned. Stubbing it is therefore what keeps the install (and its claim on
+	@# the cluster-wide external.metrics APIService that KEDA owns) from happening.
+	@# But the object is cluster-scoped and shared, so: never overwrite it. If it is
+	@# already ours, do nothing at all. If it is helm-owned by some other release,
+	@# stop -- re-annotating would hijack ownership of another tenant's object.
+	@# Only create it when genuinely absent, and let any failure abort the standup:
+	@# a swallowed error here would leave us believing the gate will fire when it
+	@# will not, which is the fail-dangerous direction.
 	@if [ "$(BENCHMARK_SKIP_PROMETHEUS_ADAPTER)" = "true" ]; then \
-		echo "Stubbing prometheus-adapter-resource-reader ClusterRole so standup's existing-PA probe passes..."; \
-		kubectl create clusterrole prometheus-adapter-resource-reader \
-			--verb=get,list,watch --resource=pods,nodes 2>/dev/null || true; \
-		kubectl annotate --overwrite clusterrole prometheus-adapter-resource-reader \
-			meta.helm.sh/release-name=prometheus-adapter \
-			meta.helm.sh/release-namespace=$(WVA_MONITORING_NAMESPACE); \
-		kubectl label --overwrite clusterrole prometheus-adapter-resource-reader \
-			app.kubernetes.io/managed-by=Helm; \
+		cr=prometheus-adapter-resource-reader; \
+		own_ns=$$(kubectl get clusterrole $$cr -n $(BENCHMARK_NAMESPACE) --ignore-not-found \
+			-o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-namespace}' 2>/dev/null); \
+		if [ -n "$$own_ns" ] && [ "$$own_ns" != "$(WVA_MONITORING_NAMESPACE)" ]; then \
+			echo "ERROR: clusterrole/$$cr is helm-owned by release-namespace '$$own_ns', not '$(WVA_MONITORING_NAMESPACE)'."; \
+			echo "Refusing to re-annotate it: that would hijack helm ownership of a cluster-scoped object"; \
+			echo "belonging to another tenant's prometheus-adapter release. Investigate before proceeding."; \
+			exit 1; \
+		elif [ -n "$$own_ns" ]; then \
+			echo "clusterrole/$$cr already stubbed for $(WVA_MONITORING_NAMESPACE) -- leaving it untouched."; \
+		else \
+			echo "Stubbing clusterrole/$$cr so standup's existing-PA probe passes (cluster-scoped CREATE)..."; \
+			kubectl create clusterrole $$cr -n $(BENCHMARK_NAMESPACE) \
+				--verb=get,list,watch --resource=pods,nodes || exit 1; \
+			kubectl annotate clusterrole $$cr -n $(BENCHMARK_NAMESPACE) \
+				meta.helm.sh/release-name=prometheus-adapter \
+				meta.helm.sh/release-namespace=$(WVA_MONITORING_NAMESPACE) || exit 1; \
+			kubectl label clusterrole $$cr -n $(BENCHMARK_NAMESPACE) \
+				app.kubernetes.io/managed-by=Helm || exit 1; \
+		fi; \
 	fi
 	@echo "Injecting PYTORCH_ALLOC_CONF, decode replicas, and KEDA config into scenario YAML ($(BENCHMARK_SPEC).yaml)..."
 	@sed -i.bak 's/extraEnvVars: \[\]/extraEnvVars:\n        - name: PYTORCH_ALLOC_CONF\n          value: "expandable_segments:True"/' \
@@ -481,14 +550,34 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 	fi; \
 	exit $$rc
 
+.PHONY: benchmark-preflight
+benchmark-preflight: ## Read-only shared-cluster pre-flight: assert every fork safety gate will hold (set BENCHMARK_NAMESPACE=<namespace>)
+	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-preflight BENCHMARK_NAMESPACE=<namespace>"; \
+		exit 1; \
+	fi
+	@python3 $(CURDIR)/hack/benchmark/preflight_shared_cluster.py \
+		-n $(BENCHMARK_NAMESPACE) \
+		--repo-dir $(BENCHMARK_REPO_DIR) \
+		--expect-ref $(BENCHMARK_REPO_REF)
+
 .PHONY: benchmark-standup-shared
-benchmark-standup-shared: ## Shared-cluster-safe standup: steps 0,3,4,5,7,8,9 (skips only step_02 admin CRDs/SCCs); requires BENCHMARK_NAMESPACE
+benchmark-standup-shared: ## Shared-cluster-safe standup: pre-flight gate, then steps 0,3,4,5,7,8,9 (skips only step_02 admin CRDs/SCCs); requires BENCHMARK_NAMESPACE
 	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
 		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-standup-shared BENCHMARK_NAMESPACE=<namespace>"; \
 		exit 1; \
 	fi
+	@# GATE. Our fork skips every cluster-scoped operation the upstream standup
+	@# would perform, but each skip is a *presence* gate -- it fires because the
+	@# shared object already exists. Absence reads as "not installed yet, go
+	@# install it", so a deleted precondition silently converts a safe standup
+	@# into a destructive one (worst case: a real prometheus-adapter install
+	@# claiming the cluster-wide external.metrics APIService that KEDA owns).
+	@# Assert the preconditions BEFORE touching anything, and refuse to start if
+	@# any is missing. Read-only; fails the whole target on any gating failure.
+	@$(MAKE) benchmark-preflight BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE)
 	@echo "Shared-cluster standup: steps 0,3,4,5,7,8,9 (skipping only 02 admin-prereqs)."
-	@$(MAKE) benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,8,9
+	@$(MAKE) benchmark-standup BENCHMARK_STEPS=0,3,4,5,7,8,9 BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE)
 
 .PHONY: benchmark-run
 benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<namespace>, MODEL_ID=<model>, BENCHMARK_HARNESS=guidellm|inference-perf)
@@ -606,7 +695,7 @@ benchmark-plot-two-variant: ## Plot two-variant replica/latency/throughput graph
 		echo "No benchmark results found, skipping two-variant plot"; \
 		exit 0; \
 	fi; \
-	python3 $(CURDIR)/hack/benchmark/plot_two_variant_pipeline.py \
+	$(PLOT_PYTHON) $(CURDIR)/hack/benchmark/plot_two_variant_pipeline.py \
 		$$LATEST_DIR && \
 	echo "Two-variant plot: $$LATEST_DIR/metrics/graphs/two_variant_v2_full_pipeline.png"
 
@@ -661,6 +750,29 @@ benchmark-enable-v2-saturation: ## Enable WVA saturation V2 analyzer (apply conf
 	echo "Patching ConfigMap $$SAT_CM to enable V2 saturation analyzer..."; \
 	kubectl patch configmap "$$SAT_CM" -n $(BENCHMARK_NAMESPACE) --type=merge \
 		-p '{"data":{"default":"analyzers:\n  - name: saturation\nkvCacheThreshold: 0.80\nqueueLengthThreshold: 5\nkvSpareTrigger: 0.1\nqueueSpareTrigger: 3\nenableLimiter: false\n"}}'
+	$(MAKE) benchmark-restart-controller BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE)
+
+WVA_ANALYZERS ?= saturation,throughput
+
+.PHONY: benchmark-show-analyzers
+benchmark-show-analyzers: ## Print the live WVA analyzer config (set BENCHMARK_NAMESPACE=<namespace>)
+	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-show-analyzers BENCHMARK_NAMESPACE=<namespace>"; \
+		exit 1; \
+	fi
+	@python3 $(CURDIR)/hack/benchmark/set_analyzers.py -n $(BENCHMARK_NAMESPACE) --show
+
+.PHONY: benchmark-set-analyzers
+benchmark-set-analyzers: ## Set the WVA analyzer list, leaving all other config keys untouched, then restart the controller (set BENCHMARK_NAMESPACE=<namespace>, WVA_ANALYZERS=saturation[,throughput])
+	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-set-analyzers BENCHMARK_NAMESPACE=<namespace> WVA_ANALYZERS=saturation"; \
+		exit 1; \
+	fi
+	@# Unlike benchmark-enable-v2-saturation (which rewrites the whole payload,
+	@# thresholds included), this edits only the analyzers: block -- so an A/B
+	@# arm switch changes exactly the analyzer set and nothing else.
+	python3 $(CURDIR)/hack/benchmark/set_analyzers.py \
+		-n $(BENCHMARK_NAMESPACE) --analyzers $(WVA_ANALYZERS)
 	$(MAKE) benchmark-restart-controller BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE)
 
 .PHONY: benchmark-restart-controller
