@@ -1800,4 +1800,48 @@ to zero while `DefaultNearKSatMargin` survives with re-anchored prose; that the 
 no longer spells `0.85`; and that the five `throughput-analyzer.md` locations in §5 are all edited, including
 the constants-table row swap and the *retained* EPP half of the known-limitations line.
 
+### C10 pre-measured inventory (baseline at `d9f3b97e`, so the grep-to-zero has a denominator)
+
+`DefaultKSat` appears **17 times** across 6 files. Split by what C10 owes each one:
+
+| Kind | Count | Locations |
+|---|---|---|
+| the definition (deleted) | 2 | `throughput/constants.go:52` (doc), `:56` (the `= 0.85`) |
+| **code uses** (threaded) | 4 | `analyzer.go:295`, `analyzer.go:719`, `itl_model.go:53`, `analyzer.go:845` |
+| prose (rewritten) | 11 | `throughput-analyzer.md` ×5 (`:460 :470 :639 :675 :692`) · `constants.go:89`,`:91` (inside `DefaultNearKSatMargin`'s own comment) · `analyzer.go:708`,`:796` · `itl_model.go:52` · `itl_model_test.go:136` |
+
+**§2e.2's four table rows are exactly the four code uses — verified exhaustive, nothing is missing from the
+plan.** That is the useful conclusion: after C10 the entire residue is prose, so a `DefaultKSat` grep that
+still returns hits is a doc-sweep miss, not a threading miss. Note two of the eleven prose hits live in
+`DefaultNearKSatMargin`'s *own* doc comment — the constant §2e.2 says must survive — so "delete every line
+mentioning `DefaultKSat`" would take the surviving constant's documentation with it.
+
+**`FitITLModel`'s signature growth is contained, and the plan's "it is exported" note overstates the blast
+radius in a useful direction.** Callers, all in-package: 1 production (`analyzer.go:565`) and **10 test call
+sites** in `itl_model_test.go` (`:48 :56 :64 :72 :75 :81 :92 :99 :107`, plus the `Describe`). No caller
+outside `internal/engines/analyzers/throughput` anywhere in the repo. `validITLModel` has 2 production
+callers, both named correctly by the plan (`itl_model.go:88`, `analyzer.go:602`).
+
+**The trap §2e.2 identifies for the nil-config fallback reappears at those 10 call sites, and the plan does
+not extend it there.** Its argument is that a `0.85` fallback "would keep a second definition of 'full' alive
+in exactly the path the TA unit tests exercise". A test that satisfies the new parameter by passing a literal
+`0.85` does the same thing by another route — compiles, passes, and pins the old basis. At C10 I check what
+those call sites pass: `config.DefaultKvCacheThreshold`, or a value the test derives, but not a bare `0.85`.
+(The one fixture whose *expectation* depends on k is `:136-137`, `validITLModel(0.01, -1.0)` ⇒ false: at both
+0.85 and 0.80 that is `≈ −0.99 ≤ 0`, so it stays red-correct either way and only its comment needs rewriting.)
+
+**Why the `itl_model.go` row is load-bearing and not tidy-up — calibrated, because a consumer-side guard
+already backstops most of it.** `validITLModel` accepts iff `a·k + b > 0`, and `a > itlSlopeEpsilon > 0` is
+enforced two guards earlier, so `a·k + b` is strictly increasing in `k`. A guard left at 0.85 while the
+consumer resolves 0.80 is therefore strictly *more permissive* than its consumer — and 0.80 < 0.85 means the
+new default sits on the unsound side, not the conservative one. It is not a divide-by-zero, because
+`analyzer.go:296` independently does `if itlSat <= 0 { continue }`. But that backstop checks the **sign**,
+whereas the guard's own comment gives its purpose as near-zero ("*a noisy fit can yield negative b (valid
+a>0), making `ITLAt(DefaultKSat)` near-zero and inflating supply*"). A model with `0 < a·0.80 + b < 0.05a`
+passes the stale validator *and* `:296`, then divides by a near-zero `itlSat`. At the fixture's `a = 0.073`
+that band is `(0, 0.00365)` against a normal `itlSat ≈ 0.0644`, i.e. up to ~18× inflated supply, reachable
+only for `b ≈ −0.058` — the strongly-negative-intercept noisy fit the comment names. Narrow, but it is the
+exact failure the guard exists for, and skipping the row as cosmetic would have C10 *open* it. So: threaded
+from the same `resolveKSat` result the consumer uses, not a second resolution and not a literal.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
