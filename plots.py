@@ -416,41 +416,75 @@ def _style(name):
 
 
 def render_wait_cdf(runs: dict, costs: dict, title: str, path: str,
-                    edges=(2.0, 15.0, 30.0, 45.0, 60.0), xmax=100.0):
+                    edges=(2.0, 15.0, 30.0, 45.0, 60.0), xmax=None):
     """Overlay every policy's waiting-time CDF on one axis: y = share of OFFERED
     served within t seconds (a policy that strands work asymptotes below 100%,
     since unfinished requests are not in req_wait but still count in the offered
     denominator). Vertical guides mark the quality-band edges; each legend entry
     carries the policy's billed fleet cost so promptness and cost read together.
-    `runs` = {name: ts}; `costs` = {name: provisioned·seconds}."""
+    `runs` = {name: ts}; `costs` = {name: provisioned·seconds}.
+
+    The denominator is the trace's explicit `offered` count, never `cum_arr[-1]`:
+    under a burn-in prelude the offered series deliberately opens at L(t0) rather
+    than 0 (Little's-Law geometry needs a common baseline on both series), so
+    `cum_arr[-1]` is `offered + L(t0)` and would depress every ceiling — enough to
+    put the figure in contradiction with its own summary table.
+
+    `xmax=None` autoscales the axis to the worst observed wait across `runs`. Each
+    curve is also extended by an explicit terminal segment out to the right spine:
+    a step CDF that stops at its largest observed wait degenerates to a
+    zero-width vertical hairline for a policy that queued nothing, which hides
+    under the y-axis spine and reads as a missing curve rather than a perfect one.
+    Coincident curves are drawn widest-first so overlapping policies nest visibly
+    instead of the last one painting over all the rest."""
+    # The axis extent must be known before any curve is drawn, since each one is
+    # extended to the right spine.
+    worst = 0.0
+    for ts in runs.values():
+        if ts.get("req_wait"):
+            worst = max(worst, max(ts["req_wait"]))
+    if xmax is None:
+        xmax = max(worst * 1.08, max(edges) * 1.05)
+
     fig, ax = plt.subplots(figsize=(11, 4.2))
-    for name, ts in runs.items():
+    n = max(1, len(runs) - 1)
+    for i, (name, ts) in enumerate(runs.items()):
         waits = sorted(ts["req_wait"])
-        offered = (ts["cum_arr"][-1] if ts.get("cum_arr") else len(waits)) or len(waits)
+        offered = ts.get("offered") or len(waits)
         if not waits or not offered:
             continue
         xs, ys = [0.0], [0.0]                          # step CDF over OFFERED
-        for i, w in enumerate(waits, 1):
+        for j, w in enumerate(waits, 1):
             xs.append(w)
-            ys.append(100.0 * i / offered)
+            ys.append(100.0 * j / offered)
+        xs.append(xmax)                                # hold the ceiling to the spine
+        ys.append(ys[-1])
         color, dash = _style(name)
         cost = costs.get(name)
         lbl = name + (f"  ({cost:.0f} prov·s)" if cost is not None else "")
         ax.step(xs, ys, where="post", color=color, linestyle=dash,
-                lw=2.0, alpha=0.9, label=lbl)
+                lw=3.4 - 2.2 * (i / n), alpha=0.9, label=lbl)
     for e in edges:
         ax.axvline(e, color="#9ca3af", ls=":", lw=0.8, alpha=0.7)
         ax.text(e, 1.5, f"{e:g}s", fontsize=8, color="#6b7280",
                 ha="center", va="bottom", rotation=90)
     ax.set_xlim(0, xmax)
-    ax.set_ylim(0, 100)
+    # A little headroom above 100: on a shape where most policies queue nothing, the
+    # coincident ceiling curves sit exactly at 100 and would otherwise be painted over
+    # by the top spine and read as absent.
+    ax.set_ylim(0, 102)
+    ax.set_yticks([0, 20, 40, 60, 80, 100])
     ax.set_xlabel("waiting time before service, t (s)")
     ax.set_ylabel("served within t  (% of offered)")
     ax.set_title(title, loc="left", fontsize=11)
     ax.grid(True, alpha=0.25)
     ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=9,
               framealpha=0.9, title="policy (billed cost)")
-    fig.tight_layout()
+    fig.text(0.012, 0.012,
+             "Policies that queue nothing coincide exactly along the ceiling; line width "
+             "descends in legend order so overlapping curves stay visible.",
+             fontsize=8, color="#6b7280", ha="left", va="bottom")
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path

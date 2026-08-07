@@ -1177,11 +1177,25 @@ function renderTradeoffSide(side){
   const scope = side === "A" ? "tradeA" : "tradeB";
   const key = state.shape[scope];
   const label = (SHAPES.find(x => x[0] === key) || [key, key])[1];
-  const note = SHAPE_NOTES[key] ? '<p class="sw-note">'+SHAPE_NOTES[key]+'</p>' : '';
+  // The banner carries an id so levelTradeNotes() can equalize the two columns.
+  const note = '<p class="sw-note" id="tnote-'+side+'">'+(SHAPE_NOTES[key] || "")+'</p>';
   document.getElementById("trade-"+side).innerHTML =
     "<h3 class='sw'>"+label+"</h3>" + note +
     "<h4 class='sw4'>Cost vs quality</h4>" + tradeFig("10-cost-quality-"+key+".png", label+" cost vs quality") +
     "<h4 class='sw4'>Waiting-time CDF</h4>" + tradeFig("09-wait-cdf-"+key+".png", label+" waiting-time CDF");
+}
+// Level the two Tradeoffs columns, same trick as levelMetas() on Compare: the shape
+// banners are variable-height prose, so without this the "Cost vs quality" heading —
+// and every figure below it — starts at a different y in each column and the
+// side-by-side comparison no longer lines up. Re-run after either column re-renders,
+// on tab-activate (offsetHeight is 0 while display:none) and on resize (the banner
+// reflows against p.sw-note's max-width).
+function levelTradeNotes(){
+  const a = document.getElementById("tnote-A"), b = document.getElementById("tnote-B");
+  if (!a || !b) return;
+  a.style.height = b.style.height = "auto";
+  const h = Math.max(a.offsetHeight, b.offsetHeight);
+  if (h) a.style.height = b.style.height = h + "px";
 }
 // Cap sweep (Sweeps tab): show only the div for the cap switcher's shape.
 function renderCapShape(){
@@ -1209,8 +1223,8 @@ const SHAPE_RENDER = {
   compare: renderCompare,
   browse: renderBrowse,
   table: renderTableShape,
-  tradeA: () => renderTradeoffSide("A"),
-  tradeB: () => renderTradeoffSide("B"),
+  tradeA: () => { renderTradeoffSide("A"); levelTradeNotes(); },
+  tradeB: () => { renderTradeoffSide("B"); levelTradeNotes(); },
   cap: renderCapShape,
 };
 function markShapeSel(picker, shape){
@@ -1284,6 +1298,7 @@ function initTabs(){
       // Height-dependent layout must run once the view is visible (offsetHeight is
       // 0 while display:none), so re-level / re-zoom Compare on activation.
       if (t.dataset.tab === "compare"){ applyZoom(); levelMetas(); }
+      if (t.dataset.tab === "tradeoffs"){ levelTradeNotes(); }
     };
   });
 }
@@ -1294,13 +1309,14 @@ function jumpTo(id){
 }
 buildPickers(); buildShapePickers(); initTabs(); initSync();
 document.getElementById("zoomer").addEventListener("input", applyZoom);
-window.addEventListener("resize", () => { applyZoom(); levelMetas(); });
+window.addEventListener("resize", () => { applyZoom(); levelMetas(); levelTradeNotes(); });
 // Initial paint: every tab renders its own default shape independently.
 renderCompare();
 renderBrowse();
 renderTableShape();
 renderTradeoffSide("A");
 renderTradeoffSide("B");
+levelTradeNotes();   // no-op while the tab is hidden; re-run on activate + resize
 renderCapShape();
 </script>
 </body>
