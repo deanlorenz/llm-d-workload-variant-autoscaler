@@ -13,8 +13,13 @@ What is deliberately different from the synthetic figure:
   * Rates use a trailing (Prometheus-style) window, not hard bins. Hard bins
     attribute a request's whole output to its completion instant, which turns a
     backlog drain into an impossible burst -- panel 1b showed a 0<->17000 tok/s
-    sawtooth that was pure bin attribution. Panel 1a keeps its 5 s bars for the
-    quality composition, with the trailing total drawn over them.
+    sawtooth that was pure bin attribution. Panel 1a keeps bars for the quality
+    composition, with the trailing total drawn over them; its window is pinned to
+    the bar width (W_REQ = BIN) so the curve and the bars are the SAME estimator
+    at the same resolution and the curve rides the bar tops. A wider window there
+    reads as a contradiction: a 20 s trailing average over 10 s bars sits at the
+    mean of each adjacent pair, which in this run's mid stage is ~12 req/s under
+    a 24 req/s bar.
   * Work is measured in OUTPUT TOKENS only. That is the unit the measured
     saturation ceiling (`sat_band.gen_tok_s`) is expressed in; there is no
     calibrated prefill+decode ceiling to compare a combined figure against.
@@ -63,12 +68,16 @@ except ImportError:      # shareable standalone: fall back to the same hex value
 INK = '#1f2937'                 # the sim's stack-top outline colour
 
 WAIT_EDGES = [2, 15, 30, 45, 60]        # absolute wait-before-service seconds
-# Panel 1a bar width. Not smaller than the decode batch period: vLLM finishes a
-# batch nearly in lockstep, so bins narrower than that alternate between a burst
-# and zero, and the bar tops then sit far above any honest average of them.
+# Panel 1a bar width. Departures in this workload are not Poisson: output lengths
+# are near-monodisperse (IQR 26 tok = 5% of the median), so a cohort admitted to
+# the decode batch together finishes together and the freed slots admit the next
+# cohort, which sustains a ~20 s wave. Measured on the mid stage: adjacent 10 s
+# bins are uncorrelated (r=-0.03) while bins 20 s apart correlate +0.59. The
+# resulting peak-to-trough spread is 64x at 5 s bins, 12x at 10 s, 2.7x at 20 s.
+# 10 s keeps the wave legible without pretending it is noise.
 BIN = 10.0
 GRID = 2.0                               # resampling step for every smooth curve
-W_REQ = 20.0                             # trailing window for request rates
+W_REQ = BIN                              # trailing window for request rates
 W_WORK = 30.0                            # trailing window for work rates
 
 
@@ -270,10 +279,12 @@ def render(bundle, path, title=None, coverage=None):
                   color=GP_COLORS[min(i, len(GP_COLORS) - 1)],
                   label=labels[min(i, len(labels) - 1)], zorder=1)
             bottom = [b + v for b, v in zip(bottom, ys2)]
-        # total departure rate as a smooth trailing curve THROUGH the bar tops --
-        # the bars carry the composition, this carries the trend. Same dark ink as
-        # the synthetic figure's stack-top outline, but weighted to be readable
-        # against 5 s bars rather than a continuous stack.
+        # Total departure rate as a trailing curve THROUGH the bar tops: the bars
+        # carry the composition, this carries the total. Same events (t_dep) and,
+        # because W_REQ == BIN, the same estimator -- so at each bin's right edge
+        # the curve equals that bar exactly and it weaves between them in the
+        # middle. Wait time sets a bar segment's COLOUR, never its height or x.
+        # Same dark ink as the synthetic figure's stack-top outline.
         a.plot(grid, trailing(dep_t, [1.0] * len(dep_t), grid, W_REQ),
                color=INK, lw=2.2, alpha=0.85, zorder=2.6,
                label=f'departure rate, total ({W_REQ:.0f}s trailing)')
