@@ -26,6 +26,7 @@ review the batch as a list rather than as prose spread over many turns.
 | A4 | `:1608-1612` | same inversion | " |
 | A5 | `:2199-2200` | same inversion | " |
 | A6 | `:288` | Cap placement: the one-replica ceiling must sit at the **granting site**, never in the `MaxReplicas` headroom branch. Widened from one site to **three**, all verified at `eb12089a`: `cost_aware_optimizer.go:104-111` (the `return …, math.MaxInt` at `:111` is *outside* the `MaxReplicas != nil` block); `greedy_score_optimizer.go:711-717` (clamp wholly inside the nil-guard); `rescale.go:454-460` (worst — a `for wantGPUs-spent >= g` loop whose **only** exit is a `break` guarded by `MaxReplicas != nil && > 0`, so an unset ceiling means replicas are granted until the GPU budget is exhausted). `MaxReplicas` is `*int` and nil/`0` are treated alike as unbounded, and the sentinel's population is never-seen zero-replica variants — the least likely to be tuned | my verification, then reviewer F42 independently at all 3 sites |
+| A20 | A1–A5 addendum | The ranking inversion's **fix is `N5`, not a different sentinel value**: a never-measured variant's `Cost` arrives as `0` from the *same* zero-replica lookup that leaves `AcceleratorName` empty, so the ratio is `0/1` and it sorts first. `PRC = 1` stays the right choice and the property recovers with **no change to C11** once that lookup is fixed. Ties A1–A5 to the `N5` item currently listed as out-of-scope | coder, C11 impl |
 | A19 | §C11 | Record the **post-freeze ordering dependency**: C6e's `firstDraw` floor at `greedy_score_optimizer.go:702` *raises* `capN` after `replicasToCover` at `:701` and before both bounds (`:710` pool, `:711-717` headroom). A ceiling placed next to `replicasToCover` — the natural reading of the Type-1 instruction — is therefore overwritten on the first draw. Single-role case is benign (`:702` raises to exactly 1 = the ceiling); the breach needs two roles resolving to the same sentinel variant in one pre-commit window, which **neither the reviewer nor I have established as reachable**. This is why the clamp shape is `min(cap, 1 - targets[v])` and not `min(cap, 1)` | reviewer F43 + my verification |
 | A7 | §C6c items 2/3/4 | corrections carried from the currency-pivot read | my verification |
 | A8 | §C6d items 1/1b/2 | ditto | " |
@@ -69,6 +70,29 @@ review the batch as a list rather than as prose spread over many turns.
   post-freeze Type-1 changes go through Dean. The handoff routes the amendment to me as "Type-1
   owner" — a label the same reviewer declined for himself — so this is a genuine routing conflict
   for Dean to settle, not something to resolve by guessing.
+- **`(D-a)` cannot ship as written — a Type-1 *design* defect, the fourth post-freeze item, and the
+  only one that is a regression rather than a text or rationale problem.** The sentinel is written onto
+  the **anchor**, and the six `PRC <= 0` gates it clears are all selection-side. Sizing is not
+  selection-side: `roleBottleneckReplicas:607-616` reads the **ballot** via
+  `votesFromPickerState:511-518`, which calls `prcForVariant(e.Result, …)` — the entry's own Result,
+  never the anchor — and abstains on `<= 0`. Every voter abstains ⇒ `binder < 0` ⇒ bottleneck `0` ⇒
+  `min(0, cap) = 0` ⇒ `deltaUtil = 0` ⇒ the model's loop breaks, taking down **every variant behind the
+  admitted one**. Verified by the coder's mutation on a `[sat-not-live] + [TA]` fixture: with the
+  sentinel written the *measured* variant stays at 2; with it disabled it scales past 2. The admitted
+  variant gains nothing and a working variant loses its scale-up. It is the same `cap = 0` hazard
+  `(D-b)`'s own ⚠ describes, arriving through the bottleneck, where the ceiling is structurally
+  powerless. Corroboration: Test 10's `revived` scales *because* TA emits a PRC-only row into its own
+  ballot entry; `cold` (never seen) stays 0 — sizing has always come from the ballot, and `(D-a)` is
+  the only proposed admission that writes the anchor alone. **Coder held it; the tree ships `(D-b)`
+  only, gates green, no golden moved.** Three-way fork, explicitly Dean's: (1) binder emits the
+  sentinel into its own ballot entry — closest to `revived`, one currency, but makes a synthetic value
+  a *vote*, colliding with `N8`; (2) `roleBottleneckReplicas` floors at 1 for a tagged variant —
+  localised, but invents a bottleneck that ignores its voters, contradicting the abstain-not-veto
+  semantics stated at `:512-517`, and needs its own gate audit; (3) narrow C11 to `(D-b)` and route
+  admission to `N5` — which A20 shows the ranking correction **already** depends on. My recommendation
+  is **(3)**, and by decision rather than by default: it is the only branch that preserves current
+  behavior, and it lands admission and ranking together on one real fix instead of a synthetic value.
+  Needs a **DEFERRED** classification with design intent, not a silent narrowing.
 - Routing: who owns post-freeze Type-1. The internal code reviewer has declined the "Type-1 owner"
   label I used in two handoffs; that error is also now in shipped code (see B3).
 
