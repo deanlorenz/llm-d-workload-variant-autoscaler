@@ -4185,3 +4185,208 @@ is Dean's. The mis-routing is also what put the phrase into shipped source at
 `greedy_score_optimizer_test.go:1709`.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## `a46c7eea` — "pin the fair-share shared balance, not just the per-role clamp"
+
+*Test-only, 1 file, +73. Landed unprompted, in direct answer to Finding 28.*
+
+### Finding 28 — CLOSED, and closed better than I asked
+
+The commit delivers exactly the shape Finding 28 said was missing, states the under-delivery in its
+own first paragraph, and **confirms my claim by mutation** rather than by argument: replacing the
+shared balance with a per-role budget makes prefill draw 6 instead of 1 and makes the spent-out
+iteration hand out 3 again, while *"the two pre-existing `Optimize()` specs stay green under that same
+mutant."* That last clause is the finding restated as an executed experiment. A mutation result is the
+strongest available answer to "your fixture does not discriminate", and it is not something I asked
+for.
+
+I verified the arithmetic against `fairShareRolePick` at `eb12089a` rather than trusting the message.
+Entitlement 6 GPUs, `decode-v` PRC 4000 at 2 GPUs/replica, `prefill-v` PRC 5000 at 1:
+
+| draw | `spentGPUs` | `balance` | holdback | `share` | `capN` | `reserved[role]` |
+|---|---|---|---|---|---|---|
+| decode | 0 | 6 | −1 (prefill undrawn) | 5 | `ceil(5/2)` = **3** | `min(3×2, 5)` = **5** |
+| prefill | 0 | 6 − 5 = 1 | 0 (decode drawn) | 1 | `ceil(1/1)` = **1** | `min(1, 1)` = 1 |
+
+and after the caller commits (`targets` → `{decode-v: 4, prefill-v: 2}`): `reserved` resets on
+decode's re-draw, `spentGPUs = 3×2 + 1×1 = 7`, `balance = −1`, `share = −2`,
+`replicasToCover(−2, 2) = 0` via its `<= 0` guard, `firstDraw = false` so the floor does not fire,
+`capN > 0` is false → `("", 0)`. Both specs are sound, and the choice to call the returned closure
+directly is correctly justified: at `Optimize()` level the `replicasToCover` round-up and the pool
+`min` both move the totals, so the balance is not observable there.
+
+**One qualification on scope.** This closes the half of Finding 28 about the picker's own ledger. It
+does **not** close Finding 35 — the abstention gate at `greedy_score_optimizer.go:451` is still
+undiscriminated, and this fixture cannot reach it (single sat-only ballot entry, which prices both
+variants). The two-role fixture I proposed for closing both was a *combined* shape; this delivers the
+ledger half only. Finding 35 stands.
+
+### Finding 37 — the entitlement is enforced against reservations, not against grants; the new fixture demonstrates a 7-GPU spend on a 6-GPU entitlement without asserting it
+
+**Severity: MEDIUM (behavioral, and possibly intended — a Type-1 disposition question).**
+
+Spec 1 grants decode 3 replicas at 2 GPUs/replica and prefill 1 at 1 — **7 GPUs against a 6-GPU
+entitlement.** Spec 2's own comment states the commit as *"6 GPUs for decode, 1 for prefill"* and the
+message says *"Entitlement 6 GPUs"*, so the overrun is present in the fixture's own numbers and named
+in neither. Two mechanisms produce it, both deliberate in code comments, neither reconciled with the
+word "entitlement":
+
+**(a) The round-up clamp.** `reserved[role] = max(0, min(capN × gpusPR, share))`. Decode *consumes* 6
+GPUs but is *charged* 5, because charging 6 would *"take back the room this role's successors were
+just left"*. So the balance is shared in **charge** space while the pool is spent in **grant** space,
+and the gap is the `replicasToCover` round-up — bounded per role by `gpusPR − 1` GPUs, and taken by
+every role that rounds up.
+
+**(b) The uncharged floor** — see Finding 38.
+
+`replicasToCover`'s doc comment is the closest thing to a justification: *"rounding up here cannot
+overcommit hardware: the caller mins this against the real pool."* That is true and is not the issue.
+Hardware is safe; the **fair share between models** is what leaks, and the fair share is the thing
+`fairShareRolePick` exists to enforce. A model that rounds up on every role systematically takes more
+than its water-level gap, and under contention that is taken from another model.
+
+**Why this is a disposition question and not a bug report.** Rounding up is the stated policy
+(*"whether a model owed a fraction of a replica may take the one indivisible unit"*), and per-role
+round-up is arguably its honest extension to P/D. What is missing is anywhere that says the
+entitlement is therefore **soft by up to one replica per role**. The `W1` prose calls it *"one shared
+balance"*, which reads as a hard bound. If the softness is intended, it belongs in the Type 1 and in
+the dev guide; if not, the charge should be `capN × gpusPR` and the holdback made to absorb it.
+
+**What would make this measurable:** the fixture already does. Adding one assertion —
+`3×2 + 1×1 == 7 > 6` stated as an accepted overrun, or a total-spend assertion — converts a
+demonstrated-but-unnamed property into a pinned one. That is a one-line addition to a spec that
+already computes both numbers.
+
+### Finding 38 — `firstDraw` is not "first draw"; it fires for every role until the caller commits, and its grant is charged nothing
+
+**Severity: MEDIUM (documentation-vs-behavior, with a behavioral tail).**
+
+```go
+firstDraw := spentGPUs == 0
+...
+if firstDraw && capN < 1 {
+    capN = 1   // "First draw only: it grants past the balance"
+}
+```
+
+`spentGPUs` is derived from `targets` versus `committed0`, so it stays `0` for **every** role's draw
+until the caller writes a grant back. The comment says *"First draw only"* and the variable is named
+`firstDraw`, but the condition is "nothing committed yet" — which is a property of the *iteration*,
+not of the draw. In spec 1, prefill's draw has `firstDraw == true` even though decode has already
+drawn and reserved 5 GPUs.
+
+Reachable consequence, traced (not measured): entitlement 1 GPU, the same two roles.
+
+| draw | `balance` | `share` | `capN` | granted | `reserved` |
+|---|---|---|---|---|---|
+| decode | 1 | 1 − 1 = 0 | `replicasToCover(0,2)` = 0 → **floor → 1** | 1 replica = **2 GPUs** | `min(2, 0)` = **0** |
+| prefill | 1 − 0 = 1 | 1 | 1 | 1 replica = 1 GPU | 1 |
+
+**3 GPUs granted against a 1-GPU entitlement, and the first role's 2 GPUs are charged zero** — the
+`min(…, share)` clamp of Finding 37(a) collapses to `0` exactly when the floor fires, because the
+floor fires precisely when `share < gpusPR`. So the floor's grant is invisible to the ledger, and the
+next role sees the balance undiminished. Bounded by the number of roles (2 today), so the blast radius
+is small; the part worth fixing is that nothing in the code or the fixture says it happens.
+
+I am not asserting the behavior is wrong. Granting each role its indivisible unit is defensible for a
+P/D model that cannot serve with a role at zero, and the comment's *"only before the first commit is
+an empty pick fatal to the whole model rather than a defer"* is a real hazard. The finding is that
+**`firstDraw`'s name and comment describe a narrower rule than the code implements**, and that the
+uncharged grant is the second mechanism behind Finding 37. Renaming it (`preCommit`, `nothingCommitted`)
+and saying "every role, until the caller commits" would cost one line and remove the trap.
+
+### Finding 39 — the closure's cross-iteration bound is a precondition on the caller that nothing states
+
+**Severity: LOW (contract clarity).**
+
+Spec 2 is named *"does not hand back the whole entitlement on the next iteration"* and passes because
+the test **updates `targets`** between iterations. The protection is `spentGPUs`, computed from
+`targets − committed0`. If a caller re-draws without committing, `reserved` is reset by the
+drawn-already branch, `spentGPUs` stays `0`, and the role is sized against the **full** entitlement
+again — the exact failure the spec is named for.
+
+So the closure is correct only for callers that write grants into `targets` before the next draw.
+`allocateForModel`/`allocateForModelPaired` do, so there is no live bug. But the closure is a
+returned function with a stateful ledger and an unstated precondition, and spec 2 pins the
+happy-path caller rather than the contract. One sentence on `fairShareRolePick`'s doc comment —
+"grants must be reflected in `targets` before the next draw; the ledger measures spend from them" —
+closes it. Cheaper than a spec.
+
+### Finding 40 — two new §4a leaks, introduced by this commit
+
+**Severity: LOW individually; noted because the very next commit claims the sweep is finished.**
+
+```
+greedy_score_optimizer_test.go:1557:  // §C6e asks for the other shape — roles that would EACH individually fit
+greedy_score_optimizer_test.go:1576:  // would mask the balance, which is the masking §C6e names.
+```
+
+These are the **core** §4a class — a plans-branch *section identifier*, not merely a path. `§C6e`
+resolves for nobody reading merged code, and unlike `W4` or `N7` (which at least read as local
+labels defined in the surrounding prose) it is explicitly a pointer into
+`ta-anchor-dynamic-refresh-plan.md`. Both are one-clause fixes: *"the fair-share entitlement's own
+commit asks for the other shape"* → the plan section named descriptively, or simply dropped, since
+both sentences read fine without the citation.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## `eb12089a` — the last `Type-1 owner` in test source, and a completeness claim that does not hold
+
+*Comment-only, 1 file, +4/−4. Fixes exactly the site I flagged in the `4fb49ac6` note above.*
+
+The fix itself is right and its reasoning is better than mine. I flagged `Type-1 owner` as a §4a
+violation — unresolvable to a reader of merged code. The commit adds a second, independent ground:
+*"it is factually wrong — the role does not own that question and the person it pointed at has
+declined the label"*, and concludes that *"naming the question as open, without routing it, says
+everything a reader of a dormant spec needs and nothing that can go stale."* Removing the routing
+rather than correcting it is the durable fix; a corrected name would have rotted on the next role
+change.
+
+### Finding 41 — "the last of the four sites" is false at its own tip; two live leaks remain, one of which I wrongly reported as fixed
+
+**Severity: LOW (accuracy of a completeness claim), but it is the claim that would stop the next sweep.**
+
+The message says this commit *"Completes the §4a hygiene pass over what my own commits shipped … the
+last of the four sites."* At `eb12089a` that is not the case. Verified by grep at that tip:
+
+1. **`§C6e` ×2** — `greedy_score_optimizer_test.go:1557,:1576`, introduced by `a46c7eea`, the
+   immediately preceding commit. Finding 40. The sweep was scoped to the four sites known when it was
+   planned and did not re-run against the tip it landed on.
+2. **`Type-1 owner` in the dev guide** — `docs/developer-guide/multi-analyzer-pipeline.md:803`:
+   *"The claim-pricing question is open with the Type-1 owner"*. Still live, and it ships in the PR
+   diff as Type 4 reference material.
+
+**Correction to my own `4fb49ac6` note above: I wrote "The dev-guide occurrence is also gone." It was
+never removed.** I verified `Type-1` occurrences in that file across all six revisions of the C6f
+sequence — `a679f2ad`, `2a0db749`, `4fb49ac6`, `537b0153`, `a46c7eea`, `eb12089a` — and the count is
+**1 at every single one**. `4fb49ac6` did touch the dev guide (+9/−2, the `mean`/`allocationMean`
+fix) which is presumably why I read the token as swept with it, but the sentence is untouched. This is
+my third attribution or fact error in this segment, all three in the same direction: reporting
+something as resolved on the strength of an adjacent change rather than checking the artifact.
+**Standing check added, alongside the substitute-the-numbers one from the option-(d) retraction: never
+report a token, path or leak as removed without grepping the tip.**
+
+Both remaining sites are one-clause fixes and both are in files C9 will touch anyway. The reason to
+say so now rather than let C9 absorb them is that a commit message asserting the class is closed is
+what makes the next reader skip the grep — which is precisely how I got the dev-guide line wrong.
+
+### Running §4a state at `eb12089a`
+
+Self-introduced by PR-2 and still live: **`§C6e` ×2** (test comments) + **`Type-1 owner` ×1**
+(dev guide) = **3**. Plans-branch *paths* in shipped source: **0** (Finding 33 stayed fixed).
+`Type-1 owner` in shipped `.go`: **0** (this commit). Pre-existing at base and out of PR-2's scope:
+`docs/developer-guide/throughput-analyzer.md:698`, tracked in `governance-follow-ups.md`.
+
+The known bulk C9 must strip is unchanged and unaffected by any of this: `W1`/`W4`, `N2`/`N3`/`N7`/`N8`,
+`T1.3`/`T1.4`, `PR-2`, across `greedy_score_optimizer.go`, `analyzer_helpers.go`, `rescale.go`, both
+test files and the dev guide.
+
+**Reword count: 16.** `a46c7eea` and `eb12089a` both carry plans-branch tokens in their messages
+(`§4a`, `C6e`), so the window Dean has not yet ruled on has grown from 13 commits to 16 — still free
+while the branch is unpushed, still a live-PR history rewrite once PR-2 opens.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
