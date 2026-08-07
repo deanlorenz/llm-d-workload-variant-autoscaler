@@ -5230,3 +5230,77 @@ adds one more message to a `rebase -i` that is currently free (the branch needs 
 The trajectory is 16 → 17 across one commit, with C9 still to land. Once PR-2 opens, the same edit is a
 live-PR history rewrite. The 53 code/doc locations are separate and unhurried — C9 is their natural
 host, and one of them is now a finding rather than a bulk-sweep item.
+
+---
+
+## `79a590d6` "pipeline: test the admission ceiling at fillRole (C11 D-b follow-up)" — Finding 47 CLOSED
+
+Test-only, +73 in `rescale_test.go`. Direct response to Finding 47.
+
+### Finding 47 — CLOSED, over-delivered
+
+I asked for ~15 lines proving the clamp fires at `fillRole`. The commit ships five specs that close the
+whole `min(ceiling, MaxReplicas)` truth table:
+
+| spec | tag | `MaxReplicas` | asserts |
+|---|---|---|---|
+| grants one replica out of the role's GPUs | yes | nil | `targets = 1`, `spent = 1` of 10 |
+| does not top up on a second pass | yes | nil | second call over the same map spends 0 |
+| absorbs the whole role when untagged | no | nil | `targets = 10` — the negative control |
+| honours a configured `MaxReplicas` | no | 3 | `targets = 3` |
+| ceiling wins over a looser `MaxReplicas` | yes | 8 | `targets = 1` |
+
+**Discrimination verified by reasoning** (I do not run tests in the coder's worktree). With the tag check
+disabled, `maxTargetReplicas` returns `bounded = false` for the nil-`MaxReplicas` cases, so: spec 1 grants
+10 not 1 → fails; spec 2's second pass runs the loop again from `targets = 10` and spends 10 not 0 →
+fails; spec 5 grants 8 not 1 → fails. Specs 3 and 4 are untagged and pass either way. So the message's
+"all three ceiling specs here fail with the tag check disabled" is exactly right about *which* three.
+
+Spec 3 is what makes spec 1 mean anything — same capacity, same state, tag removed, 10 replicas instead
+of 1. That is the 10× margin Finding 47 predicted, asserted rather than argued.
+
+Two of the five go beyond the charge and are the more interesting ones. Spec 2 pins that the bound is on
+the **target**, not on one invocation — the four `maxTargetReplicas` unit specs prove the helper returns
+the right number and say nothing about the loop honouring it, which is precisely the gap Finding 47 was
+about. Spec 4 guards the converse regression: the new ceiling must not eat the pre-existing bound.
+
+**The disclosure is also what was asked for.** The message states "fillRole had no direct test references
+tree-wide before this; that gap is pre-existing and only the ceiling is covered here." Finding 47's charge
+was never that `fillRole` lacked coverage — that is pre-existing — but that a guard was added at a
+reachable untested site *silently* while the unreachable site's omission was reasoned in a comment, so the
+silence read as coverage. Naming the residual gap resolves it.
+
+### Finding 50 — `max` shadowing reintroduced (minor)
+
+`rescale_test.go:239` and `:248` declare `max := 3` / `max := 8`, shadowing the Go builtin. Two facts make
+this worth a line rather than nothing:
+
+- These are the **only two** `max :=` declarations in the repo at this tip (`internal/**`, `cmd/**`).
+- The pattern was flagged by ev-shindin in the #1246 review (`roleBottleneckReplicas`,
+  `roleAggRemaining`), a cleanup item is still in the backlog for it, and **those sites are now gone** —
+  `analyzer_helpers.go:977` uses the builtin correctly (`max(int(math.Floor(...)), min(1, n))`). So the
+  codebase has moved off the pattern and this commit is the sole place reintroducing it.
+
+Not a gate failure: gocritic's builtin-shadow check is not on by default, and the coder's gates were
+green, so this passes `make lint`. It is a convention regression against a maintainer's stated objection.
+`maxRep := 3` costs nothing. There is no competing local idiom to follow — no other pipeline test declares
+a `MaxReplicas` local at all.
+
+### §4a delta
+
+- **One new code-comment token:** `rescale_test.go` — "The from-zero admission ceiling (C11) is what
+  stops…". Text-only locations **53 → 54**.
+- **Message class now 18 of 20.** Subject carries `C11` and `D-b`; body adds `PR-2`.
+- **New sub-class worth naming:** "Raised by the PR-2 internal review as Finding 47." Attribution to an
+  internal review document by finding number is unresolvable for anyone reading `main` — worse than a bare
+  "the plan", because it looks like a precise citation. This will recur every time a commit answers a
+  finding, so it is better fixed as a habit than swept. The reviewable content ("the site was reachable,
+  untested, and the disclosure written for the unreachable site made the silence read as coverage") is
+  already in the message and stands on its own without the attribution.
+
+### Verified sound
+
+- **`"T1-ols"` is a faithful untagged control, not a straw value.** It is the real tier-1 OLS reason
+  (`throughput/constants.go:129`), unexported, so pipeline tests use the bare literal — the established
+  idiom here, with 6+ prior uses in `analyzer_helpers_test.go`. The negative control therefore exercises a
+  reason string production actually emits.
