@@ -1598,12 +1598,10 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		//
 		// That inflation is upstream of W4 and reachable with ONE analyzer: it
 		// also shifts share between models in a multi-model pass with no TA
-		// involved. Both are written up in
-		// plans/session/handoffs/plan__ta-anchor-c6f-w4-no-spend-is-false.md and
-		// review__ta-anchor-claim-inflation-measured-single-analyzer.md, and the
-		// claim-pricing question is open with the Type-1 owner. The fixtures below
-		// therefore cover the aligned regime deliberately, and W4 is NOT fully
-		// gated by them.
+		// involved. Whether a claim may be priced through a variant the picker
+		// cannot buy is an open design question, not a settled contract. The
+		// fixtures below therefore cover the aligned regime deliberately, and W4
+		// is NOT fully gated by them.
 		w4Sat := func() *domain.AnalyzerResult {
 			return &domain.AnalyzerResult{
 				RequiredCapacity: 30000,
@@ -1733,14 +1731,10 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		// pure redistribution BETWEEN models — which is why no pool check catches
 		// it and why every single-model-per-pass golden is blind to it.
 		//
-		// Measured on this exact fixture at 784c2b5c:
+		// Measured on this exact fixture, against the claim pricing as it stands:
 		//	cheap-x at 3 GPUs/replica -> pricey-x 4, y-v 2   (X takes 3 of 4)
 		//	cheap-x at 1 GPU/replica  -> pricey-x 3, y-v 3   (even, and honest)
 		// The ONLY difference is the GPUsPerReplica of a variant X cannot buy.
-		//
-		// Refs: plans/session/handoffs/review__ta-anchor-claim-pricing-gpuspr-asymmetry.md,
-		// review__ta-anchor-claim-inflation-measured-single-analyzer.md,
-		// review__ta-anchor-claim-pricing-headroom-root.md
 		PIt("does not price a claim through a variant the model cannot buy", func() {
 			one := 1
 			// Both models truly need 3 GPUs: 30000 demand at PRC 10000, served at

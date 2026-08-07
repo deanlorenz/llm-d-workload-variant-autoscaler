@@ -765,8 +765,13 @@ next round would serve the original demand a second time.
 pool, so a model drawing its entitlement twice still could not conjure hardware
 that does not exist, and the doubled draw surfaced as a fair-share violation
 rather than as a failure: the pool was enforced, the fair share was not. It moved
-no golden either, because a golden with a single active model gets `mean == 0`
-and therefore `target == claim` — the entitlement can only bind under contention.
+no golden either, because with a single active model the *allocation* mean is
+forced to `0` — the water level `mean` itself is unchanged, and still governs the
+above-the-level drop check — so `target == claim` and the entitlement can only
+bind under contention. It is stronger than that: `claimGPUs` sums the role claims
+in the same GPU currency the roles are then charged in, so with one active model
+the entitlement equals the combined spend exactly. No single-model golden *can*
+move on this.
 
 **A claim is priced through one variant and spent through another.** `claimGPUs`
 converts a role's demand to GPUs through `referenceVariantForRole` — the role's
