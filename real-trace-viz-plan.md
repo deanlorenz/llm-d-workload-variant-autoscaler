@@ -1,8 +1,8 @@
 # Real-trace visualization — input inventory + fetch/extraction plan
 
 **Status:** DRAFT. **Rev 5** (2026-08-07) — as-built toolchain + Dean's home/near-path decisions
-folded in (§14.4 DECIDED, §14.6 migration, §15 destination superseded, §15.5 deferred-removal, §9.3
-measured our-own-runs answer, §12.1 reordered, §16 refreshed). Builds on **Rev 4** — retargeted
+folded in (§14.4 DECIDED, §14.6 migration **unblocked**, §15 destination superseded, §15.5
+deferred-removal, §9.3 measured our-own-runs answer, §12.1 reordered, §16 refreshed). Builds on **Rev 4** — retargeted
 onto **already-benchmarked** results (Dean, 2026-08-06:
 *"we are talking about fetching already benchmarked results… We should look for actual results in
 Ofer's fork. Mine were just test runs."*). Panel 4 still deferred until the input inventory is
@@ -30,8 +30,9 @@ gitignored; 50-record `per_request_head.json` instead of the 4.2 GB file).
 **Home decided (Dean, 2026-08-07): its own `viz-tools` branch + worktree on Dean's fork, with
 results as a `results/` directory inside it** — *"viz tools on my fork / viz results on my fork. Or
 just dir under viz tools. maybe it is big enough to create a worktree for viz tools and move
-everything there."* §14.4 records the decision, §14.6 the migration (planned, **not executed** —
-it is gated on another session's uncommitted work, see §14.6).
+everything there."* §14.4 records the decision, §14.6 the migration — **planned, not executed, but
+no longer blocked**: the earlier gate (another session's uncommitted work under this directory)
+cleared on 2026-08-07, so all that is left is Dean's go-ahead for a large deletion and two pushes.
 
 **Near-term data path changed (Dean, 2026-08-07):** *"need to see if our own benchmark run can
 provide data. The benchmark coder is still working. Ofer will not be working on this this weekend."*
@@ -778,7 +779,9 @@ end-to-end on **[ref]**, so every item below is now a run of existing code, not 
 3. **Get §9.2's capture list in front of whoever designs the next run.** Cheap to add, unrecoverable
    afterwards. **Not yet sent** — the benchmark coder is mid-flight on a separate thread, so no
    trigger has been rung. When it is, it is a doorbell pointing at §9.2, not instructions.
-4. **The migration** (§14.6), once the multi-shape effort's changes are committed.
+4. **The migration** (§14.6) — **now unblocked**; the multi-shape effort committed its work
+   (`0633193f`, `2b17a312`) and the directory is clean. Needs only Dean's go-ahead, since it involves
+   a large deletion and two pushes.
 
 **Later — Ofer's corpus (the richer data, but not this weekend):**
 
@@ -852,7 +855,8 @@ So: no outreach draft. The deliverable is a **self-contained directory with a RE
 *Subsections, in reading order — note **§14.4 sits after §14.5 in the file** (§14.4 was written last
 and appended; the numbers are the stable references, so they were not renumbered):* 14.1 constraint
 on the code → 14.2 directory shape → 14.3 the commands → 14.4 **where it is shared from (DECIDED)**
-→ 14.5 renderer divergences → 14.6 **the migration (planned, not executed)**.
+→ 14.5 renderer divergences → 14.6 **the migration (planned, not executed; unblocked, awaiting
+Dean's go-ahead)**.
 
 ### 14.1 Constraint this places on the code
 
@@ -996,22 +1000,25 @@ Two size notes that matter for a clone-and-run experience:
 C remains the right *end state* if the tool proves useful, since §1.1a shows this is really the
 missing back half of `post_run_analyze.sh`. Nothing about B forecloses it.
 
-### 14.6 Migration to a `viz-tools` worktree — planned, **NOT EXECUTED**
+### 14.6 Migration to a `viz-tools` worktree — **UNBLOCKED, awaiting Dean's go-ahead**
 
-> **⛔ Blocked, and not on a decision.** Do not start this until the gate below clears. The
-> destination and method are settled; only the timing is not.
+> **Status corrected 2026-08-07.** This section was first written as ⛔ *blocked on another session's
+> uncommitted work*. **That gate has cleared** — see below. The only thing left is Dean's OK, because
+> steps 3–5 are a large deletion and two pushes.
 
-**The gate: another session's uncommitted work is in this directory.** As of `8cbeee30` there are
-**118 modified files** under `scratch/autoscaling-viz/` that belong to the **multi-shape review
-effort**, not to this one — `sim.py`, `run.py`, `stability.py`, `sweep.py`, `stress_ideal.py`,
-`trace_qexp.py`, `diag_decisions.py`, `REPORT.md`, `REVIEW-CHECKLIST.md`,
-`autoscaling-behavioral-demo-design.md`, and all of `out/` (the deck HTML, the summary markdown, the
-figures). That work is *done but pending Dean's review* (see `CURRENT.md`).
+**The gate, and why it is gone.** When this section was drafted, **118 modified files** under
+`scratch/autoscaling-viz/` belonged to the **multi-shape review effort**, not to this one — `sim.py`,
+`run.py`, `stability.py`, `sweep.py`, `stress_ideal.py`, `trace_qexp.py`, `diag_decisions.py`,
+`REPORT.md`, `REVIEW-CHECKLIST.md`, `autoscaling-behavioral-demo-design.md`, and all of `out/`.
+Moving the directory then would have forced one of two bad outcomes: strand those changes while their
+files moved away underneath them, or commit another effort's in-progress work in order to move it.
+Neither was this session's to do.
 
-Moving the directory now would force one of two bad outcomes: strand those changes on `plans` while
-their files move away underneath them, or commit another effort's in-progress work in order to move
-it. Neither is this session's to do. **So: the multi-shape changes get committed on `plans` first;
-the migration runs after.** Nothing else blocks it.
+That effort has since committed its own work — **`0633193f`** ("burn-in prelude") and **`2b17a312`**
+("regenerate all artifacts under burn-in"). `git status --porcelain -- scratch/autoscaling-viz` is
+now **empty**: nothing uncommitted is at risk, and the split will carry their burn-in round with it.
+Re-verify that the directory is clean immediately before running the split anyway — this is a shared
+worktree and another session can dirty it at any moment.
 
 **Method — history-preserving, and read-only on the `plans` worktree.** `git subtree split` (verified
 available, git 2.43.0) rewrites the directory's own history onto a new branch without touching any
@@ -1033,13 +1040,14 @@ one command.
 
 1. **Drop the `results/` gitignore line** and the `metrics/raw/` + `per_request_head.json` ignores
    stay as they are (§14.2's reasoning is unchanged — they are bulk/regenerable, not location-bound).
-2. **Simplify `publish_result.sh`** — see the deletion note in §15.4. The git-plumbing machinery
+2. **Simplify `publish_result.sh`** — see the DEFERRED-removal note in §15.5. The git-plumbing machinery
    exists *only* because `viz-results` had no worktree; once `viz-tools` is checked out, publishing is
    an ordinary `git add results/… && git commit` in that worktree. The **validation** (size cap,
    prompt-text scan, mandatory provenance, append-only) is load-bearing and stays.
 3. **`git rm -r scratch/autoscaling-viz` on `plans`**, with a commit message pointing at the new
    branch so the history is followable from either side. This is a large deletion — it needs Dean's
-   explicit OK, and it must come *after* step 1 of the gate, not before.
+   explicit OK. Do it only *after* steps 1–2 and after confirming the split branch actually contains
+   everything (`git ls-tree -r --name-only viz-tools | wc -l` against the 145 tracked files here).
 4. **Push `viz-tools` to `origin`** (Dean's fork) with upstream tracking — per CONVENTIONS every real
    branch has a matching origin branch. **Needs Dean's confirmation for that specific push.**
 5. **Retire the `viz-results` branch.** It is now superseded by design, not merely junk: results live
@@ -1244,6 +1252,14 @@ plumbing era. Do not let the simplification quietly delete it.
 - **Sizing, for the "big enough?" question:** 145 tracked files, **26.3 MB** tracked, **6 670 lines**
   of Python. `out/` alone is 25.2 MB (96 %) and is deliberately tracked. Results accrete only
   300–400 kB/run, which is what killed the separate-results-branch idea.
+- **2026-08-07 (correction)** — the migration blocker documented an hour earlier was **already
+  stale when written**: it was carried over from earlier session state. The multi-shape review effort
+  had since committed its work (`0633193f` "burn-in prelude", `2b17a312` "regenerate all artifacts
+  under burn-in") and `git status --porcelain -- scratch/autoscaling-viz` is empty. §14.6 relabelled
+  **UNBLOCKED**, and the same correction applied to the header block, §12.1 item 4, §14 reading
+  order, and the Next-actions / Awaiting-Dean lists below. Lesson for a cold session: **re-derive
+  "is another session holding this directory" from `git status`, never from a doc** — the answer has a
+  shelf life of minutes in a shared worktree.
 
 ### Next actions (in order)
 
@@ -1251,9 +1267,10 @@ plumbing era. Do not let the simplification quietly delete it.
    `per_request_lifecycle_metrics.json` for the staircase run — the current trace is 9.19 s of a
    1276 s run — then re-check whether the time anchor fits. Then check at source whether the run
    truly had no scale-down.
-2. **Execute §14.6** once the multi-shape effort's changes are committed on `plans`. ⛔ **Not before**
-   — 118 modified files under this directory belong to that in-flight review, and moving the
-   directory would strand or co-opt them.
+2. **Execute §14.6** — **unblocked**, needs only Dean's go-ahead. The earlier gate (the multi-shape
+   review effort's uncommitted files under this directory) cleared when that effort committed
+   `0633193f` + `2b17a312`; `git status --porcelain -- scratch/autoscaling-viz` is empty. Re-verify
+   that immediately before running the split — this is a shared worktree.
 3. **Ofer's corpus** (§12.1 items 5–8) when he is back: `…-71ay4b_1` (9 pods → router oscillation)
    and `…-upf3j2_1` (scale-down / drain). Replaces §9.1's predictions with measured output.
 - **Still deferred:** panel 4 (§11), by Dean, until the inventory is done across several runs.
@@ -1264,7 +1281,7 @@ plumbing era. Do not let the simplification quietly delete it.
 | item | where | note |
 |---|---|---|
 | Push `8cbeee30` | §12.2.3 | on `plans`, not pushed. Partly overtaken by §14.6 — may be better to push `viz-tools` instead |
-| `git rm -r scratch/autoscaling-viz` on `plans` | §14.6 step 3 | large deletion, and gated on the multi-shape commit |
+| `git rm -r scratch/autoscaling-viz` on `plans` | §14.6 step 3 | large deletion → needs explicit OK. No longer gated on anything else (the multi-shape work committed) |
 | Push `viz-tools` to `origin` | §14.6 step 4 | after the split; needs confirmation for that specific push |
 | Retire `viz-results` (`git boidem`) | §14.6 step 5 / §12.2.4 | pushes an archive tag → needs confirmation |
 | Ring the benchmark coder with §9.2 | §12.1 item 3 | **not sent** — that thread is mid-flight |
