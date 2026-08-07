@@ -1778,10 +1778,10 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		//
 		// This spec is PENDING, so it does not run and gates nothing. It records
 		// a measured defect that no golden can catch, and it asserts the answer
-		// the defect implies rather than the behaviour in the tree. That answer
-		// is an OPEN question with the Type-1 owner. If the disposition is that
-		// today's pricing is correct as designed, delete this spec — it encodes a
-		// premise, not a decision.
+		// the defect implies rather than the behaviour in the tree. Whether that
+		// answer is the right one is an open design question, not a settled
+		// contract. If the disposition is that today's pricing is correct as
+		// designed, delete this spec — it encodes a premise, not a decision.
 		//
 		// It is written as a pending spec asserting the HONEST split rather than
 		// as a characterization fixture pinning the current numbers on purpose. A
