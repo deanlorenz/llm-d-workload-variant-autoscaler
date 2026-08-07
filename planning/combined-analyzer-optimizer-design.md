@@ -3,7 +3,7 @@
 > **Reading protocol:** Read the TOC first. Fetch only the sections you need via
 > `Read <file> offset:<start> limit:<end-start+1>`. Never read the whole file up front.
 
-**Type:** 1 (design) · **Status:** **AUTHORITATIVE** for this mission — the single design authority
+**Type:** 1 (design) · **Status: FINAL** (frozen 2026-08-07) · **AUTHORITATIVE** for this mission — the single design authority
 for the unit/currency contract ([§ units](#units)), the enablement vocabulary and supported configs
 ([§ configs](#configs)), the combine rule ([§ combine](#combine)), the anchor contract
 ([§ anchor](#anchor)), the fair-share metric ([§ limited](#limited)), and the bug/finding inventory
