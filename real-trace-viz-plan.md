@@ -335,6 +335,29 @@ asymmetric" — an artifact of averaging over bvfqv's solo period.)*
 The extractor must keep per-pod series and emit a **dispersion/oscillation statistic** (§9) so
 this is detected rather than silently averaged away on runs where it does happen.
 
+> ⚠️ **Update 2026-08-08 — that dispersion statistic is the wrong instrument, and it is wrong in
+> both directions.**
+>
+> **(a) False positive on arm B.** Dispersion is computed over all samples, including the two where
+> the second pod is still booting (`run = 0` ⇒ dispersion 1.0). Restricted to samples where both
+> pods are live, p95 drops **1.000 → 0.143** with p50 = 0.065. And "15 leader flips in 27
+> transitions" at ~6.5% median imbalance is what *well-balanced* pods look like — at that imbalance
+> the leader label is noise, so counting its flips measures nothing.
+>
+> **(b) False negative on the ladder run, and unfixable by this method.** There the routing
+> oscillation is **real**: per-pod arrivals oscillate at r +0.25…+0.73, they *lead* departures in
+> amplitude, and the period tracks mean request sojourn time (ratio 0.92–1.09 across all six loaded
+> stages, 5.7 → 12.0 s). The scrape cadence is ~15.7 s, so Nyquist is ~31 s and a 6–11 s period is
+> aliased away before the statistic is ever computed. Pods are additionally **anti-phase**, so the
+> wave cancels in any pooled series — which is why the pooled arrival stream looks flat (r ≈ +0.09).
+>
+> So the detector needs three things, not one: the non-live-pod fix; a design decision on what
+> "oscillating" should *mean* and whether `flips >= 3` survives; and an honest statement that
+> **scrape-derived per-pod gauges cannot detect routing oscillation at this period at all** — only a
+> per-request trace with pod attribution can. Fix proposed, **not applied**: the bug fix would
+> silently ride the semantic change, and that fork is Dean's. Evidence:
+> `real-trace/staircase-20260807-armB/FINDINGS.md` §7 (the false positive) and §11.1 (the real wave).
+
 ---
 
 ## 5. Saturation and the ITL validity window
@@ -423,9 +446,20 @@ linear regime is sampled only below kv 0.3. Getting A needs a workload that *dwe
 
 Run-binned **[ref]**: throughput peaks near `run≈169` at **4584 tok/s** and falls to **3641** by
 `run≈185` — a ~20% loss. The ITL model cannot produce that: `tput = run/ITL` is monotone, and it
-reproduces every bin up to 169 (predicted 4520 vs measured 4584). What breaks it is the
-preemption confined to the top bin. So the KV-bound ceiling of ~187 (§6) is the **thrash** point;
-the scaling-relevant ceiling is the knee below it.
+reproduces every bin up to 169 (predicted 4520 vs measured 4584).
+
+> ⚠️ **RETRACTED 2026-08-08 — the mechanism, not the phenomenon.** This section used to continue
+> *"what breaks it is the preemption confined to the top bin."* Arm B refutes that at matched
+> concurrency: `corr(gen, preempt/s) = +0.766` — the **wrong sign** for preemption destroying
+> throughput — and adding preempt to a `run`-only fit of `gen` buys Δr² **+0.006** against
+> **+0.106** for prompt-token rate. The run's *maximum* throughput sample (4994 tok/s) sits at
+> preempt 2.25/s, near the top of the range, and at the band's *minimum* prompt rate. Preemption
+> peaks in the decode-heavy half of the oscillation; it rides the decline, it does not drive it.
+> **The mechanism is prefill contention** (§7.1). Evidence:
+> `real-trace/staircase-20260807-armB/FINDINGS.md` §4.
+
+So the KV-bound ceiling of ~187 (§6) is still the **thrash** point and the scaling-relevant ceiling
+is still the knee below it — for a different reason than this section originally gave.
 
 Caveat: that comparison is n=9 vs n=26 and the run-bins mix ramp with drain. **Candidate, not
 established** — confirming it needs a run that holds steady near the knee instead of overshooting.
@@ -485,6 +519,29 @@ long inputs. Ofer's `prefill_heavy_15rps_900s.yaml.in` (4K in / **1K** out) is s
 decode-dominated by this arithmetic; the interesting regime wants something like 4K in / 64 out.
 Worth saying before anyone runs "prefill heavy" and gets a decode-shaped result.
 
+**Upgrade 2026-08-08 — the prefill *step rate* is now exactly measurable, not proxied.**
+`vllm:iteration_tokens_total` is a histogram over tokens processed per engine step, and the two kinds
+of step turn out to be **disjoint**: decode-only steps land at ≤128 tokens, prefill-carrying steps in
+(1024, 16384], and the (128, 1024] band holds **exactly 0** counts on every pod checked. So
+differencing the `le=1024` bucket across two scrapes gives an *exact* per-interval prefill-step
+rate — no estimation, which is what §12.3's *observe, don't estimate* asks for.
+
+What it measures is a **regime boundary**, not a single number:
+
+| regime | `itl ~ run` alone | + prompt-token rate | verdict |
+|---|---|---|---|
+| in-band, kv ≈ 0.99, n=20 | r² 0.642 | r² **0.878** (Δ **+0.236**) | prefill is the dominant second term |
+| sub-band, kv ≤ 0.67, n=281 | r² **0.93–0.94** | Δ **+0.001** | concurrency alone is sufficient |
+
+In-band the coefficient is **+1.09 ms per 1000 prompt tok/s** — a +19.5 ms swing on a 48.5 ms base —
+and omitting it inflates the concurrency slope `A` by **1.8×** (0.403 → 0.716). Sub-band the
+marginal `corr(itl, prefill/s) = +0.78` is **pure confounding**: `corr(prefill/s, prompt/s) = +0.96`.
+
+Consequence for the toolchain: `itl_fit`'s missing prefill term is a limit on *in-band
+extrapolation*, **not a defect** — and the sub-band regime is the one a right-sized deployment lives
+in. Note `A` itself differs by run (0.185 sub-band vs 0.403 in-band); not investigated. Evidence:
+`real-trace/staircase-20260807-armB/FINDINGS.md` §2 (in-band) and §11.2 (sub-band).
+
 ### 7.2 Preemption — a real mechanism the PoC does not model
 
 `vllm:num_preemptions_total` runs **1.5/s sustained** through the saturated band (**0.00**
@@ -492,11 +549,17 @@ sub-saturation) — order 600 events over ~330 s, i.e. roughly **15% of the requ
 window**. vLLM evicts a *running* request under KV pressure and re-queues it; its prefill is
 recomputed, at a ~5% cache-hit rate.
 
-Three consequences: it is a third contributor to §7.1's prefill inflation; it is the cause of
-§5.3's throughput decline; and **the PoC assumes a request in service runs to completion** —
-preemption discards completed work and returns the request to the queue. Same *class* of effect as
-Dean's scale-down kill question, but it fires during ordinary congestion with no scaling event.
-→ §12.2 decision: model it, or declare out of scope and note the resulting optimism.
+Two consequences survive: it is a contributor to §7.1's prefill inflation; and **the PoC assumes a
+request in service runs to completion** — preemption discards completed work and returns the request
+to the queue. Same *class* of effect as Dean's scale-down kill question, but it fires during ordinary
+congestion with no scaling event. → §12.2 decision: model it, or declare out of scope and note the
+resulting optimism.
+
+> ⚠️ **RETRACTED 2026-08-08.** A third consequence used to be listed here: *"it is the cause of
+> §5.3's throughput decline."* It is not — see the retraction box in §5.3. Preemption **correlates
+> positively** with generation throughput at matched concurrency (+0.766), because it peaks in the
+> decode-heavy half of the oscillation where throughput is highest. The 1.5/s rate and the
+> run-to-completion violation are unaffected; only the causal claim is withdrawn.
 
 ---
 
@@ -808,7 +871,9 @@ end-to-end on **[ref]**, so every item below is now a run of existing code, not 
 the `y > 0` ITL knee.
 
 ### 12.2 Decisions for Dean
-1. **Preemption** — model in the PoC, or out of scope with a noted optimism (§7.2)?
+1. **Preemption** — model in the PoC, or out of scope with a noted optimism (§7.2)? *(Cheaper than
+   it looked when this was written: preemption is no longer implicated in the throughput decline
+   — §5.3's retraction — so "out of scope, noted" now costs less fidelity than it appeared to.)*
 2. **First-cut scope** — extraction + observed replay only, or also simulated-on-real-trace (§10)?
 3. ~~**Push `8cbeee30`** (the toolchain commit on `plans`)~~ — **RESOLVED, by being overtaken.** The
    migration moved the artifacts off `plans` entirely, so there was nothing branch-specific left to
@@ -819,7 +884,30 @@ the `y > 0` ITL knee.
    `3e8117c5` (pushed), local branch deleted. It was proven redundant by blob hash rather than by
    filename, and the one file on it that was *not* redundant — `provenance.json`, load-bearing under
    Dean's originals policy — was carried onto this branch first (`a40dae11`). See §14.6.
-5. **Ring the benchmark coder** with §9.2 (item 3 above) — or hold until that thread pauses.
+5. ~~**Ring the benchmark coder** with §9.2 (item 3 above)~~ — **DONE 2026-08-08.** Two handoffs had
+   already arrived from that thread in the other direction (see §16), and a reply carrying §9.2 plus
+   the ladder cross-check went back as
+   `plans/session/handoffs/ta-benchmark-coder__ladder-cross-check-and-capture-list.md`.
+
+**New, from the 2026-08-08 ladder cross-check** — all four are *semantic* forks sitting on top of
+work that is otherwise finished, which is why none of them is being applied unilaterally:
+
+6. **`router_stats` semantics** (§4.5). Excluding non-live pods is an unambiguous bug fix, but it
+   rides two questions that are not: what should `oscillation_flag` *mean*, and does `flips >= 3`
+   survive once the leader label is known to be noise at ~6% imbalance? And given §4.5(b), the
+   sharper question — should the scrape-derived flag be **removed** rather than fixed, in favor of a
+   per-request-trace detector that can actually resolve the period?
+7. **What `tput_knee` should report as a capacity** (§5.3). It takes a `max`, so on a run with an
+   oscillating batch it structurally selects the prefill-quietest instant: **4994 tok/s against a
+   saturated-band mean of 3943 — a +27% upper envelope.** `max` is the right answer to "what did this
+   hardware ever do" and the wrong answer to "what can we size against". Options: switch to the band
+   mean, or report both and name which is which.
+8. **Does `itl_fit` gain a prefill term?** §7.1's table says **no** for the right-sized regime
+   (Δr² +0.001 sub-band) and **yes** for in-band extrapolation (Δr² +0.236). One fit cannot serve
+   both. Cheapest defensible answer: keep the fit as-is and record the in-band slope inflation
+   (1.8×) as a documented limit rather than adding a term that buys nothing where we operate.
+9. **Minimum-n guard on `B_measured`?** It reported with `B_measured_n = 3`, two of which were boot
+   samples. Add a guard, or keep publishing `n` and leave the judgment to the reader?
 
 ### 12.3 Settled
 - ρ default stays **2**; measured ρ is a per-trace input (Dean). Mechanism in §7.1.
@@ -837,6 +925,28 @@ the `y > 0` ITL knee.
 - **§7.2 preemption at ~15%** under congestion, and **§5.3 throughput falling past the knee** —
   both invisible in current dashboards.
 - **§5.1 calibration gap** converges with the TA-lead Phase-A sweep requirement.
+
+Added 2026-08-08, from the ladder cross-check. These three are the ones most likely to matter to
+someone outside this work:
+
+- **There are two distinct oscillations, and one of them is a routing loop.** Engine-side cohort
+  recycling shows up only on a *saturated single pod*. With multiple pods, per-pod **arrivals**
+  oscillate at a period that tracks mean request sojourn time (0.92–1.09× across 5.7 → 12.0 s) and
+  *lead* departures in amplitude. Arrivals are the router's decision, so cohort recycling cannot
+  produce them. That is the signature of **delayed-feedback load balancing**: route on a load signal
+  that only registers once a request completes, and the loop delay is ≈ the sojourn time. Mechanism,
+  not proven cause — EPP's own decisions are unrecoverable from its logs (13 unique request IDs).
+- **A ~15 s scrape cadence cannot see it.** Nyquist ~31 s against a 6–11 s period. *Any* oscillation
+  or imbalance detector built on scrape-derived per-pod gauges — ours in §4.5, and by extension
+  anything WVA, KEDA or a dashboard computes the same way — is structurally blind in this band, and
+  anti-phase pods additionally cancel under pooling. Worth raising wherever per-pod balance is being
+  judged from metrics.
+- **`iteration_tokens_total` yields an exact prefill/decode step split** (§7.1), because the two kinds
+  of step fall in disjoint bucket ranges with a provably empty band between them. Reusable technique;
+  it replaces a proxy with a measurement. And **the prefill-matters boundary is a regime, not a
+  constant**: dominant in-band (Δr² +0.236), worth +0.001 sub-band. Any latency model fitted on
+  saturated data and then applied to a right-sized deployment carries the in-band prefill term as a
+  hidden **1.8× slope inflation**.
 
 ---
 

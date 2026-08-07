@@ -162,9 +162,14 @@ Two things are hard to get from existing runs, so they are worth designing in:
    between a lower knee `y` and 0.85. Decode-heavy shapes put `y` at 0; the knee only
    becomes visible when prefill dominates *in time*, which needs output/input well
    under 1 — a 1000/250 shape is still decode-dominated.
+3. **Keep the per-request trace, and keep the pod that served each request.** Routing
+   oscillation runs at roughly one request sojourn time — 6–11 s on measured runs —
+   against a metrics scrape cadence of ~15 s, so per-pod gauges alias it away
+   completely. It is visible *only* in per-request arrival times tagged with the
+   serving pod. Pods also run anti-phase, so it cancels in any pooled series.
 
 Also worth capturing: a deliberate scale-down (to measure drain vs kill), three or
-more replicas (to see router oscillation), and `post_run_analyze.sh` run immediately.
+more replicas, and `post_run_analyze.sh` run immediately.
 
 ## Sharing results
 

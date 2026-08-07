@@ -732,6 +732,13 @@ def itl_fit(ivs, max_conc_pred):
     y_lo = 0 for decode-heavy (the fitted intercept IS the true B); for heavier
     prefill the knee moves up and the intercept becomes an extrapolation, which
     `B_extrapolated` flags rather than hides.
+
+    There is deliberately no prefill term, and that has now been measured both ways
+    (plan section 7.1). Below saturation `itl ~ run` alone reaches r2 0.93-0.94 and
+    adding prompt-token rate buys +0.001, so the term would be dead weight in the
+    regime a right-sized deployment lives in. In-band (kv ~ 0.99) it buys +0.236 and
+    omitting it inflates A by 1.8x. So this fit is sound where it is used, and its
+    slope must not be extrapolated into saturation.
     """
     best = None
     for y_lo in Y_LO_SCAN:
@@ -793,7 +800,13 @@ def capacity(cfg, ivs, shape):
 
 
 def tput_knee(ivs):
-    """Peak generation throughput vs concurrency; confident only if both sides exist."""
+    """Peak generation throughput vs concurrency; confident only if both sides exist.
+
+    This is a `max`, so on a run whose batch oscillates it structurally selects the
+    prefill-quietest instant: 4994 tok/s measured against a saturated-band mean of
+    3943, a +27% upper envelope (plan sections 5.3 and 12.2 item 7). Read it as "the
+    best this hardware was ever seen to do", not as a rate to size against.
+    """
     pts = [(iv['run'], iv['gen_rate']) for iv in ivs
            if iv['gen_rate'] and iv['run'] is not None]
     if len(pts) < 6:
@@ -807,7 +820,21 @@ def tput_knee(ivs):
 
 
 def router_stats(pods, epp_series):
-    """Dispersion of concurrency across pods, and sign flips of the leader."""
+    """Dispersion of concurrency across pods, and sign flips of the leader.
+
+    `oscillation_flag` is KNOWN UNSOUND in both directions. Left as-is on purpose: the
+    fix needs a design decision, not just a patch (plan sections 4.5 and 12.2 item 6).
+
+      - False positive. Dispersion includes samples where a pod is still booting
+        (run = 0 => dispersion 1.0). Live-pods-only, p95 went 1.000 -> 0.143 with
+        p50 = 0.065, and at ~6% imbalance the leader label is noise, so counting its
+        flips measures nothing.
+      - False negative, and not fixable here. Real routing oscillation runs at about
+        one request sojourn time (6-11 s measured) against a ~15 s scrape cadence, so
+        Nyquist aliases it away before this function sees it. Anti-phase pods also
+        cancel under pooling. Only a per-request trace carrying the serving pod can
+        detect it.
+    """
     by_t = {}
     for pod, samples in pods.items():
         for s in samples:
