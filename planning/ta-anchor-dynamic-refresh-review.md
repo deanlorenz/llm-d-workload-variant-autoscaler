@@ -2422,4 +2422,132 @@ early-return and that both my probes were single-entry; the new §6 grep as writ
 whether the refresh-currency fixture can go red at either level — open, measured at C6c; and the
 post-C6c site-(iv) currency question, likewise open.
 
+---
+
+## Finding 21 (should-fix, plan-side) — the coder's C6c design handoff was written against a plan ~6h stale; two of its six questions rest on superseded text, and one proposed extraction would undo Finding 18/19
+
+The coder wrote `plan__ta-anchor-c6c-fairshare-currency.md` (outbox, 08-07 10:54) holding C6c for six
+design decisions. Three are genuinely open and well-argued. Two are already settled in the plan, in the
+coder's own preferred direction. One rests on a premise the plan explicitly forbids. The cause is
+mechanical, not judgment: the handoff quotes plan text that changed at `ffb945c1` (08-07 **05:01**),
+five hours fifty-three minutes before the handoff was written, and **seven** planner triggers sit
+unconsumed as `.md` in `session/handoffs/` — including `c6c-prcref-and-token-sweep`,
+`c6c-fixture-level` and `c6c-source-citations-reverified`, each of which points at exactly the text a
+question re-asks.
+
+Staleness is provable from the handoff's own words: it says "the plan's **four-site** list" (the plan
+has said **Five** since `ffb945c1`, L239), "The plan does not mention the fallback at all" (site (v),
+L305-321), quotes (iii)'s note as "coordinate all **three** edits" (current text: "coordinate **both**
+edits", L295-297), and says of `quota-limiter.md` "§5 never lists this file" (the C6c row has listed it,
+with the two-copies count, since `ffb945c1`, L186). Four independent quotations, all pre-`ffb945c1`.
+
+### Triage
+
+| Q | Coder's framing | Verdict |
+|---|---|---|
+| Q1 signature | fork, leans (a) | **settled** L249-253 = its (a), with a reason it did not have. Its *scope* half is new but **misreads site (ii)** — see below |
+| Q2 fallback | "**a plan gap**, not a preference" | **not a gap** — site (v) L305-321 specifies its (a) and forbids its (b). One-sentence (b)-cross-ref is the only residual |
+| Q3 site (iv) shape | fork, offers a third shape | **genuinely open** — plan L301 offers two shapes, chooses neither. Its third shape looks better; I have mechanism input |
+| Q4 priority in the cap | flag, leans (a)+(c) | **confirmed gap**, credit the coder. "priority-scaled" appears nowhere in the plan |
+| Q5 move (iii) to C6d | leans defer | **premise wrong** — the plan forbids the coupling it assumes. (iii) can land in C6c |
+| Q6 T1.4 shape | leans split | **agree**, and it independently re-derived `70c985b9`'s unit-level conclusion |
+
+### Q1's scope half is the one that would do damage
+
+The coder proposes extracting `cheapestSizedVariantForRole` so that fsv, `fairShareRolePick` and
+`roleDemandGPUs` "converge", with the stated risk: *"If they disagree, fsv is denominated in a variant
+the allocator never picks, which is the same class of bug C6c exists to fix."*
+
+They are **allowed to disagree, and site (ii) is the compensation.** Plan L259-263 exists precisely
+because the picker legitimately falls through past `v_role` on two conditions the selector does not
+model — `gpusAvail < gpusPR` (`greedy_score_optimizer.go:420`) and `headroom <= 0` (`:427`) — and the
+`prcRef` ratio rescales the cap for whichever candidate the loop lands on. Forcing agreement is not
+possible (the picker *must* fall through) and folding "make all three agree" invites the reading that
+the ratio is redundant — which is Finding 18/19's correction undone.
+
+The count is also off, in both directions. There are **four** such loops at `d9f3b97e`, not three —
+`fairShareRolePick` (`greedy_score_optimizer.go:410`), `costGreedyRolePick`
+(`cost_aware_optimizer.go:85`, loop `:94`), `fillRole` (`rescale.go:431`, loop `:439`) and
+`roleDemandGPUs` (`rescale.go:569`, loop `:572`) — and **none of them is a cheapest-sized-variant
+selector**. All four iterate the sorted slice and take the first *feasible* candidate; `roleDemandGPUs`
+additionally scopes to one accelerator via `variantsOnType`, so its "cheapest" is a different variant
+by construction. A helper as specified would therefore have exactly **one** consumer in C6c's design —
+fsv's `v_role`, which is the same choice as `prcRef`'s reference by definition — and could not be
+pushed into any picker loop without changing its semantics.
+
+So: the extraction is not wrong to want, but it unifies one use with itself, and its stated
+justification is a misreading of the mechanism the plan already installs.
+
+### Q5's premise is the thing the plan forbids
+
+Q5 defers (iii) because *"C6d changes the abstain/veto shape of `votesFromRoleSpare`, which changes
+which entry binds, which is the very thing this tie-break reads."* Both halves fail:
+
+- §2d.4 (c) states the fix as a per-variant re-check **in `safeRemovalReplicasForRole`** and says in
+  terms: *"Do **not** express this as a synthetic 0-vote inside `votesFromRoleSpare`."* C6d gates that
+  function's *return*; the ballot is untouched, so the binder `sortVariantsForScaleDown` would read is
+  untouched. (`safeRemovalReplicasForRole` calls `combineVotes(votesFromRoleSpare(s, role, v), false)`
+  at `analyzer_helpers.go:633`; `sortVariantsForScaleDown` is a separate consumer of the same ballot.)
+- N7 abstain is **C7**, landed at `952d2fff`. The abstain shape (iii) reads is already final. The plan
+  says this explicitly: "(Distinct from C7's N7 *abstain*.)"
+
+The planner's revision of (iii)'s note — from "coordinate all three" to "C6d … does not touch this
+tie-break" — is **correct**, and Q5 is answered by reading it. Worth keeping from Q5: its two
+mechanical notes are right and are *not* in the plan. `sortVariantsForScaleDown(s, roleVCs)` takes no
+`role` (`cost_aware_optimizer.go:165`) and both callers have one in scope (`:446`, `rescale.go:414`) —
+verified exactly as claimed; and mapping a no-ballot variant's binder `-1` to tie-break key 0 keeps
+today's `weighted` behaviour for the same input.
+
+### Q3 — open, and my Finding 20 work bears on it
+
+The coder's third shape converts the *bound* into each analyzer's units and leaves `ps` in raw
+capacity, rather than moving `ps` into replica space. One consequence is directly in my scope: my C6c
+checklist carries "measure whether converting site (iv) to replica space preserves the loop
+compensation, since `k = floor(deltaUtil·demand/prc)` (`analyzer_helpers.go:788`) reads demand against
+PRC." Under the coder's shape `ps` stays commensurable with `prc`, so **that question dissolves**; it
+arises only under the plan's first phrasing. That is independent evidence for the coder's shape, and it
+is mine to contribute rather than theirs to know.
+
+Its sub-question (an analyzer with no PRC for `v_role` is left unclamped) is sound for the reason given
+— it cannot participate in `votesFromPickerState` for `v_role` either, so it cannot drive allocation of
+`v_role`. Worth a plan sentence, as they ask.
+
+### Q4 — confirmed, and one extension
+
+`priority-scaled` appears nowhere in the plan; L255 calls `target` "the fsv-unit `target`" without
+saying that unit carries the `priority` factor. The coder is right that the honest comment must say
+priority-scaled replicas, and right that C6c does not change the arithmetic. Extension: site (v)'s fix
+**deliberately drops** `priority` from the fallback (L310), so post-C6c the primary is priority-scaled
+and the fallback is not. That is necessary — including it would make the fallback ≤ 0 whenever it
+fires — but it means site (v)'s "fixes the currency" should be read as *fixes the demand→replica
+conversion*, not *makes the two paths equal*. The residual cross-model incomparability
+(`computeMean` / `sortByRemainingDesc` mixing a priority-scaled fsv with an unscaled fallback) is
+**pre-existing and narrowed, not introduced** — today the fallback returns raw max demand against a
+`priority × Score × Σ` primary — and is unreachable in production for the reason the plan already
+gives at L316-318 (`ApplyDefaults` rewrites `Priority == 0` to `1.0`,
+`config/saturation_scaling.go:275-276`). Doc-level; (a)+(c) is right.
+
+### Q2's residual
+
+The fix is fully specified, so the code lands right whether or not the text changes. But the coder's
+actual ask is legitimate and cheap: (b)'s claim that it "falls out of the participation filter" holds
+only because the *fixed* fallback also carries that filter. One cross-reference in (b)'s text closes
+it. Their stated motivation for keeping the fallback — "the only thing standing between `priority: 0`
+and a model that never scales" — is undercut by `ApplyDefaults`; the plan's own reachability paragraph
+is the better reason for the same conclusion.
+
+### Not my call, and I am not making it
+
+Whether to answer Q1's extraction, Q3's shape and Q4's comment is the planner's, and whether C10 jumps
+the §1.1 git order is Dean's. I am recording verdicts on *premises*, which is checkable, and leaving
+the forks alone.
+
+**Verified:** all four stale quotations against `ffb945c1`'s diff and the current plan text; the seven
+unconsumed triggers; §2d.4 (c)'s synthetic-0-vote prohibition; N7's landing in C7 (`952d2fff`); the
+four candidate loops and their enclosing functions at `d9f3b97e`; `sortVariantsForScaleDown`'s
+signature and both callers; `safeRemovalReplicasForRole:633`'s ballot call; the absence of
+"priority-scaled" from the plan; site (v)'s and L1047's fixture coverage. **Not verified:** whether
+the coder's Q3 shape survives contact with `applyDeallocationForRole` (not read at this depth) — that
+is a C6c-review item, not a precondition for answering Q3.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
