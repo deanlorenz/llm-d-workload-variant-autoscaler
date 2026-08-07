@@ -1701,6 +1701,94 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		})
 	})
 
+	Context("Claim Pricing", func() {
+
+		// DORMANT AND PROVISIONAL — READ BEFORE ACTING ON THIS.
+		//
+		// This spec is PENDING, so it does not run and gates nothing. It records
+		// a measured defect that no golden can catch, and it asserts the answer
+		// the defect implies rather than the behaviour in the tree. That answer
+		// is an OPEN question with the Type-1 owner. If the disposition is that
+		// today's pricing is correct as designed, delete this spec — it encodes a
+		// premise, not a decision.
+		//
+		// It is written as a pending spec asserting the HONEST split rather than
+		// as a characterization fixture pinning the current numbers on purpose. A
+		// characterization fixture would freeze the distortion and make the
+		// eventual fix look like a regression; this goes green when a fix lands.
+		//
+		// The defect: claimGPUs prices a role's claim through
+		// referenceVariantForRole using THAT variant's GPUsPerReplica, while
+		// fairShareRolePick spends the entitlement through whichever candidate it
+		// lands on, using THAT variant's GPUsPerReplica. Reference selection
+		// filters only on PerReplicaCapacity > 0 and never checks headroom, so it
+		// can price a whole role through a variant the picker provably cannot buy.
+		// When the unbuyable reference is the more GPU-hungry one, the claim — and
+		// therefore the model's entitlement and its ranking position — is inflated
+		// by the ratio between the two GPUsPerReplica values.
+		//
+		// Why this fixture and not a simpler one: the inflation needs no second
+		// analyzer and no W4 escape. Both models below are sat-only. The pool is
+		// honoured whichever way it goes (4 GPUs spent either way), so this is a
+		// pure redistribution BETWEEN models — which is why no pool check catches
+		// it and why every single-model-per-pass golden is blind to it.
+		//
+		// Measured on this exact fixture at 784c2b5c:
+		//	cheap-x at 3 GPUs/replica -> pricey-x 4, y-v 2   (X takes 3 of 4)
+		//	cheap-x at 1 GPU/replica  -> pricey-x 3, y-v 3   (even, and honest)
+		// The ONLY difference is the GPUsPerReplica of a variant X cannot buy.
+		//
+		// Refs: plans/session/handoffs/review__ta-anchor-claim-pricing-gpuspr-asymmetry.md,
+		// review__ta-anchor-claim-inflation-measured-single-analyzer.md,
+		// review__ta-anchor-claim-pricing-headroom-root.md
+		PIt("does not price a claim through a variant the model cannot buy", func() {
+			one := 1
+			// Both models truly need 3 GPUs: 30000 demand at PRC 10000, served at
+			// 1 GPU per replica. Neither is entitled to more than the other.
+			model := func(id, unbuyable, buyable string, unbuyableGPUs int) ModelScalingRequest {
+				vcs := []domain.VariantCapacity{
+					{VariantName: buyable, AcceleratorName: "A100", Cost: 20.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				}
+				states := []domain.VariantReplicaState{
+					{VariantName: buyable, CurrentReplicas: 1, GPUsPerReplica: 1},
+				}
+				if unbuyable != "" {
+					// Cheaper per unit capacity, so it wins cost-efficiency and
+					// becomes the reference variant — but it is pinned at its
+					// ceiling, so the picker can never land on it.
+					vcs = append(vcs, domain.VariantCapacity{
+						VariantName: unbuyable, AcceleratorName: "A100", Cost: 5.0,
+						ReplicaCount: 1, PerReplicaCapacity: 10000,
+					})
+					states = append(states, domain.VariantReplicaState{
+						VariantName: unbuyable, CurrentReplicas: 1,
+						GPUsPerReplica: unbuyableGPUs, MaxReplicas: &one,
+					})
+				}
+				return withSatEntry(&domain.AnalyzerResult{
+					RequiredCapacity: 30000, VariantCapacities: vcs,
+				}, ModelScalingRequest{
+					ModelID: id, Namespace: "default", Priority: 1.0, VariantStates: states,
+				})
+			}
+
+			dm := decisionMap(optimizer.Optimize(ctx, []ModelScalingRequest{
+				model("x", "cheap-x", "pricey-x", 3),
+				model("y", "", "y-v", 1),
+			}, []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{"A100": {Limit: 4}}},
+			}))
+
+			// Two equal claims and four GPUs to add, so two each: both models start
+			// at one replica and should reach three. Asserting the split rather
+			// than X's number alone is the point — the failure mode is that X wins
+			// a GPU Y should have had, and only Y's count shows that.
+			Expect(dm["pricey-x"].TargetReplicas).To(Equal(3), "X takes 2 of the 4 added GPUs, not 3")
+			Expect(dm["y-v"].TargetReplicas).To(Equal(3), "Y is a bystander and must not be starved")
+			Expect(dm["cheap-x"].TargetReplicas).To(Equal(1), "still unbuyable")
+		})
+	})
+
 	Context("Helper Functions", func() {
 
 		It("filterActive should return only models with remaining > 0", func() {
