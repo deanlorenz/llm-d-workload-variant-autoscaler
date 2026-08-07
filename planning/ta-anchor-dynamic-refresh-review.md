@@ -2126,3 +2126,64 @@ the fold-in and leaves (ii) as written, that is the plan owner's call and I revi
 as it stands at landing time — but I will record the divergence rather than pass it silently.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Finding 19 (should-fix, systemic — plan gap + code) — PR-2 has shipped 28 plans-branch tokens; §6 greps one of the three families
+
+**Handoff sent** (`plan__ta-anchor-pr2-4a-token-gap.md`). Found by cross-checking the planner's `.HOLD`
+reviewer checklist against §4a and then measuring instead of assuming. This is the §4a re-sweep item from
+my todo list, pulled forward — because measuring it early showed it is (a) already violated, (b) partly in
+commit messages with a closing window, and (c) growing with every remaining commit.
+
+**Measured at `d9f3b97e`, provenance split per file against PR-1 tip `075a208e`:**
+
+| Family | In-tree | PR-2-introduced | Inherited |
+|---|---|---|---|
+| `\bN[0-9]\b` (N2/N3/N7/N8, dataflow-map §9) | 17 | **16** | 1 (`greedy_score_optimizer_test.go`) |
+| `\bBug #[0-9]` (plan §2 numbering) | 8 | **8** | 0 |
+
+Plus **4 commit messages** — `680bebdb` (N2), `50034d15` (Bug #2), `07b8fdb7` (Bug #1), `3c9d45bb`
+(Bug #3). **Total 28**, across all four artifact classes §4a names explicitly:
+
+| Class | Count | Worst of it |
+|---|---|---|
+| shipped non-test code | 13 | `analyzer_helpers.go` ×8, `rescale.go` ×4, `optimizer_interfaces.go:54` |
+| tests (comments + `It()` names) | 9 | `analyzer_helpers_test.go` ×6 |
+| **dev-guide (Type 4, ships in the diff)** | 2 | `multi-analyzer-pipeline.md:338` "(N7)", `:472` "(N8)" |
+| commit messages | 4 | the four above |
+
+The dev-guide pair is the most consequential: Type 4 must stand alone for a reviewer reading only the
+diff, and "(N7)" resolves to nothing for ev-shindin.
+
+**Why this is a plan gap first.** §6 is thorough on semantic pivots but carries exactly one §4a-flavoured
+grep — C8's `\((a|b)\)` — which the coder ran and closed (`1140a4c2`). No `Nn` grep, no `Bug #n` grep, no
+commit-message check. Per CODER-CONVENTIONS §2 the coder had no scope to infer and correctly did not
+invent one. Sharper still: §6's **C6d** bullet (L1145-1155) tells the coder to keep the `N7` abstain prose
+at `analyzer_helpers.go:671`/`:682`/`:694` accurate — pointing straight at three of the tokens without
+saying to strip them. Following §6 as written perpetuates them.
+
+**Timing.** `gh pr list --head ta-anchor-dynamic-refresh` returns nothing ⇒ no GitHub PR ⇒ the §4
+commit-message reword window is open. If it is to happen, before C6c makes it a 9-commit rebase rather
+than 13. The reword/accept call is the planner's and Dean's, not mine; I flagged the window, not an outcome.
+
+**Correction to my own prior notes:** the `\((a|b)\)` grep-to-zero criterion is **not achievable as
+specified**. All 17 surviving hits are false positives — `math.Abs(a)`, `string(b)`, `c.getTarget(a)`,
+`cmp.Compare(b.Priority, a.Priority)`, and four ordinary English "(a)… (b)…" enumerations in unrelated
+files. C8 did its real job; the criterion needs rewording so a genuine hit isn't lost in the noise.
+
+**Also settles a divergence I was about to raise and did not need to:** the planner's `.HOLD` checklist
+lists `#1513` as a forbidden token, whereas I had recorded real GitHub numbers as legitimate. Moot —
+`grep -rn 1513 internal/ docs/` returns **zero**, and the plan itself cites `#1228` at L1173. Only
+plans-branch identifiers are in scope.
+
+**Stale-checklist note for when the `.HOLD` is armed:** that checklist predates the current plan — item 6
+says "**3** lock-step sites" where the plan now says **5** (L185, with (iv)/(v) added later), and it has
+**no C10 item at all**. Treat the plan as authoritative over it.
+
+**Verified:** every count above, by grep at `d9f3b97e` plus `git show 075a208e:<path>` per file; that §6
+contains no `Nn`/`Bug #n` grep; that all 17 `\((a|b)\)` hits are false positives (read each); that no
+GitHub PR exists. **Not verified:** that each token has a faithful prose replacement — per-site authoring,
+the coder's work.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
