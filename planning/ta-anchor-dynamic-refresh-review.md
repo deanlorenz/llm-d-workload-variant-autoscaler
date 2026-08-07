@@ -1011,7 +1011,9 @@ plans-branch token can land in merged history. Running total: **22 locations**, 
   decision).
 - Finding 7 — name C6a's binder-selection change + pin it with one fixture.
 - Findings 1–5 + C6a/C6b's new instances — §4a leaks, **22 locations**, unswept after 10 commits.
-  Still best handled as one sweep commit near the end.
+  Still best handled as one sweep commit near the end. **→ Superseded: see Finding 13** — a full-branch
+  re-grep found **32** code/doc locations plus all 9 commit messages, and the commit-message half is not
+  fixable by a sweep commit. Use Finding 13's inventory, not this count.
 - Finding 4 — open, owned by C6d (C6a's own comments now say so explicitly).
 - Plan §5's C3 dev-guide citation correction — planner-side, not blocking.
 - Finding 6 — closed (planner corrected plan §2e.3 in `62c37c46`); the C10 re-derivation check it
@@ -1279,5 +1281,90 @@ as fixing a live bug.
   the `liveCount > 0` floor both survive); if the key-miss vote is converted to an abstain, the
   `liveCount`-equivalent floor is added to the ballot too, so "every voter abstained" does not collapse
   to an unbounded removal; goldens re-run by me and unmoved.
+
+## §4a — full-branch inventory at C6b (supersedes the per-commit running totals)
+
+I re-ran the sweep across the whole branch instead of incrementally, and the total is materially higher
+than the running count in Findings 1/2/3/5. Recording it once, precisely, so the eventual cleanup has a
+worklist rather than a number.
+
+### Finding 13 (should-fix, supersedes the "22 locations" running total) — 32 code/doc locations plus **all nine** commit messages; the commit-message half cannot be fixed by a sweep commit, and the window to fix it cheaply is open right now
+
+**Code and docs — 32 locations, every one introduced by PR-2.** The same grep at the base
+(`075a208e`) returns **zero**: PR-1's own §4a strip was complete, so none of this is inherited and
+PR-1 sets the precedent that it is expected to be cleaned before push.
+
+| File | Locations |
+|---|---|
+| `internal/engines/pipeline/analyzer_helpers.go` | 119, 149, 214, 550†, 584, 671, 682, 694, 806 |
+| `internal/engines/pipeline/analyzer_helpers_test.go` | 153, 193, 339, 375, 376, 746, 777 |
+| `internal/engines/pipeline/rescale.go` | 49, 348, 539, 560 |
+| `internal/engines/pipeline/optimizer_dynamic_refresh_test.go` | 3, 14, 17 |
+| `internal/engines/pipeline/optimizer_liveness_test.go` | 3, 10, 75 |
+| `internal/engines/pipeline/optimizer_combine_characterization_test.go` | 42, 104 |
+| **`docs/developer-guide/multi-analyzer-pipeline.md`** | **338, 472** |
+| `internal/engines/pipeline/optimizer_interfaces.go` | 54 |
+| `internal/engines/pipeline/rescale_test.go` | 152 |
+
+The two dev-guide hits are the worst of the set — a shipped Type 4 doc is the most reader-visible
+surface on the branch, and `N7`/`N8` resolve to nothing for its audience.
+
+**† A distinct sub-class at `analyzer_helpers.go:550`:** *"The single-vote invariant … is upheld by not
+running this at all rather than running it to a no-op — see `combined-analyzer-optimizer-design.md`
+§ invariants #7."* That file is not in the repo (`git ls-files` confirms), so the pointer dangles for
+every reader of merged code. Introduced by C2 (`b106b929`). The prose before the pointer is
+self-sufficient — the fix is to delete the citation, not to replace it.
+
+**A second sub-class worth separating: `Bug #n` masquerades as a GitHub issue reference.** Eight of the
+32 (`analyzer_helpers.go:584`, `:806`, `analyzer_helpers_test.go:746`, `:777`, `rescale.go:49`, `:539`,
+`:560`, `rescale_test.go:152`) plus three commit subjects carry `Bug #1`/`Bug #2`/`Bug #3` — the plan
+§2 numbering. This is sharper than the `N7`-class leak: `N7` is merely opaque, whereas `Bug #2` looks
+like a tracker reference, so a reader follows it to an unrelated issue #2 and is actively misled. It
+also collides with the one form I confirmed earlier as *legitimate* — `#1513` in the golden's comment
+is a real GitHub PR number and should stay. Both shapes now sit in the same package, indistinguishable
+by form. Reword these to the behavior ("the anchor's uniform PRC", "raw units vs replica space").
+
+**Commit messages — all nine commits, and a sweep commit cannot touch them.** 6 of 9 subjects and 8 of
+9 bodies carry a token; no commit is clean:
+
+| Commit | Subject leak | Body leak |
+|---|---|---|
+| `680bebdb` | `(N2)` | `PR-1`, `PR-2` |
+| `b106b929` | — | `PR-1's Test 9` |
+| `50034d15` | `(Bug #2)` | `C4`, `Bug #1`, `C4's` |
+| `07b8fdb7` | `(Bug #1)` | `C3`, `Bug #2` |
+| `3c9d45bb` | `(Bug #3)` | `N3` |
+| `952d2fff` | — | `N8`, `N7` |
+| `1140a4c2` | — | `PR-1`, `C1-C7` |
+| `8eb6ee2d` | `(C6a)` | `C6b`, `C6d` |
+| `d9f3b97e` | `(C6b)` | — |
+
+My earlier advice — "one sweep commit near the end" — is right for the 32 code locations and **wrong
+for these**. Commit messages are only reachable by rewriting history (`rebase -i`, reword ×9). A tenth
+commit cannot retroactively clean the nine subjects that `git log --oneline` and the GitHub commit list
+will show permanently.
+
+**Why the timing matters, and why it favours acting now.** `origin/ta-anchor-dynamic-refresh@f6485980`
+is already orphaned by PR-1's own reword, so a force-push is required for this branch regardless of
+whether the messages are touched. Folding the reword into that unavoidable force-push costs nothing
+extra. The moment a GitHub PR is opened and reviewers begin commenting, the same reword becomes a
+history rewrite under review — which the project's "no rebase of live PR branches" rule exists to
+prevent. So this is cheapest strictly before the PR is opened, and it is PR-1's exact precedent (its
+F1/F3/F4 token strips rode the rebase it needed anyway).
+
+Neither half is a correctness defect and neither should block a commit. Routing note: the reword is a
+history rewrite on a pushed branch, so per convention it is the planner's force-push and needs Dean's
+explicit go-ahead — not something I ask the coder for directly.
+
+**Not PR-2's:** `docs/developer-guide/throughput-analyzer.md:698` cites
+`plans/planning/TA-Plan.md` / `TA-PR4-plan.md` — pre-existing on `main`, already tracked as a main-side
+§4a location in `governance-follow-ups.md`. The `docs/superpowers/` and `locator.go:4` pointers are
+**not** violations: they target in-repo paths, so they resolve for a reader of merged code.
+
+### Outstanding — §4a
+
+- 32 code/doc locations → one sweep commit, ideally folded into C9 (which already touches the dev-guide).
+- 9 commit messages → reword pass on the pre-PR force-push; planner-owned, needs Dean's go-ahead.
+- Re-run both greps after C6c, C6d, C10, C9 — the count has risen with every commit so far.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
