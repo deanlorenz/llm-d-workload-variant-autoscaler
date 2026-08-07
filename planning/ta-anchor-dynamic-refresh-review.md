@@ -1367,4 +1367,61 @@ explicit go-ahead — not something I ask the coder for directly.
 - 9 commit messages → reword pass on the pre-PR force-push; planner-owned, needs Dean's go-ahead.
 - Re-run both greps after C6c, C6d, C10, C9 — the count has risen with every commit so far.
 
+## Plan-doc hygiene (found while prepping the C9 checklist)
+
+### Finding 14 (should-fix, plan-side, acutely relevant to the commit in flight) — the plan's TOC line ranges are stale by +35 to +100 lines, and the plan's own Reading Protocol tells the coder to fetch by those ranges
+
+I went to read §4 (ship gate) at its TOC-listed `L781:845` and got the tail of §2e.3 plus all of §3.
+Checking every entry: the TOC is correct through §2 (L197), then drifts progressively.
+
+| Section | TOC says | Actually | Off by | Fetching the TOC range actually returns |
+|---|---|---|---|---|
+| §2d.5 Fair share (Bug #5) — currency | L534:556 | **L569:626** | +35 | §2d.4 (a)/(b)/(c) |
+| §2d.6 T1.4 — the existing Score test | L557:583 | **L627:653** | +70 | §2d.4's (c) + section footer |
+| §2e.3 Effect, churn, ordering | L685:745 | L755:815 | +70 | §2e.1/§2e.2 |
+| §3 Per-iteration dynamic refresh | L746:780 | L816:850 | +70 | §2e.3 |
+| **§4 Ship gate & tests** | L781:845 | **L851:922** | +70 | §2e.3 tail + §3 |
+| **§5 Dev-guide sections (per commit)** | L846:914 | **L923:1005** | +77 | §4 ship gate |
+| **§6 Semantic-pivot grep steps** | L915:973 | **L1006:1073** | +91 | §5 dev-guide text |
+| §7 Out of scope / deferred | L974:1024 | L1074:1124 | +100 | §6 greps |
+
+(§0/§1/§1.1/§2 are still exact; the drift begins at §2b, L258 → L293.) The TOC's last entry ends at
+L1024; the file is 1124 lines, so the final 100 lines are unreachable by the TOC.
+
+**Why this is more than cosmetic.** The plan opens with a Reading Protocol instructing agents to read the
+TOC and then *"fetch sections on demand (`Read <file> offset:<start> limit:<end−start+1>`)"*. Fetching by
+a stale range does not error — it silently returns a **different, plausible-looking section**. Three
+consequences are live right now:
+
+- **§2d.5 and §2d.6 are the spec for the work in flight.** The coder is on C6c, whose whole subject is
+  `fairShareValue` currency (§2d.5) and the T1.4 rewrite (§2d.6). Fetching §2d.5 by TOC returns §2d.4 —
+  the (a)/(b)/(c) findings — which *reads* like relevant fair-share material (it contains finding (b),
+  about `fairShareValue`!) but is not the currency spec and does not contain the T1.4 rewrite
+  instructions. This is the worst possible failure shape: wrong section, right topic.
+- **§6 is the semantic-pivot grep steps**, which CODER-CONVENTIONS §3 makes mandatory. Fetching L915:973
+  returns dev-guide prose with no greps in it. A conscientious coder concludes the plan omitted the grep
+  step and writes a handoff about the gap (a wasted cycle); a less careful one skips the grep.
+- **§5 is the per-commit dev-guide map**, which CONVENTIONS requires be specific enough to act on.
+  Fetching it returns §4's test requirements instead.
+
+**Fix is mechanical and already prescribed.** CONVENTIONS: *"Before handing any plan doc to a coder, run
+`bash plans/scripts/toc-refresh.sh <plan-file.md>` … Idempotent — run again after any structural edit."*
+The C10 fold-ins (through plan tip `62c37c46`) added content without a refresh. One command fixes all of
+it.
+
+**Not mine to run.** `ta-anchor-dynamic-refresh-plan.md` is a Type 3 plan — planner-owned. Per the
+pre-action gate this goes back as a handoff even though the fix is a single idempotent script and I can
+see exactly what it would do. Routed to the planner.
+
+**Self-check performed.** My own Findings 9–12 cite §2d.4/§2d.5/§2d.6, so I re-read §2d.4 at its *actual*
+L534:568 to confirm I had not quoted the wrong region. Finding 11's quote of (c) is verbatim-correct, and
+§2d.4's closing sentence — *"key present and `<= 0` ⇒ **veto**"* — is exactly the rule
+`needsScaleDownForRole` already implements PRC-independently, which is the substance of Finding 11. No
+correction needed to any prior finding.
+
+### Outstanding — plan hygiene
+
+- Finding 14 → planner: run `toc-refresh.sh` on the plan. Worth doing before the coder next fetches
+  §2d.5/§2d.6/§4/§5/§6 — i.e. ideally before C6c is finished.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
