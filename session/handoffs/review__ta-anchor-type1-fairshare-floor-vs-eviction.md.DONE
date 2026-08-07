@@ -1,0 +1,94 @@
+from: planner (ta-anchor-dynamic-refresh-plan.md)
+to: review
+session: type1-fairshare-floor-vs-eviction
+
+# Type 1 `W5` row 6: the floored fair-share entitlement is a termination, not a smaller grant
+
+The frozen Type 1 mandates flooring **both** terms of the per-iteration fair-share cap. The
+landed code implements `ceil` on the first term and `floor` on the second, deliberately and with
+the reason in its own commit message. This is a Type-1-vs-code disagreement in a `Status: FINAL`
+doc, so it is the Type 1 owner's, not the planner's and not the coder's. Dean routed it here
+(2026-08-07): *"If you found a problem in your type 1 then handoff to your own plan reviewer. It
+own it."*
+
+The code has shipped as `ceil` (commit `34b18bc5` on `ta-anchor-dynamic-refresh`, C6c). Nothing
+is blocked on this — but until it resolves, the Type 3 cannot be made consistent with both the
+Type 1 and the branch, so I am holding ~15 Type-3 sites knowingly stale (list at the end).
+
+## What the Type 1 mandates
+
+- `:41-42` — `W5`: "whole-replica **`floor` fill**, not `ceil`-of-a-division"
+- `:1159-1160` — writes both terms explicitly:
+  `fairShareCap = floor(remaining_GPUs / GPUsPerReplica[vc])`, then
+  `capN = min(fairShareCap, gpusAvail / GPUsPerReplica[vc])`
+- `:1987` and unit-table row 6 at `:2481` — "whole-replica **fill** of the remaining GPU
+  budget… Not a divide-and-round"
+
+Because `:1159-1160` spells out both terms in adjacent lines, this is not an ambiguity the coder
+misread. The floor on the entitlement is a decision the Type 1 made twice.
+
+## The caller semantics the Type 1 does not model
+
+In `internal/engines/pipeline/greedy_score_optimizer.go`:
+
+- `:330-333` — `target := w.remaining - mean; if target <= 0 { return false }`, so whenever
+  allocation proceeds, `target > 0`.
+- `:504` — `capN := min(replicasToCover(target, gpusPR), gpusAvail/gpusPR)`.
+- `:516` — `capN == 0` returns `("", 0)`.
+- `:429` — `allocateForModel` ends `return w.remaining < oldRemaining`, so no grant ⇒ `false`.
+- `:301-302` — `if !allocated { w.remaining = -1; continue }`.
+- `filterActive` keeps only `remaining > 0`.
+
+`remaining = -1` is permanent for the cycle: the model leaves `active` with **zero replicas** and
+is never revisited as the mean falls. So on the entitlement term, `floor` does not grant one fewer
+replica — it evicts. Under `ceil`, `target > 0` guaranteed `capN >= 1`, so every iteration made
+progress.
+
+The coder measured the consequence before backing it out: **9 of 334 tests** failing, deltas up
+to **−4 replicas**, including one under an *unconstrained* budget, and at least one model
+collapsing to 1. The plan's own stop condition for C6c was "one replica at a mid-replica
+boundary," so refusing to touch a golden and handing back was correct.
+
+## The Type 1 argues the other side too
+
+`:1281` and again `:2260`: *"the **pool** is enforced, the **fair share** is not."* That is
+exactly the reading under which the entitlement term should round up — the pool term
+`gpusAvail/gpusPR` is integer division on the real pool and is the only term that can prevent
+overcommit. The Type 1's own separating rule (*round up when asking how many replicas a demand
+needs, round down when asking how many replicas a budget can afford*) turns on whether the
+entitlement is a budget or a gap; row 6 calls it a budget, `:1281`/`:2260` treat it as
+non-binding.
+
+## Two things worth having before deciding
+
+1. **"`capN == 0` means defer, not evict" is a non-termination hazard, not just a different
+   termination argument.** `fairShareScaleUp` is a bare `for {}` (`:263`) whose only exits are
+   `len(active) == 0` and `totalGPUs == 0`. The only thing that empties `active` is
+   `remaining = -1`. A model that defers consumes nothing, so `totalGPUs` never moves either.
+   With one such model active, `mean == remaining` so the `remaining > mean` reset at `:308-311`
+   does not fire. That is an infinite loop, and it needs a new exit invariant rather than a
+   commit.
+2. **`ceil` overshoots the water level by at most one replica**, bounded by largest-remaining-first
+   ordering plus the `remaining > mean ⇒ -1` reset. This is today's behavior, unchanged since
+   before PR-2.
+
+## What is in the code now
+
+`:498-504` carries the asymmetry and its reason in a comment, and `34b18bc5`'s message states it
+in prose ("The entitlement is the first question… The pool is the second question, and those GPUs
+either exist or they do not"). So the fork is documented at the point of divergence — it is not a
+silent deviation.
+
+## Planner's reading
+
+Restore `ceil` on the entitlement term and amend the Type 1, keeping `floor` on the pool term.
+The Type 1's row 6 reasons about the cap in isolation and never accounts for
+`!allocated ⇒ remaining = -1`; `:1281`/`:2260` already state the principle that makes the
+asymmetry correct.
+
+## Type-3 sites I am holding until this resolves
+
+`:258-268`, `:317`, `:327`, `:433-470`, `:510`, `:951` (unit-table row 6), `:1012`, `:1036-1041`,
+`:1437`, `:1509-1514`, `:1622-1627`, `:1741-1745`, `:2033-2038` (the §6 grep and its
+"replaced by the whole-replica `floor` fill" criterion), `:2187-2190`, `:2253`. Whichever way
+this goes, all of them move together; I will not edit them piecemeal.

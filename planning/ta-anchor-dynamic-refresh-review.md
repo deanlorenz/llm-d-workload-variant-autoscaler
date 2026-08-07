@@ -1,8 +1,8 @@
 # ta-anchor-dynamic-refresh (PR-2) — Internal Review
 
-**Type:** 6 (review) · **Status:** DRAFT (partial — C1–C5, C7, C8, C6a, C6b reviewed; C6c, C6d, C10,
-C9 not yet landed) · **Branch:** `ta-anchor-dynamic-refresh`, tip `d9f3b97e` (base
-`ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
+**Type:** 6 (review) · **Status:** DRAFT (partial — C1–C5, C7, C8, C6a, C6b, C6c, C6d reviewed;
+C6e, C6f, C11, C10, C9 not yet landed) · **Branch:** `ta-anchor-dynamic-refresh`, tip `330fcd26`
+(base `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
 [`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) **at plan revision
 `1a116e7a`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
 grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-07 (rolling).
@@ -27,14 +27,15 @@ reviewer scope** and were handed to the planner in
 
 Dean authorized a partial review after C1 landed, extended commit-by-commit as the stack progresses
 (reviewer owns this file). Sections below are in **landing order**, which is the plan's git order
-`C1–C5 → C7 → C8 → C6a–C6d → C10 → C9` — the C-labels are stable identifiers, not a sequence.
+`C1–C5 → C7 → C8 → C6a–C6b → C6c → C6d → C6e → C6f → C11 → C10 → C9` — the C-labels are stable
+identifiers, not a sequence.
 
 Reviewed so far: C1 `680bebdb`, C2 `b106b929`, C3 `50034d15`, C4 `07b8fdb7`, C5 `3c9d45bb`,
-C7 `952d2fff`, C8 `1140a4c2`, C6a `8eb6ee2d`, C6b `d9f3b97e`. Still to come: C6c (fair share —
-highest-risk commit on the branch), C6d (role-level veto; owns Finding 4), C10 (`resolveKSat`),
-C9 (dev-guide + goldens endgame). Each commit is diffed against **PR-1's tip `075a208e`**, not
-`main`, and every gate is re-run by me on a clean `git archive` extract rather than taken from the
-coder's report.
+C7 `952d2fff`, C8 `1140a4c2`, C6a `8eb6ee2d`, C6b `d9f3b97e`, C6c `34b18bc5`, C6d `330fcd26`.
+Still to come: C6e (`W1` fair-share double-spend), C6f (`W4` abstain-when-unpriced), C11
+(`FZ-admission`), C10 (`resolveKSat`), C9 (dev-guide + goldens endgame). Each commit is diffed against
+**PR-1's tip `075a208e`**, not `main`, and every gate is re-run by me on a clean `git archive` extract
+rather than taken from the coder's report.
 
 Three **pre-emptive** sections review the *plan spec* for commits that have not been written yet
 (C10 → Finding 6, C6c → Findings 9/10, C6d → Findings 11/12). Each states the checklist I will hold
@@ -3006,5 +3007,317 @@ the fork to a planner with better evidence than I could add (a measured 9-failur
 reproduce without editing code, which is outside my scope). A second overlapping handoff is the churn
 this review has been documenting. Findings 23 and the three plan defects ride the same fork resolution
 and need no separate channel. What I owe Dean directly is unchanged and listed in Finding 13's window.
+
+[↑ TOC](#toc)
+
+## C6d review (`330fcd26`) — the fix is better than the one I pre-measured; the ballot underneath it is still non-compliant
+
+`330fcd26` "pipeline: re-check the role veto per variant; shed by coverage/GPU (C6d)" — 5 files,
++507/−61 (`analyzer_helpers.go` +152/−, `cost_aware_optimizer.go` +56/−, `cost_aware_optimizer_test.go`
++270, dev-guide +84, `rescale.go` +6). Tree clean at the C6d tip. Gates re-run by me, not taken from
+the coder's report: `go build ./...` clean, `gofmt -l` clean, `go test ./internal/engines/pipeline/...
+-count=1` → `ok 0.046s`. **Neither golden file is touched** (grep count 0) — correct, and § *Golden
+coverage* below establishes that the goldens *structurally cannot* cover the key this commit changes.
+
+### The dominance arithmetic — verified independently, because it decides whether the fix design is right
+
+The whole C6d design rests on one claim: a veto cannot be expressed as a synthetic `0` vote, because
+`combineVotes` does not treat a `0` as absolute. I re-derived the tail rather than accept it:
+
+```
+correction += (e − vt.Value) · excess     for excess = vt.Score − votes[b].Score > 0
+return e − correction/sumScore
+```
+
+A `0` vote binds (`e = 0`, `correction = 0`) **only when nothing outscores it**. Any higher-scored
+voter contributes a negative correction term and lifts the result back above zero. So a `0` vote is
+absolute exactly in the *uniform-score* case — which is the shipped configuration, since `voteScore`
+returns `1.0` for every entry with `Score <= 0`. The coder's refusal to encode the veto as a synthetic
+zero vote is **arithmetically correct, not a rationalization**: under any non-uniform score assignment
+the veto would silently evaporate. The chosen mechanism — a pre-combine predicate `roleSpareVetoed`
+consulted *before* the ballot runs — is score-blind and PRC-blind, so it cannot be diluted.
+
+### Finding 24 (no defect — credit, and a correction to my own pre-measurement)
+
+My C6d pre-measurement predicted the defect line was `votesFromRoleSpare`'s `prc <= 0` skip, and the
+fix would be to that skip. **That prediction was wrong, and the coder's fix is strictly better.** Two
+paths reach the same wrong outcome:
+
+| path | objector's fate under a ballot-level fix | under the pre-combine predicate |
+|---|---|---|
+| objector cannot *price* variant `v` (`prc <= 0` → skipped) | still skipped; veto still lost | caught — predicate never looks at PRC |
+| objector *is* priced but is outscored | vote cast, then diluted by dominance | caught — predicate runs before the combine |
+
+Fixing the skip covers the first path only, and covers it by *forcing a vote at a PRC the objector
+does not have* — which is the mixed-unit defect the rest of PR-2 exists to remove. The pre-combine
+predicate covers both cleanly. The refactor sharing it with `needsScaleDownForRole` is
+behavior-preserving: both old and new return true iff some live keyed entry has `spare <= 0`, and both
+return false when `liveCount == 0`. I checked that equivalence directly rather than inferring it from
+the tests passing.
+
+**Also to the coder's credit:** the `applyDeallocationForRole` key-presence guard is a latent bug they
+*found*, not one the plan named. The plan's §2d.5 site list does not include it. Their handoff
+classifies it correctly. This is the second time in PR-2 that the coder has surfaced a real defect
+outside the plan's inventory (Finding 20's site (ii) was the first), and both times the plan was the
+thing that was incomplete.
+
+### Finding 25 (should-fix — safe today for a structural reason, not by design) — `votesFromRoleSpare` still materializes a missing role key as a `0` vote, which is N7's *veto* value
+
+C6d fixed the veto predicate and `applyDeallocationForRole`, but left the ballot itself
+non-compliant. The asymmetry is visible in one file:
+
+```go
+// roleSpareVetoed — correct: presence-checked
+if spare, ok := e.RoleSpare[role]; ok && spare <= 0 { return true }
+
+// votesFromRoleSpare — bare index: a MISSING key reads 0.0 and casts a 0 vote
+out = append(out, replicaVote{Index: i, Value: e.RoleSpare[role] / prc, Score: voteScore(e)})
+```
+
+N7 defines a missing role key as **abstain** and a present `<= 0` as **veto**. The bare index collapses
+the first into the second. The entry should be skipped, exactly as the `e.Result == nil` and
+`prc <= 0` cases above it are.
+
+**Why it is safe today, and the invariant to watch.** I traced reachability rather than assume it.
+`initRoleState` populates `RoleSpare[role]` for every role in `e.Result.RoleCapacities`, or
+`RoleSpare[both] = e.Spare` for the non-disaggregated shape. So a missing key requires an analyzer
+whose reported role set diverges from the role being ordered. That can arise from PR-1's Finding 12
+(`throughput/analyzer.go:409-413` sets no `Role` on the scale-from-zero branch, and
+`aggregateRoleCapacities` derives its keys from exactly that field) — but the shapes that produce a
+missing role key also leave that role with **no anchor variants to shed**, so it self-cancels. The
+coder's "safe today" holds, for a stronger and more structural reason than they gave.
+
+The invariant to watch — worth stating in C9's dev-guide text, not just here — is: *an analyzer's
+`RoleSpare` key set must not diverge from the role set of the variants it prices.* Anything that
+breaks that (a per-role analyzer gaining a role it cannot price, or Finding 12 being fixed in a way
+that adds role keys without adding capacities) makes this reachable, and it fails **toward
+over-removal**: the missing key becomes a vote of `0`, and under uniform scores a `0` binds.
+
+An earlier draft of this finding nearly went out claiming TA never decomposes per-role at all — which
+would have made the mission's own `[sat,TA]` P/D target configuration a live functional hole. It came
+from a grep at the wrong path (`internal/analyzers/…`, where the tree is
+`internal/engines/analyzers/…`). `throughput/analyzer.go:481` does decompose via
+`aggregateRoleCapacities`. Corrected before it entered this doc; recording the near-miss because the
+same wrong path could mislead the next reader.
+
+### Finding 26 (should-fix, test-only) — fixture 3 is green only on an inherited score spread, and names a property that is false under shipped configuration
+
+`cost_aware_optimizer_test.go` fixture 3, *"still lets removal proceed when the role key is missing
+(N7 abstain)"*, sets `abstainer` Score 1 / `RoleSpare{"prefill": 1234}` and `trusted` Score 3 /
+`RoleSpare{both: 1000}`. Ordering role `both`:
+
+- `roleSpareVetoed(s, "both")` → abstainer's `both` key absent (`ok` false, no veto); trusted's
+  `1000 > 0` (no veto). Proceeds to the ballot.
+- `votesFromRoleSpare` → abstainer casts `0/500 = 0` (Finding 25's bare index); trusted casts
+  `1000/100 = 10`.
+- `combineVotes` down: `b` = abstainer, `e = 0`; `excess = 3 − 1 = 2`; `correction = (0−10)·2 = −20`;
+  `sumScore = 4`; result `0 − (−20/4) = 5 > 0` → removal proceeds. Assertion passes.
+
+Normalize both Scores to `1` — the shipped default — and `excess = 0`, `correction = 0`, result `= 0`,
+which is **not** `> 0`: removal does not proceed and the fixture goes red. So the fixture passes on a
+3:1 spread inherited from fixture 2, and the property in its name does not hold in production
+configuration. It is currently encoding Finding 25's defective behavior as though it were the intended
+contract. Two clean resolutions, both cheap: fix Finding 25 (then the abstainer is skipped, one live
+voter remains, and the fixture is green at uniform scores for the right reason), or keep the fixture as
+a deliberate red-on-normalization canary with the score spread named in the test body as load-bearing.
+Silently leaving it is the option to avoid.
+
+### Row 7 conformance, and golden coverage — the coder's conclusion is right, the stated reason is not
+
+`coveragePerGPU` implements plan row 7 verbatim: `max_i` of `prc / float64(gpusPR)` (not `Σ_i`),
+skipping `prc <= 0`, `best` initialized `0.0`; comparator Cost-desc → coveragePerGPU-asc → name-asc.
+Dimensionless, comparator-only, never spent. Matches the Type 1 blockquote and §2d.5 row 7.
+
+The coder justifies the untouched goldens with *"no golden has an exact Cost tie."* **That is false at
+file scope** — B1 has `prefill-v` and `decode-v` both at `Cost: 5.0`. The conclusion survives for a
+different and more robust reason, which I established per-scenario:
+
+| golden | 2+ variants in one role bucket on the scale-down path? | Cost values | row-7 key consulted? |
+|---|---|---|---|
+| smoke, A2, C1 | no (single variant) | — | no |
+| A3 | yes (`v1`, `v2`) | 5.0 vs 15.0 | no — Cost-desc resolves |
+| B2 prefill | yes (`cheap-p`, `expensive-p`) | 5.0 vs 15.0 | no — Cost-desc resolves |
+| B2 decode | no (`decode-v` alone) | — | no |
+| B1 | genuine 5.0 tie, but `Role: prefill` vs `Role: decode` → **different buckets** | 5.0 = 5.0 | no |
+
+So the row-7 tie-break key is **unreachable in all eight golden scenarios**: wherever a bucket holds
+two variants, Cost differs and the primary key decides. That is why none moved — not luck, and not the
+absence of a tie. The distinction matters for maintenance: under the coder's stated reason, adding a
+second decode variant at `Cost: 5.0` would still read as "no tie exists" while quietly making the key
+live.
+
+**Two of my own measurements were wrong here and are corrected on the record.** (1) I earlier recorded
+`Role:` as appearing **0** times in the sat-only golden and reasoned that all variants therefore share
+one bucket; the true count is **14** (the 0 belongs to `optimizer_combine_characterization_test.go`, a
+different file). (2) I then inferred from a `10/3` ↔ `10/3` count match that cost-tied variants share
+`GPUsPerReplica`; joining the two structs by `VariantName` shows `Cost: 5.0` spans `GPUsPerReplica`
+{1, 2}, so that inference was a coincidence of counts. Both errors pointed at the same right answer by
+luck, which is why I re-derived it per scenario.
+
+**The goldens' blindness is answered properly by this commit.** Fixtures 5–8 give the row-7 key direct
+*discriminating* coverage — each flips under the old `Σ_i Score_i · PRC_i` key:
+
+| fixture | new key → order | old weighted-sum key → order |
+|---|---|---|
+| 5 "coverage per GPU, not raw capacity" | a 100/1, b 200/4=50 → `[b,a]` | a 180, b 350 → `[a,b]` |
+| 6 "maximum, not a sum" | a max 100, b max 150 → `[a,b]` | a 200, b 160 → `[b,a]` |
+| 7 "ignores Score" | a 100, b 150 → `[a,b]` | a 1010, b 115 → `[b,a]` |
+| 8 end-to-end shed order | larger-replica variant first | — |
+
+This is the same shape as invariant 8's reasoning (a one-analyzer ballot is an algebraic pass-through,
+so goldens cannot cover combine arithmetic and direct tests must): a key the characterization suite
+cannot reach needs unit coverage, and it now has four fixtures of it, each proven red against the
+superseded key.
+
+### Two smaller items
+
+**`sortVariantsForScaleDown` is not Live-gated.** The new loop checks `e.Result == nil` but not
+`e.Live`, so a dead analyzer's PRCs still contribute to `max_i`. Pre-existing shape, not introduced
+here, and **ordering-only** — it can reorder shed candidates but cannot over-remove, because every
+quantity that *sizes* a removal goes through the Live-gated ballot. Recording it as a C9/VG-up
+adjacency rather than a C6d defect: if the combine-liveness hardening touches
+`Enabled && Live` consistency, this is the one remaining un-gated read of `Result` on the scale-down
+path.
+
+**Dev-guide region overlap — checked, no conflict.** My C6c checklist flagged that both commits touch
+`docs/developer-guide/multi-analyzer-pipeline.md`. C6c: +45/−14. C6d: +84, hunks at `@@ -285`,
+`@@ -338,12 +343,18` and `@@ -594,21 +605,58` — the shifted offsets confirm they are sequential edits
+to the same two regions (`## How results combine`, `### Scale-down path`), not divergent ones. For
+C9's endgame the note is that this file has now been rewritten in the same two regions by two commits,
+so the final consistency pass should read those regions whole rather than diffing the last commit.
+
+### §4a — C6d is the tenth leaking commit, and the first to add tokens to *production* comments
+
+Measured precisely rather than by counting `+` lines: `N7` in `analyzer_helpers.go` goes **3 → 7**
+(four new). Every prior leak in PR-2 was in a commit message or a test description; C6d puts
+plans-branch identifiers into shipped production doc-comments, where a reader of merged code has no
+way to resolve them. Findings 13 and 19's tally moves from nine commits to **ten**, and Finding 13's
+reword window now covers ten messages. The four new production tokens are C9-fixable prose (`N7` →
+"a missing role key means the analyzer abstains on that role; a present non-positive balance is a
+veto"), and they are additional to the 32 code/doc locations already inventoried.
+
+### Finding 4 — CLOSED by this commit
+
+Finding 4 (raised pre-emptively against the plan's §2d.5 finding-(c) spec) asked whether the role-level
+veto would be re-checked per variant rather than once per role. It is: `roleSpareVetoed` is consulted
+inside `safeRemovalReplicasForRole`, per variant, before the combine. Closed on the code, not on the
+plan.
+
+**No handoff from me on C6d.** Findings 25 and 26 are code-side and belong to the coder's own next
+pass; the coder's `plan__ta-anchor-c6d-veto-and-row7-findings.md.WIP` already carries the open
+collector hole to a planner, and Finding 25 is the same defect with the reachability argument attached
+— a second channel would duplicate it. Finding 26 is a test-only nit inside the coder's write scope.
+Finding 24's credit needs no channel. What I owe Dean directly is listed in Finding 13's window, now
+at ten commits.
+
+[↑ TOC](#toc)
+
+## Type-1 adjudications routed to me (two `review__` handoffs, 2026-08-07)
+
+The planner routed two defects in the **frozen** Type 1 (`combined-analyzer-optimizer-design.md`,
+FINAL @ `8c2a9b04`) to me for a verdict, on Dean's instruction *"If you found a problem in your type 1
+then handoff to your own plan reviewer. It own it."* Both handoffs are correctly formatted (`from:` /
+`to:` / `session:` + prose, addressed to `review`), both marked `.WIP` by me.
+
+**Scope note, stated because it constrains the deliverable.** A Type 1 is not in my write scope — the
+role table gives the review agent Type 6 docs and handoffs only, and Type 1 is a *read* for every role
+here. So what I own is the **verdict**, recorded below; the amendment itself belongs to whoever owns
+the frozen doc. I am not editing `combined-analyzer-optimizer-design.md`, and Dean's relayed
+instruction (reaching me second-hand inside a trigger) does not change that boundary.
+
+### Adjudication 1 — `fairShareCap` `ceil` vs `floor` (my Finding 22): the frozen mandate should be **amended**, and there is a third option nobody has named
+
+The Type 1 mandates, at `:1159-1160`:
+
+```
+fairShareCap = floor( remaining_GPUs / GPUsPerReplica[vc] )     // whole-replica fill
+capN         = min( fairShareCap, gpusAvail / GPUsPerReplica[vc] )
+```
+
+and simultaneously argues the other side at `:1281` and `:2260` — *"the **pool** is enforced, the
+**fair share** is [not]"*. Both verified verbatim. That is the internal tension, and it is what makes
+this an amendment question rather than a compliance question.
+
+**The planner's non-termination proof is correct, and I verified it independently.** `fairShareScaleUp`
+is a bare `for {}` at `:210` whose only exits are `len(active) == 0` and `totalGPUs == 0`. Under the
+coder's option (b) — "`capN == 0` means defer, not evict" — a model with a sub-one-replica entitlement
+grants nothing, so `allocated` stays false, the `w.remaining = -1` eviction is skipped, `totalGPUs`
+never moves, and the model stays active forever. With exactly one such model active, `mean == remaining`
+so the `remaining > mean` reset at `:255` does not fire either, and `len(active) == 1` forces
+`allocationMean = 0` so `target = remaining > 0` re-enters the same path. **Infinite loop, confirmed.**
+Option (b) is therefore not a drop-in; it needs a new termination invariant.
+
+**Option (c), which neither the coder nor the planner named, and which I recommend considering first:**
+
+```
+fairShareCap = max( 1, floor( remaining_GPUs / GPUsPerReplica[vc] ) )
+capN         = min( fairShareCap, gpusAvail / GPUsPerReplica[vc] )
+```
+
+| entitlement | today (`ceil`) | frozen T1 (`floor`) | option (c) |
+|---|---|---|---|
+| 0.4 replicas | 1 | **0 → evicts the model** | 1 |
+| 2.4 replicas | 3 (over-grants) | 2 | **2** |
+| 3.0 replicas | 3 | 3 | 3 |
+
+Option (c) satisfies the Type 1's *stated intent* — no over-grant above one replica, "a partial replica
+is not affordable" — while eliminating both the eviction and the non-termination hazard, because a
+grant of ≥ 1 always happens when the pool allows, so `allocated` becomes true and the loop makes
+progress. Termination is preserved exactly as today: the picker still returns `("", 0)` when every
+variant is unpriceable, pool-starved, or at `MaxReplicas` headroom, which still yields the
+`remaining = -1` exit. The pool remains enforced by the unchanged `min`.
+
+**Verdict.** The frozen `:1159-1160` mandate as written is defective — not because `floor` is the wrong
+rounding, but because `floor` alone silently repurposes a *sizing* result as an *eviction* signal, and
+the loop's contract cannot absorb that. `gpusAvail/gpusPR` already floors against the real pool, so the
+pool term alone prevents overcommit; the mandate treats a water-level gap as a spendable budget, which
+is the same category error the `:1281`/`:2260` passages warn against. Ranked recommendation:
+
+1. **Option (c)** — amend `:1159-1160` to the `max(1, floor(…))` form. Honors the intent, bounded
+   ≤ 1-replica-per-grant behavior change, no eviction, no new invariant.
+2. **Restore `ceil` + amend the Type 1** (the planner's recommendation) — zero behavior change, zero
+   risk, but leaves the over-grant the Type 1 wanted removed.
+3. **Option (b)** — only with an explicit new termination invariant. Not a drop-in.
+
+I have **not measured** option (c) and cannot: it requires editing code, which is outside my scope. It
+would move some of the coder's 9 measured failures (any asserting `ceil(x)` for non-integer `x > 1`)
+but **not** the `bv 6→2` collapse, which was eviction. That measurement is the coder's, and it is the
+one piece of evidence needed before choosing. **This remains Dean's call** — I am supplying a third
+option and a defect verdict, not resolving the fork.
+
+### Adjudication 2 — row 7's internal contradiction: I concur with the planner, and the strike must be narrower than either of us first said
+
+The Type 1 specifies the scale-down tie-break twice, four lines apart, selecting **different
+analyzers**: `:1176-1179` says tie-break on the *binder's* PRC, while the `:1181-1186` blockquote and
+row 7 at `:2482` say dimensionless coverage per GPU combined with `max_i`. The coder implemented the
+blockquote. **Verified: the coder resolved it correctly**, and `coveragePerGPU` matches the blockquote
+verbatim.
+
+**My independent corroboration** that the blockquote is the intended survivor: the binder's-PRC reading
+is not implementable without giving `sortVariantsForScaleDown` the role *and* a ballot to run — and the
+Type 1's own parenthetical concedes exactly this, *"(which requires the function to learn which role it
+is ordering)"*. C6d instead threads only `stateMap` for `GPUsPerReplica`. The superseded reading
+carries its own admission of the cost that makes it the loser.
+
+**Where I refine the planner's warning.** The planner flagged that **one** clause of the superseded
+sentence is still live. It is **two**, and both are implemented — so a wholesale strike of `:1176-1179`
+would silently drop two satisfied requirements:
+
+| clause | status | implemented as |
+|---|---|---|
+| "tie-break on the *binder's* PRC (which requires the function to learn which role it is ordering)" | **superseded** — strike this only | — |
+| "name-ascending as the final key" | **live** | comparator's third key |
+| "give a variant with no scale-down ballot at all the same key today's weighted sum yields … so that edge does not move" | **live** | `best` initialized `0.0`; old Σ over an empty set was also 0 |
+
+**Verdict.** Surgical strike of the mechanism clause only; keep both trailing requirements, ideally
+re-homed into the blockquote so the sentence's survivors are not orphaned when the mechanism goes. No
+code change, no Type-3 change — the planner's handoff explicitly requests no Type-3 action from me and
+I am taking none.
+
+**One claim in that handoff I cannot let stand as reasoning**, though its conclusion is right: *"no
+#1513 golden has an exact Cost tie and none moved."* B1 has a genuine `Cost: 5.0` tie
+(`prefill-v`/`decode-v`); it is split across role buckets. The robust reason is the per-scenario table
+in § *Golden coverage* above — the row-7 key is unreachable in all eight scenarios because Cost-desc
+resolves first in every multi-variant bucket. Same conclusion, different and durable reason.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)

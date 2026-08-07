@@ -1,0 +1,57 @@
+from: planner (ta-anchor-dynamic-refresh-plan.md)
+to: review
+session: type1-row7-contradiction
+
+# Type 1 §2 #5 (iii): two incompatible specifications of unit-table row 7, four lines apart
+
+`combined-analyzer-optimizer-design.md` specifies the scale-down tie-break
+(`sortVariantsForScaleDown`, bug #5 site (iii), unit-table row 7) twice in the same bullet, and the
+two specifications select different analyzers. Routed here per Dean (2026-08-07) — the Type 1 is
+`Status: FINAL` and the reviewer owns it.
+
+| where | says |
+|---|---|
+| `:1177-1179` | "Fix: tie-break on the ***binder's*** PRC (which requires the function to learn which role it is ordering), name-ascending as the final key, and give a variant with no scale-down ballot at all the same key today's weighted sum yields for that input, so that edge does not move." |
+| `:1181-1186` (blockquote, 4 lines later) | "The unit of this key is **dimensionless — coverage per GPU freed**… it must combine across analyzers with **`max_i`, not `Σ_i`**" |
+| `:2482` (unit table row 7) | "**none — coverage per GPU freed**; dimensionless ratio; `max_i`, not `Σ_i`." |
+
+## Why these are not two wordings of one rule
+
+For `up=false`, `combineVotes`' binder is the entry with the **minimum** `spare/prc`
+(`analyzer_helpers.go:369-380`). That coincides with the maximum-PRC entry only when every voter's
+spare happens to be equal. And the "binder's PRC" formulation never mentions the
+`GPUsPerReplica` division that row 7's *per GPU freed* unit requires — without it the key is a raw
+PRC and is not dimensionless at all.
+
+So `:1177-1179` and `:1181-1186`/`:2482` are different keys, not different phrasings.
+
+## What the coder did, and why it was right
+
+It resolved by the documented precedence (Type 1 governs; the Type 3's §2d.5 tie-break rule points
+the same way) and implemented the blockquote: `maxᵢ PRC_i[v] ÷ GPUsPerReplica[v]` ascending, then
+name ascending, Score absent. Landed in `330fcd26` (C6d) at
+`cost_aware_optimizer.go:183-217`. It matches `:1181-1186` and row 7 at `:2482`.
+
+## One clause of `:1177-1179` is still live and should survive any strike
+
+The third clause — *"give a variant with no scale-down ballot at all the same key today's
+weighted sum yields for that input, so that edge does not move"* — **is honored** by the
+implementation and is not stale: `coveragePerGPU` initializes `best = 0.0`
+(`cost_aware_optimizer.go:188-204`), which is what the old empty weighted sum also produced, so a
+variant nothing can price keeps its key. Only the *mechanism* clause ("the binder's PRC", and the
+parenthetical about learning the role) is contradicted. Striking the sentence wholesale would drop
+a requirement the code satisfies.
+
+## Downstream, for information only — mine, already scoped
+
+Three copies of the stale half live in `ta-anchor-dynamic-refresh-plan.md` (`:482`, `:1013`,
+`:1721`); `:1721` additionally carries a wrong commit label (C6c, while §0's own row at `:283`
+says C6d). Those are Type-3 defects, I own them, and they are queued in my next edit batch. This
+handoff is only about the Type 1's own internal contradiction — no Type-3 action is being
+requested of the reviewer.
+
+Also downstream and mine: `:1013`'s "exactly identical" claim for the `[sat]`-only case is now
+conditional — with one analyzer the old key is `1.0 × PRC_sat[v]` and the new one is
+`PRC_sat[v] / GPUsPerReplica[v]`, so ascending order differs whenever a role's cost-tied variants
+do not share `GPUsPerReplica`. No #1513 golden has an exact `Cost` tie and none moved, so the
+goldens signal is unaffected; the table wording is what needs the qualifier.
