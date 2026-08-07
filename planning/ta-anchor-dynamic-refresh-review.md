@@ -3343,6 +3343,48 @@ record before the code exists, in the same shape as the C6d pre-measurement.
 Same shape as Finding 25's bare-index defect, in a different file. Worth noting as a pattern: a
 missing key silently becoming a meaningful `0` has now produced two separate findings on this branch.
 
+### Amendment (same day, after reading the plan's C6e/C11 sections)
+
+Two things below are **stronger than first recorded**, and one correction to my own framing.
+
+**(1) The frozen Type 1 does not merely omit the premise — it states both halves of the
+contradiction, and never connects them.** `combined-analyzer-optimizer-design.md:1334` is the `N5`
+row:
+
+> Saturation reports `Cost = 0` for a zero-replica variant; the (a) identity merge propagates it to
+> **all three configs**, and `costEfficiency = Cost / PRC = 0` then **ranks that variant cheapest**.
+
+`:1530-1532` then asserts, of the same population, that it *"ranks **behind** every measured
+option."* Same doc, ~200 lines apart, opposite conclusions. So my "one unstated premise" framing
+above is **too generous**: the premise is stated, in a table the reader passes on the way to the
+claim. The defect is an unreconciled internal contradiction in a **frozen** document, which is a
+different and more serious class than a missing caveat. The refinement in the next section still
+stands on the arithmetic; only my characterization of the doc's failure mode changes.
+
+**(2) The rejection rationale for the alternative is void by the same fact.** Type 1 `:1544-1545`,
+transcribed to Type 3 `:1315-1316`, rejects the self-clamping `PRC = TotalDemand` seed because *"it
+makes the never-seen variant rank **best** precisely when scale-up is needed."* With `Cost = 0`,
+`PRC = 1` **also** ranks it best. The stated ground therefore does not distinguish the chosen
+mechanism from the rejected one.
+
+The decision still stands — but on the cap and the one-bite-then-measure intent, not on this
+comparison. Left as-is, the doc reads *"we rejected X because it does exactly what our choice
+does,"* which is the kind of thing a reviewer of the eventual PR will find.
+
+**(3) The Type 3 carries the claim in FOUR places, not the two the handoff names.** It cites `:288`
+and `:1324`. Also live:
+
+| Site | Text | Why it matters |
+|---|---|---|
+| `:288` | *"ranking (it sorts **behind** every measured option)"* | named in the handoff |
+| `:1324` | §2f ranking row, marked ✅ | named in the handoff |
+| **`:1608-1612`** | C11 assertion 4 in full: *"must rank **behind** every measured option: when a measured variant is feasible, assert it is the one chosen"* | **the operative one** — this is the text a coder writing C11 reads to build the spec |
+| **`:2199-2200`** | *"a sentinel variant prices at raw cost and sorts behind every measured option"* | load-bearing for the §2.4-retirement argument |
+
+`:1608-1612` is the one that actually costs something if missed: edit only `:288` and `:1324` and the
+coder still writes the false assertion, because `:1608` is where the assertion's shape is specified.
+With `:1315-1316` from (2), that is **five** edit sites in the Type 3.
+
 ### Where I refine the handoff's framing (one point, and it matters forward)
 
 The handoff states *"Both halves are false, from the same root cause."* That overstates it. The
