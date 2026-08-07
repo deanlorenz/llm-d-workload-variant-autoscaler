@@ -77,7 +77,8 @@ print("\n" + "=" * 78)
 print("1. FLAT sanity (uniform load, duration 600) — expect: mint to steady, "
       "HOLD\n   through the whole boot, retire only after observed backlog clears")
 flat = gen_load(pattern="uniform", duration=600, peak_rate=12,
-                size_mean=1000, size_dist="expo", seed=1)
+                size_mean=1000, size_dist="expo", seed=1,
+                burn_in=run.BURN_IN)
 q = qexp(flat)
 r = react(flat)
 dump("REACTIVE flat", r, None)
@@ -92,7 +93,8 @@ print("\n" + "=" * 78)
 print("2. PATTERN A/B — reactive vs Qexp across demand patterns")
 for pat in ["uniform", "rising", "bump", "step", "spike"]:
     load = gen_load(pattern=pat, duration=600, peak_rate=24,
-                    size_mean=1000, size_dist="expo", seed=1)
+                    size_mean=1000, size_dist="expo", seed=1,
+                    burn_in=run.BURN_IN)
     print(f"\n  --- {pat} ---")
     print(f"  reactive: {metrics(load, react(load))}")
     print(f"  qexp    : {metrics(load, qexp(load))}")
@@ -106,7 +108,8 @@ print("3. CASCADE (boot_stagger sweep) — replicas in a batch land every u sec.
       "   within-batch stagger actually bites (bump climbs 1-at-a-time -> no-op).")
 for pat in ["step", "spike"]:
     load = gen_load(pattern=pat, duration=600, peak_rate=24,
-                    size_mean=1000, size_dist="expo", seed=1)
+                    size_mean=1000, size_dist="expo", seed=1,
+                    burn_in=run.BURN_IN)
     print(f"\n  --- {pat} ---")
     for u in [0.0, 15.0, 45.0]:
         print(f"    stagger={u:4.0f}  reactive: {metrics(load, react(load, boot_stagger=u))}")

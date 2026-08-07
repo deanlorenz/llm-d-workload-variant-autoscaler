@@ -109,7 +109,7 @@ _CACHE_PATH = f"{run.OUT}/.sweep-cache.json"
 def _sim_signature() -> str:
     consts = [C, SR, SAT, HR, SRANGE, DINT, MW, MAXR, SI, RR, WR, RHO,
               BASE_SETUP, BASE_DRAIN, BASE_HR, BASE_CONC,
-              run.DURATION, run.PEAK_RATE, run.SIZE_MEAN]
+              run.DURATION, run.PEAK_RATE, run.SIZE_MEAN, run.BURN_IN]
     h = hashlib.sha256(repr(consts).encode())
     for src in ("sim.py", "sweep.py"):
         with open(src, "rb") as f:

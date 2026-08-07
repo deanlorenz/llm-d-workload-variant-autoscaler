@@ -83,8 +83,35 @@ def rate_profile(pattern: str, t: float, duration: float, peak: float) -> float:
 
 
 def gen_load(pattern="bump", duration=120.0, peak_rate=8.0,
-             size_mean=4.0, size_dist="expo", seed=1) -> dict:
-    """Non-homogeneous Poisson arrivals (via thinning) with random sizes."""
+             size_mean=4.0, size_dist="expo", seed=1, burn_in=0.0) -> dict:
+    """Non-homogeneous Poisson arrivals (via thinning) with random sizes.
+
+    BURN-IN PRELUDE (2026-08-06). With `burn_in > 0` arrivals are generated over
+    [0, burn_in + duration] but the MEASURED window is only the tail
+    [burn_in, burn_in + duration]; `t0 = burn_in` is the measurement origin. Over
+    the prelude the profile is clamped to its own t=0 value:
+
+        eff_t = max(0, t - burn_in)   =>   lambda(t) = lambda(0) for t < t0
+
+    so the run *enters* the measured window in genuine steady state — the fleet is
+    already right-sized, trailing metric windows are full of real history, and the
+    queue / in-flight population carry their equilibrium values. That is what lets
+    a shape whose demand starts high (e.g. `stepdown`) be measured as the pure
+    scale-DOWN test it is, instead of first paying for a cold 0->hi ramp whose
+    startup queue pollutes the rest of the run.
+
+    Invariants the rest of sim.py upholds for this to mean anything:
+      - autoscaling is FROZEN for t < t0 (no scale decisions during warm-up), so
+        the prelude establishes state rather than exercising the policy;
+      - sample() measures [t0, t0+duration] and re-zeros the time axis, so plots
+        and summaries never see the prelude;
+      - requests that ARRIVED during the prelude are excluded from the measured
+        cohort — they occupy real capacity, but they are not scored.
+
+    `meta["duration"]` stays the MEASURED span; `meta["burn_in"]` is the prelude.
+    Pick burn_in >= a couple of the longest trailing window (so every estimator is
+    full) and >> the mean service time (so in-flight work reaches equilibrium).
+    """
     rng = random.Random(seed)
     # Thinning bound must dominate the profile's TRUE maximum, not just peak_rate:
     # patterns like "spike" exceed peak_rate, and a too-low bound silently clips
@@ -92,26 +119,93 @@ def gen_load(pattern="bump", duration=120.0, peak_rate=8.0,
     n_scan = max(1000, int(duration * 4))
     prof_max = max(rate_profile(pattern, k * duration / n_scan, duration, peak_rate)
                    for k in range(n_scan + 1))
+    # the clamped prelude only ever emits lambda(0), which the [0,duration] scan
+    # above already covers, so the thinning bound needs no widening for burn-in.
     lam_max = prof_max * 1.05 + 1e-9
+    total = burn_in + duration
     reqs, t, i = [], 0.0, 0
     while True:
         t += rng.expovariate(lam_max)
-        if t >= duration:
+        if t >= total:
             break
-        if rng.random() <= rate_profile(pattern, t, duration, peak_rate) / lam_max:
+        eff_t = max(0.0, t - burn_in)        # prelude held at the shape's t=0 rate
+        if rng.random() <= rate_profile(pattern, eff_t, duration, peak_rate) / lam_max:
             size = rng.expovariate(1.0 / size_mean) if size_dist == "expo" else size_mean
             reqs.append({"id": i, "arrival": round(t, 4), "size": round(size, 4)})
             i += 1
     return {
         "meta": {"pattern": pattern, "duration": duration, "peak_rate": peak_rate,
-                 "size_mean": size_mean, "size_dist": size_dist, "seed": seed},
+                 "size_mean": size_mean, "size_dist": size_dist, "seed": seed,
+                 "burn_in": burn_in},
         "requests": reqs,
     }
+
+
+def load_t0(load: dict) -> float:
+    """Measurement origin = end of the burn-in prelude (0.0 when there is none).
+    Everything before this instant exists only to establish steady state: it is
+    simulated, it consumes real capacity, and it is never measured."""
+    return load["meta"].get("burn_in", 0.0)
+
+
+def load_total(load: dict) -> float:
+    """Full simulated span, prelude included = t0 + measured duration."""
+    return load_t0(load) + load["meta"]["duration"]
 
 
 # --------------------------------------------------------------------------
 # Supply generation
 # --------------------------------------------------------------------------
+def initial_rate(load: dict) -> float:
+    """The demand shape's arrival rate (req/s) at the start of the MEASURED
+    window — equivalently the constant rate that holds throughout the burn-in
+    prelude, since gen_load clamps the profile to lambda(0) for t < t0.
+
+    Its one remaining job is to size the pre-booted initial fleet. That fleet is
+    load-bearing under burn-in: with autoscaling frozen before t0, nothing else
+    would ever create the first replica, so a shape with nonzero initial demand
+    would spend the whole prelude with no capacity at all.
+
+    CAVEAT — real traces cannot do this as-is. The value only exists because we
+    KNOW the generating rate profile. Pointed at a recorded llm-d inference trace,
+    `rate_profile` is unavailable: capture the fleet/queue initial state directly,
+    or trim the leading warm-up window out of the measured region (the trace-side
+    equivalent of the prelude). See the design doc §2.4.
+    """
+    m = load["meta"]
+    return rate_profile(m["pattern"], 0.0, m["duration"], m["peak_rate"])
+
+
+def initial_work_rate(load: dict) -> float:
+    """Offered WORK rate (tokens/s) at the start of the measured window — and
+    throughout the prelude — = initial_rate * E[size]. Sizes every sizer's
+    pre-booted initial fleet."""
+    return initial_rate(load) * load["meta"]["size_mean"]
+
+
+def _warm_replicas(n0: int) -> tuple[list, list, int]:
+    """A pre-booted initial fleet: `n0` replicas up at t=0 (the start of the
+    burn-in prelude), billed from then on — the same model as gen_supply_static
+    ("the boot is paid for before the run"). With autoscaling frozen through the
+    prelude this is the ONLY thing that gives a nonzero-initial-demand shape any
+    capacity at all; the prelude then carries it to equilibrium so the measured
+    window opens on a right-sized fleet rather than a cold-boot startup queue.
+    Returns (replicas, active, next_id) for a sizer to start its loop from."""
+    replicas = [{"id": i, "slot": i, "start": 0.0, "up": 0.0,
+                 "stop": None, "down": None} for i in range(n0)]
+    return replicas, list(range(n0)), n0
+
+
+def _initial_fleet_count(load: dict, per_backend: float, headroom: float,
+                         max_replicas) -> int:
+    """Replicas needed to serve the shape's t=0 offered work rate at the sizer's
+    target utilisation (same ceil form the sizers use each tick) — the size of the
+    analytic warm-start fleet. Capped at max_replicas. Zero for shapes that
+    genuinely start at zero demand (e.g. bump)."""
+    n0 = max(0, math.ceil(headroom * initial_work_rate(load) / per_backend))
+    return min(n0, max_replicas) if max_replicas is not None else n0
+
+
 def offered_work_rate(load: dict, grid: list[float], range_s: float) -> list[float]:
     """Trailing offered-work-rate estimate on a time grid, tokens/sec.
 
@@ -123,6 +217,15 @@ def offered_work_rate(load: dict, grid: list[float], range_s: float) -> list[flo
     distribution does NOT), where it equals measured_arrival_rate x E[size]. The
     E[size] estimate may later be made time-varying; fixed is fine for now.
     See the design-doc Glossary.
+
+    Warm-up: none needed, and deliberately none applied. The burn-in prelude
+    (gen_load) puts REAL arrivals before the measurement origin, so any window
+    evaluated at or after t0 is already full and the estimate starts flat at the
+    true offered rate — no analytic pre-0 fill, no ramp from zero. (An earlier
+    revision synthesised that fill from `initial_work_rate`; the prelude
+    supersedes it, and unlike the seed it also warms the QUEUE and the in-flight
+    population, which no estimator-side trick can do.) A grid that starts at 0
+    with no prelude does still ramp — which is why every deck caller passes one.
     """
     arr = sorted((r["arrival"], r["size"]) for r in load["requests"])
     times = [a for a, _ in arr]
@@ -133,7 +236,10 @@ def offered_work_rate(load: dict, grid: list[float], range_s: float) -> list[flo
     def cum_work(t):
         return cum[bisect.bisect_right(times, t)]
 
-    return [(cum_work(t) - cum_work(t - range_s)) / range_s for t in grid]
+    def est(t):
+        return (cum_work(t) - cum_work(t - range_s)) / range_s
+
+    return [est(t) for t in grid]
 
 
 def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
@@ -155,9 +261,9 @@ def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
     also needs no lead time. The sizer still only ever targets the *averaged*
     offered-work-rate over the range, never the instantaneous peak.
     """
-    duration = load["meta"]["duration"]
+    t0, total = load_t0(load), load_total(load)
     grid = [i * decision_interval
-            for i in range(int(duration / decision_interval) + 1)]
+            for i in range(int(total / decision_interval) + 1)]
     half = sizing_range / 2.0                   # CENTERED range -> clairvoyant,
     owr = offered_work_rate(load, [t + half for t in grid], sizing_range)  # low-noise
     per_backend = int(sat_frac * C) * service_rate    # usable, not raw C
@@ -165,11 +271,22 @@ def gen_supply_perfect(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0.0,
     if max_replicas is not None:                # optional cap (open-loop sizers
         needed = [min(n, max_replicas) for n in needed]   # are uncapped by default)
 
-    replicas, active, nid = [], [], 0
+    # warm start: pre-boot a fleet sized to the initial offered rate (up at t=0,
+    # billed from then) so a nonzero-initial-demand shape is served from the first
+    # request rather than cold-booting a startup queue. bump -> n0=0 (no-op).
+    n0 = _initial_fleet_count(load, per_backend, headroom, max_replicas)
+    replicas, active, nid = _warm_replicas(n0)
     free_slots: list[int] = []                  # min-heap of idle slots to reuse
-    next_slot = 0
-    decisions, prev_n = [], 0                    # log each change in desired count
+    next_slot = nid
+    decisions, prev_n = [], n0                    # log each change in desired count
     for t, n, w in zip(grid, needed, owr):
+        if t < t0:                              # autoscaling FROZEN in the prelude:
+            n = n0                              # warm-up establishes state, it does
+                                                # not exercise the policy. (For this
+                                                # centered sizer the clamped prelude
+                                                # already yields n0, so the freeze is
+                                                # belt-and-braces; the reactive
+                                                # sizers below genuinely need it.)
         if n != prev_n:
             decisions.append({"t": t, "frm": prev_n, "to": n, "owr": w})
         while len(active) < n:                  # scale up: reuse lowest idle slot
@@ -219,17 +336,21 @@ def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0
     pure reactive controller: it does not discount capacity already booting, so
     during a long boot it keeps ordering -> it recovers the queue but overshoots.
     """
-    duration = load["meta"]["duration"]
+    t0, total = load_t0(load), load_total(load)
     grid = [i * decision_interval
-            for i in range(int(duration / decision_interval) + 1)]
+            for i in range(int(total / decision_interval) + 1)]
     owr = offered_work_rate(load, grid, sizing_range)  # TRAILING -> no peeking ahead
     per_backend = int(sat_frac * C) * service_rate     # usable, not raw C
 
-    replicas, active, nid = [], [], 0
+    # warm start: pre-boot a fleet sized to the initial offered rate (up at t=0,
+    # billed from then) so a nonzero-initial-demand shape is served from the first
+    # request rather than cold-booting a startup queue. bump -> n0=0 (no-op).
+    n0 = _initial_fleet_count(load, per_backend, headroom, max_replicas)
+    replicas, active, nid = _warm_replicas(n0)
     free_slots: list[int] = []                      # min-heap of idle slots to reuse
-    next_slot = 0
+    next_slot = nid
     backlog = 0.0                                   # fluid work-units estimate
-    decisions, prev_n = [], 0                       # log each change in desired count
+    decisions, prev_n = [], n0                       # log each change in desired count
 
     def up_capacity(t):                             # work/s from replicas up now
         return sum(per_backend for r in replicas
@@ -240,6 +361,12 @@ def gen_supply_queue_aware(load: dict, C=4, service_rate=2.0, setup=0.0, drain=0
         n = max(0, math.ceil(headroom * target / per_backend))
         if max_replicas is not None:
             n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if t < t0:                                   # autoscaling FROZEN in the
+            n = n0                                   # prelude (warm-up ≠ policy).
+                                                     # The fluid backlog still
+                                                     # advances below, so the sizer
+                                                     # enters the measured window
+                                                     # with real (≈0) backlog state.
         if n != prev_n:
             decisions.append({"t": t, "frm": prev_n, "to": n,
                               "owr": w, "backlog": backlog})
@@ -317,19 +444,21 @@ def gen_supply_demand_predict(load: dict, C=4, service_rate=2.0, setup=0.0,
     capacity actually UP), so the two scenarios share the same physics and differ
     only in how the sizer decides — a clean A/B on anticipation.
     """
-    duration = load["meta"]["duration"]
+    t0, total = load_t0(load), load_total(load)
     grid = [i * decision_interval
-            for i in range(int(duration / decision_interval) + 1)]
+            for i in range(int(total / decision_interval) + 1)]
     owr = offered_work_rate(load, grid, sizing_range)  # TRAILING -> no peeking ahead
     per_backend = int(sat_frac * C) * service_rate     # usable, not raw C
     tw = trend_window if trend_window is not None else sizing_range
     lag = max(1, int(round(tw / decision_interval)))   # grid steps back for the slope
 
-    replicas, active, nid = [], [], 0
+    # warm start, same model as the other sizers (see _warm_replicas)
+    n0 = _initial_fleet_count(load, per_backend, headroom, max_replicas)
+    replicas, active, nid = _warm_replicas(n0)
     free_slots: list[int] = []                      # min-heap of idle slots to reuse
-    next_slot = 0
+    next_slot = nid
     backlog = 0.0                                   # fluid work-units estimate
-    decisions, prev_n = [], 0                       # log each change in desired count
+    decisions, prev_n = [], n0                      # log each change in desired count
 
     def up_capacity(t):                             # work/s from replicas up now
         return sum(per_backend for r in replicas
@@ -343,6 +472,8 @@ def gen_supply_demand_predict(load: dict, C=4, service_rate=2.0, setup=0.0,
         n = max(0, math.ceil(headroom * target / per_backend))
         if max_replicas is not None:
             n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if t < t0:                                   # autoscaling FROZEN in the
+            n = n0                                   # prelude (warm-up ≠ policy)
         if n != prev_n:
             decisions.append({"t": t, "frm": prev_n, "to": n,
                               "owr": w, "backlog": backlog})
@@ -440,17 +571,21 @@ def gen_supply_queue_aware_exp(load: dict, C=4, service_rate=2.0, setup=0.0,
     """
     if proj_setup is None:
         proj_setup = setup
-    duration = load["meta"]["duration"]
+    t0, total = load_t0(load), load_total(load)
     grid = [i * decision_interval
-            for i in range(int(duration / decision_interval) + 1)]
+            for i in range(int(total / decision_interval) + 1)]
     owr = offered_work_rate(load, grid, sizing_range)  # TRAILING -> no peeking ahead
     per_backend = int(sat_frac * C) * service_rate     # usable, not raw C
 
-    replicas, active, nid = [], [], 0
+    # warm start: pre-boot a fleet sized to the initial offered rate (up at t=0,
+    # billed from then) so a nonzero-initial-demand shape is served from the first
+    # request rather than cold-booting a startup queue. bump -> n0=0 (no-op).
+    n0 = _initial_fleet_count(load, per_backend, headroom, max_replicas)
+    replicas, active, nid = _warm_replicas(n0)
     free_slots: list[int] = []                      # min-heap of idle slots to reuse
-    next_slot = 0
+    next_slot = nid
     backlog = 0.0                                   # fluid work-units estimate
-    decisions, prev_n = [], 0                       # log each change in desired count
+    decisions, prev_n = [], n0                       # log each change in desired count
 
     def up_capacity(t):                             # work/s from replicas up now
         return sum(per_backend for r in replicas
@@ -506,6 +641,8 @@ def gen_supply_queue_aware_exp(load: dict, C=4, service_rate=2.0, setup=0.0,
         n = max(0, math.ceil(headroom * target / per_backend))
         if max_replicas is not None:
             n = min(n, max_replicas)                 # optional cap (uncapped default)
+        if t < t0:                                   # autoscaling FROZEN in the
+            n = n0                                   # prelude (warm-up ≠ policy)
         if n != prev_n:
             decisions.append({"t": t, "frm": prev_n, "to": n, "owr": w,
                               "backlog": backlog, "b_peak": b_peak, "t_peak": t_peak})
@@ -553,9 +690,11 @@ def gen_supply_static(load: dict, count: int, C=4, service_rate=2.0, setup=0.0,
     peak, at the cost of the full fleet for the full duration (no scale-down in
     the valleys, so utilisation is whatever the load happens to fill).
     """
-    duration = load["meta"]["duration"]
+    # spans the FULL simulated trace, burn-in prelude included — a fixed fleet has
+    # no autoscaling to freeze, so the prelude is simply more of the same.
+    total = load_total(load)
     replicas = [{"id": i, "slot": i, "start": 0.0, "up": setup,
-                 "stop": duration, "down": duration + drain}
+                 "stop": total, "down": total + drain}
                 for i in range(count)]
     return {"meta": {"C": C, "service_rate": service_rate, "setup": setup,
                      "drain": drain, "headroom": 1.0, "sat_frac": sat_frac,
@@ -661,7 +800,9 @@ class Simulator:
                  decision_interval=15.0, metric_window=60.0, rho=1.0):
         self.load = load
         self.supply = supply
-        self.duration = load["meta"]["duration"]
+        self.t0 = load_t0(load)                   # measurement origin (end of prelude)
+        self.duration = load["meta"]["duration"]  # MEASURED span (excludes prelude)
+        self.total = self.t0 + self.duration      # full simulated span
         m = supply["meta"]
         sat = m.get("sat_frac", 1.0)
         self.rho = m.get("rho", rho)     # empty/packed decode speedup (>=1; 1=fixed)
@@ -707,6 +848,18 @@ class Simulator:
             self._rec_by_id: dict[int, dict] = {}
             self._commanded: list[int] = []              # ordered & not yet stopped
             self._n_commanded = 0
+            # warm start (see initial_work_rate): pre-boot a fleet up at t=0,
+            # billed from then like gen_supply_static, sized to the shape's
+            # initial demand at the controller's target utilisation, so a
+            # nonzero-initial-demand shape is served from the first request
+            # instead of cold-booting from cl_min and building a startup queue.
+            # Load-bearing under burn-in: no `decide` event fires before t0, so
+            # this is the only fleet the prelude ever has (bump -> initial rate 0
+            # -> seeds just cl_min).
+            ct = m.get("conc_target", max(1.0, self.cl_sat * self.cl_C))
+            w0 = initial_work_rate(load)
+            n0 = math.ceil(w0 / (ct * self.cl_sr)) if ct > 0 and self.cl_sr > 0 else 0
+            self._seed_warm_fleet(max(self.cl_min, min(self.cl_max, n0)))
 
     def _push(self, t, kind, payload=None):
         heapq.heappush(self.events, (t, self._seq, kind, payload))
@@ -784,6 +937,26 @@ class Simulator:
             x = seg_end
         return total / (b - a)
 
+    def _seed_warm_fleet(self, count):
+        """Register `count` pre-booted replicas (up at t=0) as the closed-loop
+        starting fleet — state only; run()'s initial pass pushes their t=0 'up'
+        events. Mirrors gen_supply_static's pre-warmed model for the open-loop
+        sizers, so the HPA/KEDA path is not secretly measuring a cold boot on a
+        shape whose demand starts high (e.g. step-down)."""
+        for _ in range(count):
+            slot, self._next_slot = self._next_slot, self._next_slot + 1
+            rid, self._nid = self._nid, self._nid + 1
+            rec = {"id": rid, "slot": slot, "start": 0.0, "up": 0.0,
+                   "stop": None, "down": None}
+            self.supply["replicas"].append(rec)
+            self._rec_by_id[rid] = rec
+            self.backends[rid] = Backend(
+                id=rid, C=self.cl_C, service_rate=self.cl_sr,
+                up=0.0, stop=None, down=None,
+                usable_C=max(1, int(self.cl_sat * self.cl_C)), rho=self.rho)
+            self._commanded.append(rid)
+            self._n_commanded += 1
+
     def _mint(self, t):
         """Order one new replica at time t: booted (accepting) at t+setup. Reuse
         the lowest idle slot so the panel-3 band set stays small and stable."""
@@ -835,9 +1008,13 @@ class Simulator:
             if b.down is not None:
                 self._push(b.down, "down", b.id)
         if self.controller is not None:            # closed-loop: periodic decisions
+            # FROZEN through the burn-in prelude: the first decision lands exactly
+            # at t0, so the warm-up runs the seeded fleet untouched and reaches
+            # equilibrium, and the controller's first observation is a full
+            # metric_window of real steady-state history rather than a cold ramp.
             k = 0
-            while k * self.decision_interval <= self.duration:
-                self._push(k * self.decision_interval, "decide", None)
+            while self.t0 + k * self.decision_interval <= self.total:
+                self._push(self.t0 + k * self.decision_interval, "decide", None)
                 k += 1
 
         while self.events:
@@ -912,7 +1089,7 @@ class Simulator:
         # any backend never explicitly downed -> alive to end
         for b in self.backends.values():
             if b.actual_down is None:
-                b.actual_down = b.down if b.down is not None else self.duration
+                b.actual_down = b.down if b.down is not None else self.total
         return self
 
 
@@ -963,7 +1140,15 @@ def _step_lookup(snaps, key, grid, default):
 
 
 def _windowed_rate(log, grid, window):
-    """Trailing windowed rate: (count, work) per second over [t-window, t]."""
+    """Trailing windowed rate: (count, work) per second over [t-window, t].
+
+    No warm-up seeding: `grid` is in ABSOLUTE sim time and every plotted grid
+    point sits at or after the measurement origin t0, so with a burn-in prelude
+    the window is always backed by real events — offered AND served series alike
+    start flat at their true steady-state rate. (An earlier revision synthesised a
+    pre-t=0 fill for the offered series only, which is why the *served* side still
+    ramped from zero; the prelude fixes both.) A grid starting at 0 with no
+    prelude ramps up over `window`, as it physically must."""
     times = [x[0] for x in log]
     cum_n = list(range(len(log) + 1))
     cum_w = [0.0]
@@ -980,11 +1165,20 @@ def _windowed_rate(log, grid, window):
 
 def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0,
            wait_edges=None) -> dict:
-    dur = sim.duration
-    grid = [round(i * sample_interval, 6)
+    # MEASURED WINDOW = [t0, t0+duration]. Everything below computes in ABSOLUTE
+    # sim time on `grid`; only the RETURNED time axis is re-zeroed (grid - t0), so
+    # plots and summaries are unaware the burn-in prelude ever happened. With no
+    # prelude t0 = 0 and this all collapses to the original behaviour.
+    t0, dur = sim.t0, sim.duration
+    t_end = t0 + dur
+    grid = [round(t0 + i * sample_interval, 6)
             for i in range(int(dur / sample_interval) + 1)]
+    out_grid = [round(g - t0, 6) for g in grid]        # what callers plot against
 
-    # request counts on the short range; work rates on the long (Prom-like) range
+    # request counts on the short range; work rates on the long (Prom-like) range.
+    # No seeding needed: the prelude means every window at t >= t0 is backed by
+    # real events, so the OFFERED *and* SERVED series both open flat at their true
+    # steady-state rates (see _windowed_rate).
     arr_n, _ = _windowed_rate(sim.arr_log, grid, req_range)
     dep_n, _ = _windowed_rate(sim.dep_log, grid, req_range)
     _, arr_w = _windowed_rate(sim.arr_log, grid, work_range)
@@ -998,16 +1192,16 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     desired = [sum(1 for r in reps
                    if r["start"] <= t and (r["stop"] is None or t < r["stop"]))
                for t in grid]
-    actual = count(lambda b, t: b.up <= t < (b.actual_down or dur))
+    actual = count(lambda b, t: b.up <= t < (b.actual_down or t_end))
     draining = count(lambda b, t: (b.stop is not None and b.stop <= t
-                                   < (b.actual_down or dur)))
+                                   < (b.actual_down or t_end)))
     # provisioned = everything you are billed for: from the moment a replica is
     # ORDERED (start) — including the boot window before it accepts (start..up) —
     # through to full termination (actual_down). = booting + accepting + draining.
     # The gap provisioned − actual is the boot-lag waste that scaling churn adds:
     # capacity paid for but not yet (or no longer) usable.
     provisioned = [sum(1 for r in reps
-                       if r["start"] <= t < (sim.backends[r["id"]].actual_down or dur))
+                       if r["start"] <= t < (sim.backends[r["id"]].actual_down or t_end))
                    for t in grid]
 
     qlen = _step_lookup(sim.snaps, "qlen", grid, 0)
@@ -1063,7 +1257,7 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
         cur = sim.snaps[j]["insvc"] if j >= 0 else {}
         for bid, c in cur.items():
             b = sim.backends[bid]
-            is_drain = (b.stop is not None and b.stop <= t < (b.actual_down or dur))
+            is_drain = (b.stop is not None and b.stop <= t < (b.actual_down or t_end))
             # actual concurrency-dependent decode rate (§2.7), not the nominal
             # packed rate: a pod running under-full delivers work faster than
             # service_rate, and this stack should show what it REALLY delivered.
@@ -1079,21 +1273,27 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     # per-pod drain-start instants: the moment a backend stops accepting and
     # begins draining its in-flight work. Only pods that actually had work to
     # drain (actual_down strictly after stop) get a marker; end-of-trace stops
-    # are excluded. Panel 3 draws a dotted line in the pod's colour here, so the
-    # band lifting above the ceiling is tied to a visible cause.
+    # are excluded, as are any inside the burn-in prelude (off-axis). Panel 3 draws
+    # a dotted line in the pod's colour here, so the band lifting above the ceiling
+    # is tied to a visible cause. `t` is on the plotted (re-zeroed) axis.
     drain_starts = sorted(
-        ({"slot": slot_of.get(b.id, b.id), "t": b.stop}
+        ({"slot": slot_of.get(b.id, b.id), "t": b.stop - t0}
          for b in sim.backends.values()
-         if b.stop is not None and b.stop < dur
-         and (b.actual_down or dur) > b.stop + 1e-9),
+         if b.stop is not None and t0 <= b.stop < t_end
+         and (b.actual_down or t_end) > b.stop + 1e-9),
         key=lambda d: d["t"])
 
-    # cumulative arrivals / departures (Little's Law geometry: vertical gap = L)
+    # cumulative arrivals / departures (Little's Law geometry: vertical gap = L).
+    # Both series are re-based by the SAME constant — the departure count at t0 —
+    # so cum_dep opens at 0 and cum_arr opens at L(t0), preserving the gap = L
+    # identity exactly. Re-basing each series by its own t0 value would zero the
+    # gap at t0 and silently understate in-system work for the whole window.
     def _cum(log):
         times = [x[0] for x in log]
         return [bisect.bisect_right(times, t) for t in grid]
-    cum_arr = _cum(sim.arr_log)
-    cum_dep = _cum(sim.dep_log)
+    base = bisect.bisect_right([x[0] for x in sim.dep_log], t0)
+    cum_arr = [c - base for c in _cum(sim.arr_log)]
+    cum_dep = [c - base for c in _cum(sim.dep_log)]
 
     # goodput quality bands by ABSOLUTE waiting time (queue delay before service
     # starts). 0 = best. We deliberately do NOT normalise by request size: a short
@@ -1104,6 +1304,11 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     # extends to ~one clean service time (≤15s) as a reasonable wait, anything past
     # a minute is "failed", and the 15–60s middle is sliced into a quality gradient
     # (mediocre ≤30 / meh ≤45 / bad ≤60).
+    # NOT cohort-filtered (unlike the latency statistics below): these are RATE
+    # decompositions of dep_n, which counts every departure in the window, so
+    # dropping prelude-arrival requests here would make the bands stop summing to
+    # dep_n. The few affected requests are the ones straddling t0, and they were
+    # genuinely served inside the window.
     edges = wait_edges if wait_edges is not None else [2.0, 15.0, 30.0, 45.0, 60.0]
     band_logs = [[] for _ in range(len(edges) + 1)]
     for r in sim.req_done:
@@ -1118,6 +1323,7 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
     # gp_bands' per-edge wait thresholds, no fixed global cutoffs). Unlike gp_bands
     # (counts requests), this sums SIZE, so the bands' total tracks dep_w exactly —
     # showing how much of the completed WORK RATE came from large vs small items.
+    # Also NOT cohort-filtered, for the same reason as gp_bands.
     sizes_sorted = sorted(r["size"] for r in sim.req_done)
     lo_edge = _percentile(sizes_sorted, 100.0 / 3) if sizes_sorted else 0.0
     hi_edge = _percentile(sizes_sorted, 200.0 / 3) if sizes_sorted else 0.0
@@ -1131,7 +1337,12 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
                    f"large (>{hi_edge:.0f}u)"]
     gp_labels.append(f"{_names[len(edges)]} (>{edges[-1]:g}s)")
 
-    lat = sorted(sim.req_done, key=lambda r: r["done"])
+    # MEASURED COHORT for the per-request distributions: requests that ARRIVED at or
+    # after t0. Prelude requests are fully simulated and occupy real capacity, but
+    # they are never scored — they exist only to hand the measured window a realistic
+    # queue and in-flight population. Without a prelude t0 = 0 and this is a no-op.
+    lat = sorted((r for r in sim.req_done if r["arrival"] >= t0),
+                 key=lambda r: r["done"])
 
     # -- decision log: annotate each change in DESIRED count with the "why".
     # Open-loop sizers logged the offered-work-rate (+backlog); closed-loop
@@ -1153,6 +1364,8 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
 
     decisions = []
     for d in sim.supply.get("decisions", []):
+        if d["t"] < t0:          # defensive: autoscaling is frozen in the prelude,
+            continue             # so nothing should be logged there anyway
         to = d["to"]
         if "owr" in d:                                   # open-loop sizer
             if d.get("backlog", 0) > 1:
@@ -1173,11 +1386,19 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
                    f"(max {raw}){_clamp_tag(to, raw)}")
         else:
             why = f"⇒ {to}"
-        decisions.append({"t": d["t"], "frm": d["frm"], "to": to,
+        decisions.append({"t": d["t"] - t0, "frm": d["frm"], "to": to,
                           "up": to > d["frm"], "why": why})
 
+    # arrivals INSIDE the measured window — the honest denominator for the
+    # completed/dropped percentages. cum_arr can no longer serve that role: it is
+    # offset by L(t0) to keep the Little's-Law gap intact (see above).
+    _arr_t = [x[0] for x in sim.arr_log]
+    offered = (bisect.bisect_right(_arr_t, t_end)
+               - bisect.bisect_left(_arr_t, t0))
+
     return {
-        "grid": grid, "req_range": req_range, "work_range": work_range,
+        "grid": out_grid, "offered": offered,
+        "req_range": req_range, "work_range": work_range,
         "arr_n": arr_n, "dep_n": dep_n, "arr_w": arr_w, "dep_w": dep_w,
         "desired": desired, "actual": actual, "draining": draining,
         "provisioned": provisioned,
@@ -1190,7 +1411,7 @@ def sample(sim: Simulator, sample_interval=0.25, req_range=15.0, work_range=60.0
         "cum_arr": cum_arr, "cum_dep": cum_dep,
         "gp_bands": gp_bands, "gp_labels": gp_labels, "gp_edges": list(edges),
         "size_bands": size_bands, "size_labels": size_labels,
-        "lat_done": [r["done"] for r in lat],
+        "lat_done": [r["done"] - t0 for r in lat],
         "lat_value": [r["latency"] for r in lat],
         "lat_size": [r["size"] for r in lat],
         "req_wait": [r["wait"] for r in lat],                       # queue delay
@@ -1236,8 +1457,12 @@ def summarize(ts: dict, ps=(50, 75, 90, 95, 99)) -> dict:
     var = sum((x - ra) ** 2 for x in actual) / n if n else 0.0
     grid = ts["grid"]
     dt = (grid[1] - grid[0]) if len(grid) > 1 else 1.0
-    offered = ts["cum_arr"][-1] if ts["cum_arr"] else 0        # total requests seen
-    completed = len(ts["req_wait"])
+    # requests offered INSIDE the measured window. Prefer the explicit key: under a
+    # burn-in prelude cum_arr carries a deliberate L(t0) offset (Little's-Law gap),
+    # so reading its last element would over-count by the in-system population at t0
+    # and quietly bias every percentage below. Fall back for pre-burn-in traces.
+    offered = ts.get("offered", ts["cum_arr"][-1] if ts["cum_arr"] else 0)
+    completed = len(ts["req_wait"])                   # measured cohort only
 
     # per-quality-band breakdown, matching panel-1a colours (bands split by
     # absolute waiting time). Denominator is OFFERED, so the band %s plus

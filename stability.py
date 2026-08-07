@@ -70,7 +70,8 @@ MW = run.METRIC_WINDOW              # 60 — HPA/KEDA trailing metric window
 
 def _load(pattern):
     return gen_load(pattern=pattern, duration=run.DURATION, peak_rate=run.PEAK_RATE,
-                    size_mean=run.SIZE_MEAN, size_dist="expo", seed=1)
+                    size_mean=run.SIZE_MEAN, size_dist="expo", seed=1,
+                    burn_in=run.BURN_IN)
 
 
 def _summ(load, supply):
