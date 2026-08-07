@@ -18,12 +18,12 @@
 - [1. Where we are (findings)](#1-where-we-are-findings) — L30:66
 - [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:285
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L287:421
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L423:635
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L637:939
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L941:964
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L966:end
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:293
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L295:429
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L431:643
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L645:947
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L949:972
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L974:end
 
 ---
 
@@ -276,11 +276,19 @@ cid=$(docker create <image>) && docker cp "$cid:/manager" /tmp/m && docker rm "$
 grep -c OptimizationRefused /tmp/m    # 20260807 → 4 ; 20260806 → 0 ; ta-0.9 → 0
 ```
 
-**Consequence for Phase 2/3:** `hack/benchmark/.env` currently pins
-`WVA_IMAGE_TAG=ta-0.9-anchor-20260806`. Moving that pin to `ta-0.9-anchor-20260807` is the only
-change needed — same repo, same `.env` line, no code change and no rebuild. The build and the quay
-push are already done (Dean-authorized 2026-08-07; local `RepoDigest` verified equal to the
-registry `Digest`).
+**Consequence for Phase 2/3 — already applied.** Build and quay push are done (2026-08-07; local
+`RepoDigest` verified equal to the registry `Digest`), and `hack/benchmark/.env` already pins
+`WVA_IMAGE_TAG=ta-0.9-anchor-20260807`, with the superseded digest kept as a comment above it. That
+file is untracked (local config), so the pin is not recoverable from git history — this table is the
+record of what each tag contains.
+
+**Caveat for reading earlier output:** the run directories `dean-20260807-201009-695` and
+`dean-20260807-210058-612` record `running_image: …:ta-0.9-anchor-20260806` in their
+`environment/images.yaml`, because they were produced (20:10, 21:00) before the 20260807 image
+existed. Neither holds `metrics/raw` scrapes, so neither appears to be a completed measured run —
+but if either is ever read as evidence about the anchor refactor, it is evidence about the
+**pre-`a38d7b73`** controller, not the merged one. Runs from the 20260807 pin onward are the merged
+code.
 
 ---
 
