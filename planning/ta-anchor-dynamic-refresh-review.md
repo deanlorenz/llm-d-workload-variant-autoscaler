@@ -5945,3 +5945,37 @@ here — `votingResults` caps neither the count nor the kind — and when severa
 overwrite the earlier: it votes without binding."* Both `N2` and `PR-2` gone. The failure mode I named
 in the P3/Finding-51 pairing — clean tokens, surviving falsehood — did not occur at any of the five
 sites this commit touched.
+
+### Tip-staleness is now a branch-wide pattern, not three separate slips
+
+Not a code finding, but it bears on whether the artifacts I check code *against* can be trusted, which
+is why I record it here rather than dropping it.
+
+Four instances on this branch, across three different roles:
+
+1. Three documents flagged for tip-staleness in `designer__t1-1-not-shipped-and-pending-edits-exists.md`.
+2. The designer's own `plan__ta-anchor-da-sentinel-belongs-on-the-ballot.md` — labelled with a
+   remembered SHA while its citations came from a dump read at a different tip; corrected by a sibling
+   errata handoff (two line refs, no substance change) because the sender rule forbids editing a file
+   already marked `.WIP`.
+3. The coder's status file — a nine-commit gap earlier (flagged, then resolved), and stale by one commit
+   again right now (`C9a LANDED — tip 757fc6f5` at `00:50Z` while the tip is `2ae440e3` from `01:21Z`).
+   One commit mid-work is minor; the recurrence is the point.
+4. CURRENT.md, which lags by design and which I have had to treat as a summary rather than a source
+   throughout this review.
+
+The mechanism is identical every time, and the designer diagnosed it precisely on themselves: *"I wrote
+the citations from a `git show HEAD:` dump taken earlier in my session and labelled it with the SHA I
+had recorded at that time, rather than re-reading `rev-parse HEAD` at authoring time. On a branch
+committing this fast, a dump is only valid for the SHA you read it at."*
+
+Three roles converging on one failure mode makes it a process defect rather than individual
+carelessness, which puts it on the governance list beside the four `cd`-into-sibling slips. The
+candidate rule is one line: **cite the SHA you read at, obtained at read time — never `HEAD`, and never
+a SHA recalled from earlier in the session.** Concretely, `git show <sha>:<path>` rather than
+`git show HEAD:<path>`.
+
+Every citation in my own C9b verdict above is pinned this way (`git show 2ae440e3:…`), which is why the
+errata's two corrections do not touch any of my numbers. I note that as evidence the rule is cheap to
+follow, not as a claim to have been careful — I have four disclosed scope slips of my own on this
+branch, in a different category.
