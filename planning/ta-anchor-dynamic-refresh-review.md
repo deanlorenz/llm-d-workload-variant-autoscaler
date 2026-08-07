@@ -1533,4 +1533,143 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
      single-variant-per-role, where the error is identically zero.
   8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
 
+---
+
+## C6d fold-in verification (plan `08e264bd`) — Finding 11 superseded, accepted
+
+The planner's `08e264bd` **partially** corrected Finding 11, and its commit message is explicit that this
+is "a partial correction of the handoff, not an acceptance". I verified both halves independently rather
+than taking the correction on trust, and I accept it. Finding 11 is **SUPERSEDED** — not withdrawn, not
+upheld.
+
+**What survived from Finding 11.** The observation that a direct `safeRemovalReplicasForRole` unit call
+with `RoleSpare[role] = 0` is green *for the wrong reason* — `needsScaleDownForRole` vetoes the role
+before the pipeline can ever deliver that state at role entry, so such a test passes identically before
+and after the change and proves nothing. That is now recorded in plan §4's C6d preamble as
+"green for the wrong reason", with the requirement that **every** C6d fixture drive
+`scaleDownRoleIterated` end-to-end. This is the useful half.
+
+**What I had wrong.** I inferred from the same observation that the fix was therefore unreachable and
+should be dropped or reduced to a test-only change. It is reachable **mid-loop**: the veto is evaluated
+once per role *before* `scaleDownVariantSet` iterates, and `applyDeallocationForRole` decrements
+`RoleSpare[role]` as each variant sheds. A `RoleSpare[role]` that is positive at role entry can therefore
+reach exactly 0 partway through the variant loop, with later variants still to be considered. The fix
+stays, and it is not test-only.
+
+**Verification 1 — the arithmetic, by hand from the shipped loop.** From `combineVotes`
+(`analyzer_helpers.go:398-406`): `excess := vt.Score - votes[b].Score`, `correction += (e - vt.Value) * excess`,
+`return e - correction/sumScore`. With `up=false`, binder X voting 0 and Y voting 10, and `s_Y > s_X`:
+the extremum `e = 0`, so `correction = (0 - 10)(s_Y - s_X) = -10(s_Y - s_X)`, which is **negative**, giving
+
+  `v* = 0 - (-10(s_Y - s_X))/(s_X + s_Y) = +10(s_Y - s_X)/(s_X + s_Y) > 0`
+
+X's `0` is pulled positive and removal proceeds — matching the plan's derivation exactly. At scores
+1/10 the magnitude is `10 × 9/11 = 8.18`, floor **8**. This is why the plan's second C6d fixture is
+"the case that proves the fix must be a veto rather than a vote": a vote of 0 is *weighable*, and
+dominance weighting will weigh it away. Only a veto is unweighable.
+
+**Verification 2 — the four structural claims, in code.**
+
+| Claim | Site | Verified |
+|---|---|---|
+| Veto evaluated once per role, outside the variant loop | `cost_aware_optimizer.go:439` (gate) vs `:447` (loop) | ✅ |
+| Magnitude is per-variant, re-queried each iteration | `:139` `maxRemovable(vc)` → `:449` `safeRemovalReplicasForRole` | ✅ |
+| Spare is decremented and clamped as variants shed | `analyzer_helpers.go:658-660` | ✅ |
+| Magnitude divides by each voter's **own** PRC, not the anchor's | `analyzer_helpers.go:502` | ✅ |
+
+**One point checked and deliberately *not* raised.** The "outscored objector" fixture only goes red if
+the two voters carry **unequal** scores — at `s_X = s_Y` the correction term is identically zero and X's
+`0` survives as the extremum, so the fixture would be green before the fix and prove nothing. Before
+writing this up I read plan §4 and §2d.4: §2d.4 already states "(Only `s_Y ≤ s_X` leaves `v* = 0`.)" and
+§4's fixture spec already requires that X "carries a lower `Score` than the other voter". **Already
+covered — no handoff sent.** Reading §4 *before* reporting is the exact step whose omission produced the
+withdrawn C10 tolerance handoff; applying it here is what kept this from being a third redundant ask.
+
+---
+
+## Finding 16 (latent, no handoff) — anchor PRC 0 excludes a variant from scale-down entirely
+
+**Not a blocker. Not currently reachable. Recorded so C7's review has a specific thing to check.**
+
+Under N8, when the binding analyzer omits a variant the merged anchor entry keeps
+`PerReplicaCapacity = 0` — deliberate, and documented in place:
+
+```go
+// else: the binder omits this variant — PerReplicaCapacity stays 0
+// (abstain), uniformly regardless of whether saturation votes (N8; ...)
+```
+— `analyzer_helpers.go:213-216`
+
+The scale-down path then reads *the anchor's* PRC as an eligibility guard, while the removal magnitude
+reads *each voter's own* PRC:
+
+- `scaleDownVariantSet` skips on the anchor: `if vc.PerReplicaCapacity <= 0 { continue }` — `cost_aware_optimizer.go:125`
+- `votesFromRoleSpare` sizes per voter: `e.RoleSpare[role] / prc` with `prc = prcForVariant(e.Result, name)` — `analyzer_helpers.go:502`
+
+So a variant that the **binder** omits but another **live voter** sizes with positive spare is skipped
+from shedding altogether, even though the role's veto has already cleared and that voter would have
+permitted removal. The guard and the magnitude disagree about which PRC is authoritative.
+
+**Why it is not reachable today**, checked config by config:
+
+| Config | Binder | Divergence? |
+|---|---|---|
+| `[sat]` only | sat | No — sat is the identity carrier and "emits every configured variant" (`:191`), so it omits nothing. |
+| `[sat, TA]`, sat voting | sat | No — same reason. |
+| `[sat, TA]`, sat enabled but dead | TA | No — dead sat is pruned from `votingResults`, so TA is the only voter; it omits the variant on both paths and the two agree. |
+| `[TA]` only | TA | No — single voter, guard and magnitude read the same result. |
+| ≥2 non-saturation voters | lowest-index | **Yes** — voter 2 sizes what the binder omits. |
+
+The divergent row needs two non-saturation voters, which PR-2 makes *mechanically* possible but no shipped
+config produces. Same class as Finding 15: latent, bounded at both ends, no handoff.
+
+**C7 checklist item.** §4's C7 line already includes "Test 2 rewrite (v2 PRC=0 under N8)" — the one
+fixture family that puts an anchor PRC of 0 in front of this code. At C7 review, check whether that
+rewrite happens to pin the **scale-down** skip as well as the scale-up behavior; if it does, this
+finding is closed by construction rather than left latent, at zero extra cost.
+
+---
+
+## Verified clean — the scale-down path needs no anchor refresh
+
+`refreshAnchorSizing` is invoked only inside `allocateForModelPaired`, i.e. on the scale-up branch
+(`cost_aware_optimizer.go:61-66`). The scale-down branch calls `scaleDownRoleIterated` with the
+un-refreshed `anchor.VariantCapacities`. I checked whether that is a §3 gap. **It is not**, and the
+reason is structural rather than incidental: on scale-down the anchor's PRC is never used for sizing.
+
+| Anchor field read on scale-down | Used for | Stale-sensitive? |
+|---|---|---|
+| `PerReplicaCapacity` | `> 0` eligibility guard only (`:125`) | No — a stale-but-positive value guards identically (but see Finding 16 for the 0 case) |
+| `Cost`, `VariantName` | ordering (`sortVariantsForScaleDown`) | No — identity, sourced from the identity carrier |
+| `AcceleratorName`, `Cost`, `Utilization` | `buildDecisionsWithOptimizer` observability | No — identity/observability, not sizing |
+
+Removal magnitude comes entirely from `safeRemovalReplicasForRole` → `votesFromRoleSpare`, which divides
+each voter's `RoleSpare[role]` by **that voter's own** PRC read straight from its `Result`
+(`analyzer_helpers.go:502`), never from the anchor. Refreshing the anchor mid-scale-down would change
+nothing a decision depends on. No finding; recorded because "the refresh is missing on one of the two
+branches" is the kind of asymmetry a later reader will re-raise, and the answer is worth having written
+down once.
+
+---
+
+## C9 checklist (no handoff — §4 already says "explicit commit")
+
+§4 requires C9 to remove the sat-only #1513 goldens "as an **explicit commit** (not an implicit drop)"
+with a message that "states the multi-vote suite that now covers the sub-case". Dean's RELAX/REMOVE
+decision is recorded with his name and date, and the goldens do gate C1–C8 before removal, so the
+removal itself is settled and I am not re-opening it.
+
+One residue is worth verifying **at the diff** rather than pre-emptively amending a plan that already
+says "explicit commit": the failure mode this guards against is a commit that deletes the goldens *and*
+adjusts a multi-vote expectation in the same breath, which would make "the multi-vote suite covers it"
+unfalsifiable — the suite would have been edited to be green rather than shown to be green. So at C9:
+
+1. The removal commit is **removal-only** — no expected-value edits to any other test in the same commit.
+2. The multi-vote suite is already green on the parent commit, verified by me on a scratch extract, so
+   the deletion demonstrably subtracts coverage that was already replaced.
+3. The commit message names the covering suite, and the named suite genuinely contains a `[sat]`-only
+   and a `[TA]`-only sub-case (§4's wording requires both).
+4. §4a: the message must not carry `#1513`'s plans-side framing — the PR number itself is a real GitHub
+   reference and is fine.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)

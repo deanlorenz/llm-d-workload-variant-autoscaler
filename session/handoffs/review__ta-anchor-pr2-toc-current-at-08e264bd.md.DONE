@@ -1,0 +1,6 @@
+to: review
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md (TOC block, L40-67)
+  - planning/ta-anchor-dynamic-refresh-plan.md §2d.5 (L602:659), §4 (L884:994), §6 (L1081:1155), §7 (L1156:1206)
+note: plan tip is 08e264bd, one commit past ffb945c1; its own refresh ran last, so the TOC now matches every "actual" range in the toc-refresh handoff — a re-run just now produced no diff.
