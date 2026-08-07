@@ -163,10 +163,32 @@ These parameters apply when `analyzerName: "saturation"` is set or when the `ana
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
 | `analyzerName` | string | Legacy selector for the V2 token-based analyzer: set to `"saturation"`. Empty string uses V1. Prefer the `analyzers:` list, which the shipped default uses. | `""` |
-| `priority` | float64 | Multiplier for this model's scaling urgency in fair-share GPU allocation | 1.0 |
+| `priority` | float64 | Multiplier for this model's scaling urgency in fair-share GPU allocation. To deprioritize a model, use a small positive value, **not** `0` — see below | 1.0 |
 | `analyzers` | list | Multi-analyzer pipeline registration — see [Multi-Analyzer Registration](#multi-analyzer-registration) | `[{name: "saturation", score: 1.0}]` |
 
-> `scaleUpThreshold` and `scaleDownBoundary` are honored only for saturation on this branch; see the `multi-analyzer-threshold` PR for the universal post-step that calibrates RC/SC across all analyzers.
+> `scaleUpThreshold` and `scaleDownBoundary` are honored for **every** analyzer: the engine
+> recalibrates each analyzer's `RequiredCapacity` / `SpareCapacity` — at model level and per role — in
+> a post-step after `Analyze()` returns, using either the analyzer's own registered override or these
+> model-level values. See
+> [multi-analyzer-pipeline.md](multi-analyzer-pipeline.md#data-model-analyzerresult--namedanalyzerresult).
+
+**Deprioritizing a model: write a small positive `priority`, never `0`.** Writing `priority: 0` does
+not deprioritize anything — it is erased twice over. Defaulting rewrites an exact `0` to `1.0`, so an
+explicit zero silently becomes *normal* priority, the opposite of the intent; and in a per-model
+override an exact `0` is treated as "unset" and skipped, leaving whatever the global config had. The
+way to express *last in line, take what you need, I will use the leftovers* is a small positive value
+such as `0.00001`:
+
+```yaml
+priority: 0.00001   # deprioritize: sorts behind every other model, still eligible
+```
+
+It survives defaulting, passes validation, applies as an override, and orders the model behind every
+other model in the fair-share loop while leaving it eligible for whatever the others do not take —
+it is served in single-replica steps once the higher-priority models have been satisfied or dropped,
+rather than being excluded. **This idiom is the feature's only spelling, not a workaround:** the `0`
+handling is how `omitempty` scalars are defaulted throughout this config, so please do not file it as
+a bug or "fix" the defaulting — the fix would break every config that omits the field.
 
 ### Default Configuration
 
@@ -809,7 +831,8 @@ The controller validates all configuration entries on load. Invalid entries are 
 3. **KvSpareTrigger:** Must be between 0.0 and 1.0
 4. **QueueSpareTrigger:** Must be ≥ 0
 5. **Consistency:** `kvCacheThreshold` must be ≥ `kvSpareTrigger`
-6. **Priority:** Must be ≥ 0
+6. **Priority:** Must be ≥ 0 (an exact `0` passes, but it is defaulted back to `1.0` rather than
+   deprioritizing — see the [`priority` field](#v2-analyzer-parameters))
 7. **V2 thresholds** (when set): `scaleUpThreshold` and `scaleDownBoundary` must be in (0, 1],
    and `scaleUpThreshold` must be > `scaleDownBoundary`. Per-analyzer overrides are range-checked too.
 8. **Limiters:** each `type` must be `gpu-inventory`/`inventory` or `quota`; a `gpu-inventory` entry

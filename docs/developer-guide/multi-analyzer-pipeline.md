@@ -871,3 +871,27 @@ The engine emits two structured INFO log lines per reconcile cycle per model —
 one per analyzer (after the threshold post-step) and one after the optimizer
 returns. See [cycle-log.md](cycle-log.md) for field schemas, grep patterns,
 and an explanation of the `reason` values set by each analyzer.
+
+**Known limitation: the `wva_required_capacity` and `wva_spare_capacity` gauges
+do not say whose currency they are in.** Each decision's `RequiredCapacity` and
+`SpareCapacity` are copied from the anchor, which means from **whichever
+analyzer bound it** — per-role when the binder has an entry for the variant's
+role, model-level otherwise (`buildDecisionsWithOptimizer`). The `unit` label on
+those two gauges, however, is stamped as the continuous/token unit for every V2
+decision unconditionally (`enrichDecisionsWithKvTokenData`), and the gauge help
+text names the KV-token analyzer as the source. On a model with one enabled
+analyzer those agree. On a multi-analyzer model they need not: a throughput
+binder's per-replica capacity is a decode token *rate*, saturation's is a
+batched-token *level*, and the two are not comparable numbers. Worse, the binder
+can change between cycles — saturation binds whenever it votes and is live, so a
+staleness lapse hands binding to another analyzer — which moves the series'
+meaning with **no label change to signal it**.
+
+Treat the two gauges as a scaling-pressure indicator, not a token measurement,
+on any model with more than one enabled analyzer: the sign and the trend are
+meaningful, the absolute value is only comparable against itself while the binder
+holds. What is *not* affected is the per-analyzer `analyzer-result` log line —
+it carries each analyzer's own `rc`/`sc` under that analyzer's name, so it stays
+unambiguous, and [cycle-log.md](cycle-log.md) needs no qualification. No fix is
+proposed here; distinguishing the currencies would mean a new label or a renamed
+field, and that decision is out of scope for this change.
