@@ -1538,6 +1538,13 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
   7. The new fall-through fixture is **multi-variant within one role** — every existing fsv fixture is
      single-variant-per-role, where the error is identically zero.
   8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
+     **Corrected 2026-08-07 — green goldens are necessary but NOT sufficient for site (ii).** I enumerated
+     all 8 and none can see the `prcRef` rescale (see **Finding 18**'s coverage table): the picker returns
+     at `sorted[0]` = `v_role` where the ratio is 1.0 by construction, the only spec with differing
+     same-role PRCs (A4) never reaches its second candidate, and the only spec that does reach two
+     same-role candidates (B2) has identical PRCs. So do not read green goldens as evidence the rescale
+     landed — that is what checklist item 7's fall-through fixture is for, and item 7 is now the **sole**
+     guard for site (ii).
   9. **Six** fsv-formula locations updated — four in the dev guide, two in code. **The plan now says six
      too** (`9f09b91d`, folding **Finding 17** — verify against the plan's own §5/§6 text, not against this
      item, since the plan is what the coder reads). Docs: `multi-analyzer-pipeline.md:622` and
@@ -2002,5 +2009,74 @@ sizes no variant in the role never has its spare drawn down, so it never reaches
 vetoes — it simply grants removal, which is the pre-existing behavior. And no live keyed analyzer can be at
 `<= 0` at role *entry*, because `needsScaleDownForRole` already vetoes that. So the only reachable veto is
 the mid-loop one, exactly as §2d.4 (c) claims. No finding.
+
+---
+
+## Finding 18 (should-fix, pre-emptive — plan-side) — §2d.5's `prcRef` neutrality assumes the anchor slice is stable, but C2's own refresh rewrites it mid-loop
+
+**Handoff sent** (`plan__ta-anchor-c6c-prcref-refresh-currency.md`) — C6c is still unwritten, so this is free
+to fix now. Found by chasing a *different* question (are the goldens sensitive to the rescale?) into the
+allocation loop, which is where the mutation lives.
+
+§2d.5 grounds site (i)/(ii) agreement in slice identity: *"Feed both sides the **same**
+`w.anchor.VariantCapacities` slice: `sort.Slice` is deterministic for a given input, so **identical input ⇒
+identical `sorted[0]`**"*. The slice-identity half is true and I verified it — site (i)'s `anchor`
+(`greedy_score_optimizer.go:125`) is the object stored as `w.anchor`, and `:311` passes
+`w.anchor.VariantCapacities` into the allocator. **The "identical input" half is false**, because PR-2's C2
+mutates that slice's *contents* between the two reads:
+
+| Step | Site | What happens |
+|---|---|---|
+| 1 | `:133` / `:348` / `:350` | `w.remaining = fairShareValue(...)` — site (i) divides by `prcRef` **here**, so `target` is denominated in *this* `prcRef` |
+| 2 | `:273` | `target := w.remaining - mean` — fixed scalar |
+| 3 | `:310` | `pick := fairShareRolePick(target, ...)` — `target` **captured into the closure**, pre-loop |
+| 4 | `analyzer_helpers.go:737` | `refreshAnchorSizing(variants, s, pickerState)` — **rewrites `variants[i].PerReplicaCapacity`** (`:569`), every iteration, **before** `pick` at `:743` |
+| 5 | `:423` | `fairShareCap := ceil(target / vc.PerReplicaCapacity)` — site (ii) reads the *mutated* field |
+
+`target_new × prcRef = target_old` holds only if step 5's `prcRef` is step 1's value. §2d.5's guidance —
+same rule, same slice, both sides — applied literally *inside* the closure re-derives `prcRef` from the
+post-refresh slice, which is the broken form. **Fix: capture `prcRef` where fsv is computed and thread it
+in alongside `target`; do not re-derive it in the closure.**
+
+Two independent failure modes, and the value argument does not imply the second:
+
+- **Value drift.** Against §2d.5's own table (`v_role` = `v1` PRC 10000, `v2` PRC 2000, `target` 50000 ⇒ 5):
+  if the refresh moves `v1` to 8000, a closure-recomputed `prcRef` yields `ceil(5 × 8000/2000) = 20` where
+  the right answer is still `25`. Same failure mode as the 5× under-allocation §2d.5 documents, smaller and
+  harder to see.
+- **Identity drift.** `costEfficiency` is `Cost/PRC` (`cost_aware_optimizer.go:238-243`), so rewriting PRC
+  can **reorder** `sortByCostEfficiencyAsc` — `sorted[0]` may be a *different variant* on iteration 2.
+
+**Why nothing planned catches it.** `refreshAnchorSizing` early-returns at `len(s) <= 1`
+(`analyzer_helpers.go:552-554`), so the refresh is a no-op with one voting analyzer. Every #1513 golden is
+sat-v2-only ⇒ blind. And §4's fall-through fixture, **as specified**, does not say multi-analyzer ⇒ it
+separates rescale-from-no-rescale (its stated job) but not captured-from-recomputed `prcRef`. So the defect
+sits on the ≥2-live-analyzer path that PR-2 exists to serve, with no red test.
+
+### The goldens are blind to the `prcRef` rescale generally (my checklist item 8, corrected)
+
+Enumerated while getting a denominator for the above. `fairShareRolePick` **returns on the first candidate
+with `capN > 0`** (`:432-434`), so normally only `sorted[0]`'s cap is computed — and `sorted[0]` *is*
+`v_role`, ratio 1.0 by construction. Reaching a later candidate needs the `PRC <= 0` (`:411`),
+`gpusAvail < gpusPR` (`:420`), or `headroom <= 0` (`:427`) skip. No golden sets `MaxReplicas` at all, and
+`unlimitedConstraints` is 1,000,000 GPUs per pool:
+
+| Spec | Same-role variants | PRCs | Why it cannot see the rescale |
+|---|---|---|---|
+| smoke | — | — | trivial no-op, no allocation |
+| A1 / A2 / A3 | 1 | 10000 | `sorted[0]` is the only candidate ⇒ ratio 1.0 |
+| **A4** | **2** | **10000 / 20000** | loop returns at `sorted[0]`=`cheap`; `expensive`'s cap is never computed |
+| B1 | 1 per role × 2 | 10000 / 10000 | one candidate per role ⇒ ratio 1.0 |
+| **B2** | **2 in prefill** | **10000 / 10000 (equal)** | both reached, but equal PRCs ⇒ every ratio 1.0 regardless |
+| C1 | 1 | 10000 | single variant; and the quota binds via `gpusAvail/gpusPR = 1`, not `fairShareCap` |
+
+§2d.5's prediction ("they stay green") is correct, and its stated reason ("single-variant-per-role") is
+correct for 6 of 8 — A4 and B2 are green for the two extra reasons above. The review consequence is mine,
+not the plan's: **green goldens at C6c are necessary but not sufficient for site (ii)**, and checklist
+item 7's fall-through fixture is the sole guard. Item 8 now says so.
+
+**Not verified:** that a realistic multi-analyzer refresh moves the reference variant's PRC by enough to
+change a replica count. The mechanism is present and unguarded; magnitude depends on fixture construction.
+The 10000→8000 numbers are illustrative, not measured.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
