@@ -5689,3 +5689,99 @@ rename leaving both spellings, which is worse than neither.
 Nothing about the four sites' §4a tokens *as tokens* — those belong to C9e's 47 and I will score them
 there. The overlap is only where a token strip and a prose fix pull in different directions (P3, and
 Finding 51 at `:216-218`, which is in **neither** C9b's four sites nor a prose commit).
+
+---
+
+## The C9e sweep, enumerated per site — 48, not 47, and one of my own rulings was wrong
+
+I built an independent token pattern from scratch rather than reusing the curated one behind my earlier
+figure, ran it over the committed tip and over base `075a208e`, and differenced by normalized text so
+that line shifts do not read as new sites. Result: **56 token-bearing lines at the tip, 9 at base.**
+
+The delta reconciles two ways, and the difference between them is the interesting part:
+
+- **47** lines carry a token that PR-2 *introduced*. This matches the coder's C9e scoping figure and my
+  own ledger exactly — arrived at independently, so the figure is now corroborated rather than merely
+  restated.
+- **48** lines carry a token *and* were authored or rewritten by PR-2. The extra one is
+  `greedy_score_optimizer_test.go:881`, where PR-2 replaced the whole test description and re-typed the
+  inherited `T1.4:` prefix:
+
+  | | text |
+  |---|---|
+  | base | `It("T1.4: non-uniform Score across two analyzers drives fair-share ordering", …` |
+  | tip | `It("T1.4: priority orders fair share, and a trusted analyzer does not inflate its model's claim", …` |
+
+**I resolve the boundary in favour of in-scope.** "Inherited, therefore out of scope" is a statement
+about lines nobody touched; this line was in the coder's hands and the token was re-typed into it. 48 is
+the number C9e should be scored against.
+
+### Class breakdown
+
+| class | sites | why it matters |
+|---|---|---|
+| dev-guide markdown | 3 | all in `multi-analyzer-pipeline.md`, which **C9b is editing right now** |
+| production Go | 14 | ships in the merged tree; the highest-value class |
+| test Go | 31 | |
+
+Production-code sites are `analyzer_helpers.go` ×11 (`:87`, `:185`, `:216`, `:281`, `:576`, `:724`,
+`:813`, `:830`, `:853`, `:863`, `:886`), plus `greedy_score_optimizer.go:330` (`W1`),
+`optimizer_interfaces.go:54` (`N2`), and `rescale.go:348` (`N3`).
+
+**A scoring caution I am writing down before it can bite me:** the three dev-guide sites sit in a file
+C9b has open. If C9b resolves them, they will be absent by the time C9e lands, and the correct reading
+is that they were fixed early — not that C9e's sweep is three short. Same trap in the other direction as
+the inherited set: the arithmetic only means something if I know which commit was supposed to reach each
+site.
+
+### Finding 52 — test-plan IDs *are* a §4a class; my earlier ruling was wrong
+
+I previously ruled that golden scenario names and test-plan IDs both fall outside §4a. **The scenario-name
+half is right and the test-plan-ID half is wrong,** and the test is mechanical: does the token resolve for
+someone reading only the merged tree?
+
+- `C1`, `A1`–`A4`, `V1` name fixtures and engine versions **defined in the test file itself**. They
+  resolve. Not violations. (`V2`/`V1`/`V0`/`V100` dominate any naive grep — **416 of the 478** raw token
+  matches at the tip — and `V100` is an accelerator model. A pattern that does not exclude them is
+  unusable. This is the same over-match that I caught and refused to build a figure on earlier; the
+  refusal was right.)
+- `T1.3` / `T1.4` are defined **nowhere in the code tree**. The only definition is
+  `ta-anchor-dynamic-refresh-plan.md`, where §2d.6 is titled "T1.4". A reader of merged code sees a bare
+  `T1.4:` prefix with no referent — which is precisely what §4a prohibits.
+
+Consequence: `:881` is in scope as argued above, and the inherited `T1.3` pair at `:803`/`:810` is a
+genuine violation rather than a false positive. They stay out of C9e's mandate, but they belong in the
+inherited backlog, and they are three lines apart from a site C9e must touch — so fixing them is nearly
+free if Dean wants the file clean in one pass. That is his call, not something I will score.
+
+### Finding 53 — `§C6e` is a section pointer, not a commit label, and cannot be token-stripped
+
+`greedy_score_optimizer_test.go:1557` and `:1576` read *"§C6e asks for the other shape"* and *"which is
+the masking §C6e names."* The `§` sigil makes these pointers into a plans-branch document's section, a
+distinct spelling from the bare commit labels elsewhere. They cannot be repaired by deleting the token:
+*"§ asks for the other shape"* is not a sentence, and *"which is the masking names"* is worse. Both need
+the referent replaced by what the section actually says. Same shape as Finding 51 — a site where a
+mechanical strip yields §4a-clean prose that is either meaningless or false.
+
+### A sub-class worth separating: tokens that will become false, not merely unresolvable
+
+Most of the 48 fail only to resolve. Five make an affirmative claim about branch history that a squash
+merge will falsify — PR-1 landed as a single squash commit, so per-commit labels will not exist in
+`main` at all:
+
+- `optimizer_dynamic_refresh_test.go:3`, `:14`, `:17` — *"Per-iteration dynamic refresh (PR-2 C2)"*,
+  *"Before C2, refreshAnchorSizing does not exist"*, *"is red before C2 … and green after."* This
+  documents a red/green TDD relationship to a commit boundary that will have been squashed away.
+- `optimizer_liveness_test.go:3` — *"Liveness fixes for the multi-vote combine (PR-2 C7)"*.
+- `k_sat_test.go:163` — *"Pre-C10 this priced at k = 0.85"* (Finding 49).
+
+These are worth fixing first if C9e is ever time-boxed: an unresolvable token is a reader's dead end,
+whereas a false historical claim actively misleads. The repair is the same in each case — state the
+behavioural before/after without naming the commit.
+
+### Confirmations
+
+Present at the committed tip, as previously recorded: Finding 51 at `analyzer_helpers.go:216`; Finding 49
+at `k_sat_test.go:163`; the `(C11)` comment at `rescale_test.go:186`. The `D-b` token appears once, at
+`cost_aware_optimizer_test.go:1001`, sharing a line with `C11`.
+
