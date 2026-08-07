@@ -1541,6 +1541,16 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
      changes** — if a number does change, the fsv conversion is wrong.
   10. Do **not** trust §5's `~L` line numbers: they are as-of `f6485980`, PR-1's *pre-rebase* tip, whereas
       PR-2's base is `075a208e`. §5 says to grep the heading text, and every entry supplies it — use that.
+  11. **Review C6c and C6d against plan tip `08e264bd`, and check which spec the diff actually implements.**
+      Two planner triggers landed *after* C6b and were still unconsumed when I checked: `…__c10-effect-corrected.md`
+      and `…__c6c-c6d-c10-plan-updates.md` (the latter written one minute after `08e264bd` itself). C6b
+      committed at 03:37; those bells rang at 03:16 and 05:13. The coder had consumed
+      `…__c6-answered-plus-c10.md` (`.WIP`) before resuming C6, so it is working from *some* post-block plan
+      state — but not necessarily the one that re-derived C6d's trigger as mid-loop rather than at role entry,
+      nor the one that added the `quota-limiter.md` fsv copy and the C10 tolerance bound. If the C6c/C6d diff
+      matches the pre-`08e264bd` spec, that is a finding against the diff, not against the plan. This is a
+      note to *me* about which revision to diff against; the doorbell is already ringing twice, so a third
+      trigger from me would add nothing.
 
 ---
 
@@ -1626,11 +1636,57 @@ permitted removal. The guard and the magnitude disagree about which PRC is autho
 | `[sat]` only | sat | No — sat is the identity carrier and "emits every configured variant" (`:191`), so it omits nothing. |
 | `[sat, TA]`, sat voting | sat | No — same reason. |
 | `[sat, TA]`, sat enabled but dead | TA | No — dead sat is pruned from `votingResults`, so TA is the only voter; it omits the variant on both paths and the two agree. |
+| `[sat, TA]`, sat enabled + **live** but not informative | TA | No, but only because of an unasserted invariant — see below. |
 | `[TA]` only | TA | No — single voter, guard and magnitude read the same result. |
 | ≥2 non-saturation voters | lowest-index | **Yes** — voter 2 sizes what the binder omits. |
 
 The divergent row needs two non-saturation voters, which PR-2 makes *mechanically* possible but no shipped
 config produces. Same class as Finding 15: latent, bounded at both ends, no handoff.
+
+**The fifth row is the near-miss, and it is worth writing down precisely** — it would put the divergence in
+the *shipped* `[sat, TA]` config with a single non-saturation analyzer, so "needs two non-sat voters" would
+stop being a bound. The voter set and the binder set are filtered differently:
+
+| Set | Filter | Site |
+|---|---|---|
+| voters | `Enabled && Live` | `votingResults` — `analyzer_helpers.go:227-238` |
+| binder-eligible | `Enabled && Live && ResultIsInformative` | `bindingAnchor` — `analyzer_helpers.go:143-162` |
+
+The gap between them is exactly *live but not informative*. Such a saturation result **votes** while TA
+**binds** — one non-sat analyzer is enough, and the guard/magnitude disagreement above becomes reachable.
+
+It does not happen today, and the reason is not in the engine — it is a property of the producer.
+`ResultIsInformative` keys on `Reason`, never on PRC (`:53-63`), so the two agree only because every
+`Reason` in its exclusion set happens to imply `PerReplicaCapacity == 0`:
+
+- **`ReasonNoData`** — set at `analyzer.go:431`, in the `else` of `len(replicas) > 0`. `perReplicaCapacity`
+  is declared *inside* the per-variant loop (`:370`), so it is a fresh zero on that branch. PRC 0. Safe.
+- **`ReasonError`** — the one production producer is `k2SourceLabel`'s defensive default (`:814`), reached
+  when `k2Labels[medIdx.K2Priority]` misses. Its only call site is `:420`, **inside** the branch that has
+  already assigned `perReplicaCapacity = float64(median(capacities))` at `:399`. So this reason arrives with
+  a *positive* PRC — it is the combination that would open the divergence.
+
+That default is unreachable in production, which is what closes the row: `ReplicaCapacity` has exactly two
+construction sites (`:209`, `:277`), `computeK2` returns one of the four mapped constants on all four of its
+return paths (`:303-334`), and `k2Source` is `iota + 1` so all four are keys in `k2Labels`. `K2Priority` is
+therefore never the unmapped zero, and `:814` is reachable only from a hand-built fixture that omits the
+field. With PRC 0 on every variant, a non-binding saturation voter is then dropped outright by
+`votesFromRoleSpare`'s own `if prc <= 0 { continue }` (`:499`) — it sizes nothing, so guard and magnitude
+cannot disagree.
+
+**So the invariant Finding 16's fifth row rests on is: `Reason ∈ {NoData, Error}` ⇒ `PerReplicaCapacity == 0`.**
+Nothing asserts it, and three ordinary edits would break it: adding a `k2Source` constant without a
+`k2Labels` entry (or a third `ReplicaCapacity` construction site that leaves `K2Priority` unset), hoisting
+`perReplicaCapacity`'s declaration out of the loop at `:370`, or adding a `Reason` to
+`ResultIsInformative`'s exclusion set that does not imply PRC 0.
+
+Worth noting that half of this coupling is already documented, in the same file that defines the other half.
+`types.go:29-31` says `satReasonNoData` "aliases the shared pipeline sentinel so this producer and the
+engine's liveness gate (`pipeline.ResultIsInformative`) cannot drift apart" — the `NoData` half. The
+`ReasonError` half of the identical coupling is undocumented, and it is the half where PRC is already
+positive. **No handoff:** all of this is PR-1/pre-existing code, PR-2 changes none of it, and the conclusion
+is that the shipped configs are safe. Recorded because the *reason* they are safe is three files away from
+the code that depends on it.
 
 **C7 checklist item.** §4's C7 line already includes "Test 2 rewrite (v2 PRC=0 under N8)" — the one
 fixture family that puts an anchor PRC of 0 in front of this code. At C7 review, check whether that
