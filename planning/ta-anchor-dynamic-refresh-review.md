@@ -5198,3 +5198,35 @@ so C9's sweep can decide whether the class includes bare "the plan".
   parenthetical about which of the two operands is constant, updates the constants table, and
   **narrows rather than deletes** the EPP open item — the remaining half (nothing holds the EPP's own
   notion of full to the same number) is stated as still open.
+
+### §4a ledger — authoritative counts, correcting two figures I had been carrying
+
+Recounted at three tips with one fixed pattern
+(`C<n>[a-f]?` · `PR-1/2` · `W<n>` · `N<n>` · `U<n>` · `D-a/D-b` · `T1.<n>` · `FZ-admission`), text files
+only, over `internal/**` and `docs/**`:
+
+| tip | code/doc token locations | commit messages carrying a token |
+|---|---|---|
+| `075a208e` (PR-1 tip, base) | **7** (inherited) | — |
+| `b6bb525c` (C11) | **52** | 16 of 18 |
+| `1a50b418` (C10) | **53** | **17 of 19** |
+
+Two corrections to figures in earlier sections of this doc:
+
+1. **The code/doc count at `b6bb525c` was 52, not 53.** I had recorded 53 there; 53 is the count *after*
+   C10, which added exactly one location — `k_sat_test.go:163`, i.e. Finding 49. So PR-2 has introduced
+   **46** new token locations on top of 7 inherited from PR-1, and C9's sweep is a 53-location job of
+   which 7 are not PR-2's to fix (though they are equally invisible to a `main` reader).
+2. **The message count at `b6bb525c` was 16 of 18, not 17 of 19.** 17 of 19 is correct as of C10. My
+   earlier figure counted a commit ahead of itself; the number I have been quoting to Dean is right
+   *now* but was one high at the time I quoted it.
+
+An earlier grep of mine also reported ~61 locations — that run included 8 `Binary file … matches` lines
+from the dev-guide PNGs, whose bytes happen to match the pattern. Those are not token locations; the
+counts above use `git grep -I`.
+
+**Cost-of-waiting, restated on the corrected basis:** every commit added to PR-2 while it is unpushed
+adds one more message to a `rebase -i` that is currently free (the branch needs a force-push anyway).
+The trajectory is 16 → 17 across one commit, with C9 still to land. Once PR-2 opens, the same edit is a
+live-PR history rewrite. The 53 code/doc locations are separate and unhurried — C9 is their natural
+host, and one of them is now a finding rather than a bulk-sweep item.
