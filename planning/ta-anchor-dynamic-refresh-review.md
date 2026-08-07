@@ -2843,4 +2843,168 @@ with a multi-site bug-#5 commit and with the §5 map. I am recording it only so 
 a `cost_aware_optimizer.go` hunk prompts me to ask which site was dropped, rather than passing unnoticed.
 Uncommitted work is not reviewed.
 
+---
+
+## C6c review (`34b18bc5`) — the `ceil`/`floor` fork, and three plan defects I independently confirm
+
+**Commit:** `34b18bc5` "pipeline: convert the fair-share claim to GPUs before comparing models",
+6 files, +564/−96. Tree at review time carried uncommitted `M analyzer_helpers.go` /
+`M cost_aware_optimizer.go` (C6d in flight) — **not reviewed**.
+
+**A correction to my own draft, since it changed the verdict.** I had this written up as a silent
+deviation — the "gate rationalization" failure mode, a coder arguing at length in a commit message
+for a choice the frozen design rules out by name. That framing was **wrong**, and I only found out
+because I read `plan__ta-anchor-c6c-ceil-eviction-fork.md.WIP` before filing. The coder implemented
+the mandated `floor` first, **measured** it, diagnosed a real termination defect, backed it out, and
+raised it as an explicit design fork addressed to the planner — *"This is a design fork, not a bug fix
+I folded in silently … it is your call, and I am naming it rather than shipping it either way without
+you."* That is the process working. The finding below is a fork awaiting Dean, **not** a coder defect.
+
+### Finding 22 (OPEN DESIGN FORK — Dean's call; not a coder defect) — `fairShareCap` still rounds the entitlement up, against a frozen Type 1 decision, because the mandated `floor` evicts models instead of deferring them
+
+**What the authorities require.** Four sites, and they rule out the shipped construction by name:
+
+- Type 1 (FINAL, frozen @ `8c2a9b04`) decision item 7, L42-43: "`fairShareCap` becomes a whole-replica
+  **`floor` fill**, not `ceil`-of-a-division."
+- Type 1 `W5` row 6, L2481: "`floor(remaining_GPUs / GPUsPerReplica)`, then `min` with the real pool.
+  **Not a divide-and-round**."
+- Type 1 L1159-1168: "Note **`floor`, not `ceil`**: this is a budget, and a partial replica is not
+  affordable. `ceil` … **over-grants by up to one replica at every boundary** … **Flag it in the commit
+  message** — it is the one place the conversion is not value-neutral."
+- Plan §2 site (ii) L433 ("row 6: a whole-replica `floor` fill") and §6 L2035-2036 ("`fairShareCap`'s
+  must be **gone**, replaced by the whole-replica `floor` fill").
+
+**What shipped.** `greedy_score_optimizer.go:619` — `replicasToCover(entitlementGPUs, gpusPerReplica)
+= int(math.Ceil(entitlementGPUs / float64(gpusPerReplica)))`, called as
+`capN := min(replicasToCover(target, gpusPR), gpusAvail/gpusPR)`. The **divisor** pivoted correctly
+(PRC → `GPUsPerReplica`, which is the actual bug-#5 fix); the **rounding** did not.
+
+**The coder's evidence, and my independent confirmation of the mechanism.** Writing the plan's `floor`
+exactly produced **9 failures of 334**, with deltas up to **−4 replicas** and one (`bv` 6→2) under an
+*unconstrained* GPU budget — far outside the plan's "one replica at a mid-replica boundary" stop
+condition, so no golden was touched. I verified the diagnosed mechanism against the code rather than
+relaying it:
+
+- `fairShareRolePick` returns `("", 0)` only when **no** variant in the role clears every gate — a
+  single `capN == 0` merely `continue`s to the next variant. So eviction needs the model to place
+  nothing anywhere, which is exactly what a sub-one-replica entitlement produces at every variant.
+- `allocateForModel` returns `w.remaining < oldRemaining`, i.e. **false** when nothing was placed.
+- `fairShareScaleUp:248-252` then sets `w.remaining = -1`, and `filterActive:441-449` drops the model
+  from `active` for the **rest of the cycle**. It is never revisited as the mean falls in later rounds
+  and its entitlement grows past a whole replica.
+
+So under `floor`, a model behind the water level by less than one replica's worth of GPUs is not
+deferred — it is **evicted with zero replicas**. Under `ceil`, `target > 0` guaranteed `capN >= 1`, so
+every iteration made progress. The collapse-to-1 signature in the coder's table is that, and the
+mechanism claim holds.
+
+**Which way the evidence points** (the call is Dean's; a reviewer owes him the read, not silence).
+The coder's technical argument is strong, and the Type 1's stated *rationale* is the weak link:
+`gpusAvail/gpusPR` is integer division on the **real pool**, and it was already integer division
+before C6c. That term, not the entitlement rounding, is what prevents overcommit. The Type 1's "a
+partial replica is not affordable" treats the entitlement as a budget; in `fairShareRolePick` it is a
+water-level **gap**, and rounding a gap up cannot commit a GPU that does not exist. On that reading
+`floor` on the entitlement buys no hardware safety and costs convergence.
+
+But `ceil` does concede the thing the Type 1 objected to — a model owed a fraction of a replica takes
+a whole one. **The coder's own option (b) is the only resolution that satisfies both**: make
+`capN == 0` mean *defer*, not *evict*, which requires `!allocated` to stop unconditionally setting
+`remaining = -1`. That is a change to the loop's **termination argument**, not to the cap, and the
+coder is right that it deserves its own commit with its own convergence reasoning. If Dean wants the
+frozen design honoured rather than amended, that is the path — not a one-line `ceil → floor`.
+
+**Residual risk if the fork resolves to `floor`.** Three artifacts currently read as *endorsement* of
+`ceil` and must be revisited **together**, or a future coder implementing the frozen design will face
+a red test that appears to bless the thing they are removing:
+
+1. `greedy_score_optimizer_test.go:1386` — `It("rounds the entitlement up to a whole replica and the
+   pool down", …)`, asserting `capN == 3` for a 5-GPU entitlement at 2 GPUs/replica. The spec is
+   well-built (direct closure call, exactly the level Finding 20 says site (ii) is observable at) —
+   its **name and comments** are the hazard, not its construction.
+2. `replicasToCover`'s doc comment ("rounding up").
+3. The commit message's justification paragraph.
+
+### Finding 23 (nit — fixable now, one amend, branch still unpushed) — `34b18bc5`'s message presents the rounding as settled and reads the green goldens as confirmation
+
+Two things a reader of `34b18bc5` alone cannot learn, both cheap to fix while the branch is local:
+
+- **The message does not say the fork is open.** It documents `ceil` as "a deliberate choice" and
+  argues for it, which is accurate but reads as *decided*. A frozen Type 1 decision was deliberately
+  not implemented and is awaiting Dean — the message should say that. The plan required this commit to
+  call out the `ceil → floor` behavior change; since the change was not made, the message should
+  call out **that** instead. The handoff carries the fork correctly; the permanent code-side history
+  does not.
+- **"Every golden is unchanged" is *expected* under retained `ceil`, not evidence.** Site (ii) is the
+  one site that could have moved a golden, and it did not move because it was not changed. The pivot's
+  value-neutrality is established by the other five sites; the goldens are **silent** on the cap. Worth
+  stating so nobody later reads the green goldens as having exercised it. (The message's own
+  cross-reference — value-neutral "on one condition that is item 3" — is *correct*: I verified that
+  building site (v) from score-weighted `combineVotes` would have moved the numbers.)
+
+### Three plan defects the coder found — all independently confirmed
+
+Credit to the coder; recording them so the planner strikes the wrong text rather than letting it
+survive as apparent authority.
+
+1. **§2 #5(i) L394-397 is factually wrong.** It says `GPUsPerReplica` "lives on the same
+   `VariantCapacity`" and calls `gpusPerReplica(vc)`. Confirmed false: `domain.VariantCapacity`
+   (`internal/domain/analyzer.go`) carries `VariantName / AcceleratorName / Cost / Role /
+   ReplicaCount / PendingReplicas / PerReplicaCapacity / Reason` and **no** `GPUsPerReplica`; the field
+   is on `domain.VariantReplicaState` (`internal/domain/saturation_analyzer.go`), reachable only via
+   `gpusPerReplicaFromState(stateMap, name)`. **The DECIDED option-(a) signature therefore cannot reach
+   the factor at all.** The coder's `+ stateMap` extension is the minimal correct fix; the decision
+   text needs one more parameter than it anticipated.
+2. **§2 site (v)'s "build the fallback from `combineVotes`" is wrong twice.** Confirmed:
+   `votesFromPickerState:445` computes `Value: state[i][role] / prc` — it **already** divides by PRC,
+   so a `toGPUs` on its output divides a second time; and `combineVotes(_, true)` is score-weighted by
+   construction (its own doc comment: "Callers round once, **after the weighting**"), which would put a
+   ranking weight back into the number the model spends — the invariant the design states as
+   *priority orders, never scales*. The coder implemented the plan's **other**, consistent statement
+   (plain unweighted `max_i`). Correct choice; the inconsistent statement should be struck.
+3. **§6's `ceil(` grep finds nothing.** Confirmed: `grep -rn "ceil(" internal/engines/pipeline/`
+   returns zero hits because Go spells it `math.Ceil(`. Run case-insensitively it finds three, and they
+   classify exactly as the coder says — `greedy_score_optimizer.go:619` is the fork above;
+   `analyzer_helpers.go:520` (`roleBottleneckReplicas`) and `rescale.go:585` (`roleDemandGPUs`) are both
+   `int(math.Ceil(value))` on a **combined demand vote → replica count**, which is the case plan
+   L2036-2038 explicitly says must **stay**. Suggest `grep -rni "ceil("`.
+
+### §4's invariant-7 ship gate is on no commit — confirmed independently
+
+The coder flags that §4 L1440-1449's invariant-7 check — a **direct** test that a one-analyzer
+`[sat]` ballot leaves the anchor equal to the saturation entry field-for-field, plus a not-invoked
+assertion on the per-variant sizing refresh — is assigned to no commit in §4. This is the same gap
+already on my C6c checklist, and I confirm it: it is a real PR-level §4 omission, not a coder
+oversight. C9 is a reasonable home. It cannot be satisfied by the goldens (invariant 8: a one-analyzer
+ballot is an algebraic pass-through, so sat-only goldens cannot exercise combine arithmetic).
+
+### The correct remainder of C6c — substantial, and it is most of the commit
+
+Not buried by the fork. All verified against the diff:
+
+- `toGPUs` / `fromGPUs` returning `(float64, bool)`, with `ok == false` on
+  `perReplicaCapacity <= 0 || gpusPerReplica <= 0` — a single conversion boundary in each direction
+  (rows 0 and 8), not a conversion sprinkled per call site.
+- `claimGPUs` doing `max_i` **within** a role and `Σ_role` **across** roles (rows 1 and 2, and legal
+  only there), skipping unpriceable entries.
+- `fairShareValue` reduced to `priority × claimGPUs` with the fallback returning the **unweighted**
+  claim — so both paths return GPUs, and Score is out of the spend.
+- Site (iv)'s clamp converting the bound down through **each entry's own** PRC while `ps` stays raw —
+  the unit-table row 8 shape, and the third of the three shapes the coder had proposed.
+- Fixtures that **vary `GPUsPerReplica`** (1 vs 3 for ordering; prefill 1 vs decode 4 for the multi-role
+  clamp), which is what escapes the cancellation trap the plan warns about at L1024-1027 — a fixture
+  holding it constant "cannot detect the pivot at all".
+- `referenceVariantForRole` documenting the surviving reference-variant approximation instead of
+  silently keeping it.
+- The `cost_aware_optimizer.go` hunk is comment-only, and correctly so: the scale-down score-weighted
+  tie-break is an **ordering** key, not the fair-share metric, so the invariant permits the weight
+  there. The coder added one clarifying clause at the canonical definition site rather than duplicating
+  it at every call site, and left `rescale.go:380` alone. I agree with both calls — and with the
+  judgement that those two inventory entries are **not** false after C6c.
+
+**No handoff from me on Finding 22.** `plan__ta-anchor-c6c-ceil-eviction-fork.md.WIP` already carries
+the fork to a planner with better evidence than I could add (a measured 9-failure run I cannot
+reproduce without editing code, which is outside my scope). A second overlapping handoff is the churn
+this review has been documenting. Findings 23 and the three plan defects ride the same fork resolution
+and need no separate channel. What I owe Dean directly is unchanged and listed in Finding 13's window.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
