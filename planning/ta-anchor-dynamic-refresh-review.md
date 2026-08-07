@@ -1444,5 +1444,93 @@ correction needed to any prior finding.
 
 - Finding 14 → planner: run `toc-refresh.sh` on the plan. Worth doing before the coder next fetches
   §2d.5/§2d.6/§4/§5/§6 — i.e. ideally before C6c is finished.
+  **Update 2026-08-07 05:20 — actioned, then immediately overtaken.** `ffb945c1` ran the refresh **and**
+  added 130 lines in the same commit, refresh first. So the shipped TOC is exact for `62c37c46` and off for
+  `ffb945c1`: +1 (§2b–§2d.4), **+33** (§2d.5–§4), +72 (§5), +75 (§6), +82 (§7); §7's range still ends at
+  L1124 against a 1206-line file. The finding stands with a sharper root cause — **the refresh has to be the
+  last step of a plan edit; run first, it is indistinguishable from not run.** Two consequences are live and
+  both are re-raised in `plan__ta-anchor-pr2-toc-refresh-ran-before-edits.md`:
+  - **§2d.5 truncates at exactly the new content.** TOC `L569:626` vs actual `L602:659` — the fetch returns
+    §2d.4's tail plus §2d.5's first 25 lines, ending mid-sentence inside *Reference PRC*, and omits *"The
+    fall-through case (ii) must survive"* (L635-651) entirely: the 25→5→25 table, the why-the-suite-misses-it
+    argument, the §4 fixture pointer. The single most important thing `ffb945c1` added, invisible to a
+    TOC-driven read, in a fetch that ends on a complete paragraph and so reads finished.
+  - **The clause I missed is still unreachable the same way.** §4 TOC `L851:922` vs actual `L884:994`; the
+    C10 fixture-tolerance clause now sits at **L943** — outside the range, again. Not an excuse for the miss
+    (a range visibly starting mid-§3 should have stopped me), but it makes the failure mode reproducible
+    rather than a one-off, and §4 owns the test requirements for every remaining commit.
+
+---
+
+## C6c fold-in verification (plan `ffb945c1`) — Findings 9/10 closed, one new low-severity note
+
+`ffb945c1` folds `plan__ta-anchor-pr2-c6c-fsv-currency-gaps.md`. It is **more thorough than what I raised**,
+and I verified its load-bearing claims against the code at `d9f3b97e` rather than taking them on the page.
+
+### Findings 9 and 10 — CLOSED (folded, and extended)
+
+- **Finding 10** (the `maxDemand` fallback as an unnamed fifth lock-step site) → plan §2 #5 **(v)**, with
+  more than I asked for: keep-and-fix rather than delete (deletion would need a §4b classification and would
+  change the `fsv > 0` admission at `:134`), the reachability argument via `ApplyDefaults` rewriting
+  `Priority == 0 → 1.0`, and the pre-existing max-vs-sum asymmetry named as pre-existing rather than folded
+  silently into C6c. The doc comment at `:53-60` is also named. Nothing left from my side.
+- **Finding 9** (the `fairShareCap` cross-variant mismatch on fall-through) → plan §2 #5 **(ii)** plus §2d.5
+  *The fall-through case (ii) must survive*, with the fix I could not supply: `prcRef` needs **no new closure
+  parameter**, because the closure already computes `sortByCostEfficiencyAsc(roleVCs)` and `prcRef` is that
+  slice's first `PRC > 0` entry. Cleaner than anything I proposed.
+- **Site (iv) is the planner's own**, found while verifying §2d.5, and is the sharper half of the bug: the
+  `ps[i][role] > target` clamp at `~:285-291` compares **raw capacity** against `target`, so it truncates
+  every role to a handful of capacity units the moment `target` becomes replica-space. Inert today only
+  because `target` is the sum over roles. I had not found it.
+
+### Claims I verified in code (all confirmed; one is stronger than the plan states)
+
+| Plan claim | Verdict |
+|---|---|
+| `costEfficiency` returns `math.MaxFloat64` for `PRC <= 0`, so `sorted[0]` is the first `PRC > 0` entry | **Confirmed** — `cost_aware_optimizer.go`, the `if vc.PerReplicaCapacity <= 0 { return math.MaxFloat64 }` guard |
+| `fairShareCap` is at `greedy_score_optimizer.go:423` (corrected from `:421`) | **Confirmed** — `fairShareCap := int(math.Ceil(target / vc.PerReplicaCapacity))` sits at `:423`, between the `gpusAvail < gpusPR` skip (`:420`) and the `headroom <= 0` skip (`:427`), exactly as §2 #5 (ii) describes |
+| `sort.Slice` deterministic for identical input ⇒ `prcRef` bit-identical on both sides | **Confirmed**, and safer than the argument needs: `sortByCostEfficiencyAsc` does `make` + `copy` **before** sorting, so it never mutates its input. Both sides can sort the same slice with no ordering dependence between the calls, and no side effect on `w.anchor.VariantCapacities` for later consumers (`refreshAnchorSizing` iterates that slice — I checked specifically because an in-place sort would have perturbed C2's input; it does not) |
+| the rescale is neutral because "for `vc == v_role` the ratio is exactly 1" | **Confirmed, and understated.** `combineVotes` returns `float64` with no internal `ceil`, so `target` after (i) is an unrounded `demand/prcRef`; the rescale is then `ceil((demand/prcRef) × prcRef / vc.PRC)`, and `prcRef` **cancels for every candidate**, not just for `v_role`. So site (ii) reproduces today's `ceil(demand/vc.PRC)` for the whole loop, and **no golden can move on (ii) at any fixture shape** — a stronger ship-gate argument than the one written, which only covers the single-variant case |
+
+### Finding 15 (low / latent, no action requested — recorded so I check it at C6c, not a handoff) — the `prcRef` round-trip can push an exact-integer quotient over a `ceil` boundary
+
+The cancellation above is algebraic, not bit-exact. `fl(fl(fl(d/p) × p) / q)` carries up to three roundings,
+so it can land at `(d/q)(1 + ~3·2⁻⁵³)`. Where `d/q` is **exactly** an integer *n*, `math.Ceil` then returns
+**n+1** where today it returns *n* — an off-by-one in the cap, silently, on round numbers.
+
+I am not raising this as a handoff, because the bite zone is genuinely narrow at both ends:
+
+- **Production values are safe by inexactness.** `target = w.remaining − mean` is an arbitrary float and PRCs
+  come from `μ` computations (2618.93-shaped), so `d/q` is essentially never integral and `ceil` has margin.
+- **Fixture values are safe by exactness.** The §2d.5 table's own case — `d=50000, p=10000, q=2000` — is
+  exact at every step (`50000/10000 = 5.0`, `5.0 × 10000 = 50000.0`, `50000.0/2000 = 25.0`), so it yields 25
+  and not 26. Decimal integers of that size are exactly representable, and so is each quotient.
+- The residue is the seam: a fixture with a **non-round** `prcRef` (4600, 2618.93) whose demand happens to
+  divide evenly by the *other* candidate's PRC. Reachable by construction, not by accident.
+
+There is no `ceil`-tolerance idiom to reach for if it does bite — `:423`, `analyzer_helpers.go:520` and
+`rescale.go:585` are all bare `math.Ceil` (`rescale.go` uses `1e-9` only for comparisons, `:106`/`:121`).
+The clean formulation is to avoid the round-trip rather than to add an epsilon: keep the demand-space sum
+available alongside the replica-space `target` and compute the cap from it directly. **What I will check at
+C6c:** if the coder writes the literal product, re-derive the new fall-through fixture's expected cap by hand
+and confirm it is not sitting on an integer boundary; if they retain a demand-space quantity, this is moot.
+
+### Outstanding — pre-C6c (revised)
+
+- Findings 9 and 10: **closed**, folded into plan §2 #5 (i)/(ii)/(v) and §2d.5 by `ffb945c1`. No handoff open.
+- Finding 15: **mine to check at C6c review**, not the planner's to act on.
+- Checklist for C6c, unchanged from the earlier section except where `ffb945c1` sharpened it:
+  1. `Score` gone from all six names in plan §6's grep.
+  2. **Five** lock-step sites converted, not four — (i) `fairShareValue` primary + all three call sites
+     (`:133`, `:348`, `:350`), (ii) `fairShareCap` with the `prcRef` rescale, (iii) the scale-down tie-break,
+     (iv) the `ps[i][role] > target` clamp, (v) the fallback return.
+  3. `prcRef` and `v_role` sourced from the **same** slice and the **same** role filter — a separately-built
+     copy re-opens the mismatch through a second door.
+  4. The fallback **kept**, not deleted (else a §4b DEPRECATED classification is owed).
+  5. The `:53-60` doc comment rewritten — it names `Score`.
+  6. T1.4 rewritten per §2d.6, asserting both the replica number **and** the binder index.
+  7. The new fall-through fixture is **multi-variant within one role** — every existing fsv fixture is
+     single-variant-per-role, where the error is identically zero.
+  8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
