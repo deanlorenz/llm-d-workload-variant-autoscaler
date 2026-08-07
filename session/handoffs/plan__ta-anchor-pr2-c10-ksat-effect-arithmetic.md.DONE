@@ -1,0 +1,91 @@
+from: review (🔍 anchor-pr2 Reviewer)
+to: planner
+session: ta-anchor-pr2-c10-ksat-effect-arithmetic
+
+## Summary
+
+Plan `ta-anchor-dynamic-refresh-plan.md` §2e.3 (C10, k_sat) contains an arithmetic error in its effect
+estimate, and the re-derivation instruction that follows from it will produce **wrong-but-green** test
+expectations if the coder follows it literally. C10 has **not been written yet** (branch tip `1140a4c2`
+= C8; C6a–C6d land first), so this is catchable before the code exists rather than after.
+
+Full write-up with the numbers is Finding 6 in `planning/ta-anchor-dynamic-refresh-review.md`
+(§ "Pre-emptive — C10 not yet written"). Condensed:
+
+## The error
+
+§2e.3 says: *"TA now evaluates capacity at 0.80 instead of 0.85 ⇒ PRC ↓ ~5.9% ⇒ TA's replica vote ↑ ~6%"*.
+
+`5.9%` is `1 − 0.80/0.85` — the change in the **numerator alone**. But `kSat` enters per-replica capacity
+**twice**: `computeVariantSupply` divides by `itlSat = model.ITLAt(kSat) = A·kSat + B`, evaluated at the
+same `kSat` (`analyzer.go:295` computes it, `:719` consumes it).
+
+```
+μ_dec_sat(k) = (k · KV_max / KVreq) / (A·k + B)
+
+μ(0.80)/μ(0.85) = (0.80/0.85) · (A·0.85 + B)/(A·0.80 + B)
+                   └ 0.9412 ┘   └────── > 1 whenever A > 0 ──────┘
+```
+
+Lowering `k` shrinks numerator and denominator together; they largely cancel. `validITLModel` requires
+`a > itlSlopeEpsilon` (`1e-12`), so `A > 0` always holds here — the `A → 0` case where 5.9% would be
+right is structurally rejected by the validator.
+
+Against the shipped fixture (`analyzer_test.go:264-273`, `A=0.073 B=0.006 KV_max=1024000 KVreq=4600`):
+
+| | `N_sat` | `ITL_sat` | `μ_sat` |
+|---|---|---|---|
+| k=0.85 (today) | 189.2174 | 0.06805 | **2780.56** |
+| k=0.80 (post-C10) | 178.0870 | 0.06440 | **2765.33** |
+
+Actual shift **−0.548%**, not −5.9% — off by ~11×. In `r = B/A` the drop rises monotonically from **0%**
+at `r=0` (pure-slope ITL: `μ = KV_max/(KVreq·A)`, independent of `k` entirely) toward 5.882% only as
+`r → ∞`. With `B ≈ DefaultBaselineITLSec = 0.006` and slopes "order 1e-2" (the code's own words),
+`r ≈ 0.06–0.6` ⇒ realistically **0.4%–2.5%**. The fixture sits at `r = 0.0822`.
+
+## Why it matters for the code, not just the prose
+
+1. **The re-derivation instruction is a trap.** §2e.3 names only `N_dec_sat = kSat × KV_max / KVreq` — the
+   numerator — and says "do not re-baseline to whatever the code now prints." A coder doing exactly that
+   scales by `0.9412` and lands ~5.4% from the true value. That error is **invisible to the suite**: the
+   three `muSat` assertions (`analyzer_test.go:367,405,425`) carry `BeNumerically("~", muSat, muSat*0.10)`
+   — a ±10% tolerance — so wrong expectations pass. Silently-wrong fixtures, green gates. Suggest §2e.3
+   state the full two-place ratio explicitly.
+2. **Most of the predicted churn does not exist.** §2e.3 expects `analyzer_test.go`'s supply/PRC numbers
+   to "move ~6%" and need updating; at 0.55% they stay inside ±10% and **`muSat = 2782.0` will not go
+   red**. Worth setting expectations so the coder does not go looking for churn that isn't there, or
+   worse, manufacture it.
+3. **The specified red-first fixture needs a tolerance note.** The `KvCacheThreshold: 0.5` case is the one
+   with real signal: `μ(0.5) = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9`, a 5.8% drop
+   from 2780.56 — it clears ±10% but *only just*. If written with a tolerance ≥ ~6% it asserts nothing.
+   Recommend §2e.3 or §4 call for a tight tolerance on that fixture specifically.
+
+## What this does not change
+
+The fix is still correct and worth landing; I am not asking to descope C10. Both defects §2e.1 identifies
+stand independently of magnitude — saturation and TA genuinely disagree on the definition of "full"
+(0.80 vs 0.85), and TA genuinely receives `input.Config` and never reads it, so an operator's configured
+k_sat never reaches it. What changes is the justification's *weight*: this is a correctness and
+configurability fix, not a "fixed ~6% thumb on the scale that biases the binder `argmax` and feeds the
+dominance correction." Under default config the binder bias removed is sub-1%. Recommend the commit
+message avoid the 6% figure, and that §2e.3 be corrected so the number does not outlive this review as
+received wisdom.
+
+## Suggested planner actions
+
+- Correct §2e.3's effect estimate to the two-place ratio (and note the `r = B/A` sensitivity, since the
+  answer genuinely depends on the fitted model, not on a constant).
+- Rewrite the re-derivation instruction to include the `itlSat` denominator.
+- Add the tolerance caveat for the `KvCacheThreshold: 0.5` fixture.
+- Re-ring the coder (refs-only trigger) if §2e.3 changes before C10 is reached — there is time, C6a–C6d
+  come first.
+
+I have **not** rung the coder on this: §2e.3 is planner-owned and a trigger carries no instructions, so
+telling the coder anything actionable here would be routing around the plan. Flagging to you instead.
+
+## Note on review-doc state
+
+`planning/ta-anchor-dynamic-refresh-review.md` is DRAFT and **uncommitted** on the plans worktree
+(alongside the still-uncommitted `ta-anchor-refactor-v2-code-review.md` and the
+`ta-anchor-refactor-review.md` Part 3/Round 2 edits). Flag before any worktree reset. Reviewer-owned —
+I will commit it; not sync's or the planner's job.
