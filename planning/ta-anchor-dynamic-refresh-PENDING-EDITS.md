@@ -60,6 +60,7 @@ review the batch as a list rather than as prose spread over many turns.
 | A32 | §4a — **strengthens A24b; the sweep is not mechanical** | **Finding 51** (`analyzer_helpers.go:216-218`) establishes a principle that changes what a §4a step must *say*: the tokens are **load-bearing markers of "written before X landed"**, so some of the 54 locations are stale in **content**, not merely in vocabulary. Its instance: *"once **PR-2** admits multiple non-saturation voters, a later qualifying entry does not overwrite the earlier one"* — future-tense about a condition `votingResults` (`:315-323`) **already satisfies on this branch**. Strip the token mechanically and you get *"once this change admits…"*, which is §4a-clean **and still false** — and a clean sweep is the thing nobody re-reads afterwards. So the plan's §4a step must direct a **prose rewrite where tense or premise moved**, not a token substitution, and must say the residual risk at such sites is *higher* than at the other 46. Reviewer's own framing, and it is right | reviewer Finding 51 |
 | A33 | §4a — the tension that will let A28 through | The coder's C9e is scoped *"47 of 54; the 7 inherited at `075a208e` out of scope"*, and the reviewer **endorses that as matching its ledger exactly** (54 − 7 = 47) while, in the same document, listing *"the path/filename class"* among the items that **"remain pending"** for that commit. Both statements are its own and they cannot both be complete: 54 is token-class only. That is the precise mechanism by which A28's two sites — `analyzer_helpers.go:642` (design-doc **filename**) and `:88` (*"Type-1 owner's"*) — pass through a sweep that is simultaneously certified exhaustive. **Re-verified: both still live at `757fc6f5`.** Scoping the sweep to the PR-2 delta is correct on its merits (the 7 inherited belong to the `main`-side governance backlog) — the defect is the *class* boundary, not the delta boundary. The plan step must therefore name **three** classes: tokens (47), plans-branch paths/filenames, and taxonomy prose (`Type-1`, `Type 3`) | my re-verification at `757fc6f5`, against the reviewer's §C9-gap + ledger-delta sections |
 | A34 | §C9 — supersedes A31's first clause only | Distinguish two **adjacent but different** comments, because the reviewer's handoff and its review doc point at nearly the same lines for different things. `:213-216` *"Not proactively selectable"* → **already fixed**, no row needed (C11 rewrote it; it now lives at `:178` and is accurate — A31 stands). `:216-218` the **N2 tie-break** comment → **Finding 51, genuinely open** (A32). A31's correction must not be read as dismissing Finding 51. **Now moot as a disagreement — the reviewer has retracted it itself** (C9b pre-registration **P2**, retracting its own C11 checklist items 7 and 13): those items assumed `(D-a)` would ship, and with it deferred the *"not proactively selectable"* claim is **true as written**, so *"correcting" it would replace a true statement with a false one*. It pre-commits to scoring any regression there as **its own** error, not the coder's. So A31/A34 reduce to bookkeeping: apply them as a note, not as a counter-argument | my verification, corroborated by the reviewer's own P2 retraction |
+| A35 | §2f `(D-a)` + §12 deletion/deferral ledger | Rewrite the `(D-a)` deferral as a **§4b DEFERRED classification with a mechanism clause**, not a one-line TODO. Three required parts, because a future implementer reading only the frozen Type 1 builds the regression: (1) **what it would do** — proactively admit a never-measured zero-replica variant so the cost/fair-share ranking can pick it; (2) **why it is not shipping** — the frozen mechanism is insufficient, not merely unfinished, and today's behavior is safe without it (anchor PRC 0 ⇒ `cost_aware_optimizer.go:100` passes the variant over ⇒ co-tenant picked normally); (3) **the mechanism the follow-up must carry** — the sentinel is written on **the binding analyzer's own ballot entry**, and the (b) merge carries it to the anchor as a consequence; an anchor-only write ships a regression that takes the **co-tenant's** scale-up down with it via the `demand = 0` → `utilByRole = 1.0` → `!anyPositive` → `break` chain, and in P/D silently commits prefill without decode. This is the one part of the designer's ask that lands in a doc **I own**, and it is independent of Dean's scope call — it is required whether `(D-a)` ships in PR-2 or not (if it ships, the same clause is the spec; if it defers, it is the deferral record) | designer's `(D-a)` handoff § recommended fix + its explicit-choice constraint; §4b |
 
 ## B. Conditional — each waits on one decision
 
@@ -135,8 +136,75 @@ review the batch as a list rather than as prose spread over many turns.
   strength of a no-data ballot, contradicting the abstain-as-a-pricing-rule invariant. **The fork
   therefore collapses from a mechanism question to a scope question:** option 1 is the only mechanism
   that works (same state, one currency, cost = a synthetic value entering the vote — the `N8` question
-  proper), and option 3 is "not in PR-2". Reviewer declines to choose between 1 and 3; my
-  recommendation stays **(3)**.
+  proper), and option 3 is "not in PR-2". Reviewer declines to choose between 1 and 3.
+- **Mechanism now settled three ways — and the `N8` objection to option 1 is dissolved.** The designer
+  (`plan__ta-anchor-da-sentinel-belongs-on-the-ballot`, 2026-08-08) **owns the defect** — *"The defect
+  is **mine**. The `FZ-admission` mechanism I froze into the Type 1 at `8c2a9b04` … is insufficient as
+  written"* — and independently reaches option 1: **write the `Reason`-tagged `PRC = 1` on the binding
+  analyzer's own ballot entry**, letting the (b) merge carry it onto the anchor as a consequence. That
+  retires my one reservation. I had scored option 1 as "a synthetic value entering the vote — the `N8`
+  question proper"; the Type 1 already answers it at `:1512-1515` — the sentinel is *in the binder's
+  own currency*, hence **a declared minimum, not a borrowed measurement**, which is not what `N8`
+  prohibits. Anchor-only made that existing sentence false; ballot-side makes it true. So ballot-side
+  is **a correction toward the frozen design's stated intent, not a new direction** — one write site,
+  eligibility/ranking/bound all unchanged, and sizing works because the binder then casts
+  `state[binder][role] / 1`. The arithmetic closes at exactly one replica:
+  `n = min(bottleneck, 1) = 1` ⇒ `deltaUtil = 1/demand` ⇒ `k = 1`; next iteration headroom `1-1 = 0`
+  ⇒ `continue` ⇒ the co-tenant is picked normally.
+- **The blast radius is worse than this section recorded, and I verified every step at `2ae440e3`.**
+  Two sharpenings. (1) **It is the default ordering, not an unlucky one:** saturation reports
+  `Cost = 0` for a zero-replica variant (`N5`), so `0/1 = 0` sorts the never-measured variant
+  **first** in `sortByCostEfficiencyAsc`. (2) **The co-tenant loses its scale-up too**, not just the
+  from-zero variant. Verified chain: `PerReplicaCapacity <= 0` at `cost_aware_optimizer.go:100` no
+  longer skips it ⇒ `maxTargetReplicas` → `(1, true)`, headroom 1, `allPicked` true ⇒ but
+  `votesFromPickerState` (`:522-535`) reads `prcForVariant(e.Result, v)` — **the ballot, not the
+  anchor** — so every entry hits `prc <= 0 { continue }` ⇒ `roleBottleneckReplicas` → `n = 0`, and
+  `roleAggRemaining` (`:698-704`) abstains ⇒ `demand = 0`. The step that makes this lethal rather than
+  inert is `:969-971`: **`if demand <= 0 { utilByRole[role] = 1.0 }`**, so `deltaUtil = 1.0` and the
+  `deltaUtil <= 0` guard at `:982` — the guard built for exactly this — **does not fire**. Then `k` is
+  computed only `if prc > 0 && demand > 0` ⇒ `k = 0` ⇒ `!anyPositive` ⇒ **`break` at `:1001`** out of
+  the whole model's allocation loop. Textual corroboration in-tree: `cost_aware_optimizer.go:104-107`
+  already warns that a returned cap of 0 *"would take every variant behind it down with it"* — the
+  anchor-only sentinel re-opens that same hazard through the **demand** path instead of the cap path.
+- **New failure mode, previously unrecorded: P/D unmatched commit.** If the never-measured variant is
+  alone in its role, the *other* role's positive `k` keeps `anyPositive` true, so there is no break —
+  instead prefill commits while decode stays at zero, violating the matched-joint-commit that
+  `allocateForModelPaired` (`:930`) exists to guarantee. The break is loud; this one is silent.
+- **Dean's *"use sat's demand"* option is now closed with a reason, not merely ranked last.** TA binds
+  only when saturation fails `Enabled && Live && Informative`, and `votingResults` (`:332-340`) prunes
+  on `Enabled && Live`: failed-on-Live ⇒ not in the voting set at all (no donor exists);
+  Live-but-not-Informative ⇒ every variant capacity is a no-data/error sentinel ⇒ `prcForVariant <= 0`
+  ⇒ abstains. *"There is no saturation demand to borrow at the moment TA binds."* `N8` rules against
+  cross-analyzer borrowing independently. Break→skip is also ruled out as the quick fix: *"fixes the
+  blast radius but not the feature"*, and it needs a per-iteration exclusion set or the re-pick spins.
+- **My scope recommendation is unchanged — defer — but the reason changed and it now carries a
+  mandatory rider.** Not "because option 1 collides with `N8`" (dissolved above) but because it is a
+  feature addition to a PR sitting on its last commit, and **today is safe**: `V_zero`'s anchor PRC is
+  0, so `:100` passes it over and the co-tenant is picked normally — *"there is no live bug to bypass
+  today."* The rider is the designer's own, and is the part that must not be dropped: whichever
+  disposition Dean picks must be **chosen explicitly**, and *"if it stays deferred, the follow-up must
+  carry the ballot-side requirement, not just 'write the sentinel'; otherwise a future implementer
+  reads my Type 1 and builds the broken version."* Concretely that makes the deferral a **§4b DEFERRED
+  classification with a mechanism clause**, not a one-line TODO — a Type-3 row I own and can apply in
+  the batch. **What I am not deciding:** whether anything lands in PR-2 (Dean's), and the Type-1
+  amendment itself (the designer's).
+- **Designer's queued Type-1 amendments — no action for me, but they change what the Type 3 derives
+  from.** `:1524-1526` marks eligibility as "the whole point" (*"the located error: necessary treated
+  as sufficient"*); `:1512-1515` gains the ballot-side precondition; the `:2062` roll-up's *"leaving
+  nothing open on either"* is wrong; the `FZ-admission` findings row's *"Adopted — folds into PR-2"*
+  overstates. Plus one broader than `(D-a)`: **the `N2`/`N7` Disposition cells still read "Open"
+  although both are Dean-confirmed RULEs that shipped** — *"the Disposition column needs a sweep
+  against the branch, not spot fixes."*
+- **Errata, and why it matters more than the two numbers.** A sibling handoff
+  (`plan__ta-anchor-da-sentinel-errata-two-line-refs`) corrects two refs the designer could no longer
+  edit once I marked the first `.WIP`: `cost_aware_optimizer.go:103-107` → **`:104-108`**, and
+  `votingResults` `:315-323` → **`:332-340`**. Drift under the coder's `2ae440e3`; code unchanged in
+  both. **My independent read agrees with the corrected refs, not the originals** — that is the check
+  that matters, and the substance survives the drift intact. Self-reported cause: citations written
+  from an earlier `git show HEAD:` dump but labelled with a stale SHA — *"a dump is only valid for the
+  SHA you read it at"* — the same tip-staleness class I had flagged at it in
+  `designer__t1-1-not-shipped-and-pending-edits-exists`. Sender rule held correctly: it stopped
+  editing at `.WIP` and sent a sibling rather than amending in place.
 - **Shipped production-prose defect, same amendment.** `analyzer_helpers.go:185-188`'s premise is false
   (`ResultIsInformative` is any-variant per `:57-62`, so a healthy binder can be informative in
   aggregate yet price nothing for one variant — the expected shape for a never-measured from-zero
