@@ -5610,3 +5610,82 @@ Incidental but useful: the same check revealed the coder is **mid-C9b right now*
 `docs/developer-guide/multi-analyzer-pipeline.md` and `internal/engines/pipeline/analyzer_helpers.go` are
 both dirty in its tree, which are precisely C9b's two subjects. That is a reason to stay further out, not
 closer in; I am reviewing committed state only and will not read its uncommitted working copy.
+
+---
+
+## Pre-registration — C9b (in flight now)
+
+Written before the commit lands, against committed tip `757fc6f5`, so the predictions are falsifiable.
+Pre-registration caught Finding 48 before C10, so it is worth the cost again here. Six predictions, and
+**the second is a retraction of my own earlier instruction** — that one matters more than the rest,
+because acting on the superseded version would introduce a defect rather than fix one.
+
+### P2 (highest priority) — my C11 checklist items 7 and 13 are now WRONG. Do not act on them.
+
+Both items said, of `analyzer_helpers.go`'s *"Not proactively selectable; genuine cold-starts fall to the
+reactive scale-from-zero engine"*:
+
+> the exact claim C11 reverses, and must change in the same commit
+
+**That was written on the assumption that `(D-a)` would ship.** It did not — `(D-a)` is deferred, nothing
+writes `ReasonFromZeroAdmission`, so `PerReplicaCapacity` still stays 0 for a binder-omitted variant and
+the variant still is *not* proactively selectable. C11 shipped `(D-b)`, the ceiling, which constrains an
+admission that never happens. **The claim is therefore true as written, and "correcting" it would replace a
+true statement with a false one.**
+
+The current text at `:176-182` has in fact already been revised the right way — it keeps "not proactively
+selectable" *and* adds "Proactively admitting the zero-replica case … is deferred; see
+ReasonFromZeroAdmission for why an anchor-side sentinel alone does not achieve it." That is
+deferral-consistent and I would leave it alone.
+
+So my prediction for this site is inverted from my earlier checklist: **the correct C9b outcome at
+`:176-182` is little or no semantic change.** If the diff makes the variant sound selectable, or drops the
+deferral clause, that is a regression traceable to my own stale instruction, and I will score it as my
+error and not the coder's. Retracting items 7 and 13 explicitly for that reason.
+
+### P1 — `:65-69`, the `ReasonFromZeroAdmission` doc comment must read as dormant (Finding 46)
+
+Current text says the constant "marks a variant the anchor admitted on the from-zero sentinel" and that
+"the one-replica ceiling in `maxTargetReplicas` keys on this tag". Both clauses are individually accurate
+about the *code*, and together they read as a live mechanism. Nothing writes the tag, so the ceiling is
+unreachable in production. **Predicted PASS condition:** the comment states that no code currently sets
+this `Reason`, so the ceiling is dormant. **FAIL:** the deferral is implied only by omission, or stated
+only in the dev-guide and not here — this constant is what a reader greps to when they see the ceiling.
+
+### P3 — `:184-192` must fix the false premise, keep the correct conclusion (Finding 45)
+
+The premise *"A binder omits a variant only when the binder itself is enabled-but-not-binding —
+`Enabled && !(Live && Informative)`"* is false: `ResultIsInformative` is an **any-variant** predicate
+(`:57-61` returns on the first informative entry), so a fully healthy binder can be
+`Enabled && Live && Informative` in aggregate and still price nothing for one variant — which is the
+*expected* shape for a never-measured variant under a throughput binder. The conclusion (do not borrow
+saturation's sizing) is right and should survive. **PASS:** premise restated so it does not claim binder
+ill-health; conclusion intact; the `(N8)` token gone. **FAIL:** the token is stripped and the false premise
+survives — the §4a-clean-but-still-wrong pattern of Finding 51.
+
+### P4 — `:280-286` carries a token *and* leans on a premise I have declined to endorse
+
+Two separate things at this site. The `(N8)` token is ordinary sweep material. The prose also asserts
+"Previously-live variants now at zero are covered by TA's own scale-from-zero complement from persisted
+supply" — which is the `(D-a)` premise I explicitly flagged as **an unchecked dependency, not a finding**:
+if that complement has a hole, the reasoning covers a variant that *has* been measured and is merely idle.
+**PASS:** the claim is left at its current strength or hedged. **FAIL:** a repair pass restates it more
+confidently, converting an unverified dependency into a flat assertion in shipped code. Also note
+Finding 12 — the complement omits `Role` — so any restatement must not claim per-role coverage.
+
+### P5 — the dev-guide scale-from-zero section, written as DEFERRED (Finding 46)
+
+The status file already commits to this ("written as **DEFERRED** … the ceiling must NOT be described as an
+active guard"), so this is a low-risk prediction. **FAIL** is any phrasing where a reader concludes
+from-zero admission is a thing the system currently does.
+
+### P6 — Finding 29's `mean` → `allocationMean` in `### Fair-share iteration`
+
+Mechanical rename; **PASS** is the rename applied consistently within the section, **FAIL** is a partial
+rename leaving both spellings, which is worse than neither.
+
+### What I am not predicting
+
+Nothing about the four sites' §4a tokens *as tokens* — those belong to C9e's 47 and I will score them
+there. The overlap is only where a token strip and a prose fix pull in different directions (P3, and
+Finding 51 at `:216-218`, which is in **neither** C9b's four sites nor a prose commit).
