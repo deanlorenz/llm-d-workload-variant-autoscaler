@@ -1302,6 +1302,12 @@ as fixing a live bug.
   the `liveCount > 0` floor both survive); if the key-miss vote is converted to an abstain, the
   `liveCount`-equivalent floor is added to the ballot too, so "every voter abstained" does not collapse
   to an unbounded removal; goldens re-run by me and unmoved.
+- **Added after C7's re-check came back negative:** C6d is the last commit whose fixtures are *required*
+  to drive `scaleDownRoleIterated` end-to-end, so it is the last cheap chance to close **Finding 16**
+  (anchor PRC 0 silently excludes a variant from scale-down). Check whether any of the three fixtures
+  incidentally carries an anchor `PerReplicaCapacity` of 0 alongside a positive `RoleSpare`; if one does,
+  the `:125` skip is pinned for free and Finding 16 closes. If none does, Finding 16 stays latent — an
+  acceptable outcome, not something to ask the coder to add.
 
 ## §4a — full-branch inventory at C6b (supersedes the per-commit running totals)
 
@@ -1688,10 +1694,37 @@ positive. **No handoff:** all of this is PR-1/pre-existing code, PR-2 changes no
 is that the shipped configs are safe. Recorded because the *reason* they are safe is three files away from
 the code that depends on it.
 
-**C7 checklist item.** §4's C7 line already includes "Test 2 rewrite (v2 PRC=0 under N8)" — the one
-fixture family that puts an anchor PRC of 0 in front of this code. At C7 review, check whether that
-rewrite happens to pin the **scale-down** skip as well as the scale-up behavior; if it does, this
-finding is closed by construction rather than left latent, at zero extra cost.
+**C7 checklist item — checked against `952d2fff`, answer is negative.** §4's C7 line includes "Test 2
+rewrite (v2 PRC=0 under N8)" — the one fixture family that puts an anchor PRC of 0 in front of this
+code — so I went back through C7's diff (reviewed before this finding existed) to see whether that
+rewrite happens to pin the **scale-down** skip as well, which would close the finding by construction at
+zero cost. It does not. None of C7's three new/rewritten fixtures reaches
+`scaleDownVariantSet`'s `if vc.PerReplicaCapacity <= 0 { continue }`:
+
+| C7 fixture | What it drives | Reaches the scale-down skip? |
+|---|---|---|
+| Test 2 (`analyzer_helpers_test.go`) | `bindingAnchor` directly — asserts `VariantCapacities[1].PerReplicaCapacity == 0.0` and `Reason == ""` | No — never reaches the optimizer |
+| VG-up (`optimizer_liveness_test.go:28`) | `NewCostAwareOptimizer().Optimize(...)`, but on the **scale-up** branch (stale `RequiredCapacity: 100000`, asserts target stays 1) | No — wrong branch |
+| both `needsScaleDownForRole` specs (`:75`, `:89`) | the veto function called directly | No — not `scaleDownRoleIterated` |
+
+So Finding 16 stays **latent**, not closed. The nearest remaining opportunity is C6d, whose §4 wording
+already requires that "**Every fixture here must drive `scaleDownRoleIterated` end-to-end**" — three
+fixtures that by construction go through the exact call path this finding concerns. At C6d review, check
+whether any of them incidentally carries an anchor PRC of 0; if one does, the finding closes there
+instead. If none does, it stays latent and the invariant above stays unasserted — which is an acceptable
+outcome for PR-2, since the shipped configs are safe and PR-2 changes none of the coupled code.
+
+**Adjacent note on C7's two `needsScaleDownForRole` specs (no finding).** The N7 abstain spec builds `ta`
+via `makeNamed` (which leaves `RoleSpare` nil) and then calls `_, _ = initRoleState(s)` to seed
+`RoleSpare[RoleBoth] = 5000` — relying on `initRoleState` mutating `s[i].RoleSpare` through the slice's
+backing array, which it does (`analyzer_helpers.go:293-307`). That works, and `makeNamed` does set
+`Live: true`, so the live-voter abstain path is genuinely exercised. But the `initRoleState` call is
+documentary rather than load-bearing for the assertion: `needsScaleDownForRole` reads
+`spare, ok := e.RoleSpare[role]`, and a nil map and a populated-map-missing-the-key are the same input
+class (`ok == false`, abstain). The spec would therefore still pass if `initRoleState` stopped seeding
+`RoleBoth` entirely. It pins the abstain **branch** correctly; it does not pin the distinction its own
+comment draws ("only `RoleBoth`, no `prefill` key"). Not worth changing — noted so a later reader does
+not credit this spec with catching a regression in `initRoleState`'s seeding.
 
 ---
 
