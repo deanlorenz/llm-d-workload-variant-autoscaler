@@ -4696,3 +4696,199 @@ which point it is a live-PR history rewrite.** *"Not worth it"* remains a legiti
 should be answered against 15, not my previous guess.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## `b6bb525c` — C11: `(D-b)` lands, `(D-a)` is deferred. Both pre-registered findings hit.
+
+Reviewed at tip `b6bb525c` *"pipeline: bound a from-zero-admitted variant at the grant sites (C11
+D-b)"* — 6 files, +279/−14. This is the commit Findings 42 and 43 were pre-registered against, before
+the diff existed. **Both are hits**, and the commit additionally defers half of a frozen Type-1
+decision, which is the substantive review question.
+
+### Finding 42 — CONFIRMED and resolved. The prediction held in the "deviated" branch.
+
+Pre-registration: `(D-b)`'s instruction to fold the ceiling into each site's existing headroom
+computation leaves the sentinel unbounded whenever `MaxReplicas` is nil, at all three grant sites —
+and it is a Type-1 amendment **either way** (followed literally → a code defect the instruction
+caused; deviated from → correct code contradicting all three rows of `(D-b)`'s table).
+
+The coder found the same escape independently and took the deviate branch, stating it plainly in the
+message: at all three sites the headroom computation sits behind a nil-guard whose fall-through treats
+unset as unbounded — `costGreedyRolePick` returns `math.MaxInt`, `fillRole`'s loop is bounded by
+nothing else, `fairShareRolePick` applies no clamp. Its framing is sharper than mine was: *"the
+population least likely to carry a tuned ceiling is exactly the never-measured one the ceiling is
+for."*
+
+The fix is one helper, `analyzer_helpers.go:111-120`, merging configured `MaxReplicas` with the
+admission ceiling and reporting the tighter, with all three sites routed through it. I checked the
+"nothing else moves" claim rather than taking it:
+
+| site | before | after | untagged behaviour |
+|---|---|---|---|
+| `cost_aware_optimizer.go:104` | `if MaxReplicas != nil && *MaxReplicas > 0 { headroom := *MaxReplicas - targets[v] …` | `if maxTarget, bounded := maxTargetReplicas(vc, state); bounded { headroom := maxTarget - targets[v] …` | identical |
+| `greedy_score_optimizer.go:718` | same shape | same shape | identical |
+| `rescale.go:452-458` | `if st.MaxReplicas != nil && *st.MaxReplicas > 0 && targets[v] >= *st.MaxReplicas { break }` | `if bounded && targets[v] >= maxTarget { break }`, hoisted above the loop | identical |
+
+`bounded` reproduces `MaxReplicas != nil && *MaxReplicas > 0` exactly, and `maxTarget` is
+`*MaxReplicas`, so the claim is accurate at all three. Note this **faithfully preserves a pre-existing
+oddity**: an explicit `MaxReplicas == 0` is treated as *unbounded*, not as "zero replicas allowed".
+That is not C11's doing and must not be charged to it — but C11 does centralize it into one place,
+which is the first time it has been fixable in one edit. Boundary cases are clean: tagged with
+`MaxReplicas == 0` → capped at 1 (the safe direction); tagged with `MaxReplicas == 1` → `1 < 1` false,
+bound stays 1 from the first clause — no off-by-one.
+
+Two things I did not predict and credit:
+
+- **"Skip an exhausted ceiling, never return a cap of 0."** A returned 0 makes the caller compute
+  `deltaUtil == 0` and break the whole model's allocation loop, so a bounded-out variant would take
+  every variant queued behind it down with it. All three sites `continue`/`break` instead. The Type 1
+  does not state this, and the literal reading of `(D-b)` ("cap the target at one") invites exactly
+  the 0-returning shape. This is a correctness insight, not a style choice.
+- **The `fillRole` hoist** (`rescale.go:454-458`) — the bound does not depend on the loop, so
+  computing it once is both correct and a micro-improvement over the previous per-iteration nil-deref.
+  Comment states the target-not-iteration semantics: *"an allocator that comes round again finds
+  `targets[v]` already at the bound and buys nothing more."*
+
+**The amendment I predicted is now owed.** `(D-b)`'s three-row table in the frozen Type 1 describes
+folding the ceiling into each site's `MaxReplicas` branch. The shipped code deliberately does not, for
+a stated and correct reason. The Type 1 is wrong in a way the code is right about — that is the
+Type-1 owner's edit, not the coder's, and the coder correctly did not touch the design doc.
+
+### Finding 43 — CONFIRMED and resolved, including the documentation I asked for.
+
+Pre-registration: the ceiling is only effective if applied **after** C6e's `firstDraw` floor, and
+`(D-b)`'s correctness rests on undocumented function layout — a later reorder would silently defeat it.
+
+`greedy_score_optimizer.go:701-724` has the ordering right: `capN := replicasToCover(share, gpusPR)`
+→ `firstDraw` floor raises it to 1 at `:711` → `capN = min(capN, gpusAvail/gpusPR)` at `:713` → the
+admission/`MaxReplicas` clamp at `:718-724`, ending in `capN = min(capN, headroom)`. And the ordering
+constraint is now stated **at the floor**, which is where a future reorderer will read it:
+
+> This raises capN, so every bound must be applied after it, not before. The two clamps below rely on
+> that ordering.
+
+That is precisely the remediation the finding asked for. The site-specific skip rationale is also
+recorded at `:714-717` (the `capN > 0` guard below would return an empty pick and abandon the role).
+
+### Finding 44 — `(D-a)` is not implementable as specified. The deferral is correct, and the defect is the Type 1's.
+
+`(D-a)` — the anchor-side write that would tag a variant for the ceiling — is **DEFERRED**, recorded
+both in the commit message and in shipped code at `analyzer_helpers.go:77` (*"DEFERRED: nothing writes
+this tag yet"*). The coder's reason: an anchor-only sentinel makes a variant **selectable without
+making it sizable**. Selection reads the anchor; the replica count comes from the ballot via
+`votesFromPickerState → combineVotes → roleBottleneckReplicas`, which abstains for a variant no voting
+entry prices and yields 0 → `n = min(0, cap) = 0` → `deltaUtil == 0` → `allocateForModelPaired`
+breaks, costing the model every variant behind the admitted one. Verified by mutation: with the
+sentinel written the measured variant stays put; with it disabled the same fixture scales.
+
+I can close this argument harder than the coder does, and the conclusion goes further than "risky".
+
+My own pre-registered reachability work (§ *C11 pre-registration*) established that the merge's
+sentinel branch — `analyzer_helpers.go:212`'s `else` — is **unreachable whenever saturation binds**,
+because `binding == aCarrier == satNR` is the same pointer (`:211/:213` and the carrier assignment),
+so `bByName` is built from the identical slice the merge loop iterates and the lookup always hits. The
+branch is therefore reachable in exactly one domain: **saturation present but not binding**, with some
+other analyzer binding and omitting the variant. Enumerate that domain against the vote gate
+(`Enabled && Live`, `analyzer_helpers.go:318`):
+
+| sub-case | does saturation vote? | is the admitted variant priced by any voter? |
+|---|---|---|
+| sat `!Enabled` | no | no → `roleBottleneckReplicas` abstains → 0 |
+| sat `Enabled && !Live` | no | no → abstains → 0 |
+| sat `Enabled && Live && !Informative` | yes | its entries are no-data/error, PRC 0 → the ballot-side `prc <= 0` gates skip → 0 |
+
+**In every reachable sub-case the admitted variant is unsizable.** So `(D-a)` as written cannot
+produce a scaled-from-zero replica in *any* configuration — not "usually", not "unless tuned". The
+coder's mutation result is not a corner case it happened to find; it is the whole domain. That makes
+the `N8` question (may the sentinel enter the voting set?) a **prerequisite for `(D-a)`, not an
+optional refinement**, and it means `(D-a)` shipped as specified would have been a pure regression:
+it removes allocations and adds none.
+
+Verdict: **the deviation is sound and I endorse it.** The process question is real and I am recording
+it rather than resolving it — `FZ-admission` was decided *in* the frozen Type 1 specifically so it
+would not be coder latitude (*"don't leave design decsions to coder"*), and half of it has now been
+deferred coder-side. But the coder did the three things that make that defensible: disclosed it in the
+commit message, disclosed it in shipped code at the constant, and routed the design question as a
+handoff instead of deciding it. The alternative — implementing a known regression because the design
+said so — would have been worse. **The owed action is a Type-1 amendment, and it is not the coder's.**
+
+Convergence note, with credit where it is due: the coder had *already* documented the sentinel's
+reachable domain at `analyzer_helpers.go:184-192` before I re-derived it here. I am not claiming
+priority on the domain; what is new above is the exhaustive sub-case table showing the domain and the
+sizing gap are the *same* set.
+
+Also confirmed independently by this commit: **Finding 27**'s ranking inversion. The message corrects
+`(D-b)`'s premise that the admitted variant would sort last — `PRC = 1` degenerates cost efficiency to
+`Cost`, but a never-measured variant's `Cost` arrives as 0 from the same zero-replica lookup, so the
+ratio is `0/1` and it sorts **first**. That matches the other session's
+`plan__ta-anchor-c11-ranking-claim-correction.md` conclusion, reached separately. The code's response
+is right: tests state the ranking the code actually has, and the ceiling is documented as the *only*
+guard rather than one of several.
+
+### Finding 45 — MINOR (doc precision). The stated reason for refusing the saturation fallback is too strong.
+
+`analyzer_helpers.go:184-192` justifies not falling back to saturation's own sizing for an omitted
+variant:
+
+> A binder omits a variant only when the binder itself is enabled-but-not-binding — `Enabled &&
+> !(Live && Informative)` — which is precisely the condition under which its own sizing is
+> untrustworthy (stale or no-data).
+
+The **conclusion is correct** — a lookup miss can only occur when saturation is not the binder, and in
+all three sub-cases tabulated above saturation has nothing usable to borrow. But the premise as
+written is false: `ResultIsInformative` is an *any-variant* predicate (`:57-61` returns true on the
+first informative entry), so a perfectly healthy binder can be `Enabled && Live && Informative` in
+aggregate and still price nothing for one specific variant — which is the *expected* shape for a
+never-measured from-zero variant under a throughput binder. A binder omitting a variant does not imply
+the binder is unhealthy.
+
+Low severity because nothing downstream depends on it, but worth fixing because the false premise
+licenses a bad future inference — "the binder is healthy here, so the fallback is safe" — which the
+correct reasoning does not support. C9 is the natural host; the fix is to justify the refusal on the
+carrier/binder split and the metric-scale-mixing argument (both already present at `:189-192`) and
+drop the health claim.
+
+### Finding 46 — `(D-b)` ships as an inactive guard. Disclosed, but it needs three follow-through items.
+
+With `(D-a)` deferred, **nothing in non-test code writes `ReasonFromZeroAdmission`** — I grepped the
+tip: the constant appears only in its own declaration and doc comment, the `maxTargetReplicas` read,
+and two cross-references. The tag is constructed only by tests (`analyzer_helpers_test.go` ×1,
+`cost_aware_optimizer_test.go` ×2). So the second clause of `maxTargetReplicas` is unreachable in the
+shipped binary, and C11's entire behavioural contribution to production is *nil* — by design, and
+stated as such at `:77`.
+
+That is the honest way to land half a decision, and I am not flagging it as a defect. It does carry
+three follow-through items:
+
+1. **C9's dev guide must not describe the ceiling as an active guard.** The code says "nothing writes
+   this tag yet"; prose that says "from-zero variants are capped at one replica" would be false on
+   the merged tree. Added to my C9 watch list.
+2. **The deferral needs a planner-side home.** Per the project's deferral-documentation rule, a
+   DEFERRED removal is captured by the planner in the Type 1/Type 3 and in CURRENT.md § Issues to
+   Open. The coder has done its half (classification + reason + handoff); the capture is owed.
+3. **Export scope is fine — checked, not assumed.** `ReasonFromZeroAdmission` is exported with nothing
+   outside the package using it, which would normally be a finding; but `ReasonNoData` and
+   `ReasonError` in the same family are also exported (`:40-47`), so this is consistency, not leakage.
+   No action.
+
+### §4a — C11 adds to the debt C9 is meant to clear
+
+Shipped-code token count moves **46 → 53** (`internal/**` + `docs/**`). The added lines contain nine
+occurrences: `C11` ×4, `N8` ×3, `Type-1 owner` ×1, `D-b` ×1 — including two in the new constant's doc
+block (`:87-88`, *"an `N8` question, so it is the Type-1 owner's"*) and one at `:185`. These are
+exactly the class C9 is scheduled to strip, so C11 has grown C9's job while doing good work elsewhere.
+Not a blocker — C9 has not run yet — but the trend is now three commits deep and worth naming: the
+prose that makes these commits reviewable is written in plans-branch vocabulary, and every such
+sentence is a C9 edit.
+
+Commit-message reword window: `b6bb525c`'s message carries `C11`, `D-a`, `D-b`, `N8` and
+`Type-1 owner`, taking the count to **17 of 19 commits** needing a reword. Still free while the branch
+is unpushed; a live-PR history rewrite once PR-2 opens.
+
+### Gates
+
+Not independently verified — I do not build or test in the coder's worktree. The status file predates
+this commit (`last_update: 2026-08-07T21:00:00Z`, `current_step` still reads C6d), so gate results for
+`b6bb525c` are unrecorded. Not a finding against the code; noted so a later reader does not mistake
+this section for a gate sign-off.
