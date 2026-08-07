@@ -5979,3 +5979,68 @@ Every citation in my own C9b verdict above is pinned this way (`git show 2ae440e
 errata's two corrections do not touch any of my numbers. I note that as evidence the rule is cheap to
 follow, not as a claim to have been careful — I have four disclosed scope slips of my own on this
 branch, in a different category.
+
+---
+
+## Pre-registration for C9c and C9d — four predictions, before either lands
+
+Same discipline as the C9a and C9b pre-registrations: written against the committed tip `2ae440e3` and
+the coder's own scoping, so the score cannot be adjusted after the fact. C9c is the `[sat, TA]`
+multi-vote golden suite (encoding the `[sat]`-only and `[TA]`-only sub-cases) plus the Invariant 7
+direct test, with the scale-down half of the deferred property and #1513 Finding 2's `withSatEntry`
+stability rule folded in. C9d is the explicit removal of the #1513 sat-only goldens the new suite
+supersedes.
+
+C9d deserves the most scrutiny of anything remaining on this branch. Removing characterization goldens
+is the one act in a PR of this shape that can shrink coverage while every gate stays green, and these
+particular goldens were the **land-first ship gate** for the whole anchor refactor.
+
+### Q1 — the removal must be proven per scenario, not asserted
+
+**PASS:** a per-scenario mapping — each removed #1513 golden named, alongside the multi-vote scenario
+that subsumes it, with the *asserted decision set* shown equivalent rather than the scenario name merely
+matching. **FAIL:** a blanket *"the multi-vote suite supersedes these"* with no per-scenario
+correspondence. That is the identical auditability gap I flagged for C9e and I will score it identically:
+without the mapping, a silently-dropped scenario is indistinguishable from one correctly judged
+redundant, and the reader cannot tell which happened.
+
+### Q2 — the `[sat]`-only sub-case may not be equivalent to the standalone `[sat]`-only golden
+
+This is a live hazard, not a hypothetical. #1513's own Finding 2 was a `withSatEntry` stability note,
+and the coder has folded that rule into C9c — so the multi-vote harness demonstrably constructs the
+ballot differently from the standalone goldens. If the harness adds an entry, the `[sat]`-only sub-case
+travels a different combine path than the golden it replaces, and "we encode the `[sat]`-only sub-case"
+would then be true of the name and false of the coverage.
+
+**PASS:** the equivalence is stated and grounded — either the harness yields an identical ballot for that
+sub-case, or the difference is named and argued harmless. **FAIL:** the sub-case is presented as
+unchanged with no account of the harness difference.
+
+### Q3 — the Invariant 7 direct test must discriminate
+
+**PASS:** the test fails when the invariant is violated, either demonstrated or argued via the specific
+mutation that would break it. **FAIL:** a test that passes whether or not the invariant holds. I have
+audited test discrimination throughout this review and this is the same bar, not a higher one for the
+last commits.
+
+### Q4 — C9c's golden will freeze the unresolved ceil/floor fork
+
+The strongest of the four, because it is already determined by the tip. `replicasToCover`
+(`greedy_score_optimizer.go:837`) still computes `int(math.Ceil(entitlementGPUs / gpusPerReplica))`,
+while plan §2d.5 specifies a whole-replica **floor** fill at `fairShareCap`. The coder's own scoping note
+records that C9's quota-constrained multi-vote golden *also* exercises `fairShareValue`/`fairShareCap` —
+which is why C9 was ordered after C6c in the first place. A golden authored now therefore encodes
+**ceil**, the side of the fork the plan says is wrong.
+
+**PASS:** the fork resolves before C9c lands; or the golden avoids asserting on a mid-replica boundary
+where ceil and floor differ; or the commit names the exposure explicitly. **FAIL:** a golden that
+silently freezes ceil. The tell is unmistakable — a golden introduced in this PR that a later commit in
+the *same* PR has to move. That is exactly the attribution property the C6c-first ordering was
+load-bearing for, so tripping it here would spend the ordering's whole benefit at the last commit.
+
+### What I am not predicting
+
+Nothing about C9e, which I have already enumerated per site (48 in scope, now **4** dev-guide rather than
+3 after C9b). And nothing about gate results — I do not build or test in the coder's worktree, so
+`make test` / `make lint` outcomes are the coder's to report and Dean's to accept, never mine to sign
+off.
