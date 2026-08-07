@@ -1745,5 +1745,44 @@ failure mode: frontmatter is not delivery.
   local data. Serving stack still up in `dhl-wva-209`, GPUs still released, decode at
   `minReplicas=1`.
 * PVC still not cleaned (296M / 20G); `verify_pvc_vs_host.py` still not run.
-* **Nothing pushed.** Carried forward from §16.5 unchanged, plus this session's
-  `session-notes/` work.
+* **`session-notes/` is now committed** — `9e360b18` (37 files, +13783) and `4157dce2` (§16.3
+  pointer + §17.5). Two `.gitignore` gaps had to be closed first, one of them latent and
+  expensive: the existing `*-*-*-*-*-*/` pattern needs **five** hyphens, and our run directories
+  are `dean-<date>-<time>-<pid>/` with **three**, so they were never ignored. A future
+  `git add -A` would have committed 100+ MB per run. Now `dean-*/`, plus
+  `session-notes/scratch/ladder-run/` (harvested copies, 14-day local retention) and
+  `__pycache__/`.
+* **Nothing pushed.** Branch `benchmark` is **4 ahead** of `origin/benchmark`: `c3c5aa20`,
+  `361cfe77`, `9e360b18`, `4157dce2`. Each needs its own explicit confirmation from Dean.
+
+### 17.8 Open items carried forward (consolidated — this is the resume list)
+
+Needs Dean's decision:
+
+1. **The harness OOM** (§16.3) — memory bump vs `per_request: false`. Should be filed as a
+   reproducible defect. The gateway trace removes the *analysis* dependency but not the bug.
+2. **How to capture the gateway access log during runs** (§17.1) — sidecar tail vs periodic
+   `kubectl logs` into the PVC. Today it survives only because rotation had not yet reached the
+   run window; that is luck, not a design.
+3. **Scale the decode replica to 0?** Its 1 GPU is still held as the `minReplicas=1` steady
+   state (§16.5). The serving stack was deliberately left up.
+4. **The four unpushed commits above.**
+
+Doable without a decision, not yet done:
+
+5. Verify `containerLogMaxSize` / `containerLogMaxFiles` against this cluster's KubeletConfig.
+   The ~52.4 MB figure in §17.1 is the *default*, not a measurement — the read is cluster-scoped
+   and outside `dhl-wva-209`, so it was deliberately not attempted from here.
+6. Clean the PVC per the retention rule, and run `verify_pvc_vs_host.py` (never yet run) —
+   §16.5 wants it gating **every** harvest, not run ad hoc.
+7. File the inference-perf output-token inflation upstream (§16.4), now with server-side proof.
+8. Promote the `session-notes/scratch/` tools into `hack/benchmark/` (list in §16.5 + §17.7).
+9. Suppress step_09's local report regeneration (§15.17); add controller-log capture to the
+   harvest path; fix `reset_run.py`'s existence-check defect; §11 design-C Makefile change; the
+   `variant.VariantAutoscaling` event-recorder issue.
+
+Open questions the data cannot settle:
+
+10. Which of scrape lag / rate-window width / sampling noise makes the optimiser blind 1.8 s
+    after a load step (§17.4). This is the one that decides whether the 62 s WVA share of the
+    171 s lag is reducible at all.
