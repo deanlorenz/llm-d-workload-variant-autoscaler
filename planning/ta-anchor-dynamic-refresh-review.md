@@ -6201,3 +6201,149 @@ Neither the designer's chain nor A36 is wrong; both simply stop at the loud effe
 one because it survives every workaround that only addresses the `break` — including "turn the `break`
 into a skip", which the designer already rejected for other reasons, and which would leave the dilution
 fully intact while making the symptom *less* visible.
+
+---
+
+## The `fairShareCap` rounding fork: not a doc-vs-code tie, and the branch now argues both sides
+
+Prompted by a low-priority hygiene item — pin the ceil-endorsing artifacts with exact SHAs so I do not
+myself cite a stale one after writing about that failure mode. The pin turned into the finding below.
+
+**Two hypotheses of mine, both falsified.** Recording them because each was cheap to test and each would
+have retired the item wrongly.
+
+1. *"There are two rounding terms and C6c already floors the mandated one."* `greedy_score_optimizer.go`
+   `:698-699` does say the cap has two terms — *"the entitlement rounds up … while the real pool rounds
+   down"* — so I checked whether the authority's `floor` names the pool. It does not. Type 1 `:1158-1160`
+   writes `fairShareCap = floor(remaining_GPUs / GPUsPerReplica[vc])` and then mins the pool on a
+   *separate* line, so `remaining_GPUs` is the entitlement. The mandate lands on exactly the term the code
+   `ceil`s.
+2. *"The frozen Type 1 contains both prescriptions, so the coder had contradictory guidance."* It does
+   carry the retired `ceil(target · PRC_ref/PRC_vc)` shape at `:1135-1151`, but under an explicit
+   **"⚠ SUPERSEDED by the GPU decision above — retained as the derivation only"**, and the superseding
+   text says the `PRC_ref` map and its capture-ordering rule *"stop existing."* The authority is
+   internally consistent. The coder had one prescription, not two.
+
+So the designer's `T1-1` framing is right and mine was wrong. What the pin did establish is that the
+divergence is **larger and better-anticipated** than a rounding preference.
+
+### The mandate is four-part, and the branch inverts all four
+
+Type 1 `:1163-1168`, verbatim:
+
+> Note **`floor`, not `ceil`**: this is a budget, and a partial replica is not affordable. `ceil` was the
+> pre-existing rounding and over-grants by up to one replica at every boundary; changing it is a
+> **one-replica behavior change at the boundary** and needs a fixture that lands mid-replica, or it will
+> not be observed. Flag it in the commit message — it is the one place the conversion is not value-neutral.
+
+Transcribed into the Type 3 three times: row 6 of the unit table (`:951`), the C6c commit row (`:282` —
+*"Status-quo-preserving **except** the `ceil → floor` boundary, which must be called out in the commit
+message"*), and the value-neutrality row (`:1012`).
+
+| the authority asked for | the branch at `2ae440e3` ships |
+|---|---|
+| `floor` on the entitlement | `ceil` — `replicasToCover:837`, `int(math.Ceil(entitlementGPUs / gpusPerReplica))` |
+| the reason: a partial replica is not affordable | a 13-line counter-rationale at `:824-836` — the entitlement is *"a water-level gap, not a pool of GPUs on hand"* |
+| *"a fixture that lands mid-replica, or it will not be observed"* | that fixture exists — `greedy_score_optimizer_test.go:1386`, `It("rounds the entitlement up to a whole replica and the pool down")` — asserting the **opposite** direction |
+| *"Flag it in the commit message"* | flagged, arguing **for** round-up: *"The rule: round up when asking how many replicas a demand needs, round down when asking how many the pool can pay for"* (`34b18bc5`) |
+
+Rows 3 and 4 are the ones that matter for review, because they are where a divergence becomes
+undiscoverable. The authority required a mid-replica fixture *precisely so the change would be visible*;
+the branch spends that exact fixture slot on freezing the pre-existing direction. And the
+commit-message instruction is formally satisfied and substantively inverted — the message presents
+round-up as *"the rule"* with no signal that the governing document says the opposite. **A reviewer
+reading only this branch cannot discover that a divergence occurred.** That is the defect, and it is
+independent of which direction Dean ultimately picks.
+
+### The code's argument beats the Type 1's stated reason — and loses to the branch's own dev-guide
+
+Worth saying plainly, because "coder ignored the spec" would be the wrong summary. The Type 1 justifies
+`floor` with *"this is a budget, and a partial replica is not affordable"* — but its own next line is
+`capN = min(fairShareCap, gpusAvail / GPUsPerReplica[vc])`. Affordability lives in that `min`. So the
+Type 1 invokes a guard it has already installed elsewhere, and the entitlement's rounding is not an
+affordability question at all; it is a **fairness** question — may a model owed a fraction of a replica
+take a whole one. The coder's `:826-836` identifies this correctly and is the better-reasoned of the two
+texts. The designer conceded the same ("the water-level-gap-not-a-pool distinction is exactly the right
+axis").
+
+On fairness, though, the branch's *own* Type 4 prose argues the other way.
+`multi-analyzer-pipeline.md:801-807` bounds the indivisible-replica allowance to the **first** draw:
+
+> On the model's **first** draw only, a role may additionally take one indivisible replica even when the
+> balance no longer covers it … **Kept on past the first draw, that floor would be a per-iteration drip
+> the entitlement never bounds.**
+
+That is the same allowance `ceil` grants — except the documented mechanism is bounded to one draw and
+implemented explicitly (`greedy_score_optimizer.go:453-456`), while `replicasToCover`'s `ceil` applies on
+**every** draw. So the branch carries two mechanisms for one allowance: one bounded, documented, and
+argued for; one unbounded, undocumented, and delivering what the dev-guide names as the failure mode.
+
+**The falsifiable part, which I have not traced and am not asserting:** whether the unbounded form
+actually drips. `W1`'s balance decrement (C6e) plus the `!allocated ⇒ remaining = -1` termination should
+stop a repeat grant, and `:831` claims *"the caller's water-level check then stops it from taking a
+second."* If that holds, the effect is a bounded one-replica over-grant per role per boundary rather than
+a drip. Either way the redundancy stands, and the dev-guide's stated principle is the strongest argument
+on the record for the authority's direction — sourced from the branch, not from the Type 1.
+
+### The search surface: 8 endorsement sites, 2 reachable by the obvious grep
+
+This corrects my own standing item, which named three artifacts and implied `ceil|floor` would find them.
+Fork-relevant sites (`fairShareCap`/`replicasToCover` only — *not* the demand→replica `ceil` at Type 1
+`:334`/`:609`, which is mandated and correct, nor the `combineVotes` up/down asymmetry at
+`analyzer_helpers.go:629`/`:807`, which is not in dispute):
+
+| # | site | `ceil`/`floor` token? |
+|---|---|---|
+| 1 | `greedy_score_optimizer.go:837` — the `math.Ceil` itself | **yes** |
+| 2 | `:824-836` — `replicasToCover` doc comment | **yes** ("floored separately") |
+| 3 | `:698-699`, `:704` — two-term cap comment at the call site | no ("rounds up"/"rounds down") |
+| 4 | `:453-456` — first-draw indivisible-unit comment citing `replicasToCover` | "floor", but meaning a *minimum* |
+| 5 | `:610` — "the indivisible unit: a role may take one replica" | no |
+| 6 | `greedy_score_optimizer_test.go:1386` — the mid-replica fixture's name | no |
+| 7 | `:1400` — that fixture's worked comment | no |
+| 8 | `34b18bc5` — C6c's commit message body | no ("round up"/"round down") |
+
+So a `git grep -i ceil` fix-up pass lands **2 of 8**, and #4 is an active trap: it contains the token
+`floor` while endorsing round-up. My item was right that C6c's message endorses `ceil` and wrong that a
+token search would find it — the message never uses either word.
+
+Two consequences. Whoever flips the fork will leave six prose endorsements behind, including a *test
+name* that then contradicts its own assertion. And #8 is the one that hardens: rewritable now while the
+branch is unpushed, permanent once PR-2 opens. It joins the §4a reword window as a second, independent
+reason that window is worth spending.
+
+### Type 4 gap
+
+No dev-guide text states the entitlement's rounding direction at all — `grep -i "fairShareCap\|
+replicasToCover"` across `docs/` returns nothing. The Type 3 named *"pipeline 'Fair-share iteration'"* as
+C6c's doc target, and that section (`:786-807`) documents the two floors and the first-draw rule but not
+the rounding. On a change the authority itself calls a one-replica behavior change, that is a Type 4 gap
+whichever direction survives; C9 is its natural host.
+
+### Q4 resolves early — FAIL — in a unit test, not a golden
+
+Pre-registered wording: *"**FAIL:** a golden that silently freezes `ceil`. The tell is unmistakable — a
+golden introduced in this PR that a later commit in the same PR has to move."*
+
+The freeze already happened, at `greedy_score_optimizer_test.go:1386`, and it is a unit test rather than a
+golden — so the mechanism I predicted is exactly right and the artifact class is wrong. Scoring it FAIL
+rather than N/A: the substance of the prediction was that this PR would lock in the disputed direction
+before the dispute resolved, and it has. Had I kept watching only C9c I would have missed it, which is the
+lesson worth keeping — **pre-register on the mechanism, then sweep every artifact class the mechanism can
+inhabit**, not just the one the upcoming commit happens to use.
+
+### Disposition
+
+Not scoreable as a code defect while Dean's call is open, and I am not asking for a code change. Three
+things are scoreable independent of his call:
+
+1. **The divergence is undeclared.** The authority's own commit-message instruction was answered with a
+   rationale for the opposite direction. Cost to fix: one sentence in `34b18bc5`, free while unpushed.
+2. **The mandated observability fixture was spent on the opposite assertion** (`:1386`). If the fork
+   resolves to `floor`, that test must be inverted or deleted — a cost the authority explicitly tried to
+   pre-pay.
+3. **Type 4 documents neither direction**, on a behavior change the authority flagged as non-value-neutral.
+
+Routing to the planner as fyi, since T1-1 is already open with the designer and Dean; the new content is
+the four-part inversion, the dev-guide counter-argument, and the 8-vs-2 search surface. Nothing here
+needs the coder to stop.
