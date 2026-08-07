@@ -1,8 +1,9 @@
 # Autoscaling Behavioral Demo — Design
 
-**Status:** Draft (scratch POC). Captures the design as of the brainstorming
-session that produced `sim.py` / `plots.py` / `run.py`. Not WVA code; lives only
-under `plans/scratch/autoscaling-viz/`.
+**Status:** Draft (POC). Captures the design as of the brainstorming
+session that produced `sim.py` / `plots.py` / `run.py`. Not WVA code; lives on its own
+orphan branch **`autoscaling-viz`** (until 2026-08-07, under `plans/scratch/autoscaling-viz/` —
+see [`real-trace-viz-plan.md`](real-trace-viz-plan.md) §14.6).
 
 > **Purpose of this doc.** The discussion outgrew the code. This captures the
 > model, the decisions we made (and why), the current results, and the strategies
@@ -370,14 +371,22 @@ and the single biggest fidelity gain. **Implemented 2026-08-03** in `sim.py` (th
 event-driven mechanism below) with `RHO = 2.0` the default in `run.py`; `rho = 1`
 recovers the fixed-rate model as a behaviour-preserving identity.
 
-**Empirical form (decode-only).** Per `planning/TA-supply.md` §2.1, inter-token
-latency below KV saturation is **linear in KV%**: `ITL(k) = A·k + B`, where `k = KV%`,
+**Empirical form (decode-only).** Inter-token latency below KV saturation is **linear in KV%**:
+`ITL(k) = A·k + B`, where `k = KV%`,
 `B` is the near-constant hardware floor ("natural ITL" at zero load, ~6 ms) and `A` is
 a load-sensitivity slope that depends on the model **and** the request-size shape (so
 it may vary with the workload). **Prefill is ignored** — the sim has no prefill/decode
 split and shows **wait time + decode-based e2e**, not TTFT. KV% is per-pod and
 proportional to concurrency (`KV ≈ avg_size · in_service`), so it rides `b.in_service`
 — the state the engine already tracks.
+
+*Where the relation comes from:* it is the supply model behind WVA's ThroughputAnalyzer, stated in
+that project's internal design notes (`TA-supply.md` §2.1) — **not part of this branch**, so treat
+the form above as the citable statement. It also has a **validity window** the sim ignores: the
+linearity holds for `y < KV% < 0.85`, where the lower knee `y` is 0 for decode-heavy shapes but rises
+to ~0.2–0.4 when prefill dominates in time, and `A`/`B` change with it. The real-trace path measures
+`A`, `B` and `y` per run rather than assuming them — see [`real-trace-viz-plan.md`](real-trace-viz-plan.md)
+§5.2 and §6.
 
 **One knob: ρ = rate(empty)/rate(packed) ≥ 1.** Anchor the *packed* pod at today's
 nominal `service_rate` and parameterize the speedup by ρ. With load fraction

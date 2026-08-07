@@ -15,21 +15,27 @@ Two things live here:
 ## Getting it
 
 Everything you need is this one directory — no repo layout assumptions, no config
-outside it.
-
-> **Note (2026-08-07):** this currently lives on the `plans` branch of a private
-> working repo and is **not yet cloneable on its own**. It is being moved to a
-> dedicated `viz-tools` branch, after which the line below works. Until then, copy
-> the directory.
+outside it. It is a standalone branch with nothing else in it, so one clone gets you
+the tools and a worked example and no unrelated repo history.
 
 ```bash
-git clone -b viz-tools <fork-url> viz-tools && cd viz-tools
+git clone -b autoscaling-viz \
+  https://github.com/deanlorenz/llm-d-workload-variant-autoscaler.git autoscaling-viz
+cd autoscaling-viz
 ```
 
-Worked examples ship with it under `real-trace/` (and, after the move, `results/`):
-each carries a `bundle.json`, a `coverage.json`, and a rendered `panels.png`, so you
-can see what the output looks like — and re-render it — before pointing anything at
-your own data or a cluster.
+A **worked example** ships under `real-trace/staircase-20260803/` — a real single-variant
+scale-up run, carrying its `bundle.json`, `coverage.json`, `provenance.json` and a
+rendered `panels.png`. So you can see what the output looks like, and re-render it, before
+pointing anything at your own data or a cluster:
+
+```bash
+uv run --with matplotlib render_real_trace.py \
+  --bundle real-trace/staircase-20260803/bundle.json
+```
+
+`results/` is where *published* bundles land (see **Sharing results** below) — tracked, and
+empty until someone publishes one.
 
 ## Requirements
 

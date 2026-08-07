@@ -1,12 +1,19 @@
 # Autoscaling-viz — multi-shape integration: REVIEW & RESUME state
 
-**Status:** implementation + verification COMPLETE; committed locally on `plans` (scratch/POC,
-no DCO); **not pushed**; awaiting Dean's review.
-**Date:** 2026-08-05
+**Status:** implementation + verification COMPLETE; **awaiting Dean's review** (items A/B/C below).
+**Date:** 2026-08-05 · **location updated 2026-08-07**
+
+> **Where this lives now.** These files were under `plans/scratch/autoscaling-viz/` when this
+> checklist was written. They moved to their own orphan branch **`autoscaling-viz`** with its own
+> worktree at the container top level (history-preserving `git subtree split`), and that branch is
+> **pushed to `origin`** — so item **D (push decision)** below is **resolved**: Dean authorized the
+> push on 2026-08-07 and `origin/autoscaling-viz` is in sync. Paths below that begin
+> `scratch/autoscaling-viz/` are now relative to this directory. Full record:
+> [`real-trace-viz-plan.md`](real-trace-viz-plan.md) §14.6.
 
 ## What this is
 
-The `plans/scratch/autoscaling-viz/` teaching deck now renders **all 5 demand shapes**
+The teaching deck now renders **all 5 demand shapes**
 (`bump` / `trapezoid` / `stepup` / `stepdown` / `spike`) with a **uniform max-replica cap
 enforced at actuation** across every sizer. This file is the resume point after a clean
 restart. The approved plan lived at `~/.claude/plans/gentle-singing-lantern.md` — **outside the
@@ -53,22 +60,28 @@ commit (see Pointers).
   rule + two triggers + the no-escalation verdict; (2) spike = teaching-only, not calibrated, as a
   first-class rendered shape distinct from §6.5's ideal-only stress; (3) flat per-shape switcher
   **supersedes** item 9's two-level category→workload chooser (recorded as abandoned).
-- **D — push decision.** Commit is local only. Pushing needs Dean's explicit OK; `plans` →
-  `origin` only, **never upstream**; `--force-with-lease` only after history rewrite.
+- **D — push decision. RESOLVED 2026-08-07.** Dean authorized it; `origin/autoscaling-viz` is in
+  sync with the local tip. The standing rules still apply to any *future* push: `origin` only,
+  **never upstream**, explicit OK per push, `--force-with-lease` only after a history rewrite.
 
 ## How to resume
 
-- Be in the `plans` worktree (`.../llm-d-workload-variant-autoscaler/plans`).
-- Deck: `scratch/autoscaling-viz/out/index.html`.
-- Decisions: `scratch/autoscaling-viz/autoscaling-behavioral-demo-design.md` §8.1 item 11 (cap +
-  multi-shape), §6.1 (cap bullet), §6.5 (spike distinction).
+- Be in the `autoscaling-viz` worktree (`.../llm-d-workload-variant-autoscaler/autoscaling-viz`),
+  branch `autoscaling-viz`. **Not** `plans` — the files moved (see the note at the top).
+- Deck: `out/index.html`.
+- Decisions: [`autoscaling-behavioral-demo-design.md`](autoscaling-behavioral-demo-design.md) §8.1
+  item 11 (cap + multi-shape), §6.1 (cap bullet), §6.5 (spike distinction).
 - Regenerate if needed: `./.venv/bin/python run.py && ./.venv/bin/python report.py`
-  (python3.12 venv; prefer `uv` for new deps).
+  (prefer `uv` for new deps). The `.venv` is **not** carried in git — rebuild it with
+  `uv venv && uv pip install matplotlib`. The interpreter is no longer pinned to 3.12: a full
+  regeneration across 3.12 → 3.14 reproduced 161 of 162 tracked artifacts byte-for-byte.
+- **Four entry points, not three** — `run.py`, `sweep.py`, `report.py`, **and `stress_ideal.py`**
+  (follow-up 4 below is what that omission cost).
 - `stability.py` is uncapped by design (measures knob response, 4 shapes) — do not add a cap.
 
 ## Not done / open
 
-- Dean's review (A/B/C/D) then the push decision. Nothing else pending in this mission.
+- Dean's review (A/B/C). Item D (push) is resolved. Nothing else pending in this mission.
 
 ---
 

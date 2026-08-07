@@ -1,7 +1,11 @@
 # Real-trace visualization — input inventory + fetch/extraction plan
 
-**Status:** DRAFT. **Rev 5** (2026-08-07) — as-built toolchain + Dean's home/near-path decisions
-folded in (§14.4 DECIDED, §14.6 migration **unblocked**, §15 destination superseded, §15.5
+**Status:** DRAFT. **Rev 6** (2026-08-07) — **the migration is EXECUTED.** This document now lives
+*on* the branch it describes: `autoscaling-viz`, tip `a40dae11`, pushed to Dean's fork. §14.6 is
+rewritten as an as-built record (including the near-loss it caught), §14.4/§15/§15.3/§15.5 renamed
+off the working title `viz-tools`, `viz-results` retired, and the Awaiting-Dean list cut to what is
+genuinely still open. Builds on **Rev 5** — as-built toolchain + Dean's home/near-path decisions
+folded in (§14.4 DECIDED, §15 destination superseded, §15.5
 deferred-removal, §9.3 measured our-own-runs answer, §12.1 reordered, §16 refreshed). Builds on **Rev 4** — retargeted
 onto **already-benchmarked** results (Dean, 2026-08-06:
 *"we are talking about fetching already benchmarked results… We should look for actual results in
@@ -15,24 +19,25 @@ figures, raw data gitignored) and **9 runs with full raw detail still live on th
 **Spec-validation reference only (NOT the trace to visualize):**
 `benchmark/dean-20260803-052634-197/results/inference-perf-1785724033-d5lhav_1/` — a *test run*.
 Its value is that every parsing rule, the capacity formula, and the ITL-window scan in §§3–8 were
-validated against it twice. All claims from it are tagged **[ref]**. Local working copy at
-`scratch/autoscaling-viz/real-trace/staircase-20260803/` (smalls + 217 raw scrapes; `metrics/raw/`
-gitignored; 50-record `per_request_head.json` instead of the 4.2 GB file).
+validated against it twice. All claims from it are tagged **[ref]**. Working copy at
+`real-trace/staircase-20260803/` on this branch (smalls + the 217 raw scrapes, carried in git as
+`metrics-raw.tar.gz`; the loose `metrics/raw/` stays gitignored as the *working* form; 50-record
+`per_request_head.json` deliberately untracked, instead of the 4.2 GB file — §14.2).
 
 **⚠️ One trace of many.** The extractor's job is explicitly *not* to assume any run's properties —
 §9 makes per-run capability a machine-emitted report rather than an assumption.
 
 **Tooling status (2026-08-07): built and exercised end-to-end.** `fetch_run.sh` →
-`extract_real_trace.py` → `render_real_trace.py` → `publish_result.sh`, all in
-`scratch/autoscaling-viz/` with a `README.md` (§14.2). What remains is *running* it on a real run
-(§12.1), not writing it. Committed on `plans` as `8cbeee30`, **not pushed**.
+`extract_real_trace.py` → `render_real_trace.py` → `publish_result.sh`, at the root of this branch
+with a `README.md` (§14.2). What remains is *running* it on a real run (§12.1), not writing it.
 
-**Home decided (Dean, 2026-08-07): its own `viz-tools` branch + worktree on Dean's fork, with
-results as a `results/` directory inside it** — *"viz tools on my fork / viz results on my fork. Or
-just dir under viz tools. maybe it is big enough to create a worktree for viz tools and move
-everything there."* §14.4 records the decision, §14.6 the migration — **planned, not executed, but
-no longer blocked**: the earlier gate (another session's uncommitted work under this directory)
-cleared on 2026-08-07, so all that is left is Dean's go-ahead for a large deletion and two pushes.
+**Home decided (Dean, 2026-08-07) and now EXECUTED: its own `autoscaling-viz` branch + worktree on
+Dean's fork, with results as a `results/` directory inside it** — *"viz tools on my fork / viz
+results on my fork. Or just dir under viz tools. maybe it is big enough to create a worktree for viz
+tools and move everything there."* Dean named it 2026-08-07 (*"autoscaling-viz is good"*); the
+working title in earlier revisions was `viz-tools`. §14.4 records the decision, §14.6 the migration
+**as built**: orphan branch at tip `a40dae11`, worktree at the container top level beside `plans/`,
+pushed to `origin`, and the old `scratch/autoscaling-viz/` copy on `plans` removed in `9ccd5e23`.
 
 **Near-term data path changed (Dean, 2026-08-07):** *"need to see if our own benchmark run can
 provide data. The benchmark coder is still working. Ofer will not be working on this this weekend."*
@@ -42,7 +47,7 @@ work (§12.1 items 1–4).
 
 **Cold-resume entry point:** read `README.md` first if you just want to use the tools. To pick up
 the *work*: §9.3 (what our own runs can and cannot supply — the live question) → §12.1 (next
-actions) → §14.6 (the pending migration and its blocker) → §16 (session log). §1.0/§1.2 are the
+actions) → §16 (session log). §14.6 is now a record of a completed move, not a to-do. §1.0/§1.2 are the
 data inventory; §8 is the extractor spec; §§2–7 are the derivations behind it and can be skipped on
 a resume. §14–§15 describe the shareable/publish path as built.
 
@@ -779,9 +784,9 @@ end-to-end on **[ref]**, so every item below is now a run of existing code, not 
 3. **Get §9.2's capture list in front of whoever designs the next run.** Cheap to add, unrecoverable
    afterwards. **Not yet sent** — the benchmark coder is mid-flight on a separate thread, so no
    trigger has been rung. When it is, it is a doorbell pointing at §9.2, not instructions.
-4. **The migration** (§14.6) — **now unblocked**; the multi-shape effort committed its work
-   (`0633193f`, `2b17a312`) and the directory is clean. Needs only Dean's go-ahead, since it involves
-   a large deletion and two pushes.
+4. ~~**The migration** (§14.6)~~ — **DONE** 2026-08-07, every step with Dean's explicit approval. The
+   one remaining piece of fallout is a code change, not a data action: `publish_result.sh --commit`
+   still points at the retired `viz-results` branch (§15.5).
 
 **Later — Ofer's corpus (the richer data, but not this weekend):**
 
@@ -805,11 +810,15 @@ the `y > 0` ITL knee.
 ### 12.2 Decisions for Dean
 1. **Preemption** — model in the PoC, or out of scope with a noted optimism (§7.2)?
 2. **First-cut scope** — extraction + observed replay only, or also simulated-on-real-trace (§10)?
-3. **Push `8cbeee30`** (the toolchain commit on `plans`) — not done; needs an explicit OK. Note this
-   is partly overtaken by §14.6: after the migration the artifacts live on `viz-tools`, so the
-   question becomes whether to push `plans` now or wait and push `viz-tools` instead.
-4. **Retire `viz-results`** via `git boidem` — it holds 4 local test commits and is superseded by
-   results-as-a-directory (§14.6 step 5). `boidem` pushes an archive tag, so it needs confirmation.
+3. ~~**Push `8cbeee30`** (the toolchain commit on `plans`)~~ — **RESOLVED, by being overtaken.** The
+   migration moved the artifacts off `plans` entirely, so there was nothing branch-specific left to
+   push there; `autoscaling-viz` was pushed instead (tip `a40dae11`, Dean-authorized 2026-08-07).
+   `plans` stays unpushed on purpose — 57 of its 58 unpushed commits belong to other sessions'
+   in-flight work, so pushing it would publish their WIP.
+4. ~~**Retire `viz-results`**~~ — **DONE** 2026-08-07: archived as tag `archive/viz-results` →
+   `3e8117c5` (pushed), local branch deleted. It was proven redundant by blob hash rather than by
+   filename, and the one file on it that was *not* redundant — `provenance.json`, load-bearing under
+   Dean's originals policy — was carried onto this branch first (`a40dae11`). See §14.6.
 5. **Ring the benchmark coder** with §9.2 (item 3 above) — or hold until that thread pauses.
 
 ### 12.3 Settled
@@ -855,8 +864,7 @@ So: no outreach draft. The deliverable is a **self-contained directory with a RE
 *Subsections, in reading order — note **§14.4 sits after §14.5 in the file** (§14.4 was written last
 and appended; the numbers are the stable references, so they were not renumbered):* 14.1 constraint
 on the code → 14.2 directory shape → 14.3 the commands → 14.4 **where it is shared from (DECIDED)**
-→ 14.5 renderer divergences → 14.6 **the migration (planned, not executed; unblocked, awaiting
-Dean's go-ahead)**.
+→ 14.5 renderer divergences → 14.6 **the migration — EXECUTED 2026-08-07, now an as-built record**.
 
 ### 14.1 Constraint this places on the code
 
@@ -872,35 +880,46 @@ Dean's go-ahead)**.
 ### 14.2 Directory shape
 
 ```
-scratch/autoscaling-viz/
+autoscaling-viz/         ← the branch root (pre-migration: `plans/scratch/autoscaling-viz/`)
   README.md              ← the entry point: install, 3 commands, what each panel means
   fetch_run.sh           ← pull a run dir off a cluster PVC (oc/kubectl), read-only
   extract_real_trace.py  ← run dir → bundle.json + coverage.json   (§8)
   render_real_trace.py   ← bundle.json → panels PNG                (§14.5)
-  publish_result.sh      ← stage/commit a bundle to the result branch (§15.4)
+  publish_result.sh      ← stage/commit a bundle into results/     (§15.4)
   sim.py run.py plots.py … ← existing PoC (untouched synthetic path)
-  real-trace/<label>/    ← per-run working copies (raw gitignored)
-  results/<date>-<label>/ ← publishable bundles. Gitignored *while the tools live on `plans`*;
-                            after the §14.6 migration this is a normal tracked directory on
-                            `viz-tools` and the gitignore line comes out.
+  real-trace/<label>/    ← per-run working copies (loose raw gitignored, tarball tracked — below)
+  results/<date>-<label>/ ← publishable bundles. A **normal tracked directory** since the §14.6
+                            migration; the gitignore line that hid it while the tools lived on
+                            `plans` is gone (the `.gitignore` says so, so it does not read as
+                            an oversight). Tracked but **empty** — nothing published yet.
 ```
 
 **Status: all five files written.** `fetch_run.sh` and `publish_result.sh` are `bash -n` clean;
 the two Python files use only the standard library, except `render_real_trace.py`'s `matplotlib`.
 
-**What of `real-trace/` is carried in git, and why not the rest.** `bundle.json` (30 KB),
-`coverage.json`, `panels.png` and the small metadata files are committed — 16 files, ~557 KB — so a
-cold session can re-render **[ref]** and see the figure with no cluster access. Two things are
-gitignored:
+**What of `real-trace/` is carried in git, and why not the rest.** **18 tracked files, 2 495 455
+bytes**: `bundle.json` (31 KB), `coverage.json`, `provenance.json`, `panels.png` (247 KB), the run's
+own config/metadata, the four `*_lifecycle_metrics.json` summaries, the five
+`metrics/processed/*.json`, and — added *during* the migration — **`metrics-raw.tar.gz`**.
 
-| ignored | why |
-|---|---|
-| `metrics/raw/` | 217 scrape files, ~20 MB, regenerable by `fetch_run.sh` |
-| `per_request_head.json` | 2.4 MB for **50 records**, because each inference-perf record embeds its full prompt (~17 KB) and full streamed SSE response (~150 KB) — 0.86 MB of raw prompt/response text across the sample. §15.2 bans that text from a bundle, so carrying it one directory over would contradict our own rule. (Synthetic token gibberish in this run, so: consistency and bulk, not a leak.) |
+| form | disposition | why |
+|---|---|---|
+| `metrics-raw.tar.gz` | **tracked**, 1 935 604 bytes | the 217 Prometheus scrapes, compressed ~10.5:1 from 20 MB. Rev 5 ignored these as *"regenerable by `fetch_run.sh`"* — **that justification was wrong**, and it nearly cost us the data (§14.6). A re-fetch only works while the run's original output still exists on a shared-cluster PVC, and under Dean's originals policy we deliberately do not keep the GB-scale originals anywhere. Since `metrics/raw/` is the only time-resolved metrics source and panels 2–5 do not exist without it, the ~1.9 MB archive *is* the durable copy. |
+| loose `metrics/raw/` | gitignored | the *working* form only — `tar xzf metrics-raw.tar.gz` restores it. Ignoring the directory while tracking the tarball keeps one blob in git instead of 217. |
+| `per_request_head.json` | gitignored | 2.4 MB for **50 records**, because each inference-perf record embeds its full prompt (~17 KB) and full streamed SSE response (~150 KB) — 0.86 MB of raw prompt/response text across the sample. §15.2 bans that text from a bundle, so carrying it one directory over would contradict our own rule. (Synthetic token gibberish in this run, so: consistency and bulk, not a leak.) The only remaining copy is outside the repo, under `~/viz-migration-preserve-20260807`. |
 
-The cost of ignoring the head sample is that a cold session can re-*render* but cannot re-run the
-*extractor* end-to-end without a re-fetch. Accepted — `bundle.json` is the extractor's verified
-output, and it is what every panel actually consumes.
+Each of those reasons is also written into `real-trace/<label>/.gitignore`, at the point of use,
+because a bare `metrics/raw/` line is exactly the kind of thing a later session deletes as cruft.
+
+**What a clone can and cannot rebuild — measured, not assumed.** Re-*rendering* every panel from
+`bundle.json` works from a clone alone. Re-*running the extractor* from the restored
+`metrics/raw/` also works from a clone alone, but scores **8 PASS / 7 FAIL** against the committed
+`coverage.json`'s **12 PASS / 4 FAIL**. The gap is exactly the four per-request-derived rows —
+queue (a), the §6 capacity-model check, per-request-trace-present, and the demand trace behind
+panels 1 and 4 — because `per_request_head.json` is deliberately absent. Panels 2, 3 and 5, and the
+A / B / knee / boot-lag / oscillation calibrations, all rebuild fully. If a future run needs a clone
+to be self-sufficient for panels 1 and 4 as well, the answer is a text-**stripped** per-request head
+(numeric fields only), not committing that file.
 
 `fetch_run.sh` wraps exactly the read-only pattern used to inventory the PVC in §1.0b — parameters
 are namespace, access-pod, remote run dir, local dest. It never writes to the source namespace.
@@ -928,9 +947,14 @@ Plus a fourth, optional (§15.4):
 ./publish_result.sh -r real-trace/<label> -l <label> --commit
 ```
 
-Step 4b currently commits onto a worktree-less `viz-results` branch via git plumbing; after the
-§14.6 migration it is a plain commit in the `viz-tools` worktree and the flag's rationale changes
-(§15.5). The three commands above are unaffected by the migration — only their *directory* moves.
+⚠️ **Step 4b is now wrong, and knowingly so — do not pass `--commit`.** It still commits onto a
+worktree-less `viz-results` branch via git plumbing (`publish_result.sh:28`, `:243`), but
+`viz-results` was **retired** in the migration (§14.6). Its branch-existence check would therefore
+take the `else` arm — *"creating orphan branch viz-results (first result)"* — and **recreate the very
+branch we just archived**, instead of committing into `results/` on this branch. Rewriting that half
+is the §15.5 **DEFERRED** item; the retirement promoted it from *redundant* to *actively incorrect*,
+which is why §15.5 now carries it as a live defect rather than a tidy-up. Step 4a (stage + validate,
+the default) is unaffected and still correct, as are commands 1–3 — only their *directory* moved.
 
 The README must state up front the one thing a newcomer cannot guess: **`coverage.json` is the
 point of step 2.** It says which panels and which calibrations this particular run can support, so
@@ -962,10 +986,12 @@ engine-waiting (peak ~617), which is the expected ordering since (b) mixes waiti
 
 ### 14.4 Where it is shared from — **DECIDED (Dean, 2026-08-07)**
 
-**Option B: a `viz-tools` branch on Dean's fork (`origin`), with its own worktree, and results as a
-`results/` directory inside it rather than a separate branch.** Dean: *"viz tools on my fork / viz
-results on my fork. Or just dir under viz tools. maybe it is big enough to create a worktree for viz
-tools and move everything there."*
+**Option B: an `autoscaling-viz` branch on Dean's fork (`origin`), with its own worktree, and results
+as a `results/` directory inside it rather than a separate branch.** Dean: *"viz tools on my fork /
+viz results on my fork. Or just dir under viz tools. maybe it is big enough to create a worktree for
+viz tools and move everything there."* — and, on the name, *"autoscaling-viz is good"*. (Everything
+below this line was drafted under the working title `viz-tools`; the branch that exists is
+`autoscaling-viz`.)
 
 The options as they stood, for the record:
 
@@ -1000,79 +1026,125 @@ Two size notes that matter for a clone-and-run experience:
 C remains the right *end state* if the tool proves useful, since §1.1a shows this is really the
 missing back half of `post_run_analyze.sh`. Nothing about B forecloses it.
 
-### 14.6 Migration to a `viz-tools` worktree — **UNBLOCKED, awaiting Dean's go-ahead**
+### 14.6 Migration to the `autoscaling-viz` worktree — **EXECUTED 2026-08-07 (as-built record)**
 
-> **Status corrected 2026-08-07.** This section was first written as ⛔ *blocked on another session's
-> uncommitted work*. **That gate has cleared** — see below. The only thing left is Dean's OK, because
-> steps 3–5 are a large deletion and two pushes.
+> Dean approved the name and gave the go-ahead — *"autoscaling-viz is good"*, *"proceed with
+> migration"*. What follows is a record of what happened, not a procedure. Earlier revisions carried
+> this section first as ⛔ *blocked on another session's uncommitted work* and then as
+> *unblocked-awaiting-OK*; both framings are gone, and the blocker turned out to have been
+> [already stale when written](#16-session-log-for-cold-resume). The one thing worth reading in full
+> is the near-loss, below — the method silently omits exactly the data this project cannot replace.
 
-**The gate, and why it is gone.** When this section was drafted, **118 modified files** under
-`scratch/autoscaling-viz/` belonged to the **multi-shape review effort**, not to this one — `sim.py`,
-`run.py`, `stability.py`, `sweep.py`, `stress_ideal.py`, `trace_qexp.py`, `diag_decisions.py`,
-`REPORT.md`, `REVIEW-CHECKLIST.md`, `autoscaling-behavioral-demo-design.md`, and all of `out/`.
-Moving the directory then would have forced one of two bad outcomes: strand those changes while their
-files moved away underneath them, or commit another effort's in-progress work in order to move it.
-Neither was this session's to do.
+| as built | |
+|---|---|
+| branch | `autoscaling-viz` — orphan: **0 commits shared with `plans`**, verified by intersecting `rev-list HEAD` with `rev-list plans`, not inferred from the method |
+| tip | **`a40dae11`**, 22 commits, working tree clean |
+| worktree | `llm-d-workload-variant-autoscaler/autoscaling-viz` — container top level, peer of `plans/`, exactly the shape Dean asked for |
+| content | 147 tracked files, 53 MB on disk |
+| pushed | **yes**, Dean-authorized: `origin/autoscaling-viz` = `a40dae11`. The pre-push hook reported *"no merge-base with `upstream/main`; skipping DCO check"* — an independent confirmation of the orphan lineage, from a tool that had no reason to agree with us |
+| `plans` side | `scratch/autoscaling-viz/` removed in **`9ccd5e23`** after Dean's per-item approval |
+| `viz-results` | retired: tag `archive/viz-results` → `3e8117c5` pushed, local branch deleted |
 
-That effort has since committed its own work — **`0633193f`** ("burn-in prelude") and **`2b17a312`**
-("regenerate all artifacts under burn-in"). `git status --porcelain -- scratch/autoscaling-viz` is
-now **empty**: nothing uncommitted is at risk, and the split will carry their burn-in round with it.
-Re-verify that the directory is clean immediately before running the split anyway — this is a shared
-worktree and another session can dirty it at any moment.
-
-**Method — history-preserving, and read-only on the `plans` worktree.** `git subtree split` (verified
-available, git 2.43.0) rewrites the directory's own history onto a new branch without touching any
-working tree:
+**Method, as specified — history-preserving and read-only on the `plans` worktree.**
 
 ```bash
-# from the plans worktree — creates the branch, touches no files
-git subtree split --prefix=scratch/autoscaling-viz -b viz-tools
-
-# materialize it as a sibling worktree at the container level
-git -C repo worktree add ../viz-tools viz-tools
+git subtree split --prefix=scratch/autoscaling-viz -b autoscaling-viz   # creates the branch, touches no files
+git -C repo worktree add ../autoscaling-viz autoscaling-viz            # materialize it
 ```
 
-The alternative — a fresh `--orphan` branch with the files copied in — discards the per-file history
-of 6 670 lines of Python, including the derivation trail this plan keeps citing. Not worth it to save
-one command.
+Per-file history is preserved with paths rewritten to the root. The alternative — a fresh `--orphan`
+branch with files copied in — would have discarded the per-file history of 6 670 lines of Python,
+including the derivation trail this plan keeps citing.
 
-**Then, in order:**
+#### The near-loss: `git subtree split` carries *tracked* files only
 
-1. **Drop the `results/` gitignore line** and the `metrics/raw/` + `per_request_head.json` ignores
-   stay as they are (§14.2's reasoning is unchanged — they are bulk/regenerable, not location-bound).
-2. **Simplify `publish_result.sh`** — see the DEFERRED-removal note in §15.5. The git-plumbing machinery
-   exists *only* because `viz-results` had no worktree; once `viz-tools` is checked out, publishing is
-   an ordinary `git add results/… && git commit` in that worktree. The **validation** (size cap,
-   prompt-text scan, mandatory provenance, append-only) is load-bearing and stays.
-3. **`git rm -r scratch/autoscaling-viz` on `plans`**, with a commit message pointing at the new
-   branch so the history is followable from either side. This is a large deletion — it needs Dean's
-   explicit OK. Do it only *after* steps 1–2 and after confirming the split branch actually contains
-   everything (`git ls-tree -r --name-only viz-tools | wc -l` against the 145 tracked files here).
-4. **Push `viz-tools` to `origin`** (Dean's fork) with upstream tracking — per CONVENTIONS every real
-   branch has a matching origin branch. **Needs Dean's confirmation for that specific push.**
-5. **Retire the `viz-results` branch.** It is now superseded by design, not merely junk: results live
-   in `results/` on `viz-tools`. It currently holds 4 local test commits from validating
-   `publish_result.sh` (including the duplicate the broken guard let through, §15.4). Dean's
-   convention is `git boidem`, which pushes an archive tag — **needs his confirmation.**
-6. **Add the clone line to `README.md`** once the branch is on the fork:
-   `git clone -b viz-tools <fork-url> viz-tools`.
+`real-trace/staircase-20260803/metrics/raw/` — 217 Prometheus scrape files, 20 MB, described by this
+project's own README as *the only time-resolved metrics source and the one thing that cannot be
+substituted* — **would have been left behind.** Three things combined:
 
-**What does *not* move:** this plan document. It is a Type-3-style planning artifact and belongs on
-`plans`; it would also drag the internal-doc references (`CURRENT.md`, `planning/…`) into a branch
-meant to be handed to someone else. After the migration it stays here and cross-references the new
-location — which means the `README.md` on `viz-tools` becomes the self-sufficient entry point for a
-reader who has only that branch. That is a constraint on the README, and worth checking before the
-push: it must not depend on anything under `plans/`.
+1. `subtree split` operates on history, so an ignored file is simply not in it. Nothing warns.
+2. The ignore lived in a **nested** `.gitignore` inside the run directory, so a `git ls-files` sanity
+   check on the parent showed a tidy, complete-looking tree.
+3. Its written justification — *"regenerable via `fetch_run.sh`"* — had become false **days earlier**
+   and nobody had revisited the line. Dean's originals policy (*"no need to keep GB originals. They
+   live where they were born… I don't copy over and never commit"*) means there is by design **no
+   original left to re-fetch from**: the run output lives on a shared-cluster PVC that gets cleaned,
+   and we deliberately keep only the processed form plus a provenance ref.
+
+Resolved by committing the same bytes one level up as **`metrics-raw.tar.gz`, 1 935 604 bytes** —
+Prometheus scrapes compress ≈10.5:1, so the entire irreplaceable tier costs 1.9 MB. The loose
+directory stays gitignored as the *working* form (§14.2).
+
+The transferable lesson is not "check for ignored files". It is that **a gitignore line is a claim,
+and claims expire.** This one was written when a re-fetch was possible and read as still true after a
+policy change made it false — and the policy change was made by the same people, in the same week,
+one document over. The mitigation now in the tree is to record the *reason* at the point of use:
+`real-trace/<label>/.gitignore` explains both ignores and explicitly retracts the old justification,
+so the next reader has to disagree with an argument rather than delete an unexplained line.
+
+#### Completeness was verified by content, not by count
+
+A preserve copy was taken **before** the split — `~/viz-migration-preserve-20260807`, 419 files,
+51 MB, `rsync -a` excluding `.venv/` and `__pycache__/` (the two things that break when copied).
+Every one of the 419 was then compared into the new worktree with `cmp`:
+
+- the only differences are the **two `.gitignore` files that were intentionally edited**;
+- the only extras are `.git/` and the new tarball;
+- **0** files were carried that were not in the preserve copy;
+- the bijection closes exactly: **145 carried by the split + 274 copied in = 419**.
+
+A file count alone would have passed while `metrics/raw/` was missing — the counts were only ever
+reconciled *because* the content comparison forced an accounting of every file on both sides.
+
+#### What became of the six planned steps
+
+| step | outcome |
+|---|---|
+| 1. drop the `results/` gitignore line | **done** — and the *reason* is recorded in place in `.gitignore`, so it does not read as an oversight to a later session |
+| 2. simplify `publish_result.sh` | **NOT done — and it is now a live defect, not a tidy-up.** Retiring `viz-results` (step 5) turned the plumbing-commit path from redundant into wrong: `--commit` would now recreate the branch we just archived. See §14.3 and §15.5 |
+| 3. `git rm -r scratch/autoscaling-viz` on `plans` | **done**, `9ccd5e23`, after Dean's explicit per-item approval and after both the split branch and the preserve copy were confirmed complete |
+| 4. push to `origin` | **done**, `a40dae11`, Dean-authorized |
+| 5. retire `viz-results` | **done** — audited by content first: both published labels' `bundle.json` / `coverage.json` / `panels.png` were **byte-identical** (blob hash) to `real-trace/staircase-20260803/`, and the two `provenance.json` files declare the same `run` and `bundle_sha256`, differing only in `published_at` — i.e. two `publish_result.sh` test invocations of one run. Only `provenance.json` was unique, and Dean's originals policy makes it load-bearing, so it was carried onto this branch in `a40dae11` **before** the retirement. Nothing was lost |
+| 6. clone line in `README.md` | **done** — plus a worked-example command, because `results/` is tracked-but-empty and the README would otherwise have promised examples that do not exist |
+
+**Footgun found in step 5, worth knowing generally.** Dean's `git boidem <branch>` alias ends in
+`git push --no-verify --tags`, which pushes **every** local tag, not the one just created. Three
+unrelated local tags (`pre-rebase-f6485980`, `post-rebase-clean`, `ta-0.9-test-20260728`) would have
+been published as a side effect of archiving a throwaway branch. The alias's three steps were run
+individually instead, with the push scoped to `refs/tags/archive/viz-results`; all three unrelated
+tags verified still absent from `origin` afterwards.
+
+#### Correction: the plan document **did** move
+
+Rev 5's *"What does not move: this plan document"* was wrong, in the plainest way — `subtree split`
+carries every tracked file under the prefix, so this document was on the new branch by construction,
+and its `plans` copy went with `9ccd5e23`. It now lives **only** here.
+
+The consequence is smaller than the error, but it was measured rather than assumed. Across all
+tracked files there are **6** references to `plans`-side material, of which 4 are self-referential
+prose *about* the `plans` branch (fine — a reader needs no access to follow them). The remainder:
+
+| | |
+|---|---|
+| `REVIEW-CHECKLIST.md:9`, `autoscaling-behavioral-demo-design.md:5` | stale `plans/scratch/autoscaling-viz/` path prefixes — cosmetic, describe this directory by its old address |
+| `autoscaling-behavioral-demo-design.md:373` | **a genuine dangling cross-reference** — cites `planning/TA-supply.md` §2.1, which a clone-only reader cannot resolve at all |
+
+Rev 5's *reasoning* for keeping the doc on `plans` still stands on its own terms, and the outcome is
+better than it predicted: the internal-doc leakage is one line, not a branch full of it. The README
+constraint it derived — *the shareable entry point must not depend on anything under `plans/`* —
+was checked and **holds**: `README.md` has no `plans/` dependency.
 
 ---
 
 ## 15. Publishing bundles — a `results/` directory, not a branch
 
 > **Superseded in part (Dean, 2026-08-07).** Rev 4 designed this as a separate `viz-results`
-> orphan branch. Dean chose *"just dir under viz tools"*, so results become a **tracked
-> `results/` directory on `viz-tools`** (§14.4/§14.6). The layout, the rules, and the validation
-> below are unchanged and still load-bearing; only the destination moved. `viz-results` is
-> retired (§14.6 step 5).
+> orphan branch. Dean chose *"just dir under viz tools"*, so results are a **tracked `results/`
+> directory on `autoscaling-viz`** (§14.4/§14.6) — tracked and, as of this writing, empty. The
+> layout, the rules, and the validation below are unchanged and still load-bearing; only the
+> destination moved. `viz-results` is **retired** — archived as `archive/viz-results` → `3e8117c5`
+> and deleted (§14.6). One consequence is a live defect rather than a tidy-up: `publish_result.sh
+> --commit` still targets the retired branch and would recreate it. See §14.3 and §15.5.
 
 Dean: *"The fetch script can always push into result branch so we can reuse and share results."*
 
@@ -1084,7 +1156,7 @@ cluster-bound step happens once, by whoever ran the benchmark, and everyone else
 — keep megabytes of results out of the tool's history. Measured (§14.4), a published result is
 **300–400 kB**, so 50 runs is ~18 MB against the 26.3 MB the directory already carries. The bulk
 that would have justified the split does not exist. Meanwhile a directory is strictly better on the
-thing that matters most here: someone who clones `viz-tools` gets the tools **and** the worked
+thing that matters most here: someone who clones `autoscaling-viz` gets the tools **and** the worked
 examples in one clone, with no second fetch and no orphan-branch instructions in the README.
 
 ### 15.1 Layout
@@ -1097,8 +1169,9 @@ results/<YYYYMMDD>-<label>/
   panels.png         # rendered output, so results are browsable without running anything
 ```
 
-A normal tracked directory on `viz-tools`. It is `.gitignore`d only *while the tools still live on
-`plans`* (§14.2) — that line comes out with the migration.
+A normal tracked directory on `autoscaling-viz`. The `.gitignore` line that hid it while the tools
+lived on `plans` came out with the migration, and the `.gitignore` now records *why* it went — an
+unexplained absence is the kind of thing a later session re-adds.
 
 ### 15.2 Rules
 
@@ -1120,12 +1193,20 @@ A normal tracked directory on `viz-tools`. It is `.gitignore`d only *while the t
 **Dean's fork (`origin`)**, as part of the §14.4 decision — *"viz results on my fork."* Upstream is
 not in play: `origin` is where the shareable branch lives, and Ofer clones from there.
 
-This also removes the reason `publish_result.sh` stopped at a local branch. Post-migration the
-publish is an ordinary commit in the `viz-tools` worktree, and reaching Ofer is one `git push origin
-viz-tools` — **still a separate, explicit human action** (project rule: no push without Dean's
+This also removes the reason `publish_result.sh` stopped at a local branch. Publishing is now an
+ordinary commit in the `autoscaling-viz` worktree, and reaching Ofer is one `git push origin
+autoscaling-viz` — **still a separate, explicit human action** (project rule: no push without Dean's
 confirmation for that specific push). Nothing in the script pushes, before or after the migration.
+The branch is already on `origin` (`a40dae11`), so a future publish is a push of one small commit,
+not a first upload.
 
 ### 15.4 As implemented — `publish_result.sh`, and why the commit is a second flag
+
+> ⚠️ **This section is now a historical account of the pre-migration script, not a usage guide.**
+> Everything about *validation* still holds and is still what runs. The **commit half** (`--commit`)
+> is broken by the `viz-results` retirement — see §14.3 for the failure mode and §15.5 for the fix.
+> Read it for the two general lessons (the always-passing guard; CWD-relative pathspecs), which cost
+> real debugging and outlive the script.
 
 Rev 4 specified one `--publish` that "stages the four files and commits locally". Implementation
 split that in two, because the second half is not as local as it reads:
@@ -1146,8 +1227,10 @@ one bare repo, any of which may be mid-edit. Two consequences, both load-bearing
 2. **It is opt-in, not the default.** Staging is idempotent and harmless; creating a branch ref in
    a shared repo is not, so it needs the explicit second flag.
 
-`results/` is `.gitignore`d on `plans` — staged bundles must not ride a `plans` commit. They exist
-only on disk and on `viz-results`.
+*(Both rows describe the pre-migration world. `results/` was `.gitignore`d on `plans`, so staged
+bundles could not ride a `plans` commit and existed only on disk and on `viz-results`. Post-migration
+`results/` is tracked in a real worktree, which is exactly why the plumbing half is now removable —
+§15.5.)*
 
 **All four §15.2 rules were tested, not just written:**
 
@@ -1184,22 +1267,31 @@ which is exactly what append-only exists to prevent. Two lessons, both general:
    `grep`-on-paths check written in a subdirectory but matching root-relative paths has this bug.
    `--full-tree` (or running from the repo root) is mandatory, not stylistic.
 
-`a2c256b7` is a local test artifact on a local-only branch; the branch itself is disposable and
-should be dropped before the first real publish (§16).
+`a2c256b7` was a local test artifact on a local-only branch. **Disposed of** — the whole branch was
+audited by content and retired in the migration (`archive/viz-results` → `3e8117c5`), so the
+duplicate is gone along with it. Recoverable from the archive tag if the failure mode is ever worth
+re-examining.
 
-### 15.5 What the §14.6 migration does to this script — **DEFERRED removal, keep the validation**
+### 15.5 What the migration did to this script — **a live defect; keep the validation, remove the commit half**
 
-The plumbing-commit machinery above exists for exactly one reason: `viz-results` had **no worktree**,
+The plumbing-commit machinery above existed for exactly one reason: `viz-results` had **no worktree**,
 so there was no ordinary way to commit onto it without a `checkout` that would have disturbed a
-shared, actively-edited tree. Once `viz-tools` *is* a worktree with `results/` tracked in it, that
-reason is gone — publishing becomes:
+shared, actively-edited tree. `autoscaling-viz` *is* a worktree with `results/` tracked in it, so that
+reason is gone — publishing is now:
 
 ```bash
 git add results/<date>-<label> && git commit -m "results: <date>-<label>"
 ```
 
-So at migration time, `publish_result.sh` splits cleanly in two, and the two halves get opposite
-treatment:
+**The removal is no longer optional cleanup.** Retiring `viz-results` (§14.6 step 5) turned the
+commit half from *redundant* into *wrong*: `BRANCH="viz-results"` is still hardcoded
+(`publish_result.sh:28`), the branch-existence check now takes its `else` arm, and `--commit` would
+print *"creating orphan branch viz-results (first result)"* and **recreate the branch we just
+archived** (`:243`) instead of committing into `results/` here. Until it is fixed, `--commit` must not
+be passed; §14.3 carries the same warning next to the command it affects, where someone about to run
+it will actually see it. Step 4a — stage + validate, the default — is unaffected.
+
+`publish_result.sh` splits cleanly in two, and the two halves get opposite treatment:
 
 | half | ~lines | disposition |
 |---|---|---|
@@ -1209,12 +1301,16 @@ treatment:
 **DEFERRED (not deprecated): the git-plumbing commit path.** *What it did:* built a commit on a
 branch that has no checkout, without touching HEAD, the index, or any of the ~9 sibling worktrees
 sharing the bare repo — verified byte-identical before/after (§15.4 consequence 1). *Why removed:*
-its only consumer disappears when `viz-tools` gains a worktree; a plain `git commit` is clearer and
-one line. *Where the intent should land if needed again:* this section, plus the script's own git
-history — the pattern is the general answer to "commit onto a worktree-less branch in a shared bare
-repo", which is a recurring shape in this workspace, so it is worth being able to recover verbatim
-rather than re-deriving. Removal is a §14.6-step-2 action, **not** something to do before the
-migration.
+its only consumer disappeared when `autoscaling-viz` gained a worktree; a plain `git commit` is
+clearer and one line. *Where the intent should land if needed again:* this section, plus the script's
+own git history — the pattern is the general answer to "commit onto a worktree-less branch in a shared
+bare repo", which is a recurring shape in this workspace, so it is worth being able to recover
+verbatim rather than re-deriving.
+
+*Status:* the migration is done and this removal is **not**, which is the whole reason it is a defect
+rather than a plan item. It is a code change, so it is out of scope for a documentation pass — but it
+is the first thing to do to this script, ahead of the `runs/<label>/` restructure that would otherwise
+touch the same code twice.
 
 **The `--full-tree` lesson survives the removal.** Note that the append-only-on-branch check stays
 even post-migration (a `results/<label>` dir could already be committed), and it is *still* run from
@@ -1240,15 +1336,16 @@ plumbing era. Do not let the simplification quietly delete it.
   readable six-panel figure with its caveats baked in. All four §15.2 rules tested; the
   append-only-on-branch guard was found broken (CWD-scoped pathspec) and fixed.
 - **2026-08-07 (later)** — Dean settled the two open location questions and redirected the near-term
-  data path. Folded in: §14.4 **DECIDED** (own `viz-tools` branch + worktree on Dean's fork; results
-  as a `results/` directory inside it, not a separate branch) with the finding that option A was
-  never actually viable — `plans` is an orphan branch of internal state, so handing someone a clone
-  of it to share a plotting script hands them `CURRENT.md` and every planning and review doc. §14.6
-  written as the migration procedure, **planned not executed**. §15 retitled and its orphan-branch
-  premise superseded; §15.3 **RESOLVED** to Dean's fork; §15.5 added, classifying the git-plumbing
-  commit path **DEFERRED** (its only reason to exist is `viz-results` having no worktree) while
-  keeping all the validation. §9.3 added — the measured answer to *"can our own benchmark run provide
-  data"*. §12.1 reordered so our-own-runs is the near path.
+  data path. Folded in: §14.4 **DECIDED** (own branch + worktree on Dean's fork — the working title
+  was `viz-tools`, later named `autoscaling-viz`; results as a `results/` directory inside it, not a
+  separate branch) with the finding that option A was never actually viable — `plans` is an orphan
+  branch of internal state, so handing someone a clone of it to share a plotting script hands them
+  `CURRENT.md` and every planning and review doc. §14.6 written as the migration procedure, at that
+  point **planned, not executed**. §15 retitled and its orphan-branch premise superseded; §15.3
+  **RESOLVED** to Dean's fork; §15.5 added, classifying the git-plumbing commit path **DEFERRED**
+  (its only reason to exist is `viz-results` having no worktree) while keeping all the validation.
+  §9.3 added — the measured answer to *"can our own benchmark run provide data"*. §12.1 reordered so
+  our-own-runs is the near path.
 - **Sizing, for the "big enough?" question:** 145 tracked files, **26.3 MB** tracked, **6 670 lines**
   of Python. `out/` alone is 25.2 MB (96 %) and is deliberately tracked. Results accrete only
   300–400 kB/run, which is what killed the separate-results-branch idea.
@@ -1260,6 +1357,25 @@ plumbing era. Do not let the simplification quietly delete it.
   order, and the Next-actions / Awaiting-Dean lists below. Lesson for a cold session: **re-derive
   "is another session holding this directory" from `git status`, never from a doc** — the answer has a
   shelf life of minutes in a shared worktree.
+- **2026-08-07 (migration executed)** — Dean approved the name (*"autoscaling-viz is good"*) and gave
+  the go-ahead (*"proceed with migration"*, then *"proceed with removal"* per item, then *"push
+  autoscaling-viz and retire viz-results"*). All of §14.6 ran: `subtree split` → worktree at the
+  container top level → **the `metrics/raw/` near-loss caught and fixed** as a 1.9 MB tarball →
+  419-file content comparison against a preserve copy → `git rm` on `plans` (`9ccd5e23`) → push
+  (`origin/autoscaling-viz` = `a40dae11`) → `viz-results` retired (`archive/viz-results` →
+  `3e8117c5`, content-audited first, `provenance.json` carried over in `a40dae11`). Also fixed en
+  route: the four-entry-point regeneration miss (`stress_ideal.py`'s stale figure, `5084d5f3`) and
+  the coder pre-authorize rules (`Write(path)` allow-rules are silently no-ops; only `Edit(path)`
+  rules are matched, and they cover every file-editing tool — verified empirically). Then this doc
+  pass, converting §14.6 from procedure to as-built record and correcting three claims that had gone
+  false: §14.2's *"`metrics/raw/` is regenerable"*, §14.6's *"this plan document does not move"*, and
+  §15.4/§15.5's framing of the commit path as tidy-up rather than a live defect. **Three lessons,
+  each with a mechanism now in the tree, not just a note here:** (1) *a gitignore line is a claim, and
+  claims expire* — reasons are now recorded at the point of use in `real-trace/<label>/.gitignore`,
+  including an explicit retraction of the old one; (2) *completeness is verified by content, not by
+  count* — a file count would have passed with the irreplaceable tier missing; (3) *retiring a branch
+  can promote dead code to wrong code* — the warning lives next to the command in §14.3, not only in
+  §15.5.
 
 ### Next actions (in order)
 
@@ -1267,26 +1383,32 @@ plumbing era. Do not let the simplification quietly delete it.
    `per_request_lifecycle_metrics.json` for the staircase run — the current trace is 9.19 s of a
    1276 s run — then re-check whether the time anchor fits. Then check at source whether the run
    truly had no scale-down.
-2. **Execute §14.6** — **unblocked**, needs only Dean's go-ahead. The earlier gate (the multi-shape
-   review effort's uncommitted files under this directory) cleared when that effort committed
-   `0633193f` + `2b17a312`; `git status --porcelain -- scratch/autoscaling-viz` is empty. Re-verify
-   that immediately before running the split — this is a shared worktree.
+2. **Fix `publish_result.sh --commit`** (§15.5) — a live defect, not cleanup: it would recreate the
+   retired `viz-results` branch. Small and self-contained (drop the plumbing half, keep every
+   validation including `--full-tree`), and worth doing before the `runs/<label>/` restructure so the
+   same code is not rewritten twice.
 3. **Ofer's corpus** (§12.1 items 5–8) when he is back: `…-71ay4b_1` (9 pods → router oscillation)
    and `…-upf3j2_1` (scale-down / drain). Replaces §9.1's predictions with measured output.
 - **Still deferred:** panel 4 (§11), by Dean, until the inventory is done across several runs.
   *"After that, we go look at panel 4."*
+- **Deferred by Dean as follow-ups** (*"followup items — later"*): the `runs/<label>/` +
+  `provenance.json` restructure that would collapse the `real-trace/` vs `results/` duality; a tracked
+  `requirements.txt` pinning the resolved versions (`uv pip install matplotlib` currently floats); the
+  10 orphaned `traces/` files from an older single-shape naming scheme; and the session-memory entries
+  that still describe the migration as planned.
 
 ### Awaiting Dean
 
 | item | where | note |
 |---|---|---|
-| Push `8cbeee30` | §12.2.3 | on `plans`, not pushed. Partly overtaken by §14.6 — may be better to push `viz-tools` instead |
-| `git rm -r scratch/autoscaling-viz` on `plans` | §14.6 step 3 | large deletion → needs explicit OK. No longer gated on anything else (the multi-shape work committed) |
-| Push `viz-tools` to `origin` | §14.6 step 4 | after the split; needs confirmation for that specific push |
-| Retire `viz-results` (`git boidem`) | §14.6 step 5 / §12.2.4 | pushes an archive tag → needs confirmation |
 | Ring the benchmark coder with §9.2 | §12.1 item 3 | **not sent** — that thread is mid-flight |
 | §12.2 items 1–2 | §12.2 | preemption modelling; first-cut scope. Pre-existing, unchanged |
 
-**Resolved since the last entry:** §14.4 share location and §15.3 remote — both closed by Dean's
-2026-08-07 decision. §12.2's old item 3 ("commit `bundle.json`?") is fully answered: yes, as a tracked
-`results/` directory on `viz-tools` (§15.1).
+**Resolved since the last entry** — the four migration items that stood here are all done, each with
+Dean's explicit per-action approval: `git rm -r scratch/autoscaling-viz` on `plans` (`9ccd5e23`), the
+push (`origin/autoscaling-viz` = `a40dae11`), the `viz-results` retirement (`archive/viz-results` →
+`3e8117c5`), and §12.2.3's "push `8cbeee30`" — which was resolved by being **overtaken**: the
+migration left nothing branch-specific on `plans` to push, and `plans` stays unpushed on purpose
+because 57 of its 58 unpushed commits belong to other sessions' in-flight work. Earlier: §14.4 share
+location and §15.3 remote, both closed by Dean's 2026-08-07 decision; §12.2's old item 3 ("commit
+`bundle.json`?") answered yes, as a tracked `results/` directory on `autoscaling-viz` (§15.1).
