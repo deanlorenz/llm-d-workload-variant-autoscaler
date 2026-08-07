@@ -271,6 +271,18 @@ rows stay here.
   writing time rather than trusting this line. Corollary of the same ordering: the tagged tree at
   `aadaa596` does **not** contain #1522's own `v0.9.0` image pin, which is itself a reason the tag is
   likely still to move. Raising any of this upstream is Dean's call; no GitHub write made.
+- **Toolchain moved on `main` (2026-08-07, post-freeze) — affects every branch that rebases.**
+  PR [#1512](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1512) (`a6b39809`, Wen Zhou)
+  bumps **go.mod `go 1.25.0 → 1.26.0`** and **`GOLANGCI_LINT_VERSION v2.8.0 → v2.10.0`** (Makefile + the
+  `ci-pr-checks` / `ci-e2e-openshift` lint action + Dockerfile + CONTRIBUTING + `docs/developer-guide/development.md`
+  + `.claude/agents/go-reuse-checker.md`; 8 files, +9/−9). Two practical consequences: (1) **a green
+  `make lint` from before this commit does not carry forward** — 2.8→2.10 is two minor releases of linter
+  changes, so any branch whose gates were verified under 2.8.0 (notably **PR-2 `ta-anchor-dynamic-refresh`
+  @ `d9f3b97e`**, and `optimizer-pd-role-ceiling` @ `0c33a3eb`) must re-run `make lint` after rebasing, and
+  new findings there are the bump's, not a regression; (2) **no stale-binary hazard** — the Makefile rule is
+  version-keyed (`bin/golangci-lint-$(GOLANGCI_LINT_VERSION)` + `ln -sf`), so `make lint` fetches 2.10.0 and
+  re-points the symlink on its own. Local `go` is **already 1.26.0**, so there is no toolchain gap to close.
+  Landing after the v0.9.0 tag point is consistent with the freeze still accepting fixes.
 - **Rescale Beta PRs — re-check against RC-2/RC-4 when they land.** PR #1452 (rescale Alpha) merged
   2026-07-28. Tracking issue [#1447](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1447)
   covers RC-1 (damping bypass) and RC-3 (#1003-deferred partition) but its text does **not** mention
