@@ -878,16 +878,25 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			Expect(dm["a-v1"].TargetReplicas).To(Equal(1)) // unchanged
 		})
 
-		It("T1.4: non-uniform Score across two analyzers drives fair-share ordering", func() {
-			// Model A has two AnalyzerResults:
-			//   saturation: Score=1.0, RC=20000
-			//   throughput: Score=2.0, RC=20000
-			//   fsv(A) = 1.0 × (20000×1.0 + 20000×2.0) = 60000
-			// Model B has one AnalyzerResult:
-			//   saturation: Score=1.0, RC=20000
-			//   fsv(B) = 1.0 × (20000×1.0) = 20000
-			// With 4 A100 GPUs (2 GPUs/replica): A (higher fsv) gets both
-			// available replicas; B gets none.
+		It("T1.4: priority orders fair share, and a trusted analyzer does not inflate its model's claim", func() {
+			// Two models with identical demand, competing for a single free
+			// replica. Model A carries two analyzers, one of them the most
+			// trusted entry in the fixture; Model B carries one analyzer and
+			// twice the priority.
+			//
+			// A model's claim is a GPU count — the max over its analyzers, not a
+			// score-weighted sum — so A's extra, higher-scored analyzer adds
+			// nothing to what A is owed:
+			//   claim(A) = max(20000/10000, 20000/10000) × 2 = 4 GPUs
+			//   claim(B) =     20000/10000             × 2 = 4 GPUs
+			// Equal claims, so priority alone breaks the tie:
+			//   fsv(A) = 1.0 × 4 = 4      fsv(B) = 2.0 × 4 = 8
+			// B is the more starved model and takes the replica.
+			//
+			// This fixture is deliberately one that discriminates: a fair-share
+			// value built as Σᵢ(demandᵢ × Scoreᵢ) would rank A at 60000 against
+			// B's 40000 and hand the replica to A instead. Ranking weights order
+			// models; they do not scale what a model is owed.
 			rA := &domain.AnalyzerResult{
 				RequiredCapacity: 20000,
 				VariantCapacities: []domain.VariantCapacity{
@@ -917,9 +926,15 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 						{
 							Name:  "throughput",
 							Score: 2.0,
-							// throughput shares rA's variant capacity for simplicity;
-							// its RC signal adds to the fair-share weight.
-							Result:    &domain.AnalyzerResult{RequiredCapacity: 20000},
+							// A voting analyzer sizes the variants it votes on, so
+							// this entry carries a real per-replica capacity for
+							// a-v1 rather than an empty capacity list.
+							Result: &domain.AnalyzerResult{
+								RequiredCapacity: 20000,
+								VariantCapacities: []domain.VariantCapacity{
+									{VariantName: "a-v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+								},
+							},
 							Remaining: 20000,
 							Enabled:   true,
 							Live:      true,
@@ -932,7 +947,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 				{
 					ModelID:   "model-B",
 					Namespace: "default",
-					Priority:  1.0,
+					Priority:  2.0,
 					AnalyzerResults: []NamedAnalyzerResult{{
 						Name:      "saturation",
 						Result:    rB,
@@ -948,16 +963,15 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			}
 			constraints := []*ResourceConstraints{
 				{Pools: map[string]ResourcePool{
-					"A100": {Limit: 4}, // 2 replicas worth
+					"A100": {Limit: 2}, // exactly one replica, so the winner is unambiguous
 				}},
 			}
 
 			decisions := optimizer.Optimize(ctx, requests, constraints)
 			dm := decisionMap(decisions)
 
-			// fsv(A)=60000 > fsv(B)=20000: A wins the GPU budget.
-			Expect(dm["a-v1"].TargetReplicas).To(Equal(3)) // 1 + 2 (all 4 GPUs)
-			Expect(dm["b-v1"].TargetReplicas).To(Equal(1)) // unchanged
+			Expect(dm["b-v1"].TargetReplicas).To(Equal(2), "higher priority on an equal claim wins the replica")
+			Expect(dm["a-v1"].TargetReplicas).To(Equal(1), "two analyzers and a higher score buy model A nothing")
 		})
 	})
 
@@ -1154,6 +1168,247 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			// Score inflates the fair-share ordering priority but not the allocation size.
 			// Allocation is demand-driven: RC=10000, PRC=10000 → 1 replica added.
 			Expect(dm["v1"].TargetReplicas).To(Equal(2)) // 1 + 1
+		})
+	})
+
+	Context("Fair-Share Currency — GPUs", func() {
+
+		It("orders models by demand in GPUs, not by demand in tokens per second", func() {
+			// One analyzer per model, so nothing here depends on the combine.
+			// The two models are built so that the GPU ordering is the ONLY one
+			// that puts model Y first:
+			//
+			//   model X: 20000 / PRC 5000 = 4 replicas × 1 GPU/replica =  4 GPUs
+			//   model Y: 12000 / PRC 4000 = 3 replicas × 3 GPU/replica =  9 GPUs
+			//
+			// In tokens/s X leads (20000 > 12000). In replicas X still leads
+			// (4 > 3). Only in GPUs does Y lead (9 > 4) — which is why the two
+			// models must differ in GPUsPerReplica for this fixture to mean
+			// anything: give them the same value and the factor cancels out of the
+			// comparison, leaving a test that passes in either currency.
+			//
+			// They share one pool sized to a single Y replica, so the model the
+			// fair share serves first is the only one that grows. The assertion is
+			// the ordering, not the magnitude — a claim's size is not a contract.
+			rX := &domain.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "x-v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 5000},
+				},
+			}
+			rY := &domain.AnalyzerResult{
+				RequiredCapacity: 12000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "y-v1", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 4000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntry(rX, ModelScalingRequest{
+					ModelID:   "model-X",
+					Namespace: "default",
+					Priority:  1.0,
+					VariantStates: []domain.VariantReplicaState{
+						{VariantName: "x-v1", CurrentReplicas: 1, GPUsPerReplica: 1},
+					},
+				}),
+				withSatEntry(rY, ModelScalingRequest{
+					ModelID:   "model-Y",
+					Namespace: "default",
+					Priority:  1.0,
+					VariantStates: []domain.VariantReplicaState{
+						{VariantName: "y-v1", CurrentReplicas: 1, GPUsPerReplica: 3},
+					},
+				}),
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{
+					"A100": {Limit: 3}, // one Y replica, or three X replicas
+				}},
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			Expect(dm["y-v1"].TargetReplicas).To(Equal(2), "Y claims more GPUs, so the fair share serves it first")
+			Expect(dm["x-v1"].TargetReplicas).To(Equal(1), "X leads in tokens/s and in replicas, and neither is the currency")
+		})
+
+		It("computeMean averages claims in GPUs, without re-applying any weight", func() {
+			// The claims below are the GPU conversions of three different
+			// (demand, PRC, GPUs-per-replica) triples, which is the only thing
+			// that makes their mean meaningful: 4, 9 and 2 GPUs.
+			c1, ok1 := toGPUs(20000, 5000, 1)
+			c2, ok2 := toGPUs(12000, 4000, 3)
+			c3, ok3 := toGPUs(10000, 10000, 2)
+			Expect(ok1 && ok2 && ok3).To(BeTrue())
+			Expect([]float64{c1, c2, c3}).To(Equal([]float64{4, 9, 2}))
+
+			active := []*modelWork{{remaining: c1}, {remaining: c2}, {remaining: c3}}
+
+			// A plain arithmetic mean: the water level every model fills toward is
+			// common to all of them, so it cannot carry any one model's weight.
+			Expect(computeMean(active)).To(Equal(5.0))
+		})
+
+		It("clamps each role against its own conversion, truncating neither", func() {
+			// Prefill and decode differ in BOTH per-replica capacity and
+			// GPUs-per-replica. That is deliberate: with either factor shared, a
+			// clamp that converted one role through the other role's numbers would
+			// still land on the right answer, and the fixture would read as a
+			// guard while guarding nothing.
+			//
+			//   prefill: 15000 / 5000 = 3 replicas × 1 GPU =  3 GPUs
+			//   decode:   8000 / 4000 = 2 replicas × 4 GPU =  8 GPUs
+			//                                       claim = 11 GPUs
+			//
+			// Converting the 11-GPU entitlement back down per role gives each role
+			// more headroom than it asked for (55000 for prefill, 11000 for
+			// decode), so both roles keep their full demand and each reaches the
+			// replica count it needs.
+			r := &domain.AnalyzerResult{
+				RequiredCapacity: 23000,
+				RoleCapacities: map[string]domain.RoleCapacity{
+					"prefill": {Role: "prefill", RequiredCapacity: 15000, TotalDemand: 15000},
+					"decode":  {Role: "decode", RequiredCapacity: 8000, TotalDemand: 8000},
+				},
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "prefill-v", AcceleratorName: "A100", Cost: 5.0, Role: "prefill", ReplicaCount: 1, PerReplicaCapacity: 5000},
+					{VariantName: "decode-v", AcceleratorName: "A100", Cost: 5.0, Role: "decode", ReplicaCount: 1, PerReplicaCapacity: 4000},
+				},
+			}
+			requests := []ModelScalingRequest{
+				withSatEntry(r, ModelScalingRequest{
+					ModelID:       "model-pd-mixed",
+					Namespace:     "default",
+					Disaggregated: true,
+					Priority:      1.0,
+					VariantStates: []domain.VariantReplicaState{
+						{VariantName: "prefill-v", CurrentReplicas: 1, GPUsPerReplica: 1, Role: "prefill"},
+						{VariantName: "decode-v", CurrentReplicas: 1, GPUsPerReplica: 4, Role: "decode"},
+					},
+				}),
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{"A100": {Limit: 20}}},
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			Expect(dm["prefill-v"].TargetReplicas).To(Equal(4), "prefill covers its 15000 at 5000 per replica")
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(3), "decode covers its 8000 at 4000 per replica")
+		})
+
+		It("returns GPUs, not raw demand, when priority cannot scale the claim", func() {
+			// Priority 0 is unreachable through config — ApplyDefaults rewrites it
+			// to 1.0 — so the request is hand-built. The fallback exists for a
+			// priority that cannot scale anything, and it has to answer in the
+			// same currency as the path it stands in for: 20000 / 5000 = 4
+			// replicas × 3 GPUs = 12 GPUs, not the raw 20000.
+			r := &domain.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 5000},
+				},
+			}
+			req := withSatEntry(r, ModelScalingRequest{
+				ModelID:   "model-zero-priority",
+				Namespace: "default",
+				Priority:  0,
+				VariantStates: []domain.VariantReplicaState{
+					{VariantName: "v", CurrentReplicas: 1, GPUsPerReplica: 3},
+				},
+			})
+
+			s := votingResults(req.AnalyzerResults)
+			roles, ps := initRoleState(s)
+			fsv := fairShareValue(req.Priority, s, ps, roles, r.VariantCapacities, buildStateMap(req.VariantStates))
+
+			Expect(fsv).To(Equal(12.0))
+		})
+
+		It("gives an unpriceable model a zero claim without dropping it from the cycle", func() {
+			// The analyzer reports demand but sizes its variant at zero capacity,
+			// so nothing can price that demand into GPUs. Both halves matter: the
+			// model must not out-rank an actionable one on the strength of a
+			// number nobody can act on, and it must still be reported.
+			rDead := &domain.AnalyzerResult{
+				RequiredCapacity: 90000, // large, and entirely unactionable
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "dead-v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 0},
+				},
+			}
+			rLive := &domain.AnalyzerResult{
+				RequiredCapacity: 10000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "live-v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+			deadReq := withSatEntry(rDead, ModelScalingRequest{
+				ModelID:   "model-unpriceable",
+				Namespace: "default",
+				Priority:  1.0,
+				VariantStates: []domain.VariantReplicaState{
+					{VariantName: "dead-v", CurrentReplicas: 1, GPUsPerReplica: 2},
+				},
+			})
+
+			// The primary path yields nothing to scale, so the value comes back
+			// through the fallback — which must also answer 0, not the raw 90000.
+			s := votingResults(deadReq.AnalyzerResults)
+			roles, ps := initRoleState(s)
+			fsv := fairShareValue(deadReq.Priority, s, ps, roles, rDead.VariantCapacities, buildStateMap(deadReq.VariantStates))
+			Expect(fsv).To(Equal(0.0), "no conversion factor anywhere means no claim, by either path")
+
+			requests := []ModelScalingRequest{
+				deadReq,
+				withSatEntry(rLive, ModelScalingRequest{
+					ModelID:   "model-actionable",
+					Namespace: "default",
+					Priority:  1.0,
+					VariantStates: []domain.VariantReplicaState{
+						{VariantName: "live-v", CurrentReplicas: 1, GPUsPerReplica: 2},
+					},
+				}),
+			}
+			constraints := []*ResourceConstraints{
+				{Pools: map[string]ResourcePool{"A100": {Limit: 2}}}, // one replica
+			}
+
+			decisions := optimizer.Optimize(ctx, requests, constraints)
+			dm := decisionMap(decisions)
+
+			Expect(dm["live-v"].TargetReplicas).To(Equal(2), "the actionable model is served despite the larger raw demand next to it")
+			Expect(dm).To(HaveKey("dead-v"), "excluded from the fair-share queue is not excluded from the cycle")
+			Expect(dm["dead-v"].TargetReplicas).To(Equal(1), "reported at its current state")
+		})
+
+		It("rounds the entitlement up to a whole replica and the pool down", func() {
+			// The two terms of the cap round in opposite directions, and only a
+			// direct call to the closure can see it: at Optimize() level an
+			// understated cap costs iterations rather than replicas, because the
+			// allocation total is bounded elsewhere and each iteration re-picks.
+			variants := []domain.VariantCapacity{
+				{VariantName: "v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+			}
+			stateMap := map[string]domain.VariantReplicaState{
+				"v": {VariantName: "v", CurrentReplicas: 1, GPUsPerReplica: 2},
+			}
+			s := []NamedAnalyzerResult{{Name: domain.SaturationAnalyzerName, Result: &domain.AnalyzerResult{}, Enabled: true, Live: true}}
+			roles := []string{domain.RoleBoth}
+
+			// A 5-GPU entitlement at 2 GPUs per replica is two whole replicas and
+			// a half. The half is still owed, and a replica is the smallest thing
+			// that can be handed over, so the cap covers it.
+			_, capN := fairShareRolePick(5, s, roles)(
+				domain.RoleBoth, s, variants, stateMap, map[string]int{"A100": 100}, map[string]int{"v": 1})
+			Expect(capN).To(Equal(3))
+
+			// The pool is the opposite case: 5 real GPUs are two replicas and a
+			// half, and the half of a replica does not exist to be given.
+			_, capN = fairShareRolePick(100, s, roles)(
+				domain.RoleBoth, s, variants, stateMap, map[string]int{"A100": 5}, map[string]int{"v": 1})
+			Expect(capN).To(Equal(2))
 		})
 	})
 

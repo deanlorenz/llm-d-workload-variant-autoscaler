@@ -14,8 +14,13 @@ import (
 
 // GreedyByScoreOptimizer is a multi-model optimizer for GPU-constrained
 // environments. It uses iterative mean-based fair-sharing to distribute scarce
-// GPUs across competing models, ordered by fair-share priority value
-// (priority × Σᵢ(Remainingᵢ × Scoreᵢ) across analyzers).
+// GPUs across competing models, ordered by fair-share priority value: priority
+// times the model's claim, where the claim is a GPU count — the maximum over
+// analyzers within each role, summed across the model's roles.
+//
+// An analyzer's score is a belief weight consumed by the sizing combine
+// (combineVotes) and takes no part in fair share; priority is the only
+// fair-share weight.
 //
 // Key differences from CostAwareOptimizer:
 //   - Respects ResourceConstraints (GPU budgets per accelerator type)
@@ -46,50 +51,91 @@ type modelWork struct {
 	anchor    *domain.AnalyzerResult // merged per-model anchor (topology + sizing); see bindingAnchor
 	ps        RolePairedState        // picker-local per-role demand (from initRoleState)
 	roles     []string               // active roles for this model
-	remaining float64                // fair-share priority metric (negative = fully satisfied)
+	remaining float64                // fair-share claim in priority-scaled GPUs (negative = fully satisfied)
 	targets   map[string]int         // variant name → target replicas (ALL variants)
 }
 
-// fairShareValue computes the fair-share priority metric for one model.
-// Phase 3: reads picker-local role-remaining (sum over roles × analyzer Score)
-// so the metric reflects actual per-role demand remaining rather than the
-// P-anchor model-level scalar.
+// claimGPUs is one model's outstanding fair-share claim, in GPUs. It is the
+// numerator of the fair-share metric, and every step of it is a GPU count:
 //
-//	fsv = priority × Σᵢ Score_i × Σ_role pickerState[i][role]
+//   - each ballot entry's picker-local role demand is converted at entry, using
+//     that entry's own per-replica capacity for the role's reference variant. An
+//     entry that cannot price that variant has no conversion factor and so
+//     contributes nothing — it does not contribute a raw metric, and it does not
+//     contribute a zero that could mask another entry's claim.
+//   - across analyzers within one role the claim is the MAXIMUM, never a sum: a
+//     role needs as many GPUs as its most demanding analyzer says it does, not
+//     the total of their separate opinions.
+//   - across a model's roles the claims SUM. GPUs are the only currency in which
+//     that sum is meaningful, and it is meaningful because prefill and decode
+//     compete for the same physical GPUs.
 //
-// Falls back to max remaining demand when the weighted result is zero.
-func fairShareValue(priority float64, s []NamedAnalyzerResult, ps RolePairedState, roles []string) float64 {
-	weighted := 0.0
-	for i, e := range s {
-		if e.Result == nil {
-			continue
+// The maximum is deliberately UNWEIGHTED. An analyzer's score is a belief weight
+// about how much a variant serves, and this number is spent: it becomes the
+// model's fair-share budget. A ranking weight must not scale a quantity that is
+// later spent, so score is consumed in the sizing combine and stops there.
+func claimGPUs(
+	s []NamedAnalyzerResult,
+	ps RolePairedState,
+	roles []string,
+	variants []domain.VariantCapacity,
+	stateMap map[string]domain.VariantReplicaState,
+) float64 {
+	claim := 0.0
+	for _, role := range roles {
+		vc, ok := referenceVariantForRole(variants, role)
+		if !ok {
+			continue // no variant in this role can be priced by anyone
 		}
-		roleSum := 0.0
-		for _, role := range roles {
-			if i < len(ps) {
-				roleSum += ps[i][role]
+		gpusPR := gpusPerReplicaFromState(stateMap, vc.VariantName)
+
+		roleClaim := 0.0
+		for i, e := range s {
+			if e.Result == nil || i >= len(ps) {
+				continue
+			}
+			gpus, ok := toGPUs(ps[i][role], prcForVariant(e.Result, vc.VariantName), gpusPR)
+			if !ok {
+				continue // no conversion factor ⇒ contributes nothing
+			}
+			if gpus > roleClaim {
+				roleClaim = gpus
 			}
 		}
-		weighted += roleSum * e.Score
+		claim += roleClaim
 	}
-	if fsv := priority * weighted; fsv > 0 {
+	return claim
+}
+
+// fairShareValue computes the fair-share priority metric for one model: its
+// claim in GPUs (claimGPUs), scaled by priority for ordering.
+//
+//	fsv = priority × Σ_role max_i toGPUs(pickerState[i][role], PRC_i[v_role], GPUsPerReplica[v_role])
+//
+// The returned number is therefore priority-scaled GPUs rather than GPUs.
+// Priority belongs in the ordering key and not in the quantity that is spent;
+// dividing it back out is a separate change and is deliberately not made here.
+//
+// Falls back to the unweighted claim when the priority-scaled value is not
+// positive, which needs a non-positive priority — reachable only from a
+// hand-built request, since ApplyDefaults rewrites an unset priority to 1.0 and
+// validation rejects negatives. The fallback is the primary expression minus the
+// priority factor precisely so that both paths return GPUs: a fallback in raw
+// demand units would re-inflate a model whose demand nobody can act on, which is
+// the value the participation filter above exists to exclude.
+func fairShareValue(
+	priority float64,
+	s []NamedAnalyzerResult,
+	ps RolePairedState,
+	roles []string,
+	variants []domain.VariantCapacity,
+	stateMap map[string]domain.VariantReplicaState,
+) float64 {
+	claim := claimGPUs(s, ps, roles, variants, stateMap)
+	if fsv := priority * claim; fsv > 0 {
 		return fsv
 	}
-	// Fallback: max remaining demand across roles when Score=0 or priority=0.
-	maxDemand := 0.0
-	for i, e := range s {
-		if e.Result == nil {
-			continue
-		}
-		if i < len(ps) {
-			for _, role := range roles {
-				if ps[i][role] > maxDemand {
-					maxDemand = ps[i][role]
-				}
-			}
-		}
-	}
-	return maxDemand
+	return claim
 }
 
 // Optimize produces VariantDecisions for all models, fair-sharing GPUs across
@@ -130,13 +176,20 @@ func (o *GreedyByScoreOptimizer) Optimize(
 		// Combine (RC/SC) math consumes only the voting subset of the ballot.
 		s := votingResults(req.AnalyzerResults)
 		roles, ps := initRoleState(s)
-		fsv := fairShareValue(req.Priority, s, ps, roles)
+		fsv := fairShareValue(req.Priority, s, ps, roles, anchor.VariantCapacities, buildStateMap(req.VariantStates))
+
+		var w *modelWork
 		if anyRoleNeedsScaleUp(ps, roles) || fsv > 0 {
-			w := o.buildScaleUpWork(req, anchor, s, ps, roles, fsv)
-			if w != nil {
-				scaleUpWork = append(scaleUpWork, w)
-			}
+			w = o.buildScaleUpWork(req, anchor, s, ps, roles, fsv)
+		}
+		if w != nil {
+			scaleUpWork = append(scaleUpWork, w)
 		} else {
+			// A model whose demand is entirely unpriceable claims 0 GPUs, so it
+			// has nothing to fair-share for even when a role reports demand. It
+			// still belongs on the non-scale-up path — the fair-share queue is
+			// the only thing it is excluded from, not the cycle — so that its
+			// current state and any safe removals are still reported.
 			otherRequests = append(otherRequests, req)
 		}
 	}
@@ -260,9 +313,13 @@ func (o *GreedyByScoreOptimizer) fairShareScaleUp(
 	}
 }
 
-// allocateForModel allocates replicas to bring the model's remaining score below
-// the mean. Dispatches to the paired path for disaggregated models.
+// allocateForModel allocates replicas to bring the model's outstanding claim
+// below the mean. Dispatches to the paired path for disaggregated models.
 // After allocation, w.remaining is recomputed from the working slice.
+//
+// target — the model's entitlement this iteration — is priority-scaled GPUs, not
+// a replica count and not any analyzer's metric. It reads like a resource count
+// and is not one: priority is still folded into it.
 func (o *GreedyByScoreOptimizer) allocateForModel(
 	ctx context.Context,
 	w *modelWork,
@@ -281,11 +338,31 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	// Re-initialize picker-state from current s[i].Remaining each call so
 	// multi-iteration fair-sharing sees the correct post-allocation demand.
 	// Cap at target so the loop exits when the fair-share budget is exhausted.
+	//
+	// target is priority-scaled GPUs while picker-local demand is each analyzer's
+	// own metric, so the bound is converted down into that analyzer's metric
+	// rather than compared directly: GPUs → replicas → metric, through the
+	// entry's OWN per-replica capacity. This is the only place a per-replica
+	// capacity is applied on the way back out of GPU space, and it converts a
+	// bound, never a quantity — picker-local demand stays raw for every
+	// downstream consumer that divides it by a per-replica capacity again.
 	_, ps := initRoleState(w.s)
-	for i := range ps {
-		for _, role := range w.roles {
-			if ps[i][role] > target {
-				ps[i][role] = target
+	for _, role := range w.roles {
+		vc, ok := referenceVariantForRole(w.anchor.VariantCapacities, role)
+		if !ok {
+			continue
+		}
+		gpusPR := gpusPerReplicaFromState(stateMap, vc.VariantName)
+		for i, e := range w.s {
+			if e.Result == nil || i >= len(ps) {
+				continue
+			}
+			bound, ok := fromGPUs(target, prcForVariant(e.Result, vc.VariantName), gpusPR)
+			if !ok {
+				continue // no conversion factor ⇒ no budget to bind this entry
+			}
+			if ps[i][role] > bound {
+				ps[i][role] = bound
 			}
 		}
 	}
@@ -345,9 +422,9 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	// For P/D: use local capped ps which correctly reaches 0 when both roles served.
 	if len(w.roles) == 1 && w.roles[0] == domain.RoleBoth {
 		_, freshPs := initRoleState(w.s)
-		w.remaining = fairShareValue(w.req.Priority, w.s, freshPs, w.roles)
+		w.remaining = fairShareValue(w.req.Priority, w.s, freshPs, w.roles, w.anchor.VariantCapacities, stateMap)
 	} else {
-		w.remaining = fairShareValue(w.req.Priority, w.s, ps, w.roles)
+		w.remaining = fairShareValue(w.req.Priority, w.s, ps, w.roles, w.anchor.VariantCapacities, stateMap)
 	}
 	return w.remaining < oldRemaining
 }
@@ -393,8 +470,9 @@ func effectiveAvailable(available, nsBudget map[string]int) map[string]int {
 }
 
 // fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired loop.
-// Each role receives the same target fair-share budget. The joint Δ_util commit
-// inside allocateForModelPaired enforces P/D coupling — α is no longer needed.
+// Each role receives the same target fair-share budget, in priority-scaled GPUs.
+// The joint Δ_util commit inside allocateForModelPaired enforces P/D coupling —
+// α is no longer needed.
 func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) RolePickFn {
 	_ = s     // slice available for future multi-analyzer demand inspection
 	_ = roles // roles available for future per-role budget splitting
@@ -412,16 +490,18 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 				continue
 			}
 			state := stateMap[vc.VariantName]
-			gpusPR := state.GPUsPerReplica
-			if gpusPR <= 0 {
-				gpusPR = 1
-			}
+			gpusPR := gpusPerReplicaFromState(stateMap, vc.VariantName)
 			gpusAvail := available[vc.AcceleratorName]
 			if gpusAvail < gpusPR {
 				continue
 			}
-			fairShareCap := int(math.Ceil(target / vc.PerReplicaCapacity))
-			capN := min(fairShareCap, gpusAvail/gpusPR)
+			// The entitlement is already GPUs, so the cap divides by whichever
+			// candidate this loop landed on — there is no reference capacity to
+			// compensate for. The two terms round in opposite directions on
+			// purpose: the entitlement rounds up, because a replica is the
+			// indivisible unit allocation happens in, while the real pool rounds
+			// down, because those GPUs either exist or they do not.
+			capN := min(replicasToCover(target, gpusPR), gpusAvail/gpusPR)
 			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
 				headroom := *state.MaxReplicas - targets[vc.VariantName]
 				if headroom <= 0 {
@@ -448,7 +528,10 @@ func filterActive(work []*modelWork) []*modelWork {
 	return active
 }
 
-// computeMean returns the average remaining across active models.
+// computeMean returns the water level of the fair-share fill: an unweighted
+// arithmetic mean, in priority-scaled GPUs, over the claims of the models still
+// active this cycle. Unweighted across models is the point — a mean that
+// re-applied each model's own weight would not be a common level to fill toward.
 func computeMean(active []*modelWork) float64 {
 	if len(active) == 0 {
 		return 0
@@ -460,7 +543,9 @@ func computeMean(active []*modelWork) float64 {
 	return total / float64(len(active))
 }
 
-// sortByRemainingDesc sorts active models by remaining descending.
+// sortByRemainingDesc sorts active models by outstanding claim descending, so the
+// fill serves the largest claim first. The key is priority × claim: a comparator
+// input and nothing else, never a quantity that is spent.
 func sortByRemainingDesc(active []*modelWork) {
 	sort.Slice(active, func(i, j int) bool {
 		return active[i].remaining > active[j].remaining
@@ -485,6 +570,76 @@ func accFromVCs(vcs []domain.VariantCapacity, v string) string {
 		}
 	}
 	return ""
+}
+
+// toGPUs converts a quantity in one analyzer's own metric into GPUs, the single
+// currency the fair-share arithmetic is denominated in. It is the only place a
+// per-replica capacity is applied on the way IN: dividing by that analyzer's own
+// per-replica capacity gives replicas, multiplying by the variant's GPUs per
+// replica gives GPUs.
+//
+// ok is false when there is no conversion factor. A caller must then skip the
+// entry rather than substitute a zero or carry the raw metric forward: an
+// analyzer that cannot price the variant has no opinion to convert, and a raw
+// metric compared against GPUs is the unit mixing this conversion exists to end.
+func toGPUs(metric, perReplicaCapacity float64, gpusPerReplica int) (float64, bool) {
+	if perReplicaCapacity <= 0 || gpusPerReplica <= 0 {
+		return 0, false
+	}
+	return metric / perReplicaCapacity * float64(gpusPerReplica), true
+}
+
+// fromGPUs converts a GPU bound back down into one analyzer's own metric: GPUs →
+// replicas → metric, through that analyzer's own per-replica capacity. It is the
+// only place a per-replica capacity is applied on the way OUT, and it is for
+// bounds only — converting a stored quantity would re-denominate state that every
+// downstream consumer reads as a raw metric.
+//
+// ok is false when there is no conversion factor, on the same terms as toGPUs.
+func fromGPUs(gpus, perReplicaCapacity float64, gpusPerReplica int) (float64, bool) {
+	if perReplicaCapacity <= 0 || gpusPerReplica <= 0 {
+		return 0, false
+	}
+	return gpus / float64(gpusPerReplica) * perReplicaCapacity, true
+}
+
+// replicasToCover returns how many whole replicas it takes to cover a GPU
+// entitlement, rounding up.
+//
+// The entitlement is a fair-share water-level gap, not a pool of GPUs on hand, so
+// rounding up here cannot overcommit hardware: the caller mins this against the
+// real pool, which is floored separately. What the rounding decides is whether a
+// model owed a fraction of a replica may take the one indivisible unit that
+// allocation happens in. Rounding up says yes, and the caller's water-level check
+// then stops it from taking a second.
+func replicasToCover(entitlementGPUs float64, gpusPerReplica int) int {
+	if entitlementGPUs <= 0 || gpusPerReplica <= 0 {
+		return 0
+	}
+	return int(math.Ceil(entitlementGPUs / float64(gpusPerReplica)))
+}
+
+// referenceVariantForRole returns the variant that denominates a role's
+// fair-share claim: the role's first sortByCostEfficiencyAsc candidate carrying a
+// usable per-replica capacity.
+//
+// Its job is to price the claim, not to choose what gets allocated. The picker
+// loops take the first FEASIBLE candidate and are expected to land on a different
+// variant when the cheaper accelerator pool is dry or the cheaper variant is at
+// its replica ceiling. That disagreement needs no correction in GPU space: the
+// cap divides by whichever candidate the picker landed on, and GPUs per replica
+// is immutable deployment topology rather than a re-derived capacity.
+//
+// Pricing a whole role through one representative variant is an approximation
+// whenever the role's variants have unequal per-replica capacities. It is
+// pre-existing, and denominating in GPUs neither introduces nor removes it.
+func referenceVariantForRole(vcs []domain.VariantCapacity, role string) (domain.VariantCapacity, bool) {
+	for _, vc := range sortByCostEfficiencyAsc(variantsForRole(vcs, role)) {
+		if vc.PerReplicaCapacity > 0 {
+			return vc, true
+		}
+	}
+	return domain.VariantCapacity{}, false
 }
 
 // gpusPerReplicaFromState returns GPUsPerReplica for variant v, defaulting to 1.

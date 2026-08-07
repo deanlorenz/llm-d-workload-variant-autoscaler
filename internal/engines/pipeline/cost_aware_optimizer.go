@@ -162,6 +162,11 @@ func scaleDownVariantSet(
 //
 // With a single analyzer (Score=1) this reduces to Cost-desc then PRC-asc, i.e.
 // #1237's existing tie-break.
+//
+// The score-weighted sum is a comparator input and nothing else: it ranks
+// candidate variants against each other and is never spent as a quantity. That
+// is what makes a belief weight legitimate here even though score takes no part
+// in the fair-share claim, which is spent.
 func sortVariantsForScaleDown(s []NamedAnalyzerResult, roleVCs []domain.VariantCapacity) []domain.VariantCapacity {
 	weighted := func(name string) float64 {
 		sum := 0.0

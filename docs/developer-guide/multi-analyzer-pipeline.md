@@ -597,6 +597,7 @@ for each role (sorted for determinism):
   needsScaleDownForRole(s, role)           → gate: ALL live analyzers have RoleSpare > 0
                                               (no live analyzer → false; see "How results combine")
   sortVariantsForScaleDown(s, vcs)         → cost-desc; tie-break: Score-weighted PRC asc
+                                              (an ordering key; nothing here is spent)
   scaleDownVariantSet(...)
     safeRemovalReplicasForRole(s, v, role) → floor(combineVotes(votesFromRoleSpare(...), down)) over live i
     applyDeallocationForRole(s, v, role, n)→ decrement RoleSpare on all entries
@@ -604,24 +605,51 @@ for each role (sorted for determinism):
 
 `sortVariantsForScaleDown` uses a Score-weighted PRC tie-break. With a single
 analyzer (Score=1) this reduces to plain cost-descending / PRC-ascending order.
+The product `Σᵢ Score_i·PRC_i[v]` is a comparator input and nothing else: it
+ranks candidate variants against each other and is never spent as a quantity.
+That is why a belief weight may appear here but must not appear in the
+fair-share claim below, which *is* spent.
 
 ### Fair-share iteration (GreedyByScoreOptimizer only)
 
 `fairShareScaleUp` uses iterative mean equalization rather than fixed fractions:
 
-1. Compute `mean` = average `remaining` (fair-share priority value) across active
-   models.
+1. Compute `mean` = average `remaining` (the model's fair-share claim, in
+   priority-scaled GPUs) across active models.
 2. Sort by `remaining` descending; take the highest.
 3. Call `allocateForModel` with budget `target = remaining − mean`: allocates
-   replicas via `allocateForModelPaired` until the model's priority value drops
-   to or below `mean`.
-4. Recompute `remaining = fairShareValue(priority, s, ps, roles)` from the
-   post-allocation working state.
+   replicas via `allocateForModelPaired` until the model's claim drops to or
+   below `mean`.
+4. Recompute `remaining = fairShareValue(priority, s, ps, roles, variants, stateMap)`
+   from the post-allocation working state.
 5. Repeat until no active models remain or no GPUs are left.
 
-`fairShareValue = priority × Σᵢ Score_i × Σ_role pickerState[i][role]`.
-A higher `Score` on a high-demand analyzer increases a model's priority value
-and therefore how many GPUs it attracts in a constrained environment.
+```
+fairShareValue = priority × Σ_role maxᵢ toGPUs(pickerState[i][role], PRC_i[v_role], GPUsPerReplica[v_role])
+```
+
+**The currency is GPUs**, and that is what makes the rest of the loop
+well-formed. The sum across a model's roles is meaningful only because prefill
+and decode compete for the same physical GPUs — the same sum in tokens per
+second, or in replicas of two differently-sized variants, adds quantities that
+are not interchangeable. The mean is a common water level only because every
+model's claim is in that same unit.
+
+Within one role the combine across analyzers is a **maximum, never a sum**: a
+role needs as many GPUs as its most demanding analyzer says it does, not the
+total of their separate opinions. The maximum is **unweighted**. `Score` does
+not appear anywhere in this formula — it is a belief weight about how much a
+variant serves, it is consumed by the sizing combine (`combineVotes`), and it
+stops there. The fair-share claim is *spent*: it becomes the model's budget for
+the round, and a ranking weight must not scale a quantity that is later spent.
+
+`priority` is the only fair-share weight. It is folded into the claim rather
+than applied to the comparison alone, so `target` carries it too and is
+priority-scaled GPUs rather than a plain GPU count; separating the two is a
+change this section does not describe. On the way back out, `allocateForModel`
+converts that bound into each analyzer's *own* metric through that entry's own
+per-replica capacity — the one place a per-replica capacity is applied leaving
+GPU space, and it converts a bound, never a quantity.
 
 ### Rescale pre-pass (GreedyByScoreOptimizer only)
 
@@ -672,11 +700,14 @@ on the `enableLimiter` flag in `SaturationScalingConfig`:
 - **`GreedyByScoreOptimizer`** (limited mode, `enableLimiter: true`): respects
   `ResourceConstraints` (GPU budgets per accelerator type). Models are ordered
   by fair-share priority value:
-  `fsv = Priority × Σᵢ Score_i × Σ_role pickerState[i][role]`,
-  where the sum over `i` runs across all `NamedAnalyzerResult` entries and
-  `pickerState` is seeded from each entry's `Remaining`. Higher `Score` on a
-  high-demand analyzer increases a model's allocation priority in constrained
-  environments.
+  `fsv = Priority × Σ_role maxᵢ toGPUs(pickerState[i][role], PRC_i[v_role], GPUsPerReplica[v_role])`,
+  where `pickerState` is seeded from each entry's `Remaining` and the maximum
+  over `i` runs across every `NamedAnalyzerResult` entry that can price the
+  role's reference variant. The unit is **GPUs**: an entry's own per-replica
+  capacity converts its metric to replicas, and the variant's `GPUsPerReplica`
+  converts replicas to GPUs. A higher `Score` does **not** increase a model's
+  allocation — see
+  [Fair-share iteration](#fair-share-iteration-greedybyscoreoptimizer-only).
 
 Both optimizers are stateless and selected per-cycle from the engine's
 `optimizer` field.

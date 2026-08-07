@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"math"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -512,6 +513,24 @@ var _ = Describe("the cross-analyzer combine core", func() {
 			Expect(lo).To(BeNumerically("~", 10.0-5.0/3.0, 1e-9)) // 8.333 -- the design's worked example
 			Expect(hi).To(BeNumerically("~", 7.0, 1e-9))
 			Expect(hi).To(BeNumerically("<", lo), "more trust in the dissenter moves the result toward its 5")
+		})
+
+		It("survives the caller's rounding: a corrected result lands on neither analyzer's own replica count", func() {
+			// Two analyzers disagree by enough replicas that the dominance
+			// correction is still visible after the scale-up ceil. This is the
+			// arithmetic half of the multi-analyzer Score story: the number moves,
+			// and it stops somewhere neither analyzer asked for.
+			votes := []replicaVote{{Index: 0, Value: 10, Score: 1}, {Index: 1, Value: 5, Score: 2}}
+
+			value, binder := combineVotes(votes, true)
+			Expect(value).To(BeNumerically("~", 10.0-5.0/3.0, 1e-9)) // 8.333
+
+			// The correction pulls the value off the extremum without reassigning
+			// the binder: identity comes from who held the extremum, not from who
+			// moved the number.
+			Expect(binder).To(Equal(0))
+
+			Expect(int(math.Ceil(value))).To(Equal(9), "distinguishable from both a plain max (10) and the dissenter's own vote (5)")
 		})
 
 		It("returns a single vote unchanged, whatever its score", func() {
