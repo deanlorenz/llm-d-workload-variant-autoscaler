@@ -154,6 +154,22 @@ of writing → committing now on top of `dd648c93`; still not pushed (item D pen
    pass in design §8.1 item 11 + §B here, and refresh §2.4's "successor, in flight" note to
    past tense. Item **D (push) still pending Dean's OK**; everything remains local on `plans`.
 
+4. **`stress_ideal.py`'s figure was missed by the burn-in regeneration — found and FIXED 2026-08-07.**
+   The regenerate step in follow-up 3 covered `run.py` / `sweep.py` / `report.py` but not
+   `stress_ideal.py`, which consumes `run.BURN_IN` (`stress_ideal.py:38`) and therefore also changed
+   output. So `out/stress-ideal-spike.png` was still a **pre-burn-in** render. Established from
+   history rather than inferred: the PNG was last written by `e95901a0` (2026-08-05), burn-in entered
+   `run.py` / `sim.py` in `4556398f` (2026-08-07), and `b7d8d5c1` *"regenerate all artifacts under
+   burn-in"* did not touch it. A fresh render differs in **140,382 of 2,613,600 pixels (5.37 %)**,
+   with the diff bounded to (99,238)–(1191,1749) — inside the plot area, so curves moved, not
+   metadata or a timestamp.
+
+   This was the single artifact contradicting this file's *"deck regenerated & honest"* status, and it
+   is worth knowing it was the **only** one: a full regeneration on 2026-08-07 reproduced **161 of 162**
+   tracked artifacts byte-for-byte (across a Python 3.12 → 3.14 change), this figure being the lone
+   exception. Corrected render is committed. Lesson for the next regeneration: the deck has **four**
+   entry points, not three — `run.py`, `sweep.py`, `report.py`, **and** `stress_ideal.py`.
+
 **Original locked plan (for reference):** design decisions locked in discussion; deck was at
 `6f36b905` when the plan was written.
 
