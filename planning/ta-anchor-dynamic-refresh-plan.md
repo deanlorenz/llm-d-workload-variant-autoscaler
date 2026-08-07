@@ -62,9 +62,9 @@ rewrites C1–C5, and is coordinated then.
   - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L788:848
 - [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L849:883
 - [§4 Ship gate & tests](#4-ship-gate--tests) L884:994
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L995:1080
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1081:1155
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1156:1206
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L995:1096
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1097:1180
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1181:1231
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -998,10 +998,18 @@ Per CONVENTIONS Type-3: name specific sections, not "update the dev guide." Sect
 `f6485980`; grep the heading text if line numbers drift. `coordinator-rebalancing.md` is a **POC demo
 doc** (not the combine reference) — combine-arithmetic changes go in `multi-analyzer-pipeline.md` +
 `saturation-scaling-config.md`, **plus `quota-limiter.md` for the fsv formula specifically** (added
-2026-08-07 — it holds a third copy; see its block below). The fsv formula appears in **three** places
-across two files: `multi-analyzer-pipeline.md:622` and `:675`, and `quota-limiter.md:284`. C6c must
-update all three; a `grep -rn "Score_i\|score × unmet\|priority × score" docs/developer-guide/` is the
-cheap check (see §6).
+2026-08-07 — it holds **two** copies; see its block below). The fsv formula appears in **four** places
+across two doc files: `multi-analyzer-pipeline.md:622` and `:675`, and `quota-limiter.md:284` and
+`:328`. C6c must update all four; a
+`grep -rn "Score_i\|score × unmet\|priority × score" docs/developer-guide/` is the cheap check (see §6).
+
+**Two further copies live in code doc comments, and are caught by §6's *currency* grep rather than this
+one** (corrected 2026-08-07): the exported `GreedyByScoreOptimizer` **type** doc comment
+(`greedy_score_optimizer.go:15-18`, "*ordered by fair-share priority value (priority × Σᵢ(Remainingᵢ ×
+Scoreᵢ) across analyzers)*") and `fairShareValue`'s own (`:53-60`). **Six copies total.** The type doc
+comment is the easiest of the six to miss: it asserts *both* halves of this pivot (Score in fsv, and
+demand units) yet sits outside every function C6c edits, so a coder checking §6's code-grep criterion
+literally — "no `Score` in [six named functions]" — passes with it stale. §6's criterion now names it.
 
 **`docs/developer-guide/multi-analyzer-pipeline.md`:**
 - `## How results combine` (~L254) — **C1** (N2 deterministic binder tie-break replaces nil-on-ambiguity),
@@ -1063,15 +1071,23 @@ cheap check (see §6).
   EPP system-wide k_sat". The *per-analyzer* half is now fixed; **keep the EPP half** as still-open (§7).
   *Modify.*
 
-**`docs/developer-guide/quota-limiter.md`** — **C6c**, one location (added 2026-08-07; this file was
-missing from the list above, and it carries a **third** copy of the Score-bearing fsv formula):
+**`docs/developer-guide/quota-limiter.md`** — **C6c**, **two locations** (added 2026-08-07; this file was
+missing from the list above, and it carries **two** copies of the Score-bearing fsv formula — count
+corrected 2026-08-07). Both are inside the same `### Fair-share interaction` section (spans ~L278-330),
+so this is one edit in one place, not two hunts:
 - `### Fair-share interaction`, first bullet (~L283-285) — "the average of the active models' remaining
   fair-share metric (**priority × score × unmet demand** — see the worked-example caveat below)". Drop
   `score` (it is consumed upstream in the combine, not in fsv) and put the unmet demand in **replica**
-  space, matching (i). *Modify.* Note while there: the worked example just below (~L309-325) reasons in
-  replicas already ("Wants" 3/4/4, mean ≈ 3.67), which today is a simplification of a demand-space
-  metric — after C6c it is **literally** what fsv computes, so the "worked-example caveat" hedge can go.
-  No numbers in that example change.
+  space, matching (i). *Modify.*
+- the worked example's closing parenthetical (~L327-329) — "*(The exact per-round means come from the
+  fair-share metric — **priority × score × demand** — so treat the numbers here as an illustration of the
+  path, not an exact trace.)*" This is the **second formula copy**, not merely a hedge: it names `score`
+  *and* calls the currency "demand", so it asserts both halves of what C6c changes. **Delete the whole
+  parenthetical** rather than softening it — after C6c the worked example above it (~L309-325, "Wants"
+  3/4/4, mean ≈ 3.67) is *literally* what fsv computes in replica space, so the caveat has nothing left
+  to caveat. No numbers in that example change. *Modify.*
+  **Softening instead of deleting leaves §6's doc-grep with one survivor**, which fails the
+  grep-to-zero criterion mid-commit and costs a round-trip.
 
 [↑ TOC](#toc)
 
@@ -1107,16 +1123,25 @@ than inferring scope.
 - **C6c — `score` no longer reaches fair share:** `grep -rn "Score" internal/engines/pipeline/` — after
   C6c there must be **no** `Score` reference in `fairShareValue` (**both** its primary path *and* its
   fallback, site (v)), `fairShareCap`, `computeMean`, `sortByRemainingDesc`, `allocateForModel`, or
-  `sortVariantsForScaleDown`. Any survivor is either a double-count or a units desync. **The doc half of
-  this pivot is a separate grep, because the formula is written out in three places:**
-  `grep -rn "Score_i\|priority × score\|Priority × Σ" docs/developer-guide/` must return **zero** hits —
-  expect `multi-analyzer-pipeline.md:622`, `:675`, and `quota-limiter.md:284` before the fix (§5). A
-  surviving copy is a dev-guide that contradicts the code.
+  `sortVariantsForScaleDown`, **or in `greedy_score_optimizer.go`'s file- and type-level doc comments**
+  (criterion extended 2026-08-07). That last clause is load-bearing: the exported
+  `GreedyByScoreOptimizer` **type** doc comment (`:15-18`) states the fsv formula as
+  "*priority × Σᵢ(Remainingᵢ × Scoreᵢ) across analyzers*" — both halves of this pivot — but is inside
+  **none** of the six functions above, so the six-function phrasing on its own lets it through while the
+  file's most prominent prose contradicts the code it heads. Any survivor is either a double-count or a
+  units desync. **The doc half of this pivot is a separate grep, because the formula is written out in
+  four places:** `grep -rn "Score_i\|priority × score\|Priority × Σ" docs/developer-guide/` must return
+  **zero** hits — expect `multi-analyzer-pipeline.md:622`, `:675`, and `quota-limiter.md:284` **and
+  `:328`** before the fix (§5; `:328` added 2026-08-07 — it is the worked-example parenthetical, and §5
+  says delete it rather than soften it). A surviving copy is a dev-guide that contradicts the code.
 - **C6c — fsv currency is replicas, not demand:** `grep -rn "fairShareValue\|w.remaining\|fsv\|remaining demand\|unmet demand" internal/engines/pipeline/ docs/developer-guide/`
   — every comment or prose line that calls the fair-share metric "demand", "tokens", "capacity" or
   "unmet demand" is a stale hit once (i) lands; it is a **replica count**. This is the grep that catches
-  site (v)'s stale doc-comment (`greedy_score_optimizer.go:53-60`) and the `modelWork.remaining` field
-  comment (`:49`, "fair-share priority metric"), which should now name the unit.
+  site (v)'s stale doc-comment (`greedy_score_optimizer.go:53-60`), the `modelWork.remaining` field
+  comment (`:49`, "fair-share priority metric"), and — added 2026-08-07 — the **type** doc comment at
+  `:15-18`, whose "*fair-share priority value*" phrasing matches none of this grep's tokens either. So
+  `:15-18` is invisible to *both* C6c greps as they were originally worded, and is reached only because
+  the code-grep criterion above now names it explicitly. All three should end up naming the unit.
 - **C6d — role-level objection blocks removal** (skip-on-no-PRC → veto): `grep -rn "RoleSpare\|prc <= 0\|prcForVariant" internal/ docs/`
   — update every comment that says an analyzer without per-variant capacity "is skipped" on the scale-down
   path; it now still objects at role granularity. Verify the *abstain* prose for a genuinely missing
