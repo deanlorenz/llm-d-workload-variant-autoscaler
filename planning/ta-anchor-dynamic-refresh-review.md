@@ -4954,3 +4954,122 @@ four `maxTargetReplicas` specs prove the helper returns the right number, which 
 as the loop honouring it.
 
 **No §4a delta.** This finding proposes a test, not a comment; nothing here adds a token.
+
+---
+
+## C10 pre-registration — one blocker in the plan, and four scorable predictions
+
+Written **before** C10 exists, from frozen-Type-1-derived plan §2e (L1108-1247). Same method that
+produced Findings 42 and 43, both of which scored. Nothing here is a code finding yet; Finding 48 is a
+**plan defect**, and P1-P4 are predictions I will score against the commit when it lands.
+
+### Finding 48 (plan defect, blocking C10) — §2e.2's "verified no cycle" is false, and the cycle it misses is test-only, so `go build` will not reveal it
+
+Plan §2e.2 L1169-1170:
+
+> New import of `internal/config` into `throughput` — **verified no cycle** (`internal/config` imports
+> no `internal/engines` package).
+
+The parenthetical is wrong. `internal/config/config_test.go` — **`package config`, an in-package test
+file** — imports `internal/engines/analyzers/throughput` and uses `throughput.AnalyzerName` at `:23`.
+It exists as a drift guard: `config.go:341` declares `const throughputAnalyzerName = "throughput"` and
+the comment at `:338-340` says the literal is duplicated *"rather than importing
+internal/engines/analyzers/throughput.AnalyzerName) because internal/config is a lower layer than the
+analyzers package"* — so the production file avoids the import **deliberately**, and the test file
+closes the loop on purpose to catch a rename.
+
+What that does to C10:
+
+| build | graph | result |
+|---|---|---|
+| `go build ./...` | `throughput → config → domain` | **acyclic — green** |
+| `go test ./internal/config/...` | `config[test]` (= `config.go` + `config_test.go`) `→ throughput → config` | **`import cycle not allowed in test`** |
+
+An in-package test file may not import a package that depends on the package under test; that
+restriction is the reason Go has external test packages at all. So the plan's clearance is not merely
+imprecise, it points away from the failure: a coder who trusts "verified no cycle" and runs `go build`
+first sees green and then hits a cycle error whose stated cause has already been ruled out in writing.
+
+**Why the precedent misleads.** `saturation_v2/analyzer.go` imports `internal/config` and asserts the
+concrete config type exactly as §2e.2 proposes — that idiom is established and correct *there*. It is
+not transferable to `throughput` for one reason that has nothing to do with layering: config's test
+file points at **throughput specifically**. Of the analyzer packages, throughput is the single one for
+which the standard idiom does not compile.
+
+**Both halves of `resolveKSat` need the import**, so it cannot be partially avoided: the type
+`SaturationScalingConfig` (`internal/config/saturation_scaling.go:12`) and the fallback
+`DefaultKvCacheThreshold = 0.80` (`:241`) both live in `internal/config`.
+
+**Remedies, and the one to avoid.** The concern is the plan owner's, not mine, but the option space is
+narrow enough to be worth stating because the cheapest-looking path is the harmful one:
+
+1. **Avoid the import** *(recommended)*. Assert a narrow method-bearing interface rather than the
+   concrete type — `cfg.(interface{ KvCacheThresholdValue() float64 })` — which requires adding that
+   one method to `SaturationScalingConfig` (an edit *inside* `internal/config`, no cycle), and give the
+   0.80 fallback a home reachable without importing config. Keeps the documented layering, keeps the
+   drift guard, no test surgery. Note the symmetry: duplicating a constant and guarding it with a drift
+   test is *precisely* what `config.go:338-341` already does in the other direction — the same remedy
+   applies in reverse.
+2. Move the drift guard to an external `package config_test`. Legal, but it reads the unexported
+   `throughputAnalyzerName`, so that identifier has to be exported or the guard rewritten — weakening
+   the protection the duplication comment depends on.
+3. Resolve k_sat at the engine boundary and pass a `float64` into TA. Works (pipeline already imports
+   config) but is a larger design change than the problem needs, and TA already *receives*
+   `input.Config` — it simply never reads it.
+4. **Delete the drift guard.** The path of least resistance and the one to refuse. It silently removes
+   a real protection, and it is a §4b-classifiable deletion that nobody would think to classify,
+   because it looks like a build fix rather than a behaviour change.
+
+Severity: **blocking C10, not shipped-defect.** `make test` runs `./internal/...` and so *does* catch
+it — the gate is sound. The cost is a mid-commit stall with the plan's own text arguing against the
+true cause, plus the live risk of remedy 4.
+
+### P1 (verified arithmetic) — the file's ambient tolerance idiom cannot detect a broken `resolveKSat`, even at `KvCacheThreshold: 0.5`
+
+Plan row L289 asks for a `KvCacheThreshold: 0.5` fixture expecting **2618.9** at **≤1% relative**. I
+re-derived all three points from the shipped fixture (`A=0.073, B=0.006, KV_max=1024000, KVreq=4600`;
+`μ(k) = (k·KV_max/KVreq)/(A·k+B)`) and the plan's numbers are right:
+
+| k | `N_sat` | `ITL_sat` | `μ_sat` |
+|---|---|---|---|
+| 0.85 (broken / pinned) | 189.2174 | 0.06805 | 2780.56 |
+| 0.80 (post-C10 default) | 178.0870 | 0.06440 | 2765.33 |
+| 0.50 (proposed fixture) | 111.3043 | 0.04250 | **2618.93** |
+
+Broken-vs-expected gap at the fixture is `161.63/2618.93` = **6.171%**, which is where §2e.3's 6.17%
+comes from. The file's ambient idiom is `BeNumerically("~", muSat, muSat*0.10)` with `muSat = 2782.0`
+(`analyzer_test.go:273`) — a **±278.2** window, i.e. `[2340.7, 2897.1]`, which **contains 2780.56**. A
+`≤1%` window is `[2592.7, 2645.1]`, which excludes it.
+
+**Prediction:** if the new fixture is written with the surrounding `muSat*0.10` idiom rather than an
+explicit ≤1% bound, it passes whether `resolveKSat` works or is hard-pinned at 0.85, and C10 ships with
+a test that proves nothing. This is the same failure class as Finding 47 — a guard whose only exercise
+is a test that cannot discriminate — and the plan flags the risk itself, so a miss here is a plan-read
+miss, not an unforeseeable one.
+
+### P2 — `DefaultKSat` must reach zero references, comments included
+
+Inventory at `b6bb525c`: `analyzer.go` ×5, `constants.go` ×4, `itl_model.go` ×2, `itl_model_test.go` ×1
+(the comment at `:136`), `docs/developer-guide/throughput-analyzer.md` ×5. §2e.2 deletes the constant
+(§4b **DEPRECATED**), and CONVENTIONS' semantic-pivot rule applies with the grep term named in the plan
+— so the coder is obligated, and a surviving comment reference is scoreable rather than arguable. The
+doc-side 5 belong to C9 if they do not move here.
+
+### P3 — the derivation comment at `analyzer_test.go:259-264` is the most likely silent omission
+
+It spells `0.85` into its `N_sat` and `ITL_sat` lines. §2e.3 requires rewriting it against the resolved
+k_sat *and* re-deriving the printed numbers. Nothing goes red if it is skipped (P1: ±10% absorbs
+0.55%), which is exactly the profile of an omission that survives a green gate.
+
+### P4 — the "~6%" figure must not appear in C10's message
+
+§2e.3 L1221-1223 is explicit: justify as correctness and configurability, keep 6% out of the commit
+message. The true default-config effect is **−0.548%**. An earlier plan draft's ~5.9% was
+`1 − 0.80/0.85` — the numerator alone, off by ~11×, corrected on a reviewer finding. Directly scoreable.
+
+### P5 — `checkVariantGPSMismatch` gains a parameter and has no test, by prior deferral
+
+Its coverage was split out of the ITL/demand test work and remains open with no owner. A signature
+change landing untested is *acceptable* on that basis — but per Finding 47 the question is whether the
+omission is **disclosed**. Prediction: it lands silently. Cheap to satisfy: one sentence in the commit
+message or a comment noting the pre-existing gap.
