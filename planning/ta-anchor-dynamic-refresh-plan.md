@@ -45,26 +45,26 @@ rewrites C1–C5, and is coordinated then.
 - [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L69:133
 - [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:196
   - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L171:196
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:309
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L310:382
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L383:412
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L413:782
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L420:439
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L440:487
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L488:550
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L551:617
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L618:736
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L737:763
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L764:782
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L783:925
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L792:827
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L828:864
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L865:925
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L926:960
-- [§4 Ship gate & tests](#4-ship-gate--tests) L961:1111
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1112:1213
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1214:1341
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1342:1392
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:311
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L312:384
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L385:414
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L415:784
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L422:441
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L442:489
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L490:552
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L553:619
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L620:738
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L739:765
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L766:784
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L785:927
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L794:829
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L830:866
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L867:927
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L928:962
+- [§4 Ship gate & tests](#4-ship-gate--tests) L963:1113
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1114:1215
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1216:1343
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1344:1394
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -182,7 +182,7 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C5** | **Bug #3** rescale water-fill + `roleDemandGPUs` combined `max_i ceil(demand_i/PRC_i)`; **+ N3** nil-guard hardening in `rescaleModelDecisions`. | two-vote rescale fixture | pipeline "Optimizer internals" | §2 #3, §7 N3 |
 | **C6a** | **`combineVotes` helper + collectors** — one combine core; **merge** `roleBottleneckReplicas` + `bindingIndexForRole` (delete the duplicate loop); retrofit `roleAggRemaining` / `roleDemandGPUs` / `safeRemovalReplicasForRole` onto it. Uniform scores ⇒ **byte-identical**. | helper unit table (uniform / dominant / bounded / single / empty); 3-analyzer non-participant fixture (finding (a)) | pipeline "How results combine" | §2d.3 |
 | **C6b** | **Score dominance weighting on** — the `(sᵢ − s_bind)⁺` term; rounding **once** at the call site (`ceil` up, `floor` down). | 10-vs-5 @ scores 1/2 ⇒ 9 up, 6 down | pipeline "How results combine"; sat-config score semantics | §2d.2 |
-| **C6c** | **Bug #5** fair-share — **5** lock-step sites (i) `fairShareValue` (+ signature: it must receive the picker's variant slice) / (ii) `fairShareCap` (`prcRef` rescale, not bare `ceil(target)`) / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp / (v) `fairShareValue`'s raw-unit fallback; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **fall-through cap** + **refresh-currency** fixtures (two variants, one role, cheaper one infeasible / ≥2 voting analyzers — both **unit-level**, calling `fairShareRolePick`'s returned closure directly; an `Optimize()` fixture is green both ways, measured); fallback-currency fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path"; **quota-limiter "Fair-share interaction"** (3rd copy of the fsv formula) | §2 #5, §2d.5, §2d.6 |
+| **C6c** | **Bug #5** fair-share — **5** lock-step sites (i) `fairShareValue` (+ signature: it must receive the picker's variant slice) / (ii) `fairShareCap` (`prcRef` rescale, not bare `ceil(target)`) / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp / (v) `fairShareValue`'s raw-unit fallback; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **fall-through cap** + **refresh-currency** fixtures (two variants, one role, cheaper one infeasible / ≥2 voting analyzers — both **unit-level**, calling `fairShareRolePick`'s returned closure directly; an `Optimize()` fixture is green both ways, measured); fallback-currency fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path"; **quota-limiter "Fair-share interaction"** (**two** of the formula's copies, not one — the file was missed entirely in the original plan; **six** copies total across four doc locations + two code doc comments, see §5) | §2 #5, §2d.5, §2d.6 |
 | **C6d** | Finding **(c)** — **per-variant** veto re-check in `safeRemovalReplicasForRole`: a **live** analyzer with `RoleSpare[role] <= 0` (key *present*) blocks removal, PRC-blind **and** score-blind. The entry gate already covers role *entry*; the reachable defect is **mid-loop**, after `applyDeallocationForRole` drives a spare to 0. **Not** a synthetic 0-vote — post-C6b a vote cannot encode a veto. (Distinct from C7's N7 *abstain*.) | **end-to-end** via `scaleDownRoleIterated`: one role, **two** variants, live objector sizing only the first-shed one (red: 2nd variant's replicas removed; green: held) + outscored-objector variant + N7 control | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
@@ -244,7 +244,9 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
     divides the fsv-unit `target` (`= w.remaining − mean`, `:273`) by **that candidate's own** PRC, on
     every loop iteration. Once `target` is replica-space (fix i) the divide is the second half of a
     double-conversion — but **`ceil(target)` is correct only when the candidate the loop lands on *is*
-    `v_role`**, and the picker skips candidates on two conditions `v_role` selection does not model
+    `v_role` *and* `v_role`'s PRC has not moved since fsv time** (the second clause is the refresh-currency
+    half, below; the first is fall-through), and the picker skips candidates on two conditions `v_role`
+    selection does not model
     (`gpusAvail < gpusPR` — the cheaper accelerator pool is dry, `:420`; `headroom <= 0` — the cheaper
     variant is at `MaxReplicas`, `:427`). Both `continue`, and the cap is then measured in `v_role`'s
     capacity but applied to a variant with different capacity. **Fix:** rescale per candidate —
@@ -663,8 +665,8 @@ first:
 - **Value drift.** `sorted[0]`'s PRC is rewritten, so the ratio's numerator goes stale relative to
   `target`. On this section's own numbers (`v1` PRC 10000 = `v_role`, `v2` PRC 2000, `target` 50000 ⇒ 5), a
   refresh moving `v1` 10000 → 8000 yields `ceil(5 × 8000/2000) = 20` where the right answer is still
-  `ceil(5 × 10000/2000) = 25`. Same failure *mode* as the 5× fall-through below, smaller and much harder to
-  spot.
+  `ceil(5 × 10000/2000) = 25`. Same failure *mode* as the 5× fall-through **cap** below — an understated
+  cap, not an under-allocation — smaller and much harder to spot.
 - **Identity drift.** `costEfficiency` is `Cost/PRC`, so rewriting PRC can **reorder**
   `sortByCostEfficiencyAsc` — `sorted[0]` may be a *different variant* on iteration 2 than on iteration 1.
   Capturing the value fixes both; re-deriving the rule fixes neither.
