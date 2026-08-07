@@ -48,23 +48,23 @@ rewrites C1–C5, and is coordinated then.
 - [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:309
 - [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L310:382
 - [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L383:412
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L413:755
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L413:782
   - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L420:439
   - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L440:487
   - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L488:550
   - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L551:617
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L618:709
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L710:736
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L737:755
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L756:898
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L765:800
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L801:837
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L838:898
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L899:933
-- [§4 Ship gate & tests](#4-ship-gate--tests) L934:1069
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1070:1171
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1172:1292
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1293:1343
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L618:736
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L737:763
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L764:782
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L783:925
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L792:827
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L828:864
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L865:925
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L926:960
+- [§4 Ship gate & tests](#4-ship-gate--tests) L961:1111
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1112:1213
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1214:1341
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1342:1392
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -182,7 +182,7 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C5** | **Bug #3** rescale water-fill + `roleDemandGPUs` combined `max_i ceil(demand_i/PRC_i)`; **+ N3** nil-guard hardening in `rescaleModelDecisions`. | two-vote rescale fixture | pipeline "Optimizer internals" | §2 #3, §7 N3 |
 | **C6a** | **`combineVotes` helper + collectors** — one combine core; **merge** `roleBottleneckReplicas` + `bindingIndexForRole` (delete the duplicate loop); retrofit `roleAggRemaining` / `roleDemandGPUs` / `safeRemovalReplicasForRole` onto it. Uniform scores ⇒ **byte-identical**. | helper unit table (uniform / dominant / bounded / single / empty); 3-analyzer non-participant fixture (finding (a)) | pipeline "How results combine" | §2d.3 |
 | **C6b** | **Score dominance weighting on** — the `(sᵢ − s_bind)⁺` term; rounding **once** at the call site (`ceil` up, `floor` down). | 10-vs-5 @ scores 1/2 ⇒ 9 up, 6 down | pipeline "How results combine"; sat-config score semantics | §2d.2 |
-| **C6c** | **Bug #5** fair-share — **5** lock-step sites (i) `fairShareValue` (+ signature: it must receive the picker's variant slice) / (ii) `fairShareCap` (`prcRef` rescale, not bare `ceil(target)`) / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp / (v) `fairShareValue`'s raw-unit fallback; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **fall-through cap** fixture (two variants, one role, cheaper one infeasible); fallback-currency fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path"; **quota-limiter "Fair-share interaction"** (3rd copy of the fsv formula) | §2 #5, §2d.5, §2d.6 |
+| **C6c** | **Bug #5** fair-share — **5** lock-step sites (i) `fairShareValue` (+ signature: it must receive the picker's variant slice) / (ii) `fairShareCap` (`prcRef` rescale, not bare `ceil(target)`) / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp / (v) `fairShareValue`'s raw-unit fallback; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **fall-through cap** + **refresh-currency** fixtures (two variants, one role, cheaper one infeasible / ≥2 voting analyzers — both **unit-level**, calling `fairShareRolePick`'s returned closure directly; an `Optimize()` fixture is green both ways, measured); fallback-currency fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path"; **quota-limiter "Fair-share interaction"** (3rd copy of the fsv formula) | §2 #5, §2d.5, §2d.6 |
 | **C6d** | Finding **(c)** — **per-variant** veto re-check in `safeRemovalReplicasForRole`: a **live** analyzer with `RoleSpare[role] <= 0` (key *present*) blocks removal, PRC-blind **and** score-blind. The entry gate already covers role *entry*; the reachable defect is **mid-loop**, after `applyDeallocationForRole` drives a spare to 0. **Not** a synthetic 0-vote — post-C6b a vote cannot encode a veto. (Distinct from C7's N7 *abstain*.) | **end-to-end** via `scaleDownRoleIterated`: one role, **two** variants, live objector sizing only the first-shed one (red: 2nd variant's replicas removed; green: held) + outscored-objector variant + N7 control | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
@@ -692,13 +692,40 @@ picker does not always allocate it. One role; `v1` PRC 10000 (cheapest efficienc
 | (i)+(ii) without the rescale | **5** = `ceil(5)` |
 | (i)+(ii) with the `prcRef` rescale | **25** = `ceil(5 × 10000/2000)` ✓ |
 
-A silent 5× under-allocation, on exactly the path the cost-aware optimizer exists to serve — two
-accelerator types per role, fall through to the pricier one when the cheap pool runs dry — and
-`headroom <= 0` is the *normal* late state of a scale-up loop, not an edge case. **Why the existing
-suite misses it:** every #1513 golden and this section's worked example above are
+A silent 5× understatement of **the cap** — on exactly the path the cost-aware optimizer exists to serve
+(two accelerator types per role, fall through to the pricier one when the cheap pool runs dry), and
+`headroom <= 0` is the *normal* late state of a scale-up loop, not an edge case.
+
+**Corrected 2026-08-07 — the three rows are cap values, not allocation outcomes.** This paragraph
+previously closed "a silent 5× under-allocation". Measured at `d9f3b97e` on exactly these numbers, the
+final decision is **identical** with and without the rescale (`map[v1:1 v2:26]` single-role;
+`map[d1:6 p1:1 p2:26]` P/D) — so as an *outcome* claim it was unsupported. The arithmetic in
+`allocateForModelPaired` (`analyzer_helpers.go:736-832`) says why: the loop runs
+`for anyRoleNeedsScaleUp(pickerState, roles)` and re-picks every iteration; the cap enters only via
+`n = min(bottleneckReplicas, capN)` (`:760`), and `k = max(floor(deltaUtil·demand/prc), min(1, n))`
+(`:788`) has a **`min(1, n)` forward-progress floor**, while termination and the pool drain are driven by
+`k` (`:816`, `:819`), never by the cap. So the loop converges to the same total; **site (iv)'s `ps` bounds
+the allocation total, site (ii) bounds only per-iteration progress.** Forcing the cap to `1` still yields
+`v2 → 26`, over 25 iterations instead of 1.
+
+**Site (ii) stays in scope, for three reasons that are not the outcome claim.** (1) The cap is a stated
+contract — "how many replicas fair share permits this iteration" — and 5 where 25 is right is wrong on
+its face. (2) The compensation is architectural happenstance, resting on the `min(1, n)` floor and on
+termination being demand-driven; "the loop happens to absorb it today" is a thin invariant to lean on,
+and nothing documents it as load-bearing. (3) **The measured equivalence was obtained with the refresh
+inert.** The probe is single-analyzer, and `refreshAnchorSizing` early-returns at `len(s) <= 1`, so it ran
+zero times. With ≥2 voting analyzers the refresh runs **once per iteration** (`:737`), so 25 iterations
+instead of 1 means 25 opportunities for `sorted[0]`'s identity to move under it (the identity-drift
+mechanism above) — the compensation argument does not carry over, and is **not measured** in that case
+either way. Post-C6c the same gap reopens from the other side: site (iv)'s clamp moves to replica space
+along with `target`, and `k` at `:788` still reads `demand/prc`, so whether the loop still compensates
+after conversion is unestablished.
+
+**Why the existing suite misses it:** every #1513 golden and this section's worked example above are
 single-variant-per-role, where `v_role` is the only candidate and the error is identically zero; §4's
 other requested fsv fixtures vary PRC **across models**, not across variants within one role. §4 adds
-the fixture that catches it.
+the fixture that catches it — **at unit level**, because an `Optimize()` fixture on these numbers is green
+both ways (measured, above).
 
 The blunter alternative — keep fsv in demand space and fix only the `Σᵢ`→combine shape — is
 **rejected**: the combine has to be in replica space for a `max` across analyzers with different
@@ -967,7 +994,15 @@ after. Run with `-race` (§4).
     different costs, the cheaper-efficiency one made infeasible via `MaxReplicas` headroom, asserting the
     cap the **pricier** variant receives — red without the `prcRef` rescale (5 instead of 25 on §2d.5's
     numbers), and note this is the one fsv fixture that varies PRC *within* a role rather than across
-    models ·
+    models. **This one is a unit test, not an `Optimize()` scenario** (level stated 2026-08-07 after
+    measurement): call the closure `fairShareRolePick` returns **directly** and assert the returned
+    `capN`. An `Optimize()` fixture on these numbers is **green both ways** — site (iv)'s `ps` bounds the
+    allocation total, site (ii) bounds only per-iteration progress, and `allocateForModelPaired` re-picks
+    each iteration, so an understated cap costs iterations rather than replicas (see §2d.5, which
+    previously mis-stated this as a 5× under-allocation). Measured at `d9f3b97e`: `map[v1:1 v2:26]`
+    single-role and `map[d1:6 p1:1 p2:26]` P/D, identical with and without the rescale; the direct closure
+    call gives `capN=25` vs `capN=5` and is the only probe that discriminates. Without this level
+    statement the likely outcome is a fixture that reads as a guard and is not one ·
     **two fixtures, not one, and say in each `It()` which mode it guards** (added 2026-08-07). The
     fall-through fixture above guards *rescale-vs-no-rescale*; as specified it says nothing about
     **captured-vs-recomputed `prcRef`** (§2d.5 *Reference PRC*), because `refreshAnchorSizing`
@@ -975,7 +1010,14 @@ after. Run with `-race` (§4).
     is a no-op and the two `prcRef` readings are trivially identical. So add a **refresh-currency**
     fixture: **≥2 voting analyzers**, constructed so the refresh actually *moves the reference variant's
     PRC between iterations* (assert the movement itself, so the fixture cannot silently degrade into a
-    no-op), red with an in-closure `prcRef` and green with the threaded one. Reading one green test as
+    no-op), red with an in-closure `prcRef` and green with the threaded one. **Write this one at unit
+    level too** — same reason, plus the level is unproven here in *both* directions: it also discriminates
+    only through the cap, so it may inherit the fall-through fixture's blindness; but the measurement that
+    established that blindness was single-analyzer, where the refresh ran **zero** times, and with ≥2
+    analyzers the refresh runs once per iteration (`analyzer_helpers.go:737`), so extra iterations become
+    extra chances for `sorted[0]`'s identity to move (§2d.5 *identity drift*). Neither outcome is measured.
+    A direct closure call sidesteps the question; if you additionally want an `Optimize()`-level assertion,
+    prove it goes red before trusting it. Reading one green test as
     covering both modes is the specific mistake this split exists to prevent. Note also that **the #1513
     goldens are blind to the `prcRef` rescale entirely**, not merely to its currency: `fairShareRolePick`
     returns on the *first* candidate with `capN > 0` (`greedy_score_optimizer.go:432-434`), so normally
@@ -1224,6 +1266,13 @@ than inferring scope.
   `refreshAnchorSizing` has already rewritten this iteration (§2 #5 (ii), §2d.5 *Reference PRC*). Cheap to
   check, and it is the one C6c mistake no golden and no single-analyzer fixture can catch — the refresh
   no-ops at `len(s) <= 1`.
+  **Fixture-level check (added 2026-08-07):**
+  `grep -n "fairShareRolePick(" internal/engines/pipeline/*_test.go` — both cap fixtures (fall-through and
+  refresh-currency, §4) must appear here, i.e. call the returned closure **directly** and assert `capN`. If
+  either exists only as an `Optimize()` scenario it is not a guard: measured at `d9f3b97e`, an `Optimize()`
+  fixture on §2d.5's numbers is green with *and* without the rescale, because the cap bounds per-iteration
+  progress while site (iv)'s `ps` bounds the total and `allocateForModelPaired` re-picks each iteration. A
+  test that cannot go red is worse than no test — it reads as coverage.
 - **C6d — role-level objection blocks removal** (skip-on-no-PRC → veto): `grep -rn "RoleSpare\|prc <= 0\|prcForVariant" internal/ docs/`
   — update every comment that says an analyzer without per-variant capacity "is skipped" on the scale-down
   path; it now still objects at role granularity. Verify the *abstain* prose for a genuinely missing
