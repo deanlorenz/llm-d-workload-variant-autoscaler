@@ -5304,3 +5304,40 @@ a `MaxReplicas` local at all.
   (`throughput/constants.go:129`), unexported, so pipeline tests use the bare literal — the established
   idiom here, with 6+ prior uses in `analyzer_helpers_test.go`. The negative control therefore exercises a
   reason string production actually emits.
+
+---
+
+## Operational observation — the status file has fallen nine commits behind
+
+Not a code finding; recorded because the status file is the one channel designed to answer "where is the
+coder?" without interrupting it, and right now it answers wrongly.
+
+At `79a590d6`, `session/status/ta-anchor-dynamic-refresh.md` reads
+`last_update: 2026-08-07T21:00:00Z` and `current_step: **C6d LANDED — tip 330fcd26**`. `330fcd26` is a
+genuine ancestor of the tip (verified with `merge-base --is-ancestor`), so this is staleness rather than
+divergence — but nine commits have landed since it was written:
+
+```
+784c2b5c  one fair-share entitlement per model, drawn in sequence (C6e)
+a679f2ad  abstain is not exempt -- make W4 a tested property (C6f)
+537b0153  pin the claim-pricing distortion as a dormant spec
+4fb49ac6  drop plans-branch paths from shipped comments; fix the mean claim
+a46c7eea  pin the fair-share shared balance, not just the per-role clamp
+eb12089a  drop the mis-routed role label from a shipped comment
+b6bb525c  bound a from-zero-admitted variant at the grant sites (C11 D-b)
+1a50b418  read k_sat from config instead of hard-coding it (C10)
+79a590d6  test the admission ceiling at fillRole (C11 D-b follow-up)
+```
+
+Two of the nine are the largest commits on the branch (C11 and C10), and C10 carries a disclosed deviation
+from the plan (the import cycle) that a reader of the status file would have no way to know about. The
+convention's stated failure mode is that stale status looks like a crashed session; here the inverse also
+holds — the branch is nine commits healthier than the status file claims.
+
+`state: coding` and `blocked_on: nothing blocks coding` are both still accurate, which is why this has
+gone unnoticed: the fields that would look alarming if wrong are right, and the field that is wrong
+(`current_step`) reads plausibly.
+
+I am not routing this to the coder. A reviewer telling a coder to update its status file is direction, not
+review, and the conventions put status writes solely in the coder's hands. Flagging it for Dean is the
+correct channel, and this entry is the record.
