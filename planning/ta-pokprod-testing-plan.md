@@ -15,15 +15,15 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L34:66
+- [1. Where we are (findings)](#1-where-we-are-findings) — L30:66
 - [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
 - [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:245
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L247:381
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L383:595
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L597:899
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L901:924
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L926:end
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:285
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L287:421
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L423:635
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L637:939
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L941:964
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L966:end
 
 ---
 
@@ -241,6 +241,46 @@ DONE, including both pushes (2026-07-30):**
 `6bfb73e1` = C #1480 + D #1481 + E #1502 + F #1503 + #1486) + image
 `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` (digest `sha256:80dec0e9…`), both live
 on Dean's fork / quay.
+
+### 4.2 Tier-A image currency — three tags exist; use `:ta-0.9-anchor-20260807` (2026-08-07)
+
+The Tier-A seam is a `.env` value (`WVA_IMAGE_TAG`), so which image is current is a fact that has
+to be recorded somewhere the runner will look. Three tags now exist in
+`quay.io/deanlorenz/llm-d-workload-variant-autoscaler`:
+
+| tag | built from | manifest digest | has the anchor refactor? | has `a38d7b73`? |
+|---|---|---|---|---|
+| `:ta-0.9` | `main@6bfb73e1` | `sha256:80dec0e9…` | no | no |
+| `:ta-0.9-anchor-20260806` | `ta-anchor-refactor-v2@075a208e` | `sha256:d6456071…` | yes (pre-merge branch) | **no** |
+| **`:ta-0.9-anchor-20260807`** | **`main@d5d58640`** | **`sha256:ab4c8503…`** | **yes (as merged)** | **yes** |
+
+**Use the 20260807 tag.** The 20260806 build predates ev-shindin's `a38d7b73`
+*"fix(pipeline): correct role handling and hold reporting in the anchor refactor"*, which he pushed
+onto PR-1 before it merged. That commit fixes three problems that are live in the newly opt-in TA
+path, and all three would distort a benchmark run: a blank `Role` on the scale-from-zero
+`VariantCapacity` manufactured a phantom `RoleBoth` bucket that suppressed **all** scale-up on a
+P/D model with any zero-replica variant; the QM refusal reported `OptimizationReady=True` with no
+event, so a cluster that had stopped autoscaling looked healthy; and a held variant with a resolved
+accelerator but no prior replica count published `wva_desired_replicas=0`, which KEDA reads as
+scale-to-zero for a variant that is serving traffic. Benchmarking the 20260806 image would be
+measuring a controller that no longer exists.
+
+**How the difference was established** (repeatable — the Dockerfile sets no git-revision label, so
+image provenance is not readable from labels alone): `a38d7b73` introduces the string constant
+`"OptimizationRefused"` in `internal/constants/constants.go` and `internal/variant/types.go`, so
+grepping the built `/manager` binary for it is decisive. The image is distroless and has no shell,
+so extract the binary rather than exec into it:
+
+```bash
+cid=$(docker create <image>) && docker cp "$cid:/manager" /tmp/m && docker rm "$cid"
+grep -c OptimizationRefused /tmp/m    # 20260807 → 4 ; 20260806 → 0 ; ta-0.9 → 0
+```
+
+**Consequence for Phase 2/3:** `hack/benchmark/.env` currently pins
+`WVA_IMAGE_TAG=ta-0.9-anchor-20260806`. Moving that pin to `ta-0.9-anchor-20260807` is the only
+change needed — same repo, same `.env` line, no code change and no rebuild. The build and the quay
+push are already done (Dean-authorized 2026-08-07; local `RepoDigest` verified equal to the
+registry `Digest`).
 
 ---
 
