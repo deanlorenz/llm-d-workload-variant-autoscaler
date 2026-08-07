@@ -6347,3 +6347,88 @@ things are scoreable independent of his call:
 Routing to the planner as fyi, since T1-1 is already open with the designer and Dean; the new content is
 the four-part inversion, the dev-guide counter-argument, and the 8-vs-2 search surface. Nothing here
 needs the coder to stop.
+
+---
+
+## Finding 47 is closed by code, and `79a590d6` is the first fixture in this PR with a stated, correct mutation result
+
+The designer's `plan__ta-anchor-designer-withdraws-t1-1-and-the-coder-accusation.md` §3 asks me not to
+route Finding 47 as owed work, because the `fillRole` fixture already exists. Verified independently at
+`79a590d6` rather than accepted: **closed, and closed better than I asked for.**
+
+`79a590d6` *"pipeline: test the admission ceiling at fillRole (C11 D-b follow-up)"* — test-only, +73 in
+`rescale_test.go`, a `Describe("fillRole")` block. My proposed assertion is present essentially verbatim,
+including the trailing rationale string:
+
+```go
+Expect(spent).To(Equal(1), "the other 9 GPUs stay unspent and fall to the caller")
+```
+
+The commit message credits *"Raised by the PR-2 internal review as Finding 47"* and concedes the
+pre-existing-gap point on its own initiative: *"fillRole had no direct test references tree-wide before
+this; that gap is pre-existing and only the ceiling is covered here."* Shape 1 of my disposition question
+— land the fixture with C11 while the code is fresh — is what happened. **Nothing carries into C9.**
+
+### The discrimination claim: I suspected it of over-claiming and I was wrong
+
+The message asserts *"Verified discriminating: all three ceiling specs here fail with the tag check
+disabled."* On the first 95 lines of the diff I had three specs in view, one of which asserts an
+**untagged** variant takes all 10 GPUs — which would obviously still pass with the tag check disabled.
+I recorded that as a probable over-claim and went to count the specs.
+
+There are **five**, and the word *"ceiling"* partitions them exactly. Traced against `rescale.go:431`,
+whose inner loop breaks only on `bounded && targets[v] >= maxTarget` and otherwise runs until `wantGPUs`
+is exhausted — so disabling the tag check drops `bounded` to false whenever `MaxReplicas` is unset:
+
+| # | spec | tag | MaxReplicas | expects | tag check disabled |
+|---|---|---|---|---|---|
+| 1 | grants one replica out of the whole role's GPUs | admitted | nil | 1 | 10 → **FAIL** |
+| 2 | does not top up on a second pass | admitted | nil | spent 0, target 1 | `bounded=false`, re-spends → **FAIL** |
+| 3 | absorbs the whole role when the same variant is untagged | untagged | nil | 10 | 10 → **PASS** (control) |
+| 4 | keeps honouring a configured MaxReplicas when it is the tighter bound | untagged | 3 | 3 | 3 → **PASS** (control) |
+| 5 | takes the admission ceiling over a looser MaxReplicas | admitted | 8 | 1 | 8 → **FAIL** |
+
+Three fail, two pass, and the two that pass are the ones that *must* — they are the negative controls
+that make the other three mean something. The claim is precise, not loose: it says *the three ceiling
+specs*, not *all three specs*. **My reading error, not the coder's over-claim** — I partitioned on
+position in the diff instead of on the property each spec pins, which is the same class of mistake as
+scoring Q4 on the artifact I predicted rather than the mechanism.
+
+This is the structure I have been asking for across the whole sweep — positive specs plus controls that
+survive the mutation, with the mutation result stated — and it is the first commit in PR-2 to ship it
+unprompted. Spec 2 is the subtlest and the one I would not have thought to ask for: the ceiling is on the
+*target*, not the invocation, so a pre-populated `targets` map at the bound must buy nothing. The code
+comment at that line says exactly that, and the spec is what stops the comment from being a claim.
+
+### A §4a false-positive trap: `T1-ols` is real code, not a plans token
+
+Specs 3 and 4 set `untagged.Reason = "T1-ols"`. That is **not** a §4a violation and must not be swept:
+
+- `itlReasonT1OLS = "T1-ols"` — `internal/engines/analyzers/throughput/constants.go:129`, *"tier-1: OLS
+  fit from live observations"*, documented as a legal `Reason` at `internal/domain/analyzer.go:150`.
+- The constant is **unexported and in another package**, so a `pipeline` test cannot reference it. The
+  raw string is forced, and it matches the established idiom — 12 pre-existing occurrences in
+  `analyzer_helpers_test.go` alone.
+
+The trap for the C9e sweep: **`T1`/`T2` here are ITL *tier* names and collide in shape with the
+plans-branch `T1-1`/`T1-7` identifiers this review and the designer's handoffs use.** A §4a grep for
+`T1` scores **28 occurrences across 10 files** (`docs/developer-guide/cycle-log.md` included), and every
+one is legitimate. This is the second trap of its kind in the sweep, after
+`greedy_score_optimizer.go:453-456` — which contains the token *floor* while endorsing round-up. Both
+say the same thing: **the token is not the finding**, and a sweep driven by grep hits rather than by
+meaning will strip real code and miss real prose.
+
+### Designer §4's tip correction, verified
+
+Tip **is** `2ae440e3` — **22** commits off PR-1's base `075a208e`, working tree carrying one untracked
+file, `optimizer_invariant7_test.go`. **C10 has landed** as `1a50b418`, so the branch is past it, not
+"now on" it. My own doc already carries all twelve of the recent commits (`330fcd26` … `2ae440e3`), so
+the record here needed no repair — but the designer's underlying point stands and is the right lesson:
+a recorded SHA is worth nothing without a `rev-list --count` against it. Five instances of tip-staleness
+across four documents now; this is the sixth check and the first to come back clean.
+
+On T1-1 itself, the designer §2 withdraws its urgency and reframes it as a doc-vs-code divergence that is
+Dean's call, with the compiled branch being the safe one. That is consistent with the preceding section
+and does not change it: the reviewable defect is not which direction wins, it is that **the divergence is
+undeclared**, the mandated mid-replica fixture was spent on the opposite assertion, and eight endorsement
+sites would have to move together with only two reachable by the obvious grep.
