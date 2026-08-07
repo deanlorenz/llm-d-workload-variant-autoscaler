@@ -5807,3 +5807,141 @@ token as an example of the category. A reader follows that sentence without reso
 count it as a defect on its own; I note it because a mechanical grep will flag it, and whoever runs the
 reword should not spend effort "fixing" a sentence that is already readable.
 
+
+---
+
+## C9b (`2ae440e3`) — verdict: all six pre-registrations pass, and two new Type-4 defects
+
+*"docs: write from-zero admission as deferred and fix four false premises"* — 3 files, +100/−29,
+DCO-signed. Documentation and comments only; I take the "no behavioural change, no golden moved" claim
+as consistent with the diff (no non-comment line changed outside the one test-entry rename) but I do
+not sign off gate results — I do not build or test in the coder's worktree.
+
+| # | prediction | outcome |
+|---|---|---|
+| **P1** | the dormancy statement lands, or is already present | **PASS** — already landed with C11; this commit adds only a forward pointer from the lead paragraph (`:63-78`: *"That ceiling is dormant — see DEFERRED below before reading any of this as something the running system does."*). Correct call: the statement was not missing, only reachable too late. |
+| **P2** | little or no semantic change at the "not proactively selectable" site | **PASS, precisely** — the true clause survives verbatim (*"PerReplicaCapacity stays 0 and it is not proactively selectable, because its sizing must not be invented. That holds whether or not the variant is running."*); only the false qualifier *"which is the one nobody has ever measured"* was excised. The coder also stated plainly that *"the checklist items that asked for its reversal have been retracted"* — acting on my superseded checklist would have **introduced** a falsehood here, and it didn't happen. |
+| **P3** | false premise fixed, correct conclusion kept (Finding 45) | **PASS** — premise deleted, not patched; replaced by a structural reachability argument, and the condition corrected to `!(Enabled && Live && Informative)`. `(N8)` token gone. Verified independently below. |
+| **P4** | the persisted-supply claim left at strength or hedged | **PASS, beyond criterion** — hedged (*"usually covered"*) **and** the specific hole named (*"that persisted supply expires on an idle window"*). Does not claim per-role coverage, so Finding 12 stays clear. `TA's own` → `the throughput analyzer's own`. |
+| **P5** | dev-guide section reads as DEFERRED, not an active guard (Finding 46) | **PASS, decisively** — titled *"built, not enabled"*; *"do not read it as a description of what happens on a live cluster"*; *"Claim one does **not** ship: nothing in production code writes the tag."* |
+| **P6** | `mean` → `allocationMean`, consistently | **PASS** — `the *allocation* mean is forced to 0` → `allocationMean is forced to 0`. Names the identifier instead of describing it; no split spelling left. |
+
+### The `costEfficiency` claim is correct, and sharper than the message says
+
+C9b asserts an admitted variant *"sorts **first**"*. `costEfficiency` returns `math.MaxFloat64` — sorts
+**last** — and its own doc comment says so. Both are true of disjoint cases, and the chain resolves
+cleanly:
+
+1. `Cost` is copied from the **carrier** (`Cost: a.Cost`, `analyzer_helpers.go:281`), and saturation
+   builds `variantCost` from `rm.Cost` over `ReplicaMetrics`. A zero-replica variant contributes no
+   metrics, so the map lookup **misses** and `cost` is the zero value. `Cost == 0` — verified at its
+   root, and the root is why: cost is derived from per-replica metrics that do not exist at zero
+   replicas. That is `N5`, correctly attributed and correctly held out of scope.
+2. `PerReplicaCapacity` is copied from the **binder**, so an admitted variant carries the sentinel
+   `1` — which is `> 0`, so it **escapes** the `PerReplicaCapacity <= 0` guard entirely.
+3. `0 / 1 == 0` ⇒ it sorts **first**, tying with every never-measured peer under an unstable sort.
+
+The stronger reading, which the message does not state: **admission defeats the guard's stated
+intent.** `costEfficiency`'s comment says `MaxFloat64` avoids *"pretending its efficiency is zero,
+which would make the one variant nobody can price the cheapest thing in the pool"* — and admission
+causes exactly that, because the guard keys on non-positive PRC while admission's whole purpose is to
+make PRC positive. The message's *"no sentinel value repairs it"* is right for a reason it leaves
+implicit: the numerator is 0, so `0/x == 0` for **any** positive sentinel. This is corroboration for
+the deferral, not an argument against it.
+
+**Independently corroborated.** The designer's `plan__ta-anchor-da-sentinel-belongs-on-the-ballot.md`
+(cc'd to me, no action requested) derives the same ordering from the same code — *"`0/1 = 0` ⇒ `V_zero`
+sorts **first**. The bad path is therefore the default ordering, not an unlucky one"* — and traces it
+to the same break-out-of-the-whole-loop regression, concluding *"There is no live bug to bypass
+today."* Three independent derivations now agree: my read of the comparator, C9b's message, and the
+Type-1 owner's trace.
+
+### The three factual claims in the rewritten merge comment all check out
+
+The comment this commit replaced rested on a false premise. The replacement makes three checkable
+claims, and each verifies exactly:
+
+- **Reachability** — the carrier is located by name only (`s[i].Name == domain.SaturationAnalyzerName
+  && s[i].Result != nil`), with **no** Enabled/Live test. So when saturation binds it is both carrier
+  and binder, `bByName` is built from the very slice the merge iterates, every lookup hits, and the
+  else branch is unreachable. Reachable exactly when a saturation entry exists as carrier but does not
+  bind. The coder's widening of the condition to `!(Enabled && Live && Informative)` is correct, and
+  the reasoning is **stronger** than what it replaced: a structural proof rather than a claim about
+  analyzer behaviour.
+- **TA eviction** — `throughput/analyzer.go:160-161` deletes per-variant state past
+  `2*DefaultObservationMaxAge`, with `DefaultObservationMaxAge = 30 * time.Minute`. So a lapsed variant
+  does reach the branch having been measured. Exact.
+- **Saturation holds a capacity this merge declines to borrow** — at zero ready replicas saturation
+  falls to `capacityStore.Get` → `estimateStoredCapacity` (P0-store) or `lookupCompatibleCapacity`
+  (cross-variant estimation), both yielding a **positive** PRC. The merge takes PRC from the binder, so
+  it genuinely does not borrow it. Exact. (Note the package is `saturation_v2`, not the `saturation`
+  path CURRENT.md cites.)
+
+`maxTargetReplicas`' claim that *"for a variant without the tag the result is the `MaxReplicas` check
+verbatim"* also holds: an untagged variant cannot enter the admission branch, so the function reduces
+to `*state.MaxReplicas, true` when set and positive, else `0, false`. Its doc comment additionally
+earns its keep by explaining why this is a function at all — two of the three grant sites treat *absent*
+`MaxReplicas` as unbounded, so a ceiling folded into the existing headroom branch would be skipped on
+exactly the configurations that do not set it, silently.
+
+### Finding 54 — C9b adds a §4a token to the Type 4 dev guide, while its message reports only removals
+
+C9b's message says *"C9e's ledger shrinks by the four tokens this commit removes."* True of
+`analyzer_helpers.go`. But the same commit **adds** one to the dev guide, and fixes none of the three
+already there:
+
+| dev-guide §4a token-lines | base `075a208e` | C9a `757fc6f5` | tip `2ae440e3` |
+|---|---|---|---|
+| count | 0 | 3 | **4** |
+
+The new one is `multi-analyzer-pipeline.md:565` — *"Whether the sentinel may instead enter the *voting*
+set is an **N8** question; the reasoning is recorded at `ReasonFromZeroAdmission` in
+`analyzer_helpers.go`."* Net across the tree is −4 **+1**, so the dev-guide sub-ledger of my 48-site
+enumeration goes **3 → 4**, and the honest summary is "removes four, adds one," not "shrinks by four."
+
+Severity is low and the fix is one line. The sentence's *second* half is exemplary — it points the
+reader at in-tree reasoning, which is precisely what a Type 4 doc should do. Only the token fails,
+because `N8` resolves nowhere in the merged tree. Naming the question instead of its identifier keeps
+everything: *"Whether the sentinel may instead be written on the binding analyzer's own ballot entry is
+an open question; the reasoning is recorded at `ReasonFromZeroAdmission`…"* — which, per the designer's
+handoff, is exactly the question under consideration.
+
+This also amends my own standing instruction to myself not to score those three dev-guide sites as C9e
+misses "if C9b already fixed them": **it did not fix them.** All four remain C9e's.
+
+### Finding 55 — `"This PR ships…"` is a PR-schedule reference in a Type 4 doc
+
+`multi-analyzer-pipeline.md:531`: *"The rule above … has a narrow intended exception. **This PR** ships
+the exception's *guard* and not its *trigger*."* Newly introduced (base: 0 occurrences, tip: 1).
+
+CONVENTIONS' Type 4 rule is explicit — a reference doc *"must always reflect the actual code state of
+the branch it is on. Do not include PR-schedule references."* On the merged tree there is no "this PR",
+so the sentence dates itself the moment it lands, and after the next PR touches this area it reads as a
+claim about the wrong change. The repair is trivial and loses nothing: *"The exception's guard ships;
+its trigger does not."* The paragraph's substance — which half is live — is already carried by the
+sentences around it.
+
+Worth naming the irony rather than treating these as sloppiness: this subsection's entire purpose is
+scrupulous honesty about dormancy, and it achieves that (P5 passes decisively) while tripping two
+Type-4 hygiene rules on the way. Both are one-line fixes in prose the commit otherwise got right.
+
+### The commit message itself is not §4a-clean — 19 of 22
+
+C9a was the first §4a-clean message on this branch. C9b is not: its body carries `C9b`, `C11`, `(D-a)`,
+`N5`, `N8`, `Finding 51`, `PR-2`, `P1`, and `Finding 29`. That takes the reword ledger to **19 of 22**
+commit messages. As with the others this is a body-only defect and the sweep cost is unchanged in kind
+— but it moves the count, and every commit that lands before the reword decision adds to it.
+
+The `Finding 51` and `P1` / `Finding 29` tokens are the interesting sub-case: they are pointers into
+**this review doc**, which is plans-branch-only. They are the same class as `Finding 47` (already
+flagged as the least-resolvable token on the branch) — a reader of the merged tree cannot resolve
+"Finding 51" even in principle, because the document defining it will never exist in that tree.
+
+### Finding 51 — taken here, and rewritten rather than stripped
+
+Confirmed **PASS**. The site (`analyzer_helpers.go:224-230`) is the binder tie-break, and the repair
+fixed the tense error I flagged, not just the tokens: *"More than one non-saturation entry can qualify
+here — `votingResults` caps neither the count nor the kind — and when several do, a later one does not
+overwrite the earlier: it votes without binding."* Both `N2` and `PR-2` gone. The failure mode I named
+in the P3/Finding-51 pairing — clean tokens, surviving falsehood — did not occur at any of the five
+sites this commit touched.
