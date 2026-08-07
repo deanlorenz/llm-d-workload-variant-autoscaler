@@ -151,7 +151,7 @@ var _ = Describe("analyzer helpers", func() {
 		// Test 2 — per-variant completeness + ordering.
 		// The identity carrier (saturation) lists v1+v2; the binding analyzer lists only
 		// v1. Variant ordering follows the identity carrier. For v2 (omitted by the
-		// binder) there is no fallback to saturation's own sizing (N8) — it abstains
+		// binder) there is no fallback to saturation's own sizing — it abstains
 		// with PRC=0 uniformly, whether or not saturation votes:
 		//   - saturation enabled (but non-binding here because non-live): still no
 		//     fallback — an enabled-but-not-binding saturation is, by definition,
@@ -191,7 +191,7 @@ var _ = Describe("analyzer helpers", func() {
 			// v1 sized by the binding analyzer.
 			Expect(anchor.VariantCapacities[0].PerReplicaCapacity).To(Equal(200.0))
 			Expect(anchor.VariantCapacities[0].Reason).To(Equal("T1-ols"))
-			// v2 omitted by the binder → abstains (N8), not a fallback to
+			// v2 omitted by the binder → abstains, not a fallback to
 			// saturation's own sizing=110.0 despite saturation being enabled.
 			Expect(anchor.VariantCapacities[1].PerReplicaCapacity).To(Equal(0.0))
 			Expect(anchor.VariantCapacities[1].Reason).To(Equal(""))
@@ -337,7 +337,7 @@ var _ = Describe("analyzer helpers", func() {
 		// bindingAnchor returns nil whenever nothing can bind; each optimizer's
 		// nil-anchor guard then holds the model (no decision this cycle) rather
 		// than indexing into an empty or unbindable ballot. These pin the two
-		// nil paths that remain after N2's deterministic tie-break (a multi-binder
+		// nil paths that remain after the deterministic binder tie-break (a multi-binder
 		// tie no longer holds — see Test 5): no index panic on an empty ballot,
 		// and a deliberate hold when no analyzer is live+informative at all.
 		It("returns nil for an empty ballot", func() {
@@ -373,9 +373,9 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(bindingAnchor([]NamedAnalyzerResult{sat, ta})).To(BeNil())
 		})
 
-		// Test 5 — N2 deterministic binder tie-break (two non-saturation live
-		// analyzers, no saturation entry). PR-2 admits multiple non-saturation
-		// voters; rather than hold the model on a tie, the lowest-ballot-index
+		// Test 5 — deterministic binder tie-break (two non-saturation live
+		// analyzers, no saturation entry). The combine admits multiple
+		// non-saturation voters; rather than hold the model on a tie, the lowest-ballot-index
 		// qualifying entry binds. This asserts the tie-break, not a hold.
 		It("binds the lowest-ballot-index candidate when two non-saturation analyzers both qualify", func() {
 			ta := NamedAnalyzerResult{
@@ -415,8 +415,8 @@ var _ = Describe("analyzer helpers", func() {
 
 		Context("A Variant the Binder Omits", func() {
 
-			// C11's territory, pinning what the merge does today for a variant the
-			// binder leaves out.
+			// The from-zero admission exception's territory, pinning what the merge
+			// does today for a variant the binder leaves out.
 			//
 			// The ballot below is the only one where this arises: saturation is
 			// enabled but not live, so it does not bind and throughput does, while
@@ -473,8 +473,8 @@ var _ = Describe("analyzer helpers", func() {
 					Expect(m.PerReplicaCapacity).To(Equal(100.0))
 					Expect(m.Reason).To(Equal("T1-ols"))
 				},
-				// Both rows abstain today. The zero row is the one C11's deferred
-				// admission would change, and it is pinned here so that change is
+				// Both rows abstain today. The zero row is the one the deferred
+				// from-zero admission would change, and it is pinned here so that change is
 				// visible as a deliberate edit to this table rather than a silent
 				// behavioural drift. The running row must keep abstaining either way:
 				// a binder also omits variants that ARE up but had no usable metric

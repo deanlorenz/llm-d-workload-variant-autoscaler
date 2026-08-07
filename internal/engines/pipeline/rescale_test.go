@@ -210,7 +210,7 @@ var _ = Describe("rescaleModelDecisions", func() {
 var _ = Describe("fillRole", func() {
 	// fillRole's inner loop spends GPUs one replica at a time and its only exit is
 	// exhausting wantGPUs, so an unbounded variant absorbs the whole role. The
-	// from-zero admission ceiling (C11) is what stops a variant admitted at
+	// from-zero admission ceiling is what stops a variant admitted at
 	// PerReplicaCapacity = 1 from doing that, and this is the site where the
 	// difference is largest.
 	const wantGPUs = 10
@@ -263,8 +263,8 @@ var _ = Describe("fillRole", func() {
 		untagged := admitted
 		untagged.Reason = "T1-ols"
 		st := fromZero
-		max := 3
-		st.MaxReplicas = &max
+		maxRep := 3
+		st.MaxReplicas = &maxRep
 		spent, targets := fill(untagged, st, nil)
 		Expect(targets["newcomer"]).To(Equal(3))
 		Expect(spent).To(Equal(3))
@@ -272,8 +272,8 @@ var _ = Describe("fillRole", func() {
 
 	It("takes the admission ceiling over a looser MaxReplicas", func() {
 		st := fromZero
-		max := 8
-		st.MaxReplicas = &max
+		maxRep := 8
+		st.MaxReplicas = &maxRep
 		spent, targets := fill(admitted, st, nil)
 		Expect(targets["newcomer"]).To(Equal(1))
 		Expect(spent).To(Equal(1))

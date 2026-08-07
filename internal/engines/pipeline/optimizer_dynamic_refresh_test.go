@@ -1,6 +1,6 @@
 package pipeline
 
-// Per-iteration dynamic refresh (PR-2 C2): refreshAnchorSizing recomputes the
+// Per-iteration dynamic refresh: refreshAnchorSizing recomputes the
 // (role,variant) binder from the current pickerState — allocateForModelPaired
 // re-invokes it at the head of every allocation iteration, so the anchor's
 // sizing reflects the *current* remaining demand, not a one-time pick. This
@@ -11,10 +11,12 @@ package pipeline
 // clear an unconstrained single-role model's demand in one shot — the
 // snapshots isolate exactly what the refresh changes, independent of that.
 //
-// Before C2, refreshAnchorSizing does not exist: bindingAnchor picks the
-// sizing source once and every read of the anchor's VariantCapacities
-// sees that same pick regardless of how remaining demand has moved. This test
-// is red before C2 (the function it calls does not exist) and green after.
+// What the refresh buys, stated as the contrast it is built against rather
+// than as a claim about history: without it the sizing source is chosen once,
+// and every read of the anchor's VariantCapacities sees that same pick no
+// matter how far remaining demand has since moved. The two snapshots below
+// differ only in remaining demand, so an assertion that tells them apart is
+// telling apart exactly that.
 
 import (
 	. "github.com/onsi/ginkgo/v2"

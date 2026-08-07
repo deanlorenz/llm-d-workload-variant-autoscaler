@@ -367,7 +367,7 @@ has an opinion on a role must report `Spare > 0` for that role to scale down.
 "Has an opinion" excludes a live voter whose own `RoleSpare` simply doesn't
 decompose that role (e.g. a non-disaggregated analyzer's single `RoleBoth`
 entry, asked about `prefill`) — that voter **abstains** rather than reading
-the map-miss as `Spare == 0` (N7): a coarser voter has no basis to veto a
+the map-miss as `Spare == 0`: a coarser voter has no basis to veto a
 role it never sized. A live analyzer that DOES have an opinion and reports
 `RequiredCapacity > 0` (i.e., `Spare == 0`) still blocks scale-down for that
 role.
@@ -507,7 +507,7 @@ fallback, in any config — its `PerReplicaCapacity` stays zero and it is not
 proactively selectable; the reactive `scalefromzero` engine still covers
 genuine cold-starts. This holds uniformly whether or not saturation is also
 voting: the anchor never borrows saturation's own sizing for a variant the
-binder omits (N8) — a binder-unknown variant abstains rather than mixing
+binder omits — a binder-unknown variant abstains rather than mixing
 metric scales across variants within one anchor. The persisted supply
 self-expires on the analyzer's idle window (the observation-max-age eviction,
 ~60 min), so a long-idle variant degrades back to the never-seen case on its
@@ -528,8 +528,8 @@ high. That flapping gap is pre-existing and not introduced by this mechanism.
 
 **Proactive admission of an unpriced variant: built, not enabled.** The rule
 above — a variant no analyzer can price is not proactively selectable — has a
-narrow intended exception. This PR ships the exception's *guard* and not its
-*trigger*, so the rule above is still the whole of today's behavior. Read this
+narrow intended exception. The exception's *guard* ships; its *trigger* does
+not, so the rule above is still the whole of today's behavior. Read this
 subsection for what the guard is for; do not read it as a description of what
 happens on a live cluster.
 
@@ -562,7 +562,8 @@ for a variant no voting entry prices and so yields zero. The optimizer then sees
 utilization delta of zero and breaks — the same collapse claim three guards
 against, arriving by a different route and costing the model every variant behind
 the admitted one. That is a regression rather than a missed feature. Whether the
-sentinel may instead enter the *voting* set is an N8 question; the reasoning is
+sentinel may instead be written on the binding analyzer's own ballot entry is an
+open question; the reasoning is
 recorded at `ReasonFromZeroAdmission` in `analyzer_helpers.go`, beside the constant
 it applies to. Contrast the returning variant above, which works precisely because
 the throughput analyzer emits its persisted per-replica supply into the **ballot**
@@ -715,7 +716,7 @@ magnitude; there is nothing to convert and nothing to weigh.
 
 An **absent** key is a different statement from a **present** zero. A live
 analyzer whose `RoleSpare` does not decompose this role never sized it and so
-**abstains** (N7); one whose key is present and `≤ 0` did size it and reports
+**abstains**; one whose key is present and `≤ 0` did size it and reports
 there is nothing left to give back, which vetoes. That distinction has to survive
 the whole loop, which is why `applyDeallocationForRole` draws down only balances an
 analyzer actually reported: a bare decrement on a missing key would materialize it

@@ -998,7 +998,7 @@ var _ = Describe("CostAwareOptimizer", func() {
 
 	Context("The From-Zero Admission Ceiling", func() {
 
-		// C11 (D-b): the ceiling a from-zero-admitted variant is held to. The
+		// The ceiling a from-zero-admitted variant is held to. The
 		// admitting write site is deferred (see ReasonFromZeroAdmission), so the tag
 		// is set directly here rather than obtained from bindingAnchor -- these
 		// assert the ceiling mechanism, which is what landed.
@@ -1007,7 +1007,8 @@ var _ = Describe("CostAwareOptimizer", func() {
 		// grants, but gates on available[vc.AcceleratorName] first, and a
 		// never-measured variant's AcceleratorName is empty for the same reason its
 		// Cost is zero -- both come from saturation's zero-replica lookup -- so it is
-		// skipped there regardless. Separate pre-existing gap, not C11's to close.
+		// skipped there regardless. Separate pre-existing gap, and not this
+		// ceiling's to close.
 		admittedVariants := []domain.VariantCapacity{
 			{VariantName: "measured", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 8000, Reason: "P1-obs"},
 			{VariantName: "newcomer", PerReplicaCapacity: 1, Reason: ReasonFromZeroAdmission},
@@ -1022,8 +1023,8 @@ var _ = Describe("CostAwareOptimizer", func() {
 		})
 
 		It("caps the admitted variant at one replica with no MaxReplicas set", func() {
-			// It is picked first, which is worth stating plainly because the plan
-			// predicted last: PRC = 1 makes cost efficiency degenerate to Cost, and a
+			// It is picked first, which is worth stating plainly because the
+			// intuitive expectation is last: PRC = 1 makes cost efficiency degenerate to Cost, and a
 			// never-measured variant's Cost arrives as 0, so the ratio is 0/1 = 0 and
 			// it sorts ahead of every priced variant. No sentinel value repairs that --
 			// any positive PRC divides a zero numerator -- and the ordering recovers on
@@ -1277,12 +1278,13 @@ var _ = Describe("the scale-down loop's role-level veto and shed ordering", func
 				"a vote cannot encode a veto: the objector is outscored 3:1 and would be overruled as a voter")
 		})
 
-		It("still lets removal proceed when the role key is missing (N7 abstain)", func() {
+		It("still lets removal proceed when the role key is missing (abstain)", func() {
 			// Same numbers as the outscored fixture, one difference: the objector's
 			// RoleSpare does not carry this role at all. A missing key is an ABSTAIN —
 			// the analyzer never sized the role, so it has no basis to block it — where
-			// a present, non-positive key is a veto. This is the pair that pins (c) and
-			// N7 as different statements rather than two spellings of one.
+			// a present, non-positive key is a veto. This is the pair that pins the
+			// present-and-exhausted veto and the missing-key abstain as different
+			// statements rather than two spellings of one.
 			anchor := []domain.VariantCapacity{
 				{VariantName: "v1", AcceleratorName: "A100", Cost: 15, PerReplicaCapacity: 500},
 				{VariantName: "v2", AcceleratorName: "A100", Cost: 5, PerReplicaCapacity: 100},
@@ -1310,7 +1312,7 @@ var _ = Describe("the scale-down loop's role-level veto and shed ordering", func
 		})
 	})
 
-	Context("the scale-down path never refreshes the anchor's sizing (U2)", func() {
+	Context("the scale-down path never refreshes the anchor's sizing", func() {
 
 		It("leaves every anchor sizing field alone across a multi-variant, multi-iteration shed", func() {
 			// Multi-variant and multi-iteration are both required: a single removal is

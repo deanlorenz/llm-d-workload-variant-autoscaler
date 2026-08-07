@@ -4,11 +4,24 @@ package pipeline
 // one-analyzer ballot, asserted across all three ballot shapes the combined
 // design defines.
 //
-// Why this file exists: the sat-only goldens in optimizer_characterization_test.go
-// were the land-first ship gate for the anchor refactor, and the next commit
-// removes them. They may only be removed if their coverage survives, so every
-// scenario here carries a `[sat]`-only shape whose expectations are transcribed
-// verbatim from the golden it replaces -- never re-derived, never "improved".
+// Why this file exists: a sat-only freeze suite used to live in
+// optimizer_characterization_test.go as the anchor refactor's ship gate, and it
+// was removed once this suite covered it. Removal was only permissible because
+// the coverage survives, so every scenario here carries a `[sat]`-only shape
+// whose expectations are transcribed verbatim from the golden it replaced --
+// never re-derived, never "improved".
+//
+// Scenario names. Each table below is named for the removed golden it subsumes,
+// and those names are recorded here so the references resolve without reaching
+// for deleted code:
+//
+//	A1 -- aggregated scale-up, one variant, demand over capacity
+//	A2 -- aggregated scale-down, the sole/cheapest variant protected at one
+//	A3 -- idle model, two variants, no demand and no spare, nothing changes
+//	A4 -- two variants, cost tie-break, the cheapest absorbs the demand
+//	B1 -- disaggregated prefill/decode paired scale-up, equal per-role demand
+//	B2 -- disaggregated role-scoped scale-down, expensive prefill fully removed
+//	C1 -- namespace quota caps a model below its unconstrained demand
 //
 // Ballot construction, and why the [sat]-only shape is genuinely the same test.
 // All three shapes start from withSatEntry, the identical helper the #1513
@@ -46,9 +59,9 @@ package pipeline
 // that round trip lands on 4.0 or 3.9999999999999996. Integer ratios keep these
 // expectations hand-derivable instead of merely captured.
 //
-// Fair-share exposure, stated rather than left implicit: replicasToCover still
-// rounds a GPU entitlement UP while plan section 2d.5 specifies a whole-replica
-// floor, and that fork is unresolved in the tree. No golden here can freeze
+// Fair-share exposure, stated rather than left implicit: replicasToCover rounds
+// a GPU entitlement UP, and whether it should instead take a whole-replica floor
+// is an open question in this tree. No golden here can freeze
 // either side -- the aggregated and P/D scenarios run on 1e6-GPU pools where the
 // entitlement never binds, and the quota scenario leaves exactly 2 free GPUs at
 // 2 GPUs per replica, so ceil and floor agree at 1. If the fork later resolves to

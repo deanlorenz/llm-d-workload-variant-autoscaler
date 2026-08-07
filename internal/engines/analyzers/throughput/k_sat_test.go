@@ -159,9 +159,11 @@ var _ = Describe("Analyze — per-replica capacity tracks the configured k_sat",
 	})
 
 	It("does not read the scale-up watermark", func() {
-		// The exact shape of the bug: a config whose KV threshold is the default
-		// and whose scale-up watermark is 0.85. Pre-C10 this priced at k = 0.85;
-		// it must now price at k = 0.80.
+		// The exact shape of the trap: a config whose KV threshold is the default
+		// and whose scale-up watermark is 0.85. Reading the watermark prices this
+		// at k = 0.85; the correct k is the KV threshold's 0.80. The two are
+		// different numbers for different jobs, which is why they are set apart
+		// here rather than left at their defaults.
 		cfg := &config.SaturationScalingConfig{
 			KvCacheThreshold:  config.DefaultKvCacheThreshold,
 			ScaleUpThreshold:  0.85,

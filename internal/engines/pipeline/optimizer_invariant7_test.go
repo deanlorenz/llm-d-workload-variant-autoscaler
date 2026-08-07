@@ -97,7 +97,7 @@ var _ = Describe("Invariant 7 — saturation-only ⇒ the anchor IS the saturati
 	// satOnly builds a one-entry ballot: the default config, saturation voting
 	// alone. Deliberately not withSatEntry — that helper is shared with the
 	// #1513 goldens, and a test whose subject is the anchor must not be able to
-	// go green by pinning the helper instead (#1513 review, Finding 2).
+	// go green by pinning the helper instead.
 	satOnly := func(sat *domain.AnalyzerResult, req ModelScalingRequest) ModelScalingRequest {
 		req.AnalyzerResults = []NamedAnalyzerResult{{
 			Name:      domain.SaturationAnalyzerName,

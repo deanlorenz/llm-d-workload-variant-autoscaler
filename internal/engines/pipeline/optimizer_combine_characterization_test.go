@@ -39,8 +39,8 @@ var _ = Describe("Anchor refactor combine characterization goldens (saturation +
 		// Saturation supplies the anchor's identity; the per-variant sizing
 		// binder is refreshed each allocation iteration to whichever entry has
 		// the larger current replica-demand for that (role, variant) — here
-		// throughput, since its implied replica count exceeds saturation's (PR-2
-		// per-iteration refresh; refreshAnchorSizing). Single
+		// throughput, since its implied replica count exceeds saturation's (see
+		// refreshAnchorSizing). Single
 		// non-disaggregated variant "v" with 2 live replicas (satisfies the
 		// all-live constraint).
 		//
@@ -101,7 +101,7 @@ var _ = Describe("Anchor refactor combine characterization goldens (saturation +
 		}
 		// Replicas/RC/SC captured from main@9906dac5 (unaffected by the sizing
 		// refresh): cross-analyzer bottleneck MAX(1, 3)=3 additional -> 2+3=5;
-		// RC=5000, SC=0 (saturation's, per-analyzer). Utilization=0 is PR-2's
+		// RC=5000, SC=0 (saturation's, per-analyzer). Utilization=0 is the
 		// per-variant sizing refresh: throughput's replica-demand (3) exceeds
 		// saturation's (1), so throughput becomes "v"'s (role,v) sizing binder
 		// and its unset Utilization (zero value) replaces saturation's 0.8.

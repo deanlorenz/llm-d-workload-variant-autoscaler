@@ -51,7 +51,7 @@ type ModelScalingRequest struct {
 	Namespace string
 	// AnalyzerResults is the per-analyzer ballot. votingResults' combine math is
 	// order-independent, but bindingAnchor's binder tie-break is not: among
-	// qualifying non-saturation entries, the lowest ballot index binds (N2).
+	// qualifying non-saturation entries, the lowest ballot index binds.
 	AnalyzerResults []NamedAnalyzerResult
 	VariantStates   []domain.VariantReplicaState
 	Priority        float64 // Model priority (default 1.0)

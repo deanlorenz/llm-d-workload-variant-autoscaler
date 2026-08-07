@@ -90,8 +90,8 @@ func ResultIsInformative(nr NamedAnalyzerResult) bool {
 // this one -- a regression, not a missed feature. Compare the previously-live
 // variant in optimizer_scale_from_zero_test.go, which works precisely because the
 // throughput analyzer emits its PRC into the *ballot* rather than the anchor.
-// Whether the sentinel may enter the voting set is an N8 question, so it is the
-// Type-1 owner's, not this file's.
+// Whether the sentinel may enter the voting set at all is a question about the
+// combine's admission rules, and is not settled here.
 const ReasonFromZeroAdmission = "from-zero-admission"
 
 // admissionCeilingReplicas is how many replicas a variant admitted on the
@@ -587,7 +587,7 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 // positive, so a 0 vote is absolute only when nothing outscores it (which is the
 // shipped uniform-score case). And it is not the role-level abstain: that is
 // decided by needsScaleDownForRole and roleSpareVetoed, both of which read a
-// map-miss as ABSTAIN (N7) and never as "spare == 0".
+// map-miss as ABSTAIN and never as "spare == 0".
 func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replicaVote {
 	out := make([]replicaVote, 0, len(s))
 	for i, e := range s {
@@ -653,7 +653,8 @@ func variantCapacityByName(vcs []domain.VariantCapacity, v string) (domain.Varia
 // equals that voter's, so refreshing would reproduce the same values. The
 // single-vote invariant ("populate once, never refresh") is upheld by not
 // running this at all rather than running it to a no-op — see
-// combined-analyzer-optimizer-design.md § invariants #7.
+// docs/developer-guide/multi-analyzer-pipeline.md, "Scale-up path", under
+// "Per-iteration anchor refresh".
 func refreshAnchorSizing(variants []domain.VariantCapacity, s []NamedAnalyzerResult, state RolePairedState) {
 	if len(s) <= 1 {
 		return
@@ -735,7 +736,7 @@ func variantsForRole(vcs []domain.VariantCapacity, role string) []domain.Variant
 //
 // "Explicit" carries the whole distinction. The entry must be live, must have a
 // Result and a RoleSpare map, and the map must carry a key for role. A live
-// analyzer whose RoleSpare does not decompose this role ABSTAINS (N7): it never
+// analyzer whose RoleSpare does not decompose this role ABSTAINS: it never
 // sized the role, so it has no basis to block it. A key that is present and
 // non-positive is a different statement — that analyzer did size the role and
 // reports there is nothing left to give back.
@@ -824,7 +825,7 @@ func safeRemovalReplicasForRole(s []NamedAnalyzerResult, v, role string) int {
 // value rather than a range, which is what makes the veto's ≤ 0 test read as an
 // exact state and not as a tolerance.
 //
-// Only an already-present key is decremented, and that guard is what keeps N7's
+// Only an already-present key is decremented, and that guard is what keeps an
 // abstain an abstain for the whole loop rather than only until the first removal.
 // A bare `m[role] -= x` on a map with no such key reads the zero value, writes
 // the clamped result, and so MATERIALIZES the key at 0 — turning an analyzer that
@@ -841,7 +842,7 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 		}
 		spare, ok := s[i].RoleSpare[role]
 		if !ok {
-			continue // abstained on this role (N7): no reported balance to spend
+			continue // abstained on this role: no reported balance to spend
 		}
 		prc := prcForVariant(s[i].Result, v)
 		if prc <= 0 {
@@ -864,7 +865,7 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 // stale) do not veto — this applies uniformly, including saturation's
 // token-capacity result; there is no name-based exemption. A live analyzer
 // with no RoleSpare data at all, or whose RoleSpare simply does not decompose
-// this role, ABSTAINS rather than vetoing (N7): a coarser voter (e.g. a
+// this role, ABSTAINS rather than vetoing: a coarser voter (e.g. a
 // non-disaggregated analyzer's single RoleBoth entry, seeded by initRoleState)
 // has no basis to veto a role it never sized, so a map-miss must not read as
 // "spare == 0". Returns false only when a live analyzer that DOES have an
@@ -874,7 +875,7 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 //
 // Deliberately not expressed through combineVotes: this is a veto, not a
 // magnitude, and its participation rules are stricter than votesFromRoleSpare's
-// — a live entry whose RoleSpare carries no key for role abstains here (N7) but
+// — a live entry whose RoleSpare carries no key for role abstains here but
 // still votes 0.0 on the safe-removal ballot. The abstain holds for the whole
 // role, not only until the first removal: applyDeallocationForRole draws down
 // reported balances only, so the loop cannot materialize a key for an analyzer
@@ -897,7 +898,7 @@ func needsScaleDownForRole(s []NamedAnalyzerResult, role string) bool {
 			continue // no data at all this cycle; abstain, not veto
 		}
 		if _, ok := e.RoleSpare[role]; !ok {
-			continue // this analyzer doesn't decompose this role; abstain (N7), not veto
+			continue // this analyzer doesn't decompose this role; abstain, not veto
 		}
 		liveCount++
 	}

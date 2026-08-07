@@ -878,7 +878,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			Expect(dm["a-v1"].TargetReplicas).To(Equal(1)) // unchanged
 		})
 
-		It("T1.4: priority orders fair share, and a trusted analyzer does not inflate its model's claim", func() {
+		It("priority orders fair share, and a trusted analyzer does not inflate its model's claim", func() {
 			// Two models with identical demand, competing for a single free
 			// replica. Model A carries two analyzers, one of them the most
 			// trusted entry in the fixture; Model B carries one analyzer and
@@ -1554,8 +1554,8 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		// per-(analyzer, role) CLAMP, but not for the picker's own ledger: in both,
 		// each role's demand already exceeds the whole-model entitlement, so
 		// bounding each role by `target` independently lands on the same numbers.
-		// §C6e asks for the other shape — roles that would EACH individually fit
-		// inside the entitlement and only jointly overrun it. That shape is what
+		// Discriminating the ledger needs the other shape — roles that would EACH
+		// individually fit inside the entitlement and only jointly overrun it. That shape is what
 		// separates one shared balance from one budget per role, and at
 		// Optimize() level it is not observable: the round-up in replicasToCover
 		// and the downstream pool both move the totals, so a direct call to the
@@ -1573,7 +1573,8 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 			"prefill-v": {VariantName: "prefill-v", CurrentReplicas: 1, GPUsPerReplica: 1, Role: "prefill"},
 		}
 		// Deliberately far larger than the entitlement: a pool that could bind
-		// would mask the balance, which is the masking §C6e names.
+		// would mask the balance, which is exactly the masking this spec exists
+		// to avoid.
 		balancePool := map[string]int{"A100": 100}
 		balanceRoles := []string{"decode", "prefill"}
 		balanceBallot := []NamedAnalyzerResult{
@@ -1641,7 +1642,8 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 
 	Context("Abstain Is Not Exempt", func() {
 
-		// W4: an analyzer with no per-replica capacity for the variant it is being
+		// The abstention rule, named here because the comments below refer back to
+		// it: an analyzer with no per-replica capacity for the variant it is being
 		// clamped against abstains — it contributes no claim and it spends
 		// nothing. It is NOT budget-exempt. The `continue` at the clamp in
 		// allocateForModel is the abstention.
@@ -1653,7 +1655,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		// analyzer_helpers_test.go, which pins the same property inside
 		// combineVotes; this one pins it at the spend sites.
 		//
-		// SCOPE — READ BEFORE TRUSTING THIS AS A W4 GATE. The property holds here
+		// SCOPE — READ BEFORE TRUSTING THIS AS A GATE ON THAT RULE. The property holds here
 		// and does NOT hold universally. The clamp keys on the role's REFERENCE
 		// variant while the vote keys on the PICKED variant, and
 		// referenceVariantForRole's own doc comment says divergence is expected
@@ -1669,12 +1671,12 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		//	  [sat]     -> pricey-v 4      (+3, and 3 GPUs is the true need)
 		//	  [sat,TA]  -> pricey-v 10     (+9, the whole inflated 9-GPU claim)
 		//
-		// That inflation is upstream of W4 and reachable with ONE analyzer: it
+		// That inflation is upstream of the abstention rule and reachable with ONE analyzer: it
 		// also shifts share between models in a multi-model pass with no TA
 		// involved. Whether a claim may be priced through a variant the picker
 		// cannot buy is an open design question, not a settled contract. The
-		// fixtures below therefore cover the aligned regime deliberately, and W4
-		// is NOT fully gated by them.
+		// fixtures below therefore cover the aligned regime deliberately, and the
+		// rule is NOT fully gated by them.
 		w4Sat := func() *domain.AnalyzerResult {
 			return &domain.AnalyzerResult{
 				RequiredCapacity: 30000,
@@ -1740,7 +1742,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		It("allocates the same with an unpriced voter present as with it absent", func() {
 			// Here the picker lands on the reference variant itself, so the entry
 			// that cannot price it is also excluded from the vote for it by
-			// votesFromPickerState. Both of W4's halves are exercised: no claim
+			// votesFromPickerState. Both halves of the rule are exercised: no claim
 			// (claimGPUs passes over the entry) and no spend.
 			withTA := decisionMap(optimizer.Optimize(ctx,
 				[]ModelScalingRequest{w4Request(true, false)}, roomyPool))
@@ -1799,7 +1801,7 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		// by the ratio between the two GPUsPerReplica values.
 		//
 		// Why this fixture and not a simpler one: the inflation needs no second
-		// analyzer and no W4 escape. Both models below are sat-only. The pool is
+		// analyzer and no abstention escape. Both models below are sat-only. The pool is
 		// honoured whichever way it goes (4 GPUs spent either way), so this is a
 		// pure redistribution BETWEEN models — which is why no pool check catches
 		// it and why every single-model-per-pass golden is blind to it.

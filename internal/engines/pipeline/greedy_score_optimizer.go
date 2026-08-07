@@ -327,7 +327,7 @@ func (o *GreedyByScoreOptimizer) fairShareScaleUp(
 // That was harmless while each role was handed the whole model entitlement,
 // because the allocation loop then always ran a model's demand to exhaustion
 // inside a single call and no second call had anything to re-serve. Once the
-// entitlement is one shared balance (W1) the loop stops mid-model whenever the
+// entitlement is one shared balance the loop stops mid-model whenever the
 // balance runs out, which is a defer — the model keeps what it committed and
 // comes back for the next round's entitlement — and the round after would serve
 // the same demand a second time.

@@ -1,15 +1,15 @@
 package pipeline
 
-// Liveness fixes for the multi-vote combine (PR-2 C7):
+// Liveness fixes for the multi-vote combine:
 //
-//   - VG-up: votingResults now prunes on Enabled && Live, not Enabled alone.
-//     Before this fix, an Enabled analyzer that had gone stale still seeded
-//     initRoleState/roleBottleneckReplicas with its last (possibly huge)
-//     Result, forcing a spurious scale-up. Scale-down was already Live-gated
-//     at point of use; this makes scale-up equally robust.
-//   - N7: needsScaleDownForRole now abstains a live voter that simply doesn't
-//     decompose a given role (map-miss), rather than reading the miss as
-//     "spare == 0" and vetoing every role a coarser voter never sized.
+//   - Scale-up gating: votingResults prunes on Enabled && Live, not Enabled
+//     alone. Were it Enabled alone, an enabled analyzer that had gone stale
+//     would still seed initRoleState/roleBottleneckReplicas with its last
+//     (possibly huge) Result and force a spurious scale-up. Scale-down is
+//     Live-gated at point of use; this makes scale-up equally robust.
+//   - Abstention: needsScaleDownForRole abstains a live voter that simply
+//     doesn't decompose a given role (map-miss), rather than reading the miss
+//     as "spare == 0" and vetoing every role a coarser voter never sized.
 
 import (
 	"context"
@@ -72,7 +72,7 @@ var _ = Describe("liveness gates on the multi-vote combine", func() {
 	})
 
 	Describe("needsScaleDownForRole", func() {
-		It("abstains a live voter that doesn't decompose this role, rather than vetoing (N7)", func() {
+		It("abstains a live voter that doesn't decompose this role, rather than vetoing", func() {
 			// saturation: disaggregated, RoleSpare[prefill]=RoleSpare[decode]=20000
 			// (positive -- would allow scale-down on either role).
 			// throughput: live, non-disaggregated -- initRoleState seeds it with
