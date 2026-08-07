@@ -43,28 +43,28 @@ rewrites C1–C5, and is coordinated then.
 ## TOC
 
 - [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L69:133
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:196
-  - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L171:196
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:316
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L317:389
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L390:419
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L420:789
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L427:446
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L447:494
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L495:557
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L558:624
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L625:743
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L744:770
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L771:789
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L790:932
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L799:834
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L835:871
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L872:932
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L933:967
-- [§4 Ship gate & tests](#4-ship-gate--tests) L968:1118
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1119:1220
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1221:1348
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1349:1399
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:197
+  - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L172:197
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L198:327
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L328:400
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L401:430
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L431:800
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L438:457
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L458:505
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L506:568
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L569:635
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L636:754
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L755:781
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L782:800
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L801:943
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L810:845
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L846:882
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L883:943
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L944:978
+- [§4 Ship gate & tests](#4-ship-gate--tests) L979:1129
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1130:1231
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1232:1359
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1360:1410
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -160,7 +160,8 @@ name-checks, per Dean's model. The anchor is derived on demand by the PR-1 Phase
    a deterministic tie-break — **saturation-if-present, else lowest analyzer index** (align with design
    § anchor). Add a two-binder fixture asserting the tie-break, not a hold. (Lands in **C1**.)
 5. **Abstain-vs-veto on role coverage — dataflow-map §9 N7.** The scale-down role list is
-   `rolesOf(anchor.VariantCapacities)`, and `needsScaleDownForRole` (`analyzer_helpers.go:445-457`)
+   `rolesOf(anchor.VariantCapacities)`, and `needsScaleDownForRole` (`analyzer_helpers.go:683-702`
+   at C6b's tip `d9f3b97e`; the `:445-457` this doc cited was pre-C7/C6a)
    requires **every** live voter to report `RoleSpare[role] > 0`; a live voter with **no opinion** on a
    role reads the map-miss as `0.0` → implicit **veto** (stuck-high). PR-1 is safe (a single binder
    defines the role set), but the multi-vote combine must decide explicitly whether a voter that does
@@ -202,13 +203,23 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
 `#4` was **downgraded** (traced 2026-08-03; not an active sizing bug — residual is observability
 `Utilization` only; confirm at coding whether any observability cleanup rides — default: none).
 
-- **#1 — `allocateForModelPaired` decrement unit (`analyzer_helpers.go:366-413`) → C4.** The loop
+> **Line numbers in this doc are informational-as-of-authoring; function names are authoritative.**
+> C1–C5/C7/C8/C6a/C6b have landed and moved the pipeline files by hundreds of lines, so any `file.go:N`
+> written before a given commit may now point into a different function. Navigate by
+> `grep -n "func <name>"`, not by the cited line. Citations were re-verified against C6b's tip
+> `d9f3b97e` on 2026-08-07 and the stale ones corrected (two in this section, one in §2 #5 (iii), one
+> in item 5 above); citations added after that date are as-of-then. Same principle as the rebase-target
+> rule — a pinned number is a snapshot, the named symbol is the moving ref.
+
+- **#1 — `allocateForModelPaired` decrement unit (`analyzer_helpers.go:724-833` at `d9f3b97e`; this doc
+  cited `:366-413`, which is now `combineVotes`) → C4.** The loop
   computes `utilByRole = n·prc/demand`, `deltaUtil = min_role`, `k = floor(deltaUtil·demand/prc)`, then
   `pickerState[i][role] -= k·prc` for **all** `i`, where `prc = prcFromVCs(variants, v)` = topology
   PRC_sat. But `roleBottleneckReplicas` reads `pickerState[i]/PRC_i`. Decrementing every analyzer's
   state by `k·PRC_sat` while dividing by `PRC_i` mixes units for `i ≠ saturation`. **Fix:** decrement
   in **replica units** (`k` replicas) or per-analyzer `k·PRC_i`, not `k·PRC_sat` uniformly.
-- **#2 — `roleAggRemaining` unit-mixing (`analyzer_helpers.go:201`) → C3.** `max_i state[i][role]` maxes
+- **#2 — `roleAggRemaining` unit-mixing (`analyzer_helpers.go:589` at `d9f3b97e`; this doc cited
+  `:201`) → C3.** `max_i state[i][role]` maxes
   raw `RequiredCapacity` across analyzers whose units differ (saturation = tokens, throughput =
   request-rate). Maxing tokens against req/s is meaningless. **Fix:** compare in **replica space**
   (`max_i rd_i`), `roleBottleneckReplicas`-style, not raw-capacity max. (Foundational — the MAX combine
@@ -277,8 +288,8 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
     two dead parameters already in the signature (`_ = s`, `_ = roles`, `:399-400`, commented "available
     for future multi-analyzer demand inspection") make the in-closure route look free; it is not. See
     §2d.5 *Reference PRC*.
-  - **(iii) scale-down tie-break `sortVariantsForScaleDown` (`cost_aware_optimizer.go:161-184`, weighted
-    sum `:168`)** — a **second** `Σ_i Score_i × PRC_i[v]` site. Lower severity (orders scale-down
+  - **(iii) scale-down tie-break `sortVariantsForScaleDown` (`cost_aware_optimizer.go:165-188`, weighted
+    sum `:172` inside the `weighted` closure `:166-175`)** — a **second** `Σ_i Score_i × PRC_i[v]` site. Lower severity (orders scale-down
     candidates within a role, never sizes), but the same wrong-operator/mixed-unit pattern; sweep here
     — drop the Score factor and tie-break on the **binding** analyzer's PRC (`combineVotes` binder,
     `up=false`), then name ascending. (Note: this site is **also** touched by C7's landed N7 role-coverage
