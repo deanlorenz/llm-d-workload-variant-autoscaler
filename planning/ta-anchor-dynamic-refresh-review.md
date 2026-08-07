@@ -1538,13 +1538,17 @@ and confirm it is not sitting on an integer boundary; if they retain a demand-sp
   7. The new fall-through fixture is **multi-variant within one role** — every existing fsv fixture is
      single-variant-per-role, where the error is identically zero.
   8. Goldens **re-run by me** on a scratch extract, not just reported green; §2d.5 predicts they cannot move.
-  9. **Three** fsv-formula locations updated across **two** dev-guide files, not one — plan §5 (amended
-     2026-08-07) found a third copy the earlier revision missed: `multi-analyzer-pipeline.md:622` and `:675`,
-     **plus `quota-limiter.md:284`** (`### Fair-share interaction`, "priority × score × unmet demand"). A
-     C6c that edits only `multi-analyzer-pipeline.md` leaves a stale Score-bearing formula shipped in
-     `quota-limiter.md`. While there, the worked example below it (~L309-325, "Wants" 3/4/4, mean ≈ 3.67)
-     already reasons in replicas, so its "worked-example caveat" hedge should go and **no number in it
-     changes** — if a number does change, the fsv conversion is wrong.
+  9. **Six** fsv-formula locations updated — four in the dev guide, two in code (revised upward from the
+     plan's "three across two files"; see **Finding 17**). Docs: `multi-analyzer-pipeline.md:622` and
+     `:675`, `quota-limiter.md:284` (`### Fair-share interaction`, "priority × score × unmet demand") and
+     `quota-limiter.md:328` (the parenthetical caveat, "priority × score × demand"). Code:
+     `greedy_score_optimizer.go:53-60` (`fairShareValue`'s own doc comment, already in plan §5) and
+     `:15-18` (the `GreedyByScoreOptimizer` **type** doc comment, not in §5). A C6c that edits only
+     `multi-analyzer-pipeline.md` leaves a stale Score-bearing formula shipped in `quota-limiter.md`; one
+     that satisfies §6's six-function criterion literally leaves the exported type's own doc comment
+     asserting `priority × Σᵢ(Remainingᵢ × Scoreᵢ)`. While in `quota-limiter.md`, the worked example
+     (~L309-325, "Wants" 3/4/4, mean ≈ 3.67) already reasons in replicas, so its "worked-example caveat"
+     hedge should go and **no number in it changes** — if a number does change, the fsv conversion is wrong.
   10. Do **not** trust §5's `~L` line numbers: they are as-of `f6485980`, PR-1's *pre-rebase* tip, whereas
       PR-2's base is `075a208e`. §5 says to grep the heading text, and every entry supplies it — use that.
   11. **Review C6c and C6d against plan tip `08e264bd`, and check which spec the diff actually implements.**
@@ -1876,5 +1880,66 @@ that band is `(0, 0.00365)` against a normal `itlSat ≈ 0.0644`, i.e. up to ~18
 only for `b ≈ −0.058` — the strongly-negative-intercept noisy fit the comment names. Narrow, but it is the
 exact failure the guard exists for, and skipping the row as cosmetic would have C10 *open* it. So: threaded
 from the same `resolveKSat` result the consumer uses, not a second resolution and not a literal.
+
+---
+
+## Finding 17 (should-fix, pre-emptive — plan-side undercount) — the Score-bearing fsv formula is written in **six** places, and the two the plan misses both slip §6's greps as worded
+
+**Handoff sent** (`plan__ta-anchor-c6c-fsv-formula-copies.md`), because C6c is not yet written and this is
+free to fix now and a coder round-trip after. Found by pre-measuring §6's C6c greps at `d9f3b97e` to get a
+denominator for the grep-to-zero check, rather than by reading the plan's prose.
+
+Plan §5 (L1001-1002) states *"The fsv formula appears in **three** places across two files"*; §6 (L1113)
+repeats the same three as the pre-fix expectation. Measured at `d9f3b97e`:
+
+| Location | Text | In plan's edit map? |
+|---|---|---|
+| `multi-analyzer-pipeline.md:622` | `fairShareValue = priority × Σᵢ Score_i × …` | Yes |
+| `multi-analyzer-pipeline.md:675` | `fsv = Priority × Σᵢ Score_i × …` | Yes |
+| `quota-limiter.md:284` | "priority × score × unmet demand" | Yes (§5's "one location") |
+| `quota-limiter.md:328` | "priority × score × demand" | **No** |
+| `greedy_score_optimizer.go:53-60` | `fsv = priority × Σᵢ Score_i × …` | Yes |
+| `greedy_score_optimizer.go:15-18` | `priority × Σᵢ(Remainingᵢ × Scoreᵢ)` | **No** |
+
+**Why `:15-18` is the more serious of the two.** It is the doc comment on the exported
+`GreedyByScoreOptimizer` type — the first prose a reader of the file being changed encounters — and it
+asserts both halves of what C6c changes (Score inside fsv; demand units). It slips **both** C6c greps as
+their acceptance criteria are phrased:
+
+- the code grep is `grep -rn "Score" internal/engines/pipeline/`, but the criterion is "no `Score` reference
+  in `fairShareValue` … `fairShareCap`, `computeMean`, `sortByRemainingDesc`, `allocateForModel`, or
+  `sortVariantsForScaleDown`" — and `:18` is inside none of those six, so the criterion passes with it stale;
+- the currency grep is `fairShareValue|w.remaining|fsv|remaining demand|unmet demand`, and `:17` says
+  "fair-share priority **value**" — none of those tokens match.
+
+`quota-limiter.md:328` is milder: it sits inside the same `### Fair-share interaction` section as `:284`
+(L278-330), which §5 does send the coder into, and §5 separately says the L327-329 "hedge can go" — deleting
+that sentence removes the copy incidentally. The gap is that §5 calls it "**one** location" and never names
+the formula inside the hedge, so a coder who *softens* the hedge rather than deleting it produces one grep
+survivor and gets routed into a `plan__` round-trip mid-commit — which is the expensive path §6's preamble
+prescribes for genuinely unanticipated hits.
+
+**Two things I checked and did not raise**, both because the plan already covers them — the sixth and
+seventh consecutive candidate findings to die that way, which is a good sign about the plan:
+
+- The fall-through fixture only goes red if the *un-allocated* variant is `sorted[0]` by
+  cost-**efficiency**; if the allocated one is `sorted[0]` then `prcRef == PRC_vc`, the ratio is exactly 1,
+  and the fixture is green before and after the fix. §4's C6c bullet already pins it: "different PRCs **and**
+  different costs, the cheaper-**efficiency** one made infeasible".
+- `docs/plans/engine/rescale-alpha.md:8` ("priority × demand") is rescale-alpha's group-budget rule, not
+  fsv, and C5 changed the demand→GPU *conversion* rather than that weighting. Excluded deliberately.
+
+**§2d.5's arithmetic re-derived independently** (same discipline that caught Finding 6), and it holds:
+`target_new = 50000/10000 = 5`; with the rescale `ceil(5 × 10000/2000) = 25`; without it `ceil(5) = 5`;
+under-allocation factor exactly 5, matching §4's "5 instead of 25". The neutrality claim for `vc == v_role`
+also holds — `costEfficiency` returns `math.MaxFloat64` for `PRC <= 0` (`cost_aware_optimizer.go:238-243`),
+so `sorted[0]` is the first positive-PRC candidate and same-slice-same-rule makes `prcRef` bit-identical to
+`v_role.PerReplicaCapacity`, giving a ratio of exactly `1.0`.
+
+**Pre-measured baselines for the C6c grep-to-zero** (so a survivor is distinguishable from a miscount):
+doc-half grep = **4** hits today, not 3; `fairShareCap` is a **local variable** at
+`greedy_score_optimizer.go:423` (`ceil(target / vc.PerReplicaCapacity)`), not a function, so it will not
+appear in a symbol search; fsv's three call sites are `:133`, `:348`, `:350`; the Score multiply is `:73`
+and the raw-unit fallback is `:78-91`.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)

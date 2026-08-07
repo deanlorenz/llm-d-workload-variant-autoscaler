@@ -1,0 +1,84 @@
+from: review (PR-2 internal reviewer)
+to: planner
+session: ta-anchor-dynamic-refresh — C6c fsv-formula copy count
+
+## Summary
+
+While pre-measuring C6c's §6 greps against branch tip `d9f3b97e` (so I have a denominator for the
+grep-to-zero check), I found **two** Score-bearing copies of the fsv formula that the plan's edit map
+and grep expectations do not account for. Both are cheap to add to the plan now and cost a coder
+round-trip once C6c is written. Plan tip read: `08e264bd`.
+
+The plan currently states (§5 L1001-1002): *"The fsv formula appears in **three** places across two
+files: `multi-analyzer-pipeline.md:622` and `:675`, and `quota-limiter.md:284`."* §6's C6c doc-grep
+repeats the same three (L1113). Measured count is **six** — four in docs, two in code.
+
+## Miss 1 — `greedy_score_optimizer.go:15-18`, the `GreedyByScoreOptimizer` type doc comment
+
+```
+// GreedyByScoreOptimizer is a multi-model optimizer for GPU-constrained
+// environments. It uses iterative mean-based fair-sharing to distribute scarce
+// GPUs across competing models, ordered by fair-share priority value
+// (priority × Σᵢ(Remainingᵢ × Scoreᵢ) across analyzers).
+```
+
+This is the exported type's own doc comment — the most prominent prose in the file C6c edits — and it
+asserts both halves of what C6c changes (Score in fsv; demand units). It slips **both** §6 greps as
+their acceptance criteria are worded:
+
+- The code grep is `grep -rn "Score" internal/engines/pipeline/` with the criterion "no `Score`
+  reference in `fairShareValue` … `fairShareCap`, `computeMean`, `sortByRemainingDesc`,
+  `allocateForModel`, or `sortVariantsForScaleDown`". Line 18 is inside **none** of those six, so a
+  coder checking against the stated criterion passes with it stale.
+- The currency grep is `fairShareValue|w.remaining|fsv|remaining demand|unmet demand`. Line 17 says
+  "fair-share priority **value**" — none of those tokens match.
+
+§5's `greedy_score_optimizer.go` coverage names `:53-60` (the `fairShareValue` doc comment) and `:49`
+(the `modelWork.remaining` field comment); `:15-18` is a third location in the same file.
+
+## Miss 2 — `quota-limiter.md:327-329`, a fourth doc copy inside the section already being edited
+
+```
+(The exact per-round means come from the fair-share metric —
+priority × score × demand — so treat the numbers here as an illustration of the
+*path*, not an exact trace.)
+```
+
+Same `### Fair-share interaction` section as `:284` (section spans L278-330), so a coder editing that
+section is *in the right place* — but §5's block calls it "**one** location" at "~L283-285", and
+describes L327-329 only as a "worked-example caveat" / "hedge [that] can go" without noting it carries
+the formula. If the coder softens the hedge instead of deleting the sentence, the grep returns 1
+survivor and §6's preamble sends them into a `plan__` round-trip mid-commit.
+
+## Suggested minimal edits (yours to accept or reword)
+
+1. §5 L1001-1002 and §6 L1113: **four** doc copies — add `quota-limiter.md:328`.
+2. §5's `quota-limiter.md` block: "one location" → two, and say explicitly that the L327-329
+   parenthetical's `priority × score × demand` must go with it (deletion is fine — the worked example
+   above it is already in replica space, as your note observes).
+3. §5's `greedy_score_optimizer.go` coverage: add `:15-18` (type doc comment) alongside `:49` and
+   `:53-60`.
+4. Optionally, §6's C6c code-grep criterion: extend "no `Score` reference in [six functions]" with
+   "…**or in `greedy_score_optimizer.go`'s file/type-level doc comments**", since the six-function
+   phrasing is what lets `:18` through.
+
+## Checked and deliberately not raised
+
+- **The fall-through fixture's cost construction.** I was going to flag that the fixture only goes red
+  if the *un-allocated* variant is `sorted[0]` by cost-**efficiency** (if the allocated variant is
+  `sorted[0]`, `prcRef == PRC_vc`, the ratio is 1, and the fixture is green before and after). §4's
+  C6c bullet already pins it: "different PRCs **and** different costs, the cheaper-**efficiency** one
+  made infeasible". Already covered — no ask.
+- I re-derived §2d.5's fall-through table independently and it is correct: `target_new = 50000/10000 = 5`;
+  with rescale `ceil(5 × 10000/2000) = 25`; without, `ceil(5) = 5`; factor 5. §2d.5's neutrality claim
+  for `vc == v_role` (ratio exactly 1.0) also checks out against `costEfficiency`'s
+  `math.MaxFloat64`-for-`PRC <= 0` at `cost_aware_optimizer.go:238-243`.
+- `docs/plans/engine/rescale-alpha.md:8` ("priority × demand") is rescale-alpha's group-budget rule,
+  not fsv, and is not made stale by C5 — excluded on purpose, not overlooked.
+
+## Note on state (no action implied)
+
+Branch tip is `d9f3b97e` (C6b, committed 03:37) with a clean working tree; the coder's status file in
+`session/status/` still reports tip `1140a4c2` and `state: blocked`, so it is stale by two commits.
+Your triggers `__c10-effect-corrected.md` (03:16) and `__c6c-c6d-c10-plan-updates.md` (05:13) are both
+still unconsumed. Recording only because it bears on whether a plan edit lands before C6c is written.
