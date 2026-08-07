@@ -56,15 +56,15 @@ rewrites C1–C5, and is coordinated then.
   - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L534:556
   - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L557:583
   - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L584:602
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L603:710
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L610:645
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L646:682
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L683:710
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L711:745
-- [§4 Ship gate & tests](#4-ship-gate--tests) L746:805
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L806:872
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L873:931
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L932:982
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L603:745
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L612:647
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L648:684
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L685:745
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L746:780
+- [§4 Ship gate & tests](#4-ship-gate--tests) L781:845
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L846:914
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L915:973
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L974:1024
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -186,7 +186,7 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C6d** | Finding **(c)** — a **live** analyzer reporting `RoleSpare[role] <= 0` vetoes removal for that role's variants even with no per-variant PRC (distinct from C7's N7 *abstain*). | live-objector-without-PRC fixture (red: replicas removed; green: held) | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
-| **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; shifts every TA vote ~6%. | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85) | throughput-analyzer (5 named locations) | §2e |
+| **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; a correctness/configurability fix — the numeric shift is sub-1% at default config, *not* the ~6% an early draft claimed (§2e.3). | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85), **tight tolerance** | throughput-analyzer (5 named locations) | §2e |
 | **C9** | **Dev-guide multi-vote sections + goldens endgame** — multi-vote reference prose; **relax/remove** the #1513 sat-only goldens as an explicit commit once the multi-vote goldens cover the single-vote sub-case. | multi-vote goldens; hand-worked design examples | all touched dev-guides finalized | §4 |
 
 [↑ TOC](#toc)
@@ -604,8 +604,10 @@ State that in the commit message (CODER-CONVENTIONS §4a — describe it in pros
 
 Folded in by Dean 2026-08-07 ("*Use the same target as sat. This looks like a small trivial bug. Fold it
 in. Too many small PRs already*"). Not a combine-arithmetic bug — a **capacity-definition** bug inside the
-throughput analyzer — but it belongs here because it shifts every TA vote by a fixed ~6%, and PR-2 is the
-PR that makes TA's vote count.
+throughput analyzer — but it belongs here because PR-2 is the PR that makes TA's vote count *against
+saturation's*, and a shared definition of "full" is the precondition for comparing the two. The numeric
+shift is small (§2e.3, sub-1% at default config); the reason to fix it is correctness and configurability,
+not magnitude.
 
 ### §2e.1 Three constants; TA mirrored the wrong one
 
@@ -682,26 +684,59 @@ system-wide k_sat used by the EPP` moves onto `resolveKSat` (still open — see 
 
 ### §2e.3 Effect, churn, ordering
 
-**Effect.** Under any defaulted config TA now evaluates capacity at 0.80 instead of 0.85 ⇒ PRC **↓ ~5.9%**
-⇒ TA's replica vote **↑ ~6%**. Intended, and conservative in direction (TA asks for slightly more, on
-saturation's basis). Before the fix TA systematically voted ~6% *fewer* replicas than a matched-basis
-saturation on identical load — a fixed thumb on the scale that biases the §2d binder (`argmax`) and feeds
-the dominance correction. Invisible while TA's result was sole-or-discarded; live the moment §2d makes it
-vote.
+**Effect — much smaller than it looks, and model-dependent.** `kSat` enters per-replica capacity
+**twice**, not once: `computeVariantSupply` forms `N_sat = kSat × KV_max / KVreq` and divides it by
+`itlSat = ITLAt(kSat) = A·kSat + B` (computed at `analyzer.go:295`, consumed at `:719`). So
+
+```
+μ_dec_sat(k) = (k · KV_max / KVreq) / (A·k + B)
+
+μ(0.80)/μ(0.85) = (0.80/0.85) · (A·0.85 + B)/(A·0.80 + B)
+                   └ 0.9412 ┘   └────── > 1 whenever A > 0 ──────┘
+```
+
+Lowering `k` shrinks numerator and denominator together and they largely cancel. Writing `r = B/A`, the
+drop is `1 − (0.80/0.85)·(0.85 + r)/(0.80 + r)`: **0% at `r = 0`** (pure-slope ITL — `μ = KV_max/(KVreq·A)`,
+independent of `k` entirely), rising monotonically toward 5.88% only as `r → ∞`. `validITLModel` requires
+`a > itlSlopeEpsilon` (`1e-12`), so `A > 0` always holds and the `r → ∞` end is structurally unreachable.
+With `B ≈ DefaultBaselineITLSec = 0.006` and slopes of order `1e-2`, the realistic band is **0.4%–2.5%**.
+
+Against the shipped fixture (`analyzer_test.go:266-274` — `A=0.073 B=0.006 KV_max=1024000 KVreq=4600`,
+i.e. `r = 0.0822`):
+
+| | `N_sat` | `ITL_sat` | `μ_sat` |
+|---|---|---|---|
+| k=0.85 (today) | 189.2174 | 0.06805 | **2780.56** |
+| k=0.80 (post-C10) | 178.0870 | 0.06440 | **2765.33** |
+
+⇒ **−0.548%**. An earlier draft of this section claimed ~5.9% — that was `1 − 0.80/0.85`, the **numerator
+alone**, off by ~11×; corrected 2026-08-07 on a reviewer finding. The *direction* is still the intended one
+(PRC down ⇒ TA's replica vote up, conservative on saturation's basis), but at sub-1% under defaulted config
+the integer vote moves only where `ceil` happens to straddle. **Justify C10 as a correctness and
+configurability fix, not as a systematic ~6% correction — and keep the 6% figure out of the commit
+message.**
 
 **Test churn** (all inside `internal/engines/analyzers/throughput/`; no other package constructs TA):
 - `itl_model_test.go` — 10 `FitITLModel(...)` + 6 `validITLModel(...)` call sites take a new arg
   (mechanical); the comment at `:136` names `DefaultKSat`.
-- `analyzer_test.go` — the only file calling `NewThroughputAnalyzer`, and **no** TA test sets
-  `input.Config`, so every one takes the fallback and its expected supply/PRC numbers move ~6%.
-  **Re-derive each moved expectation** from `N_dec_sat = kSat × KV_max / KVreq`; do not re-baseline to
-  whatever the code now prints.
+- `analyzer_test.go` — **expect little or no numeric churn; do not go hunting for it.** It is the only file
+  calling `NewThroughputAnalyzer` and no TA test sets `input.Config`, so every one takes the fallback — but
+  all three `TotalSupply` assertions (`:367`, `:405`, `:425`) read
+  `BeNumerically("~", muSat, muSat*0.10)` against `muSat = 2782.0` (`:273`), a **±10% tolerance**. A 0.55%
+  shift stays far inside it, so nothing goes red. Two things are nonetheless required: **(i)** the
+  derivation comment at `:259-264` spells `0.85` into the `N_sat` and `ITL_sat` lines — rewrite it against
+  the resolved k_sat and re-derive the numbers it prints; **(ii)** if an expectation *does* move, re-derive
+  it from the **full two-place ratio above** — numerator `N_sat = kSat × KV_max / KVreq` **and** denominator
+  `itlSat = A·kSat + B`. Scaling by `0.80/0.85 = 0.9412` alone lands ~5% off, and the ±10% tolerance will
+  not catch it: wrong expectation, green gate.
 - **#1513 goldens are saturation-only ⇒ unaffected.** Re-run anyway (§4).
 
 **Ordering — C10 lands after C6a–C6d and before C9.** The combine fixtures in C1–C6 build
 `NamedAnalyzerResult` values directly from synthetic RC/PRC and are immune to TA's k_sat; only TA's own
-package tests move. Landing C10 late confines the moved-expectation churn to one commit instead of smearing
-it across the combine commits.
+package tests are touched at all. Landing C10 late keeps the analyzer-internal change out of the combine
+commits, so any TA-package test movement is attributable to one commit rather than smeared across the
+arithmetic fixes — a separation-of-concerns argument, which stands even though the expected movement turns
+out to be near-zero (above).
 
 [↑ TOC](#toc)
 
@@ -784,9 +819,14 @@ after. Run with `-race` (§4).
   - C10 — `resolveKSat` **unit table** (config sets `KvCacheThreshold` ⇒ that value · field zero ⇒
     `DefaultKvCacheThreshold` · non-saturation config type ⇒ default · nil config ⇒ default), plus a TA
     `Analyze` fixture whose `Config` carries `KvCacheThreshold: 0.5` asserting per-replica capacity tracks
-    it (red before: PRC pinned at 0.85 whatever the config says). The existing `analyzer_test.go`
-    expectations move ~6% — **re-derive each from `N_dec_sat = kSat × KV_max / KVreq`**, do not re-baseline
-    to whatever the code prints (§2e.3).
+    it (red before: PRC pinned at 0.85 whatever the config says). **That fixture needs a tight tolerance,
+    ~1%, and must not copy the neighbours' `muSat*0.10` idiom** — on the shipped fixture model
+    `μ(0.5) = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9`, only 5.8% below the k=0.85
+    value of 2780.56, so at ±10% it passes either way and asserts nothing. Existing `analyzer_test.go`
+    expectations are **not** expected to move (0.55% shift vs ±10% tolerance — do not manufacture churn);
+    if one does, re-derive it from the **two-place** ratio, numerator `N_sat = kSat × KV_max / KVreq` *and*
+    denominator `itlSat = A·kSat + B`, never by scaling `0.80/0.85` (§2e.3). Also rewrite the derivation
+    comment at `analyzer_test.go:259-264`, which spells `0.85` into both lines.
 - **Goldens are run per commit, not just at the end.** C6a and C6b must leave them byte-identical (uniform
   scores ⇒ old arithmetic). C6c is the only commit where a golden *could* plausibly move — the verified
   analysis in §2d.5 says it does not. **If a golden moves at any point: stop, and write a `plan__` handoff
@@ -851,8 +891,10 @@ doc** (not the combine reference) — combine-arithmetic changes go in `multi-an
   under `[TA]`-only), **C8** (notation strip). *Modify.*
 
 **`docs/developer-guide/throughput-analyzer.md`** — **C10**, five locations:
-- `N_dec_sat = DefaultKSat × KV_max / KVreq` (~L460) — the formula now reads against the **resolved** k_sat.
-  *Modify.*
+- the `## Supply Estimation` block (~L458-459) — **both** lines read against the **resolved** k_sat:
+  `N_dec_sat = k_sat × KV_max / KVreq` *and* `μ_dec_sat = N_dec_sat / ITL(k_sat)`. The doc is already
+  correct that k_sat appears twice; keep it that way, since that is exactly why the change moves the number
+  far less than the numerator alone suggests (§2e.3). *Modify.*
 - the `DefaultKSat = 0.85` gloss (~L470) — replace with saturation's configured `kvCacheThreshold`
   (default **0.80**), and say *why*: one definition of "full" shared across analyzers. State explicitly that
   this is **not** `scaleUpThreshold` — that is a watermark the engine applies to RC/SC afterwards.
