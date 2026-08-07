@@ -440,6 +440,9 @@ func fillRole(
 		if wantGPUs-spent <= 0 {
 			break
 		}
+		// Unpriced on this topology: no per-replica capacity means no conversion
+		// from replicas to served demand, so this variant cannot absorb any part
+		// of wantGPUs. It contributes no fill and is charged nothing.
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}
@@ -570,6 +573,9 @@ func roleDemandGPUs(anchor *domain.AnalyzerResult, s []NamedAnalyzerResult, stat
 	var bestVariant string
 	bestGPUs := 1
 	for _, vc := range sortByCostEfficiencyAsc(variantsForRole(variantsOnType(anchor.VariantCapacities, accType), role)) {
+		// Unpriced on this topology, so it cannot serve as the role's reference.
+		// The reference variant is the conversion factor demand is priced
+		// through, and a variant with no per-replica capacity supplies none.
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}

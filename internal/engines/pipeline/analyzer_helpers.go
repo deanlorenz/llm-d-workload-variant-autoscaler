@@ -75,6 +75,11 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 		}
 		prc := prcForVariant(s[i].Result, v)
 		if prc <= 0 {
+			// This entry cannot price v, so it abstains on v: it made no claim
+			// against v and it is charged nothing for v. Debiting it at some
+			// stand-in rate would bill an analyzer for capacity it never asked
+			// for; leaving Remaining untouched is the abstention, not an
+			// oversight.
 			continue
 		}
 		s[i].Remaining -= float64(n) * prc
@@ -437,6 +442,10 @@ func votesFromPickerState(s []NamedAnalyzerResult, state RolePairedState, role, 
 		}
 		prc := prcForVariant(e.Result, variant)
 		if prc <= 0 {
+			// Cannot price this variant, so it abstains rather than voting zero:
+			// a zero vote is an opinion that no replicas are needed, which is
+			// the opposite of having no opinion. Casting no vote leaves the
+			// bottleneck to the entries that can actually price the variant.
 			continue
 		}
 		out = append(out, replicaVote{Index: i, Value: state[i][role] / prc, Score: voteScore(e)})
@@ -464,6 +473,10 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 		}
 		prc := prcForVariant(e.Result, variant)
 		if prc <= 0 {
+			// Cannot price this variant, so it abstains: its demand is real but
+			// there is no factor to convert it into replicas of this variant,
+			// and demand that cannot be priced must not inflate the model's
+			// claim. See the participation filter in the developer guide.
 			continue
 		}
 		out = append(out, replicaVote{Index: i, Value: demand / prc, Score: voteScore(e)})
@@ -504,6 +517,10 @@ func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replica
 		}
 		prc := prcForVariant(e.Result, variant)
 		if prc <= 0 {
+			// Cannot price this variant, so it abstains from the safe-removal
+			// minimum. Abstaining is not the same as reporting no spare: an
+			// entry that cannot price the variant has no view on how many of its
+			// replicas are removable, and a zero here would veto every removal.
 			continue
 		}
 		out = append(out, replicaVote{Index: i, Value: e.RoleSpare[role] / prc, Score: voteScore(e)})
@@ -746,6 +763,9 @@ func applyDeallocationForRole(s []NamedAnalyzerResult, v, role string, n int) {
 		}
 		prc := prcForVariant(s[i].Result, v)
 		if prc <= 0 {
+			// Cannot price v, so it abstained on v above and is credited nothing
+			// back for it here. The two must agree: an entry that did not
+			// constrain the removal must not have its spare adjusted by it.
 			continue
 		}
 		spare -= float64(n) * prc

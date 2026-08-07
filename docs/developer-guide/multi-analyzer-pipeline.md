@@ -297,6 +297,33 @@ doesn't decompose the role; the other two read the map-miss as `0`, so the entry
 votes zero rather than abstaining. On the scale-down path that difference is
 visible and deliberate — see the gate discussion below.
 
+**Abstaining is not the same as being exempt.** An analyzer that cannot price a
+variant contributes no claim for it — that is the participation filter above —
+and it must also spend nothing on it. Those are two halves of one property, and
+they are enforced in two different places: the claim side by the collectors, the
+spend side by the `continue` at `allocateForModel`'s per-role clamp. It is
+tempting to read the clamp's `continue` as merely skipping a harmless entry.
+That reading is wrong twice over. An entry that escapes the clamp still holds
+whatever demand it reported, and demand that was never converted into the
+model's claim but is still available to draw against the model's entitlement is
+an unpriced draw on a shared budget — the analyzer spends from a fair share it
+did not contribute to. The wording matters for the same reason: "skipped"
+describes what the code does, "abstains" describes what it means, and only the
+second makes the missing spend look like part of the contract.
+
+The reason this is easy to miss is that the two filters are keyed on **different
+variants**. The clamp keys on the role's *reference* variant
+(`referenceVariantForRole`); the vote keys on the variant the picker actually
+landed on. When they coincide, an entry that escapes the clamp is also absent
+from the vote, and nothing is observable. When they diverge — which
+`referenceVariantForRole`'s own doc comment says is expected once the cheaper
+variant is at its replica ceiling — the entry can escape the clamp and still
+vote for a variant it *can* price. Whether that is observable then depends on
+whether the entitlement or the vote bottleneck binds first, so the safety here
+is a coincidence of two independent filters rather than a guarantee. There is a
+measured case where it does not hold; see [Fair-share
+iteration](#fair-share-iteration-greedybyscoreoptimizer-only).
+
 **How much each vote counts.** Read the extremum first: with every analyzer at
 the default `score: 1.0` — which is what every shipped config uses — the combine
 *is* the plain cross-analyzer max (scale-up) or min (scale-down), and the rest of
@@ -740,6 +767,37 @@ that does not exist, and the doubled draw surfaced as a fair-share violation
 rather than as a failure: the pool was enforced, the fair share was not. It moved
 no golden either, because a golden with a single active model gets `mean == 0`
 and therefore `target == claim` — the entitlement can only bind under contention.
+
+**A claim is priced through one variant and spent through another.** `claimGPUs`
+converts a role's demand to GPUs through `referenceVariantForRole` — the role's
+cost-efficiency winner — using *that* variant's `GPUsPerReplica`. The entitlement
+is then spent through whichever candidate `fairShareRolePick` lands on, using
+*that* variant's `GPUsPerReplica`. The two agree only when the two variants agree
+on GPUs per replica. When the reference variant is the more GPU-hungry one, the
+claim — and therefore the model's entitlement and its ranking position — is
+inflated by the ratio between them.
+
+This is reachable, and it is what makes the abstention gap in [How results
+combine](#how-results-combine) observable. Reference selection filters only on
+`PerReplicaCapacity > 0` and does **not** check headroom, so it can price a whole
+role through a variant the picker provably cannot buy — one already at its
+`MaxReplicas`. Two measured consequences, both with the pool never binding:
+
+- With a second analyzer that cannot price the reference variant, that analyzer
+  escapes the clamp and votes past the claiming analyzer's bottleneck to fill the
+  inflated entitlement. A reference variant at 3 GPUs/replica pinned at its
+  ceiling, against a picked variant at 1 GPU/replica, turns `+3` replicas into
+  `+9` — the whole 9-GPU claim, where the true need was 3 GPUs.
+- With a **single** analyzer and two contending models, the inflated claim wins a
+  larger share. Two models each truly needing 3 GPUs, a 4-GPU pool: changing only
+  the `GPUsPerReplica` of a variant the first model *cannot buy* moves it from an
+  even 2/2 split of the additions to 3/1 in its favour.
+
+Note what the second case implies for testing. The pool is honoured in both runs
+— it is a pure redistribution between models — so no pool check catches it, and
+no single-model golden can. The claim-pricing question is open with the Type-1
+owner; the abstention fixtures in `greedy_score_optimizer_test.go` deliberately
+cover only the regime where the reference and picked variants agree, and say so.
 
 ### Rescale pre-pass (GreedyByScoreOptimizer only)
 

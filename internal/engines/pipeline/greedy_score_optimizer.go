@@ -366,7 +366,9 @@ func debitCommittedDemand(
 			}
 			prc := prcForVariant(e.Result, vc.VariantName)
 			if prc <= 0 {
-				continue // this entry cannot price the variant, so it charged nothing
+				// Cannot price the variant, so it abstained on it and charged
+				// nothing: there is no committed demand of its own to debit.
+				continue
 			}
 			ps[i][role] = math.Max(0, ps[i][role]-float64(given)*prc)
 		}
@@ -675,6 +677,12 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 
 		roleVCs := variantsForRole(variants, role)
 		for _, vc := range sortByCostEfficiencyAsc(roleVCs) {
+			// Unpriced on the anchor's topology: no per-replica capacity means no
+			// conversion between the entitlement, which is in GPUs, and the
+			// demand this variant would serve, so it can neither be sized
+			// against the balance nor charged to it. The gate asks whether the
+			// variant has a price, not whether some number is zero -- a variant
+			// admitted at a sentinel price is priced, and passes.
 			if vc.PerReplicaCapacity <= 0 {
 				continue
 			}

@@ -92,6 +92,11 @@ func costGreedyRolePick(
 ) (string, int) {
 	roleVCs := variantsForRole(variants, role)
 	for _, vc := range sortByCostEfficiencyAsc(roleVCs) {
+		// Unpriced on the anchor's topology: with no per-replica capacity there
+		// is no conversion between replicas and served demand, so this variant
+		// cannot be sized or charged for. It is passed over as unpriceable, not
+		// treated as a variant whose capacity happens to be zero -- nothing
+		// claims it and nothing is spent on it.
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}
@@ -122,6 +127,11 @@ func scaleDownVariantSet(
 ) {
 	logger := ctrl.LoggerFrom(ctx)
 	for i, vc := range sortedVariants {
+		// Unpriced on this topology: removing a replica of a variant with no
+		// per-replica capacity releases no accountable capacity, so there is
+		// nothing to credit against the reduction. It is passed over as
+		// unpriceable rather than counted as a removal that costs the model
+		// nothing to make.
 		if vc.PerReplicaCapacity <= 0 {
 			continue
 		}
@@ -194,7 +204,9 @@ func sortVariantsForScaleDown(
 			}
 			prc := prcForVariant(e.Result, name)
 			if prc <= 0 {
-				continue // no capacity for v: no estimate to offer, not an estimate of zero
+				// Cannot price v, so it abstains: no estimate to offer, which is
+				// not the same as an estimate of zero.
+				continue
 			}
 			if r := prc / float64(gpusPR); r > best {
 				best = r
@@ -263,7 +275,11 @@ func sortByCostEfficiencyAsc(capacities []domain.VariantCapacity) []domain.Varia
 	return sorted
 }
 
-// costEfficiency returns the cost per unit of capacity.
+// costEfficiency returns the cost per unit of capacity. An unpriced variant --
+// one with no per-replica capacity on this topology -- has no cost per unit to
+// report, so it sorts last rather than first. MaxFloat64 keeps it out of every
+// cost-ascending pick without pretending its efficiency is zero, which would
+// make the one variant nobody can price the cheapest thing in the pool.
 func costEfficiency(vc domain.VariantCapacity) float64 {
 	if vc.PerReplicaCapacity <= 0 {
 		return math.MaxFloat64

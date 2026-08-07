@@ -1566,6 +1566,141 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		})
 	})
 
+	Context("Abstain Is Not Exempt", func() {
+
+		// W4: an analyzer with no per-replica capacity for the variant it is being
+		// clamped against abstains — it contributes no claim and it spends
+		// nothing. It is NOT budget-exempt. The `continue` at the clamp in
+		// allocateForModel is the abstention.
+		//
+		// The assertion is an EQUALITY, not a magnitude: adding a voter that
+		// cannot price the reference variant must not change the allocation at
+		// all. Asserting a number would pin today's arithmetic instead of the
+		// property. The companion is the 3-analyzer non-participant fixture in
+		// analyzer_helpers_test.go, which pins the same property inside
+		// combineVotes; this one pins it at the spend sites.
+		//
+		// SCOPE — READ BEFORE TRUSTING THIS AS A W4 GATE. The property holds here
+		// and does NOT hold universally. The clamp keys on the role's REFERENCE
+		// variant while the vote keys on the PICKED variant, and
+		// referenceVariantForRole's own doc comment says divergence is expected
+		// when the cheaper variant is at its replica ceiling. When those two
+		// variants also disagree on GPUsPerReplica, the claim is priced through
+		// the reference variant's value and spent through the picked one's, so the
+		// entitlement is inflated by their ratio and an abstaining voter can spend
+		// past the claiming voter's bottleneck to fill it. Measured, single role,
+		// pool 100, sat demand 30000, TA demand 100000 pricing only pricey-v:
+		//
+		//	cheap-v  (reference) PRC 10000, 3 GPUs/replica, MaxReplicas 1
+		//	pricey-v (picked)    PRC 10000, 1 GPU/replica
+		//	  [sat]     -> pricey-v 4      (+3, and 3 GPUs is the true need)
+		//	  [sat,TA]  -> pricey-v 10     (+9, the whole inflated 9-GPU claim)
+		//
+		// That inflation is upstream of W4 and reachable with ONE analyzer: it
+		// also shifts share between models in a multi-model pass with no TA
+		// involved. Both are written up in
+		// plans/session/handoffs/plan__ta-anchor-c6f-w4-no-spend-is-false.md and
+		// review__ta-anchor-claim-inflation-measured-single-analyzer.md, and the
+		// claim-pricing question is open with the Type-1 owner. The fixtures below
+		// therefore cover the aligned regime deliberately, and W4 is NOT fully
+		// gated by them.
+		w4Sat := func() *domain.AnalyzerResult {
+			return &domain.AnalyzerResult{
+				RequiredCapacity: 30000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "cheap-v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+					{VariantName: "pricey-v", AcceleratorName: "A100", Cost: 20.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+		}
+		// Prices ONLY pricey-v, so prcForVariant(ta, "cheap-v") is zero and this
+		// entry cannot price the role's reference variant. Its demand is more than
+		// three times sat's, so a voter that escaped the budget would be obvious.
+		w4TA := func() *domain.AnalyzerResult {
+			return &domain.AnalyzerResult{
+				RequiredCapacity: 100000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "pricey-v", AcceleratorName: "A100", Cost: 20.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}
+		}
+		// capReference pins cheap-v at its current replica count, which is what
+		// pushes the picker onto pricey-v and makes reference != picked.
+		w4States := func(capReference bool) []domain.VariantReplicaState {
+			one := 1
+			st := []domain.VariantReplicaState{
+				{VariantName: "cheap-v", CurrentReplicas: 1, GPUsPerReplica: 1},
+				{VariantName: "pricey-v", CurrentReplicas: 1, GPUsPerReplica: 1},
+			}
+			if capReference {
+				st[0].MaxReplicas = &one
+			}
+			return st
+		}
+		// Both ballots use the same model identity, so the comparison below covers
+		// the whole decision — action, cost, replica counts — and not just the
+		// numbers a hand-picked field accessor would have looked at.
+		w4Request := func(withTA, capReference bool) ModelScalingRequest {
+			sat := w4Sat()
+			req := withSatEntry(sat, ModelScalingRequest{
+				ModelID:       "w4",
+				Namespace:     "default",
+				Priority:      1.0,
+				VariantStates: w4States(capReference),
+			})
+			if withTA {
+				ta := w4TA()
+				req.AnalyzerResults = append(req.AnalyzerResults, NamedAnalyzerResult{
+					Name:      "throughput",
+					Result:    ta,
+					Remaining: ta.RequiredCapacity,
+					Enabled:   true,
+					Live:      true,
+				})
+			}
+			return req
+		}
+		// The pool is far larger than anything claimed here, so it is never what
+		// makes the two ballots agree — the entitlement is.
+		roomyPool := []*ResourceConstraints{
+			{Pools: map[string]ResourcePool{"A100": {Limit: 100}}},
+		}
+
+		It("allocates the same with an unpriced voter present as with it absent", func() {
+			// Here the picker lands on the reference variant itself, so the entry
+			// that cannot price it is also excluded from the vote for it by
+			// votesFromPickerState. Both of W4's halves are exercised: no claim
+			// (claimGPUs passes over the entry) and no spend.
+			withTA := decisionMap(optimizer.Optimize(ctx,
+				[]ModelScalingRequest{w4Request(true, false)}, roomyPool))
+			without := decisionMap(optimizer.Optimize(ctx,
+				[]ModelScalingRequest{w4Request(false, false)}, roomyPool))
+
+			Expect(withTA).To(Equal(without),
+				"a voter that cannot price the reference variant must not change the allocation")
+		})
+
+		It("allocates the same when the picker lands off the reference variant", func() {
+			// cheap-v is at its ceiling, so the picker lands on pricey-v — which
+			// the abstaining entry CAN price, and does vote for. The equality
+			// still holds because the entitlement binds: the claim is priced
+			// through cheap-v and spent through pricey-v, and the two share a
+			// GPUsPerReplica, so capN lands exactly on the replica count sat alone
+			// would ask for and bounds n whatever the second voter votes.
+			//
+			// This is the regime boundary described in the Context comment. Make
+			// the two GPUsPerReplica values differ and this equality fails; that
+			// is the open claim-pricing question, not a defect in this fixture.
+			withTA := decisionMap(optimizer.Optimize(ctx,
+				[]ModelScalingRequest{w4Request(true, true)}, roomyPool))
+			without := decisionMap(optimizer.Optimize(ctx,
+				[]ModelScalingRequest{w4Request(false, true)}, roomyPool))
+
+			Expect(withTA).To(Equal(without),
+				"reference != picked must not by itself hand the unpriced voter a draw")
+		})
+	})
+
 	Context("Helper Functions", func() {
 
 		It("filterActive should return only models with remaining > 0", func() {
