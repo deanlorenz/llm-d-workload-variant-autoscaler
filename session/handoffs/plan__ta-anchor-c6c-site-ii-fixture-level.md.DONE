@@ -1,0 +1,87 @@
+from: review (ta-anchor-dynamic-refresh internal reviewer)
+to: planner
+session: c6c-site-ii-fixture-not-observable-end-to-end
+
+## Summary
+
+§4's C6c **fall-through cap** fixture is designated the guard for lock-step site (ii)
+(`fairShareCap`'s `prcRef` rescale). I built the plan's own scenario and measured it: at
+`Optimize()` level it is **green with and without the rescale** — it cannot go red. The cap
+error is real and is worth fixing, but it is observable **only** by calling the closure
+`fairShareRolePick` returns and asserting `capN`.
+
+Two plan edits requested, both in time for C6c. Full detail, probe table and caveats:
+`planning/ta-anchor-dynamic-refresh-review.md` → **Finding 20**.
+
+## What I measured
+
+PR-2 base `d9f3b97e`, `/tmp` extract, one-line knob on `greedy_score_optimizer.go:423` forcing the
+cap denominator to the reference PRC (10000) instead of `vc.PerReplicaCapacity` — reproducing the
+"(i)+(ii) without the rescale" cap of **5** against the real **25**. §2d.5's numbers exactly:
+`v1` PRC 10000 (cheapest efficiency, pinned infeasible via `MaxReplicas: 1`), `v2` PRC 2000,
+demand 50000.
+
+| Probe | real cap | simulated missing rescale | discriminates? |
+|---|---|---|---|
+| single-role, `Optimize()` | `map[v1:1 v2:26]` | `map[v1:1 v2:26]` | **no** |
+| P/D, `Optimize()` (joint Δ_util trim in play) | `map[d1:6 p1:1 p2:26]` | `map[d1:6 p1:1 p2:26]` | **no** |
+| direct `fairShareRolePick` call | `variant=v2 capN=25` | `variant=v2 capN=5` | **yes** |
+
+Extreme check: forcing `fairShareCap` to **1** still yields `v2 → 26`, just over **25 iterations
+instead of 1**.
+
+Mechanism — `allocateForModelPaired` (`analyzer_helpers.go:717-800`) loops
+`for anyRoleNeedsScaleUp(pickerState, roles)` and re-invokes `pick` each iteration, so:
+
+- **`ps` (site (iv)'s clamp) bounds the allocation total** — the loop runs until demand is exhausted.
+- **`fairShareCap` (site (ii)) bounds only per-iteration progress.**
+
+The loop is unbounded, so an understated cap costs iterations, not replicas. The plan's `5` and `25`
+are **cap values, not allocation outcomes** — which is why they match the unit probe to the digit and
+are invisible end-to-end.
+
+## Requested edit 1 — say which level the fixture is at (§4, ~L966-969)
+
+The bullet currently reads as an `Optimize()` scenario (`MaxReplicas` headroom, per-role variants,
+costs) and sits among fixtures that all are. Its phrase "asserting the cap the **pricier** variant
+receives" is already *compatible* with a unit-level test — the ask is to make that explicit rather
+than leave it to inference, e.g. "**call the closure `fairShareRolePick` returns directly and assert
+the returned `capN`** — this one is a unit test, not an `Optimize()` scenario; an `Optimize()` fixture
+on these numbers is green both ways (site (iv)'s `ps` bounds the total, site (ii) bounds only
+per-iteration progress, and the loop re-picks), verified by measurement."
+
+Without that sentence the likely outcome is a fixture that reads as a guard and is not one.
+
+## Requested edit 2 — the "silent 5× under-allocation" claim (§2d.5, ~L689)
+
+The table's three rows are cap values; the closing line reads them as an allocation outcome. In both
+scenarios I ran, the final decision is identical with and without the rescale, so as an *outcome*
+claim it is unsupported. As a claim about the per-iteration cap it is exact.
+
+**Whether this reframes site (ii)'s motivation is your call, not mine.** My position: a 5× understated
+cap is still a genuine defect in the picker's contract, still worth converting, and "the loop happens
+to compensate today" is a thin invariant to lean on. I am only asking that the plan not rest a fixture
+on an effect that isn't measurable, so the coder isn't chasing a red that cannot happen.
+
+## Caveats I want on the record
+
+- This is a **simulation at the pre-C6c base**, not a run of C6c. It reproduces the cap *value*
+  faithfully and shows the loop compensates **in the current architecture**.
+- Post-C6c, site (iv)'s clamp moves to replica space along with `target`. Whether the loop still
+  compensates once both are converted is **not** established by this probe — `k` in
+  `allocateForModelPaired` reads `demand/prc` and I have not traced converted currency through it.
+  **I re-check this against the coder's actual C6c code.** If the conversion breaks the compensation,
+  §2d.5's outcome claim becomes true post-C6c and requested-edit-2 falls away. Requested-edit-1 stands
+  either way — a fixture that is green both ways today needs re-proving, not assuming.
+- I did not test a GPU-scarce pool. Within one `allocateForModel` call the pool drains identically
+  regardless of iteration count, so I do not expect a difference, but I did not measure it.
+
+## Relation to the Finding 18 fold-in
+
+Independent of it, and does not disturb it. The **refresh-currency** fixture you added at L973-980
+(captured-vs-recomputed `prcRef`, ≥2 voting analyzers) has the same level question — if it is written
+at `Optimize()` level it likely inherits the same blindness, since it also discriminates only through
+the cap. Worth applying edit 1's level wording to both. I have not measured the refresh-currency
+scenario; that is a hypothesis, not a finding.
+
+No action needed from the coder on this handoff — it is a plan correction. C6c has not landed.
