@@ -605,6 +605,27 @@ at `r = 0.0822`.
    asks for "**tight tolerance**" and §2e.3 for red-before-green, but neither states the bound, and the
    local idiom violates it.
 
+   > **Correction 2026-08-07 — this was already in the plan, and I should have found it.** Plan **§4**
+   > (ship gate) has carried the requirement since tip `62c37c46` (03:15): *"That fixture needs a tight
+   > tolerance, ~1%, and must not copy the neighbours' `muSat*0.10` idiom"*, with the μ(0.5) derivation
+   > and the "at ±10% it passes either way and asserts nothing" rationale spelled out. So the gap I
+   > describe above **did not exist** when I wrote it up, and the handoff I sent at 04:42 asked the
+   > planner to add a clause the planner had already added 87 minutes earlier. Withdrawn — see that
+   > handoff's header.
+   >
+   > Cause worth recording, because it is not just carelessness: I checked §1.1 and §2e.3 and never
+   > opened §4, where ship-gate *test* requirements actually live. Finding 14 is the aggravating factor
+   > — §4's TOC range points at §3, so a TOC-driven fetch would have landed me in the wrong section
+   > anyway. That explains the miss; it does not excuse it, since the fix was to read the section that
+   > owns test requirements before asserting the plan omitted one.
+   >
+   > One residual precision note, **not** an ask: §4 states the gap as **5.8%**, which is
+   > `161.66/2780.56` — relative to the k=0.85 value. A Gomega `BeNumerically("~", expected, tol)`
+   > compares an absolute `tol` against `expected = 2618.93`, so the bound expressed the way a tolerance
+   > is actually written is `161.63/2618.93` = **6.17%**. Both numbers are correct about different
+   > denominators, and since §4 prescribes ~1% the distinction never bites. Recording it only so the two
+   > figures in these docs are not read as a contradiction.
+
    Required: relative tolerance **< 6.17%**, and materially so — **±1%** gives the band
    `[2592.7, 2645.1]`, which excludes 2780.56 with room to spare. I will check this by flipping the
    resolver back to 0.85 on a scratch extract and confirming the fixture actually goes red; a fixture
