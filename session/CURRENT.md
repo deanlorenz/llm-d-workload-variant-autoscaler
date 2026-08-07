@@ -247,26 +247,30 @@ rows stay here.
   repointed to `main@6bfb73e1`, signed tag `ta-0.9-test-20260730` pushed to origin, image `:ta-0.9` (digest
   `sha256:80dec0e9728f…`) pushed to quay — all Dean-authorized. See the `ta-testing` PR Status row; no
   outstanding action for this refresh.
-- **TA 0.9 release notes / Highlights — ⏰ THE GATE HAS ARRIVED (2026-08-07): v0.9.0 is being cut
-  upstream right now.** Verified state: tag **`v0.9.0` already exists on upstream** (lightweight,
-  → commit **`aadaa596`** = #1509 "fix(crd): restart when KEDA or LWS CRDs are installed after
-  startup"), and asm582's release-prep **PR [#1522](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1522)
+- **TA 0.9 release notes / Highlights — ⏰ CODE FREEZE REACHED (2026-08-07). This is the freeze, NOT
+  the final cut — critical fixes can still be pushed (Dean, 2026-08-07).** Verified state: tag
+  **`v0.9.0` exists on upstream** (lightweight, → commit **`aadaa596`** = #1509 "fix(crd): restart
+  when KEDA or LWS CRDs are installed after startup"), and asm582's release-prep
+  **PR [#1522](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1522)
   MERGED** 18:07:18Z (`d5d58640`, pins `config/base/manager/kustomization.yaml`
   `newTag: main → v0.9.0`) — but **no GitHub Release is published yet** (latest is still v0.8.0), and
-  there is **no `release-0.9` branch** (release-0.6/0.7/0.8 exist). So the editorial window for the
-  hand-written `## Highlights` block is **open now and closes when asm582 publishes the release** —
-  this was the "held until code freeze" trigger. Mechanism + drafts in
+  there is **no `release-0.9` branch** (release-0.6/0.7/0.8 exist). **A lightweight tag can be
+  re-pointed, and v0.8.0 ran rc2→rc5 before its final tag** — so neither the tag point nor the 0.9.0
+  content set is settled. What the freeze does settle is the **"held until code freeze" trigger for
+  the hand-written `## Highlights` block: that work is now unblocked.** Mechanism + drafts in
   [`planning/ta-0.9-release-notes.md`](../planning/ta-0.9-release-notes.md): the ` ```release-note ``` `
   PR block is NOT auto-harvested (no `.github/release.yml`); GitHub auto-notes derive from PR
   *titles* in `v0.8.0..v0.9.0`; Highlights is the only editorial lever. Do NOT create an in-repo
   `docs/CHANGELOG-v0.9.0.md`. Slack epics + Highlights notes already POSTED by Dean 2026-07-29.
   Design-docs PR (item 5) still DEFERRED post-code-freeze.
-  **⚠️ Consequence worth knowing before writing Highlights — three commits landed on `main` *after*
-  the tag point, so they are NOT in v0.9.0:** `8b3663ed` (#1511, test-only), **`57f3fe64` (#1516, the
-  anchor refactor PR-1)**, and `d5d58640` (#1522 itself). The anchor refactor is therefore **0.10.0
-  material, not a 0.9.0 highlight**. Side observation for Dean, not acted on: because the prep commit
-  is *after* the tag, the tagged `v0.9.0` tree does **not** contain the `v0.9.0` image pin — a
-  lightweight tag can be re-pointed, so this may still move; raising it upstream is Dean's call.
+  **⚠️ Open question for Highlights, NOT a settled exclusion — three commits sit on `main` *after* the
+  current tag point:** `8b3663ed` (#1511, test-only), **`57f3fe64` (#1516, the anchor refactor PR-1)**,
+  and `d5d58640` (#1522's own prep commit). If the tag stays at `aadaa596` they are 0.10.0 material; if
+  it is re-pointed (or an rc sequence runs, as in 0.8.0) they are in 0.9.0. **Do not describe #1516 as
+  in-or-out of 0.9.0 until the final tag point is known** — check `git ls-remote --tags upstream` at
+  writing time rather than trusting this line. Corollary of the same ordering: the tagged tree at
+  `aadaa596` does **not** contain #1522's own `v0.9.0` image pin, which is itself a reason the tag is
+  likely still to move. Raising any of this upstream is Dean's call; no GitHub write made.
 - **Rescale Beta PRs — re-check against RC-2/RC-4 when they land.** PR #1452 (rescale Alpha) merged
   2026-07-28. Tracking issue [#1447](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1447)
   covers RC-1 (damping bypass) and RC-3 (#1003-deferred partition) but its text does **not** mention
