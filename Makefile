@@ -62,14 +62,32 @@ BENCHMARK_SPEC       ?= $(if $(filter true,$(BENCHMARK_DIRECT_KEDA)),guides/epp-
 BENCHMARK_NAMESPACE  ?= # set via BENCHMARK_NAMESPACE=<namespace>
 BENCHMARK_GATEWAY_URL ?= http://infra-llmdbench-inference-gateway-istio.$(BENCHMARK_NAMESPACE).svc.cluster.local:80
 BENCHMARK_WORKSPACE  ?= $(CURDIR)
-BENCHMARK_HARNESS    ?= guidellm
+# The harness belongs to the spec of a run, not to this Makefile: it is whatever
+# the scenario's harness.name declares. `-l` overrides harness.name inside
+# llmdbenchmark, so a hardcoded default here would silently override the scenario.
+# Precedence: command line > hack/benchmark/.env > scenario > llmdbenchmark's own
+# default (inference-perf).
+ifeq ($(origin BENCHMARK_HARNESS),undefined)
+BENCHMARK_HARNESS := $(shell python3 $(CURDIR)/hack/benchmark/sync_workloads.py \
+	--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
+	--print-harness 2>/dev/null || echo inference-perf)
+endif
 # Empty by default: the scenario's own harness.experimentProfile is authoritative.
 # Set BENCHMARK_WORKLOAD=<name> only to override it on the command line.
 BENCHMARK_WORKLOAD   ?=
 BENCHMARK_FORCE      ?= true
 BENCHMARK_MONITORING ?= true
+# Pass --analyze so llmdbenchmark's step_12 runs host-side after the results are
+# collected. That step is what writes the Benchmark Report v0.2 YAMLs and applies
+# the inference-perf output-token correction (see benchmark-analyze below); it is
+# OFF in llmdbenchmark by default, so leaving this false means every
+# output-token-derived metric in the reports stays inflated.
+BENCHMARK_ANALYZE    ?= true
 BENCHMARK_UV         ?= false
 BENCHMARK_SCENARIOS_DIR ?= $(CURDIR)/test/benchmark/scenarios
+# Workload profiles owned by THIS repo, partitioned by harness. The llm-d-benchmark
+# clone is cache: profiles are synced into it per run, never authored there.
+BENCHMARK_WORKLOADS_DIR ?= $(CURDIR)/hack/benchmark/workloads
 BENCHMARK_MODEL_ID   ?= # empty: scenario YAML drives the model; set BENCHMARK_MODEL_ID=<id> to override
 # Optional explicit standup step selection (comma-list or ranges, e.g. "0,3,4,5,7,8,9").
 # Empty = run all steps (today's behavior). Used to skip cluster-scoped/shared steps
@@ -637,6 +655,15 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 		cp "$(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml.j2" \
 		   "$(BENCHMARK_REPO_DIR)/config/specification/$(BENCHMARK_SPEC).yaml.j2"; \
 	fi
+	@# Workload profiles live in THIS repo (source of truth), not in the clone
+	@# (cache). The scenario selects one by name via harness.experimentProfile, so
+	@# sync the whole harness directory and let the scenario pick -- then assert the
+	@# named profile is actually reproducible, not a hand-placed clone leftover.
+	@python3 $(CURDIR)/hack/benchmark/sync_workloads.py \
+		--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
+		--workloads-dir $(BENCHMARK_WORKLOADS_DIR) \
+		--repo-dir $(BENCHMARK_REPO_DIR) \
+		--harness $(BENCHMARK_HARNESS)
 	@if [ -f "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" ]; then \
 		cp "$(BENCHMARK_SCENARIOS_DIR)/$(BENCHMARK_WORKLOAD).in" \
 		   "$(BENCHMARK_REPO_DIR)/workload/profiles/$(BENCHMARK_HARNESS)/$(BENCHMARK_WORKLOAD).in"; \
@@ -659,6 +686,7 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 		$(if $(BENCHMARK_WORKLOAD),-w $(BENCHMARK_WORKLOAD).yaml,) \
 		$(if $(BENCHMARK_MODEL_ID),-m $(BENCHMARK_MODEL_ID),) \
 		$(if $(filter true,$(BENCHMARK_MONITORING)),--monitoring,) \
+		$(if $(filter true,$(BENCHMARK_ANALYZE)),--analyze,) \
 		--wait-timeout $(BENCHMARK_WAIT_TIMEOUT)
 	@echo ""
 	@echo "========================================="
@@ -685,6 +713,22 @@ benchmark-report: ## Generate a markdown table from the latest benchmark results
 	else \
 		python3 $(CURDIR)/hack/benchmark/postprocess.py $$LATEST_DIR; \
 	fi
+
+.PHONY: benchmark-analyze
+benchmark-analyze: ## Apply the inference-perf output-token correction to the latest results (idempotent)
+	@# Standalone path for results collected before BENCHMARK_ANALYZE existed, or
+	@# when a run's analysis step was skipped. inference-perf derives output_len by
+	@# re-tokenizing generated text, which inflates it (1.77x on the 2026-08-03
+	@# staircase) along with every output-token-derived metric. The correction
+	@# rescales the v0.2 reports from the server's own completion_tokens; it stamps
+	@# an annotation and skips reports already corrected, so re-running is free.
+	@LATEST_DIR=$$(ls -td $(BENCHMARK_WORKSPACE)/$${USER}-*/results/$(BENCHMARK_HARNESS)-*_* 2>/dev/null | head -1); \
+	if [ -z "$$LATEST_DIR" ]; then \
+		echo "ERROR: No benchmark results found in $(BENCHMARK_WORKSPACE)"; \
+		exit 1; \
+	fi; \
+	echo "Results directory: $$LATEST_DIR"; \
+	$(BENCHMARK_VENV)/bin/python -c 'import sys; from llmdbenchmark.analysis.output_token_correction import correct_inference_perf_output_tokens as c; e = c(sys.argv[1]); print("output-token correction: " + (e if e else "applied or already present"))' "$$LATEST_DIR"
 
 BENCHMARK_TWO_VARIANT_SECONDARY_SUFFIX ?= v2
 

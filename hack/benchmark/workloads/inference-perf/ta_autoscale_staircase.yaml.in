@@ -1,0 +1,84 @@
+# ta_autoscale_staircase.yaml.in
+#
+# AUTOSCALING harness shakedown -- NOT a saturation sweep.
+#
+# A saturation sweep (see ta_calibration_probe.yaml.in) deliberately climbs
+# request rate through and past the saturation point to FIND the capacity wall.
+# That is the wrong shape for an autoscaling test: with the decode ScaledObject
+# capped at maxReplicaCount=2, the upper sweep stages generate load that 2
+# replicas cannot serve, so an unbounded request backlog forms and inference-perf
+# hangs waiting on in-flight requests.
+#
+# This profile instead applies a short STAIRCASE of load plateaus, every level
+# chosen to stay WITHIN 2-replica serviceable capacity:
+#
+#     low (5 rps)  -- 1-replica territory; k in-band, TA can accumulate samples
+#     mid (12 rps) -- exceeds 1-replica capacity => should trigger 1->2 scale-up,
+#                     but well inside 2-replica capacity (no backlog)
+#     low (5 rps)  -- load drops => should trigger 2->1 scale-down
+#
+# Each level is held 360s (6 x the 60s GLOBAL_OPT_INTERVAL) so the control loop
+# has time to decide, let KEDA act, let the new pod become Ready, and reach a
+# steady state before the load changes -- i.e. we observe STABILISATION, not just
+# transient chasing.
+#
+# The rps values are capacity ESTIMATES (1 replica at this ~2048/512 token shape
+# is expected to saturate around ~8-12 rps, roughly 2x the ~4-6 rps observed at
+# the heavier 4096/1024 shape). This is a harness shakedown: if mid does not
+# trigger scale-up, raise it; if low already triggers scale-up, lower it. The run
+# itself reveals the true numbers for the later higher-replica / higher-load
+# experiment.
+#
+# Token shape ~2048 in / ~512 out (medium): meaningful KV pressure for the
+# saturation analyzer while keeping the rps->replica control band wide enough to
+# land 1 vs 2 replicas cleanly.
+#
+# Schema matches the verified native random profile sanity_random.yaml.in
+# (std_dev + total_count; tokenizer keyed to ..._CURRENT_MODEL).
+load:
+  type: constant
+  # Fixed seed so request generation (prompts + per-request sampled output
+  # lengths) is reproducible across runs. inference-perf's load.base_seed
+  # otherwise defaults to int(time.time()*1000), giving a different seed every
+  # run (this shakedown got 1785724038035). Same seed => identical workload =>
+  # apples-to-apples comparisons between controller/config variants.
+  base_seed: 42
+  stages:
+  - rate: 5
+    duration: 360
+  - rate: 12
+    duration: 360
+  - rate: 5
+    duration: 360
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+  base_url: REPLACE_ENV_LLMDBENCH_HARNESS_STACK_ENDPOINT_URL
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+data:
+  type: random
+  input_distribution:
+    min: 2000
+    max: 2100
+    mean: 2048
+    std_dev: 40
+    total_count: 2000
+  output_distribution:
+    min: 480
+    max: 550
+    mean: 512
+    std_dev: 20
+    total_count: 2000
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+    per_request: true
+storage:
+  local_storage:
+    path: /workspace
