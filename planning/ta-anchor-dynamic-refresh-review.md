@@ -5523,3 +5523,60 @@ So the residual risk here is higher than for the other 46 locations, not lower.
 I am not directing where it gets fixed — C9b and C9e are both plausible homes, and the sub-item split is
 the coder's to make. The point is only that "§4a-clean" and "true" come apart at this one location, so
 whichever commit takes it needs to do a prose rewrite and not a token substitution.
+
+---
+
+## The C9e scoping has project precedent, and the inherited 7 have a tracked home
+
+Follow-up to the section above. I had endorsed C9e's delta-only scoping on first-principles grounds
+(unrelated churn, someone else's backlog). It turns out this project has already made the identical call
+once, which is stronger than my reasoning.
+
+`session/handoffs/review__ta-model-level-demand-f3.md` — a stale, never-processed review request from
+2026-07-29, for work that has since landed as **#1480** (`f9f04d81` on `main`) — describes that branch's
+own §4a pass in these terms:
+
+> F3 touched 14 C-introduced plans-branch identifier sites (comment/test-desc only, no logic change);
+> status file lists each site. Two pre-existing upstream §4a refs (dev-guide:671, test:1189, from #1250)
+> left untouched and tracked as out-of-scope.
+
+Same three-part shape as C9e: sweep the sites this branch introduced, leave the pre-existing ones, track
+them elsewhere. So the coder's 47-of-54 split is not a novel judgement call — it is the established
+convention on this repo, and a reviewer objecting to it would be objecting to precedent.
+
+**Verified independently, not just taken from the handoff.** At base `075a208e`,
+`internal/engines/analyzers/throughput/analyzer_test.go:983` reads
+`// Regression test for F1: EPP present (ArrivalRate > 0) but no completions`. `F1` is a
+`multi-analyzer-design.md` design-item identifier — the pre-analysis-extraction item — so this is a
+genuine inherited violation of exactly the class the older handoff describes, still present on the base.
+The two line numbers quoted above (`dev-guide:671`, `test:1189`) are as-of that branch's tip and have
+drifted since; I did not attempt to re-resolve them, and they are not load-bearing for the conclusion.
+
+**These are tracked, not orphaned.** `CURRENT.md` carries "Pre-existing `main`-side §4a-cleanup locations →
+`planning/governance-follow-ups.md`". So the inherited 7 already have an owner and a home, and C9e leaving
+them alone does not drop them on the floor — which was the only real objection to delta-only scoping.
+
+Consequence for my own review of C9e: **I should not expect the inherited 7 to move, and I should not
+score their survival as an incomplete sweep.** Noting that explicitly because a §4a-clean claim is easy to
+mis-audit — re-running the full grep after C9e will still return non-zero, and the correct reading of that
+is success, not shortfall.
+
+### A note on auditability
+
+The precedent's other half is worth flagging: that branch's status file **enumerated each of the 14 sites**.
+For a 47-site sweep the equivalent is what makes the commit checkable by anyone other than its author —
+without a per-site list, verifying the sweep means re-deriving the whole location set and diffing it against
+the commit, and any location the sweep silently missed is indistinguishable from one it correctly judged
+out-of-scope. Not a request about how to structure the commit; a statement of what my C9e review will
+otherwise have to reconstruct from scratch.
+
+### Housekeeping — a second obsolete `review__` handoff
+
+`review__ta-model-level-demand-f3.md` is a bare `.md` addressed to the review role, sitting unprocessed
+since 2026-07-29 for a branch that merged 2026-07-30. It is the second such file, alongside
+`review__ta-anchor-refactor-v2-pr1-checklist.md` (obsolete since PR-1 merged as #1516). I am deliberately
+**not** renaming either to `.DONE`: I did not process them, and marking them consumed would assert a review
+that never happened. Both are on the list for Dean's cleanup call. Flagged together because two stale
+bare-`.md` files in a directory whose whole protocol is "bare `.md` means unread" is a small ongoing
+false-positive source — the coder's own status file has had to carve out an explicit exception list for the
+same reason.
