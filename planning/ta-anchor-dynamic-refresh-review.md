@@ -3837,3 +3837,301 @@ locations are C9's natural host and are genuinely unhurried — **except Finding
 should not ship even in a draft PR, because the artifacts they name are scheduled for deletion.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## C6f full review — `a679f2ad`, "abstain is not exempt"
+
+*Supersedes the placeholder "full C6f review pending" note recorded above. 6 files, +246/−3;
+production edits confirmed comment-only by reading every hunk.*
+
+### Credit, stated first because it is unusual
+
+Three things in this commit are better than the plan asked for:
+
+- It **declares its own coverage gap in capitals** — `W4 IS NOT FULLY GATED BY THESE FIXTURES` — and
+  puts the scope warning in the fixture's `Context` comment, where a reader who trusts the file
+  will hit it, rather than only in the commit message where nobody looks after merge.
+- It **disagrees with the Type 3 in writing, with a reason.** The plan lists C6f among the commits
+  whose goldens are expected to move; the commit argues that expectation "does not survive its own
+  W4 answer", because the `continue` at the clamp already *is* the abstention, so there is no
+  mechanism left to change. That is correct, and it is the right way to handle a plan claim a coder
+  believes is wrong.
+- It **fixes a category slip in the plan's own prose.** The plan calls all six `PerReplicaCapacity
+  <= 0` sites "the analyzer abstains". The commit splits them: the **entry** abstains (5 in
+  `analyzer_helpers.go`, `coveragePerGPU`, `debitCommittedDemand`) versus the **variant** is
+  unpriced and so not selectable (the six the plan names). Both readings are defensible in
+  isolation; conflating them is what let the unpriced draw read as harmless. The pricing framing
+  resolves it without weakening either, as claimed.
+
+The equality-not-magnitude choice is also right, and for the reason given: asserting a number would
+pin today's arithmetic instead of the property. Using the same model identity in both ballots so
+`Equal` covers action, cost and replica counts — rather than a hand-picked accessor — is the
+stronger form of the assertion and worth keeping as a pattern.
+
+### Finding 34 — W4's "not budget-exempt" guarantee has a reachable hole; the abstention leaves the abstainer's demand **unclamped**
+
+**Severity: MAJOR (behavioral). Derived from a full code read at `4fb49ac6`, not measured — see
+"How to confirm" below before acting on it.**
+
+W4's prose says an abstaining analyzer "contributes no claim and it spends nothing. It is not
+budget-exempt — an exempt voter draws on a budget it never contributed to." The first half is true
+of `claimGPUs` (`greedy_score_optimizer.go:99`). The second half does not hold at the clamp, because
+the abstention there is implemented as `continue` — which skips the charge **and skips the clamp**,
+leaving the abstaining entry's per-role demand at its full seeded value:
+
+```go
+bound, ok := fromGPUs(balance, prc, ref.gpusPR)
+if !ok {
+    continue // no conversion factor ⇒ no budget to bind this entry
+}
+```
+`greedy_score_optimizer.go:449-452`
+
+An abstaining voter that keeps its whole vote and pays nothing into the shared balance is the
+permissive reading of "abstain", not the conservative one. The conservative alternative —
+`ps[i][ref.role] = 0`, i.e. drop the demand you cannot price — is a different policy with different
+behavior, and nothing in the branch states which was chosen. The comment says "no budget to bind
+this entry", which describes the charge and is silent on the retained demand.
+
+The retained demand is not inert. Six links, each read at `4fb49ac6`:
+
+| # | site | what it does with the abstainer's retained demand |
+|---|---|---|
+| 1 | `analyzer_helpers.go` `initRoleState` | seeds `pickerState[i][RoleBoth] = e.Remaining` for **every** entry with a non-nil `Result` — no pricing, enablement or liveness filter |
+| 2 | `greedy_score_optimizer.go:451` | `continue` leaves that seed **unclamped** and uncharged |
+| 3 | `analyzer_helpers.go` `anyRoleNeedsScaleUp` | `for _, m := range state { if m[role] > 0 { return true } }` — scans **all** entries, so the abstainer alone keeps the scale-up loop alive |
+| 4 | `analyzer_helpers.go` `votesFromPickerState` | gates on `prcForVariant(e.Result, variant)` for the **picked** variant, not the reference — so the abstainer **votes** whenever reference ≠ picked and it prices the pick |
+| 5 | `analyzer_helpers.go` `combineVotes(votes, true)` | `up && votes[i].Value > votes[b].Value` — takes the **maximum**, so a large retained demand becomes the binder |
+| 6 | `greedy_score_optimizer.go` `fairShareRolePick` | `if firstDraw && capN < 1 { capN = 1 }` — grants one replica even when the entitlement is ≈ 0 |
+
+Composed: **a model whose claiming analyzer asks for nothing, and whose only positive demand comes
+from an analyzer that could not price the role's reference variant, can still be granted a replica —
+driven entirely by the voter that contributed no claim.** That is verbatim the hazard W4 names.
+
+Note which link makes it reachable rather than theoretical: link 4. `votesFromPickerState` keys on
+the **picked** variant while the clamp keys on the **reference** variant, so the two gates disagree
+in exactly the reference ≠ picked regime — and C6f's own spec 2 constructs that regime deliberately.
+The commit is one fixture parameter away from exhibiting this.
+
+**Why the shipped fixtures stay green anyway:** in spec 2, `sat`'s demand already equals `capN`
+(demand 30000 at PRC 10000 → 3 replicas; `target` = the same 3 GPUs → `capN` = 3), so the maximum in
+link 5 is 3 with or without the abstainer. Lower the claiming analyzer's demand below `capN` — or
+zero it and let the abstainer be the only positive voter — and the two ballots diverge.
+
+**How to confirm (one fixture, no production change):** take `w4Request` as it stands, set the sat
+entry's `RequiredCapacity`/`Remaining` to `0` while leaving TA's at `100000`, keep `capReference:
+true` so the picker lands on `pricey-v`. Expected under the shipped policy: `pricey-v` gains one
+replica. Expected under a conservative abstention: no grant. If the first is observed, Finding 34 is
+measured rather than derived, and the disposition question is which policy W4 actually means.
+
+**What I am not claiming.** I have not established that the permissive policy is *wrong* — granting
+one replica to a model some live analyzer believes is under-served may well be the intended
+behavior, and links 3 and 6 both look deliberate. The finding is that **W4's stated contract and the
+shipped code disagree**, the disagreement is reachable, and nothing pins which side is intended.
+This is a disposition question for the Type 1, not a bug fix for the coder to guess at.
+
+### Finding 35 — neither C6f fixture discriminates the gate it names
+
+**Severity: MEDIUM (coverage). Same family as Finding 28, opposite direction.**
+
+Both specs are green for reasons other than the abstention gate:
+
+- **Spec 1** (`reference == picked`): the picker lands on `cheap-v`, which TA cannot price, so
+  `votesFromPickerState` excludes TA from the vote independently of the clamp. TA has zero influence
+  by **vote-exclusion**, not by abstention. The fixture comment claims "Both of W4's halves are
+  exercised: no claim (`claimGPUs` passes over the entry) and no spend" — the no-claim half is
+  genuinely exercised; the no-spend half is redundantly guaranteed here and so not discriminated.
+- **Spec 2** (`reference != picked`): TA does vote, but `capN` binds at 3 in both ballots, as above.
+  Substitute the conservative abstention (`ps[i][role] = 0`) and the output is unchanged — the
+  combine's maximum falls from 10 to 3, still ≥ `capN`. **Both plausible abstention policies produce
+  identical output**, so the fixture cannot tell them apart.
+
+This is the mirror of Finding 28. There, C6e's suite pinned the per-`(analyzer, role)` clamp but not
+`fairShareRolePick`'s per-role budget, because with a single analyzer entry the two are the same
+constraint. Here, C6f's suite pins the **entitlement cap** but not the **abstention gate**, because
+in the aligned regime the cap subsumes the gate. Same failure mode — a fixture green for a mechanism
+other than the one named — reached from opposite ends of the same code path.
+
+The coder's own disclosure is adjacent but not the same claim. It says the gap is the *misaligned*
+regime (reference ≠ picked **and** `GPUsPerReplica` asymmetric). Finding 35 is that the gap also
+exists **inside** the regime the fixtures do cover.
+
+**One fixture family closes both this and Finding 28:** a **two-role** model where the abstaining
+entry can price exactly one of the two roles. That separates the clamp's per-entry running balance
+from the picker's per-model ledger (Finding 28's requirement, since the roles draw in sequence and
+the second role's `bound` depends on what the first charged), and it makes the skipped charge
+observable independently of `target` (Finding 35's requirement). §C6f's own text asked for "roles
+that would each individually fit but jointly overrun" — that is close to this shape, and the shipped
+single-role fixture is what dropped it. The discriminating technique is already established one
+commit earlier, in `34b18bc5`'s message.
+
+### Finding 36 — a shipped gate comment forward-references C11, which has not landed
+
+**Severity: LOW (documentation), but it ships in production source.**
+
+`fairShareRolePick`'s `PerReplicaCapacity <= 0` gate now reads:
+
+> The gate asks whether the variant has a price, not whether some number is zero -- a variant
+> admitted at a sentinel price is priced, and passes.
+
+`greedy_score_optimizer.go`, and the same framing across the other ten gates. There is no admission
+sentinel in the tree at `4fb49ac6` — it arrives with C11. A reader of this commit in isolation
+cannot resolve "admitted at a sentinel price"; a reader of the merged squash can. Because PR-2 is one
+indivisible PR this resolves itself at merge, so I would not hold the commit for it — but it is
+worth noting that the *reason* the wording is safe is a property of the PR's shape, not of the
+comment. If C11 is ever dropped or deferred out of PR-2, these eleven comments describe a mechanism
+that does not exist, and they are the kind of prose nobody re-reads.
+
+The commit message anticipates this and defends it ("it survives C11 making one of them deliberately
+passable"), which is the right instinct pointed forward instead of back. Filed as LOW because the
+fix is one clause, and because the framing itself — a rule about pricing rather than about zero — is
+correct and is an improvement on "skipped".
+
+### Dev-guide addition (+58) — the strongest prose on the branch, with one taxonomy leak
+
+The `multi-analyzer-pipeline.md` addition documents the claim-pricing defect, both measured
+consequences, and says of the near-miss: *"the safety here is a coincidence of two independent
+filters rather than a guarantee."* That sentence is the most honest line in the developer guide and
+should survive C9.
+
+Documenting a known defect in a Type 4 doc is **compliant**, not a violation: Type 4 must reflect the
+actual code state of the branch, and the defect *is* the actual code state. The objection I would
+have raised — "no forward-looking content" — does not apply, because the doc describes what the code
+does today and does not promise a fix.
+
+What does not belong is the routing: *"The claim-pricing question is open with the Type-1 owner."*
+"Type-1 owner" is plans-branch taxonomy, meaningless to a reader of merged code, and it points at a
+process rather than at the code. The §4a-clean form states the open question without naming who owns
+it. **Partly fixed at `4fb49ac6`** — see the next section.
+
+### §4a delta for C6f
+
+Production: comment-only edits across `analyzer_helpers.go`, `cost_aware_optimizer.go`,
+`greedy_score_optimizer.go`, `rescale.go`. The token count does not fall — the gate comments were
+rewritten, not de-tokenised — and the fixture `Context` added `W4`, `C6f` and (at the time) two
+plans-branch **paths** plus "Type-1 owner". The paths were the Finding 33 sites.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## `4fb49ac6` — Finding 33 fixed proactively, plus the dev-guide `mean` slip
+
+*Landed as `2a0db749`, then amended to `4fb49ac6`; I verified `git diff 2a0db749 4fb49ac6` is empty,
+so the amend is **message-only** and no re-review of content is needed. 2 files, +12/−13.*
+
+**Finding 33 — resolved.** Both plans-branch **paths** are gone from
+`greedy_score_optimizer_test.go`, replaced with prose that says the same thing without an
+unresolvable reference: *"Whether a claim may be priced through a variant the picker cannot buy is an
+open design question, not a settled contract."* That is the §4a-clean form of the sentence, and it
+carries the same warning. This is the one item I had flagged as not safe to defer to C9, and it was
+fixed within the hour without a trigger from me.
+
+**A fix I did not ask for and would not have thought to ask for.** The dormant spec's *"Measured on
+this exact fixture at `784c2b5c`"* became *"Measured on this exact fixture, against the claim pricing
+as it stands."* I had noted the pre-rebase SHA as a concern; replacing it with a description of the
+*state* rather than a pointer to a commit is the better fix, because the SHA would have been dead
+after any rebase whereas the phrase stays true.
+
+**The `mean` slip — fixed and then strengthened.** The dev guide said a single active model "gets
+`mean == 0`". It is `allocationMean` that is forced to zero; `mean` is the water level, is unchanged,
+and still governs the above-the-level drop check. Corrected, and the correction adds the structural
+argument: `claimGPUs` sums the role claims in the same GPU currency the roles are charged in, so with
+one active model the entitlement equals the combined spend exactly — *"No single-model golden can
+move on this."*
+
+That is the same argument I derived when correcting my own pre-registered expectation for C6e, in the
+section above, arrived at independently. Two independent derivations of a structural impossibility is
+better evidence than either alone, and it upgrades the claim from "no golden in this suite moves" to
+"no golden of this shape can move". Worth keeping in the dev guide verbatim.
+
+**What survives.** One taxonomy token remains in shipped source:
+
+```
+internal/engines/pipeline/greedy_score_optimizer_test.go:1709:
+    // is an OPEN question with the Type-1 owner. If the disposition is that
+```
+
+— in the dormant spec's own `DORMANT AND PROVISIONAL` header. The C6f `Context` occurrence was
+fixed; this one was missed. The dev-guide occurrence is also gone. So the §4a table above updates
+to: plans-branch **paths** in shipped `.go` → **0** introduced by PR-2 (was 2); the single
+pre-existing path at `throughput-analyzer.md:698` is untouched base content, already tracked in
+`governance-follow-ups.md`, and remains the only one in the tree. "Type-1 owner" in shipped source:
+**1**, down from 2 plus one in the dev guide.
+
+The reword count is unaffected — `4fb49ac6` is a fourteenth commit whose own subject and body carry
+plans-branch tokens, so it joins the set rather than reducing it.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Retraction — my option (d) neutrality claim was wrong
+
+**The planner's correction in `review__ta-anchor-option-d-neutrality-is-contingent.md` is right and I
+accept it in full.** I wrote that option (d) — pricing the claim through GPU efficiency,
+`min(gpusPR / PRC)` over feasible candidates — *"degenerates to today's value whenever a role's
+variants share `GPUsPerReplica`, which is every existing fixture."* It does not.
+
+With equal `gpusPR`, `min(gpusPR / PRC)` reduces to **`max(PRC)`** — the capacity-densest variant —
+while today's `sortByCostEfficiencyAsc` gives `min(Cost / PRC)`, the money-cheapest. Those coincide
+only when PRC is *also* equal across the role. Equal `GPUsPerReplica` is not sufficient, and the
+counterexample is already in the suite — golden scenario A,
+`optimizer_characterization_test.go:225-247`:
+
+| variant | Cost | PRC | gpusPR | today `Cost/PRC` | (d) `gpusPR/PRC` |
+|---|---|---|---|---|---|
+| `cheap` | 5 | 10000 | 1 | **0.00050** ← wins | 0.00010 |
+| `expensive` | 15 | 20000 | 1 | 0.00075 | **0.00005** ← wins |
+
+At `remaining = 5000` the claim is `5000/10000 × 1 = 0.5` GPUs today versus `5000/20000 × 1 = 0.25`
+under (d). **The claim halves, at equal `GPUsPerReplica`.** My statement was not a slip in wording;
+it was a wrong reduction, and it was load-bearing for the neutrality argument.
+
+**The conclusion survives, the argument does not.** (d) *is* golden-neutral across the suite, but
+contingently: `replicasToCover` ceils both `0.5` and `0.25` to `capN = 1`, and `cheap`'s own
+bottleneck `ceil(5000/10000) = 1` binds equally, so the decision set is unchanged and scenario A
+stays green; scenario B (`:322-348`) is pure scale-down and never reaches `claimGPUs`. Contingent-via-
+`ceil`-plus-a-binding-bottleneck is precisely the class of reasoning Finding 32 calls unsafe, so the
+planner is right to refuse "degenerates to today's value" as the recorded justification. **Recorded
+justification, corrected:** *(d) moves no golden because `ceil` and a binding bottleneck absorb the
+halved claim in the one scenario that reaches `claimGPUs` at all — not because its value equals
+today's.*
+
+Two consequences I accept into the option-(d) write-up:
+
+1. (d) changes the **ranking key** for any role with unequal PRC — which scenario A has. Ranking
+   under multi-model contention is not golden-covered at all, since every golden is
+   single-model-per-pass. That is the same blindness the coder and I independently established for
+   the claim-pricing defect itself, now applying to the candidate fix.
+2. (d) inherits the sensitivity Finding 32 identifies: wherever `capN` binds instead of the
+   bottleneck, halving the claim halves `target` and can drop `capN` by a replica.
+
+Neither argues against (d). It still addresses the root — a **money** quantity denominating a **GPU**
+quantity — where the headroom filter addresses only the trigger, and its feasibility filter subsumes
+the headroom filter outright. It argues that its neutrality must be stated contingently.
+
+**I verified the planner's golden scan myself rather than accepting it,** since it is now load-bearing
+for both candidates. At `4fb49ac6`, in `optimizer_characterization_test.go`: `MaxReplicas` appears
+**zero** times, so the headroom filter's predicate can never fire in any golden; and `GPUsPerReplica`
+is uniform within every role — all `1` except `:278-279` (both `2`, prefill and decode) and `:385` (a
+single variant at `2`). Both claims confirmed. This is a **structural** confirmation of the
+"no golden can catch this" conclusion, independent of the pool-honored argument the coder and I each
+used: the golden set constructs neither an unbuyable reference variant nor an intra-role
+`GPUsPerReplica` asymmetry, so neither defect has a fixture that could express it.
+
+**Retraction count.** This is the fifth item I have withdrawn on this branch, and the second where the
+error was a wrong reduction rather than an unread line. The first four were candidate C6e findings
+retracted before filing; this one was **filed**, routed to the planner in
+`plan__ta-anchor-claim-pricing-verdict-and-c6e-gap.md`, and had to be corrected back. The pattern
+worth naming: both wrong-reduction errors came from asserting that two expressions coincide without
+substituting values. Substituting the suite's own numbers would have caught this in one line, and
+that is now my standing check before claiming any equivalence.
+
+Routing note accepted: the planner's two earlier handoffs addressed me as "Type-1 owner", which is
+neither my role nor within my write scope. I am the internal code reviewer for this branch; the Type 1
+is Dean's. The mis-routing is also what put the phrase into shipped source at
+`greedy_score_optimizer_test.go:1709`.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
