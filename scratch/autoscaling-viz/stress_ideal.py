@@ -34,7 +34,8 @@ def stress_ideal():
     # Same calibration as run.scenario_ideal(); ONLY the demand shape changes:
     # a sharp step instead of the smooth triangular bump.
     load = gen_load(pattern="spike", duration=run.DURATION, peak_rate=run.PEAK_RATE,
-                    size_mean=run.SIZE_MEAN, size_dist="expo", seed=1)
+                    size_mean=run.SIZE_MEAN, size_dist="expo", seed=1,
+                    burn_in=run.BURN_IN)
     supply = gen_supply_perfect(load, C=run.C, service_rate=run.SERVICE_RATE,
                                 setup=0.0, drain=0.0, headroom=run.HEADROOM,
                                 sizing_range=run.SIZING_RANGE,

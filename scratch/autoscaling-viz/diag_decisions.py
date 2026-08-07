@@ -6,7 +6,8 @@ from sim import gen_load, offered_work_rate
 import run
 
 load = gen_load(pattern="bump", duration=run.DURATION, peak_rate=run.PEAK_RATE,
-                size_mean=run.SIZE_MEAN, size_dist="expo", seed=1)
+                size_mean=run.SIZE_MEAN, size_dist="expo", seed=1,
+                burn_in=run.BURN_IN)
 
 DI = run.DECISION_INTERVAL
 grid = [i * DI for i in range(int(run.DURATION / DI) + 1)]

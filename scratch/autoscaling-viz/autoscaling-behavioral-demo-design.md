@@ -205,6 +205,42 @@ the dispatcher respects. Default `RHO = 2.0`; `RHO = 1` recovers this fixed-rate
 - **Resurrection guard**: a replica commanded up and then cancelled mid-boot
   stays gone — the `up` handler only revives if `actual_down is None`.
 
+**Initial state — the measured window must START in steady state (2026-08-06).** There is no
+history before t=0, and left unhandled that single fact produced **two coupled artifacts** that
+silently rewrote every shape whose demand does not start at zero:
+
+1. **Cold fleet.** The fleet booted from 0 replicas regardless of the t=0 demand, so `stepdown`
+   (which starts at `hi = 24`) was really testing a near-instantaneous step **up** into a 90 s
+   boot lag first — and the startup queue it built polluted the remainder of the run. The shape
+   measured the wrong thing (see §8.1 item 8).
+2. **Cold demand estimate.** Every trailing-window estimator — the sizers' input
+   (`offered_work_rate`, `SIZING_RANGE`) *and* the plotted offered curves (`_windowed_rate`,
+   `REQ_RANGE` / `WORK_RANGE`) — computes `(cum(t) − cum(t−window))/window`, which reads ~0 at
+   t=0 and ramps over the window **no matter what the true starting rate is**. Demand appeared
+   to ramp from zero on `trapezoid` / `stepup` / `stepdown` / `spike`, which is simply false.
+
+Both share one root and one fix: **assume the t=0 rate held for all t<0.** The seed is
+`W0 = rate_profile(shape, 0) × size_mean` (work/s); it self-zeroes for `bump` (which genuinely
+starts idle), leaving that reference shape untouched. The fleet is warm-sized to `W0` with
+`start = up = 0` — pre-booted, so there is no phantom pre-t=0 boot cost, and billing still
+begins at t=0 on the `[0, duration]` grid (matching how `gen_supply_static` was already
+modelled). Applies to **every** sizer including the closed-loop HPA/KEDA ones; a warm fleet with
+an empty queue holds at `n0` rather than collapsing to `min`, because the controllers **hold on a
+zero metric** (`return n if n>0 else 1`).
+
+*Successor, in flight (§8.2):* a **burn-in prelude** — run arrivals at the constant t=0 rate for
+`T_burn` before the measured window, with **autoscaling frozen** throughout — replaces the
+analytic *estimator* seed with genuine pre-window history (the trailing windows just fill), and
+additionally starts the **served-side** state (in-flight requests, in-system `L(t)`, served-work
+bands) in steady state, which the analytic seed cannot do. The warm fleet stays: with the
+autoscaler frozen, nothing else would ever create the first replica.
+
+> **Real-trace caveat (§1.1(2), §8.2 ingestion).** None of this transfers as-is to an imported
+> benchmark trace: you cannot synthesize a real run's starting state from a formula. For real
+> traces the initial fleet/queue/in-flight state must be **captured directly** from the run, or
+> the leading warm-up window must be **trimmed out** of the measured region. Reporting a real
+> trace from t=0 with a cold model fleet reproduces exactly artifact (1) above.
+
 **Utilization** (a derived cost/quality read, `summarize`): delivered work ÷ usable
 throughput-capacity paid for (`∫ ready · ⌊sat_frac·C⌋ · service_rate dt`). `<1` = an
 idle / over-provisioned fleet; `~1` or above = fully packed — but *packed can still
@@ -1257,10 +1293,23 @@ This is a prior-art investigation, deferred; do not block workload implementatio
      for both Q sizers is the deliberate **level-field constant** that isolates
      anticipation from aggression; Qexp still beats queue-aware on good% on **every** shape
      at drain=20. **Do NOT re-tune to 3** — the standing level-field rule holds.
-   - **Secondary finding — `stepdown` (cold-start-at-peak) is the hardest shape:** hi=24
-     from t=0 against a cold fleet + 90 s boot drives failed% to 15.7 % (qexp) / 25.1 %
-     (queue-aware) / 24.0 % (setup-lag) and pushes qexp's peak fleet to 15 replicas — a
-     clean illustration that irreducible boot lag, not the sizer, dominates a step onto peak.
+   - **Secondary finding — `stepdown` is a pure scale-*down* test (REVISED 2026-08-06, warm
+     start).** The original reading — *"cold-start-at-peak is the hardest shape: failed% 15.7 %
+     (qexp) / 25.1 % (queue-aware) / 24.0 % (setup-lag), qexp peak fleet 15 replicas"* — was an
+     **artifact of cold-booting the fleet from zero at t=0**, not a property of the shape. Any
+     shape whose demand *starts* at `hi` was secretly testing a near-instantaneous step **up**
+     first, and the startup queue that step built then contaminated the rest of the run. Both
+     the fleet and the trailing-window demand estimators are now warm-started at the shape's
+     t=0 steady state (§2.4), so `stepdown` finally measures what its name says: **does the
+     fleet rescale down as demand falls.** Because scale-down has **zero actuation lag** —
+     shedding needs no boot — it is the *honest* and structurally *easy* direction: every sizer
+     but one clears the shape outright. The lone straggler is **`hpa-concurrency`**, whose
+     running-count signal is capacity-capped and so cannot see the transient at all — a
+     structural blind spot of that metric, not a startup artifact. **This also makes `stepdown`
+     cap-inert** (it warm-starts at peak and only sheds), so it joins `bump`/`spike` in the
+     cap-sweep's no-lesson group and no longer differentiates the Q sizers (item 11).
+     *Exact figures are re-frozen in item 11 only after the burn-in prelude lands (§8.2);
+     until then read `out/summary-stepdown.md` for the current run.*
 
    **Per-shape demo figures wired into the viewer — DONE (item 11, 2026-08-05):** all 5 shapes
    (the three above + `bump` reference + `spike` teaching case) now render across Compare / Browse
@@ -1422,6 +1471,48 @@ This is a prior-art investigation, deferred; do not block workload implementatio
       in-sim dispatcher never enters (§2.3).
 - [ ] Setup-time noise: boot lag is a **constant** now; add jitter/noise to
       `setup` (and later `drain`) to test robustness to non-uniform boot times.
+- [ ] **Burn-in prelude — start the measured window in true steady state** (APPROVED
+      2026-08-06, implementing; §2.4). Generate arrivals over `[0, T_burn + duration]` with the
+      profile held at its t=0 rate for `t < T_burn`, take `t0 = T_burn` as the measurement
+      origin, and **freeze autoscaling for `t < t0`** (no `decide` events; sizer pre-passes held
+      at `n0`) so the warm-up is never itself a test of the controller and never bills boots into
+      the measured window. `sample()` shifts its grid to `[t0, t0+duration]` and emits `t − t0`,
+      so plots stay unaware of burn-in; `req_done` is filtered to `arrival ≥ t0`, so burn-in
+      requests **occupy capacity** (the whole point) but never enter latency stats. This
+      **supersedes the analytic estimator seed** of §2.4 — real pre-window history simply fills
+      the trailing windows — and it is the only way to start the **served side** in steady state:
+      in-flight requests, in-system `L(t)`, and the served-work bands currently fill from empty
+      over ~60 s no matter what the fleet is doing. The warm fleet is *retained*, because with the
+      autoscaler frozen nothing else would create the first replica. `T_burn = 120 s` ≈ 2× the
+      longest *backward* window (`METRIC_WINDOW` / `WORK_RANGE` / `SIZING_RANGE` = 60) and ~10
+      mean service times; `QEXP_PROJ_SETUP = 120` is forward-looking and does not constrain it.
+      Measured cost: `run.py` 61 s → ~75 s; `sweep.py` needs one cold ~5 min pass (burn-in
+      changes the cache key) then returns to ~3 s. **Every frozen number in §8.1 item 11 is
+      re-frozen once, after this lands** — the warm-start already invalidated them, and burn-in
+      will move them again, so they are updated in a single pass rather than twice.
+
+**Right-sizing is the premise (Dean, 2026-08-06) — the next two directions follow from it.**
+The deck has so far mostly investigated **transition-time** behavior, but **steady-state
+right-sizing is the actual money-saver** in autoscaling; transition *speed* matters less. That
+reframes the shape set rather than extending it: a plain ramp/step **down** is a genuinely good
+test of whether the system rescales at all, and it is *honest* precisely because scale-down has
+**zero actuation lag** (§8.1 item 8). What is not yet tested is how right-sizing holds up once
+the signal gets harder:
+
+- [ ] **Noise in the input signal.** The only demand-side variability today is Poisson thinning
+      around a smooth `rate_profile`. Add controlled noise to the *rate itself* (burstiness,
+      autocorrelated jitter, short excursions) and measure how each sizer's **steady-state**
+      right-sizing degrades: does it chase the noise — churn, and the boot-lag waste that churn
+      buys — or absorb it? This is the direct test of whether "trailing window + `headroom`" is
+      the right filter, and the natural place to add a **churn/stability** metric (replica
+      changes per unit time) beside the existing cost/quality pair.
+- [ ] **Change in the request shape.** `size_mean` / `size_dist` are fixed for an entire run, so
+      offered *work* only ever moves because the *arrival rate* moved. Let the size distribution
+      shift mid-run (mean output length steps up; or the prefill/decode mix changes) at
+      **constant request rate**: request-count-based sizers (`hpa-concurrency`, anything counting
+      requests rather than work) should mis-size, while work-rate-based sizers should track it
+      cleanly. That is a sharp, teachable separation the current shape set cannot show at all —
+      the demand-side analogue of §2.7's concurrency-dependent decode rate.
 
 **Two-trace / real-benchmark ingestion (§1.1(2), decision-3 = later):**
 - [ ] **Workload-trace loader** — read arrivals + sizes from a real benchmark export

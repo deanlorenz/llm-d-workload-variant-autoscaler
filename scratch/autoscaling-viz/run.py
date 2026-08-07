@@ -23,6 +23,17 @@ os.makedirs(TR, exist_ok=True)
 
 # Held-constant across every scenario (see module docstring for provenance).
 DURATION = 600.0
+BURN_IN = 120.0               # burn-in prelude: simulated-but-never-measured warm-up ahead of
+                              # t=0 during which λ is held at the shape's initial rate and
+                              # AUTOSCALING IS FROZEN. Its job is to hand the measured window a
+                              # real steady state — warm fleet, warm queue, warm in-flight
+                              # population, warm trailing-window estimators — so a shape whose
+                              # demand starts high (step-down) is not secretly measuring a cold
+                              # boot. 120 = 2× the longest BACKWARD window (METRIC_WINDOW /
+                              # WORK_RANGE / SIZING_RANGE = 60) and ~10 mean service times
+                              # (~12 s), so every estimator opens on a full window of real
+                              # history. QEXP_PROJ_SETUP=120 is forward-looking and does not
+                              # constrain this. See design §2.4 / §8.2.
 PEAK_RATE = 24.0
 SIZE_MEAN = 1000.0            # tokens per request (mean; expo)
 C = 100                       # per-backend concurrency limit
@@ -91,7 +102,8 @@ DEMO_SHAPES = [
 
 def _load(shape="bump"):
     return gen_load(pattern=shape, duration=DURATION, peak_rate=PEAK_RATE,
-                    size_mean=SIZE_MEAN, size_dist="expo", seed=1)
+                    size_mean=SIZE_MEAN, size_dist="expo", seed=1,
+                    burn_in=BURN_IN)
 
 
 def _headroom_point(sizer, hr, shape="bump"):
