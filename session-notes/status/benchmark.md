@@ -1496,8 +1496,14 @@ Costs quantified:
 
 Recovery: no measurement was lost, only per-request resolution. All 8 stage aggregates and
 the summary survived, and server-side token truth was recovered from 650 vLLM scrapes
-(`server_token_truth.py`). Unrecoverable: per-request distributions/CDFs and any
-per-request correlation (e.g. tagging requests served during the under-provisioned window).
+(`server_token_truth.py`).
+
+> **SUPERSEDED by §17.** This section originally called per-request distributions/CDFs and
+> per-request correlation unrecoverable. They are not: the inference gateway's access log
+> yields a complete per-request trace for all 22,200 requests, with arrival, duration,
+> response size and the serving pod. Per-request TTFT and exact per-request token counts
+> remain lost. The two defects above still need the same decisions regardless — the gateway
+> log is a fallback, not a reason to leave the OOM in place.
 
 ### 16.4 inference-perf output-token defect — now bounded, supersedes §15.10
 
@@ -1697,7 +1703,28 @@ output-token defect in §16.4 are all untouched by this — none of them depend 
 The ~18% cold-`prc` latency penalty also survives unchanged: the counterfactual recomputes to
 ~6.5 s on the corrected curve.
 
-### 17.5 Handoffs delivered
+### 17.5 Which vLLM histograms are worth using (reusable, not run-specific)
+
+Triaged before promising anything to the viz work, because bucket resolution decides whether
+a server-side histogram can substitute for a lost per-request field. Boundaries are fixed by
+vLLM, so this carries to every run on this image:
+
+| metric | boundaries | verdict |
+|---|---|---|
+| `vllm:time_to_first_token_seconds` | 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5 s | **usable** — 8 boundaries inside the observed 0.03–0.34 s range; a genuine distribution-level replacement for per-request TTFT |
+| `vllm:e2e_request_latency_seconds` | … 2.5, 5, 10, 15, 20 s | **too coarse** — the whole observed 5.4–12 s range spans three buckets; envoy's exact per-request ms is strictly better |
+| `vllm:request_generation_tokens` | 200, 500, 1000 | **bounding only** — cannot show shape, but decisive for §16.4: every request lands in (200, 1000], refuting the harness's reported max of 3186 |
+
+`vllm:request_queue_time_seconds` and `vllm:num_requests_waiting` are the direct measure of
+under-provisioning harm and have **no equivalent anywhere in the harness output** — worth
+capturing deliberately rather than incidentally.
+
+Two logs were eliminated as per-request sources, with evidence, so nobody re-checks them:
+the EPP log carries only 13 `x-request-id` lines across 418 s (note the field is
+`x-request-id`, hyphenated — a bare `request_id` grep returns nothing and looks like absence),
+and the modelserving log covers 39 s, entirely before load started.
+
+### 17.6 Handoffs delivered
 
 Both now relayed to `plans/session/handoffs/` (verified byte-identical to the worktree
 copies). The earlier one had `state: sent` in its frontmatter but had **never actually been
@@ -1709,7 +1736,7 @@ failure mode: frontmatter is not delivery.
 * `scratch-poc__ladder-run-surviving-data.md` — what survives, how to parse it, the rotation
   caveat, and the corrected per-replica curve.
 
-### 17.6 State as left
+### 17.7 State as left
 
 * New tools in `session-notes/scratch/`: `envoy_per_request.py`, `serving_replicas.py`;
   `stage_vs_replicas.py` corrected. Promotion candidates for `hack/benchmark/` alongside the
