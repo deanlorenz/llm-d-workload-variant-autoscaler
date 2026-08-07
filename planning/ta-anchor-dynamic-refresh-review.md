@@ -6044,3 +6044,108 @@ Nothing about C9e, which I have already enumerated per site (48 in scope, now **
 3 after C9b). And nothing about gate results — I do not build or test in the coder's worktree, so
 `make test` / `make lint` outcomes are the coder's to report and Dean's to accept, never mine to sign
 off.
+
+---
+
+## The P/D scale-up break: verified live on this branch, but **inherited, not PR-2's**
+
+The designer's `plan__ta-anchor-pd-fix-is-one-line-already-on-main.md` (cc'd to me, no action asked)
+derives a break I had not found. I verified all six steps independently at `2ae440e3` via
+`git show <sha>:`, and the chain holds:
+
+| # | site | verified |
+|---|---|---|
+| 1 | `throughput/analyzer.go` sfz complement | builds `VariantCapacity{VariantName, PerReplicaCapacity, Reason}` — **no `Role`** ✓ |
+| 2 | `distributeDemandByRole:923-926` | blank `Role` → `domain.RoleBoth` ✓ |
+| 3 | `aggregateRoleCapacities` nil-guard | returns nil only when `len(byRole)==0 \|\| (len==1 && hasBoth)`; with prefill+decode+**both** `len==3`, so it does **not** fire ✓ |
+| 4 | `initRoleState:377-385` | unions `roleSet[role]` over **every** voting entry with non-nil `RoleCapacities` ✓ |
+| 5 | `:948-960` | `pick("both")` → `v == ""` → `allPicked = false` → inner `break`, then `if !allPicked { break }` **before** `nByRole` or any commit ✓ |
+
+So the effect is as stated: on a disaggregated model with any previously-measured variant at zero
+replicas, the whole model gets **zero** scale-up decisions, on the first iteration, before anything is
+allocated. And TA does not need to win the bind — step 4 unions over the voting set, so TA being
+`Enabled && Live` suffices while saturation holds the anchor throughout.
+
+### Attribution — the part the handoff leaves ambiguous, and it changes the severity
+
+"Already live on this branch" is true, and a reader can easily take it to mean PR-2 introduced it. It
+did not. Two checks:
+
+- The identical construction, **byte for byte**, is already at `075a208e` — PR-1's tip, PR-2's base.
+- `git diff 075a208e..2ae440e3 -- internal/engines/analyzers/throughput/analyzer.go` filtered to
+  `Role`-bearing lines returns **nothing**. PR-2 never touched it.
+
+So this is **inherited from PR-1, fixed upstream by `a38d7b73` before PR-1 merged, and absent here only
+because PR-2 is stacked on PR-1's pre-merge tip** (`merge-base --is-ancestor a38d7b73 HEAD` → ABSENT,
+which I confirmed). It is not a PR-2 regression and must not be scored as one.
+
+It is still a PR-2 *shipping* concern, for one reason that has nothing to do with fault: **if PR-2 opens
+without rebasing, it presents a branch carrying a P/D break that `main` has already fixed.** The rebase
+onto `main@57f3fe64`+ — already recorded as PR-2's target — resolves it for free, along with the other
+three operator-visible fixes in `a38d7b73`. That makes the rebase the strictly better of the two shapes
+the handoff offers, and it is the coder's/Dean's call, not mine.
+
+### §3's general invariant is real but narrower than stated
+
+The handoff generalizes to: "**any** voting entry that does not report per-role `RoleCapacities` injects
+`both` into `roles`." The `else` branch at `:389-397` does do that. But the reachable set is small:
+`saturation_v2/analyzer.go:136` **does** populate `RoleCapacities`, so saturation never takes that
+branch on a P/D model — which is why P/D allocation works at all today, and why the observed break
+comes from TA's own blank-`Role` complement rather than from a nil-`RoleCapacities` entry. Stated as a
+conditional the claim is correct; stated as a live surface it overstates. Worth keeping straight,
+because the narrow version is fixed by one line and the broad version would imply P/D is broken for
+every multi-analyzer config, which it is not.
+
+### PR-2 does not widen it — checked, because this is the half that would be mine
+
+If any PR-2 change caused a voting entry on a P/D model to lose its `RoleCapacities`, that *would* be a
+PR-2 regression. It does not. The `analyzer_helpers.go` delta touches `RoleCapacities` only to **read**
+it (`rc, ok := e.Result.RoleCapacities[role]`) plus two comments, and adds no `RoleCapacities: nil`
+producer anywhere. PR-2's new abstention paths (C6f abstain-when-unpriced, N7) abstain on
+`PerReplicaCapacity <= 0`, which is a *value* test downstream of the key set — it cannot inject a role
+key. Clean.
+
+### One structural note that is mine and is new
+
+`roles` is computed **once**, by `initRoleState`, *before* the `for anyRoleNeedsScaleUp` loop.
+PR-2's `refreshAnchorSizing` runs **inside** that loop. So per-iteration dynamic re-binding — PR-2's
+headline mechanism — **cannot heal a key-set mismatch even in principle**: the phantom `both` persists
+across every iteration, and re-binding only ever refreshes *sizing* for keys already in the set. Not new
+breakage, and not a defect in the re-binding design; but it forecloses an assumption someone could
+reasonably make ("dynamic re-binding will re-derive the roles"), and it is the reason the repair has to
+sit at the derivation rather than in the loop — which is the same conclusion the designer reaches from
+the joint-commit side.
+
+### Corroboration for Q4, from an independent read
+
+The designer's withdrawal handoff independently verified that `math.Ceil` at `greedy_score_optimizer.go:837`
+is the **only** `math.Ceil`-or-`Floor` in the non-test file, and that C6c landed as `34b18bc5`. That is
+exactly my Q4 pre-registration: the ceil/floor fork is **unresolved at the tip**, and it is now formally a
+doc-vs-code divergence (his `T1-1`) awaiting Dean — the frozen Type 1 mandates `floor`, the tree ships
+`ceil` with a written justification. He withdrew its urgency and his C6c scheduling instruction, and
+states the compiled branch is the safe side. Q4 stands unchanged: a C9c golden authored now still risks
+freezing the side the Type 1 calls wrong.
+
+### Tip-staleness, fifth instance — and this one is recursive
+
+The pattern I recorded gains an instance from the same handoff. The designer told the planner its tip
+table was "stale by one"; it was **four** (`b6bb525c` → `1a50b418` → `79a590d6` → `757fc6f5` →
+`2ae440e3`). Self-diagnosed cause: he compared *subject lines* instead of running `rev-list --count`.
+This is the strongest evidence yet for the candidate rule, because it is an error **in the correction of
+a staleness error** — one layer up, same mechanism. His own framing is the right one to adopt: the useful
+conclusion is not that everyone is sloppy, but that **a recorded SHA is worthless without a
+`rev-list --count` against it**, and none of the four documents ran one.
+
+### Finding 47 needs no action — my doc already closed it
+
+§3 of the withdrawal handoff asks the planner not to route Finding 47 as owed work, because `79a590d6`
+supplies the fixture. Agreed, and already recorded above at `## 79a590d6 … Finding 47 CLOSED` — including
+the point that the commit **over**-delivered (five specs, not the one I proposed, with the untagged
+negative control being the spec that makes the other four discriminating). The handoff I routed,
+`plan__ta-anchor-c11-fillrole-clamp-untested.md`, is therefore overtaken; I do not edit it, per the
+sender-never-edits rule, and the designer has now told its recipient.
+
+One boundary to keep visible: `79a590d6` proves the *guard*, using a fixture-manufactured
+`ReasonFromZeroAdmission` tag. That is the correct way to test a dormant guard, and it gives **no**
+coverage of the *trigger*, because nothing in production writes the tag. That is not a gap in the test —
+it is precisely Finding 46, and the two must not be collapsed into each other.
