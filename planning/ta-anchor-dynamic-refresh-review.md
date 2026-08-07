@@ -4673,4 +4673,26 @@ inflation rather than causing it. Its corollary matters for whichever fix lands:
 from the vote would not touch the mispricing, because the mispricing is in reference *selection*
 (`PerReplicaCapacity > 0` with no headroom test), upstream of who votes.
 
+### §4a commit-message exposure, measured exactly — 15 of 17, and one embeds handoff filenames
+
+I had been carrying "16 commits to reword". **Measured at `eb12089a` against base `075a208e`: 17 commits,
+of which 15 carry a plans-branch token in the message.** Only `eb12089a` and `34b18bc5` are clean. My
+figure was wrong in both directions — it overstated the reword count and understated the total.
+
+- **6 subjects** carry tokens: `a679f2ad` (`C6f`, `W4`), `784c2b5c` (`C6e`), `330fcd26` (`C6d`),
+  `d9f3b97e` (`C6b`), `8eb6ee2d` (`C6a`), `680bebdb` (`N2`).
+- **15 bodies** carry them — `W1`/`W4`, `N2`/`N3`/`N7`/`N8`, `U2`, `C1`–`C11`, `T1.x`, `PR-1`/`PR-2`,
+  `Type-1 owner`.
+- **`a679f2ad` is the worst single case and a class the earlier counts missed:** its body cites two
+  plans-branch documents *by filename* — `plan__ta-anchor-c6f-w4-no-spend-is-false.md` and
+  `review__ta-anchor-claim-inflation-measured-single-analyzer.md`. A token like `W4` is opaque to a
+  `main` reader; a handoff filename is worse, because it reads as a resolvable reference and is not one.
+  This is the same leak class as the pre-existing dev-guide `plans/planning/…` path above, arriving in
+  permanent code-side history rather than a doc.
+
+The arithmetic on the window is unchanged in shape and now exact: **15 messages to reword while the branch
+is unpushed and needs a force-push anyway, against 17-plus once C11/C10/C9 land and the PR is open, at
+which point it is a live-PR history rewrite.** *"Not worth it"* remains a legitimate answer — but it
+should be answered against 15, not my previous guess.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
