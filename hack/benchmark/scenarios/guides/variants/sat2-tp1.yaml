@@ -1,7 +1,16 @@
 # Single-variant WVA saturation-V2 set for the TA basic e2e system test.
 #
 # One variant of the model, TP=1 (1 GPU per replica), driven by WVA between
-# 1 and 2 replicas as saturation rises and falls (the 1->2->1 scaling test).
+# 1 and 10 replicas as saturation rises and falls.
+#
+# The ceiling was 2 through the 2026-08-07 A/B pair, which turned out to BIND at
+# 12 rps -- the saturation analyzer asked for 4 and was clipped. A binding cap
+# makes every latency number at that stage a measurement of the cap rather than
+# of the controller, and it also masks the ThroughputAnalyzer's per-replica
+# capacity instability (1694 <-> 3849, 2.3x) by clamping the target it produces.
+# 10 matches the ceiling in Ofer's single-variant scenario and, at the ~6
+# rps/replica wall measured for this token shape, should NOT bind at the ladder's
+# 20 rps peak (expect ~4 replicas). If it binds anyway, that is a finding.
 # `deployed: true` means this is the variant standup already created, so no
 # extra Deployment is materialized -- configure_variants.py just attaches a
 # KEDA ScaledObject at this cost/min/max to the standup Deployment.
@@ -14,7 +23,7 @@ variants:
     deployed: true
     variantCost: "10.0"
     minReplicas: 1
-    maxReplicas: 2
+    maxReplicas: 10
     parallelism:
       tensor: 1
     resources:

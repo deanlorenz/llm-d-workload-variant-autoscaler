@@ -232,7 +232,7 @@ shared:
   workDir: "__WVA_WORKDIR__"
   harness:
     name: inference-perf
-    experimentProfile: ta_autoscale_staircase.yaml
+    experimentProfile: ta_autoscale_ladder.yaml
     # Prevent the entrypoint's 3-attempt retry loop from re-running the whole
     # workload when inference-perf exits non-zero due to per-request errors.
     # Without this, stage 1 errors (e.g. transient timeouts under load) trigger

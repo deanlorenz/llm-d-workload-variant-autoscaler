@@ -1,0 +1,112 @@
+# ta_autoscale_ladder.yaml.in
+#
+# MULTI-REPLICA autoscaling ladder -- the higher-load successor to
+# ta_autoscale_staircase.yaml.in, sized to match the rate ladder in Ofer's
+# single-variant scenario (config/scenarios/guides/workload-autoscaling.yaml on
+# biranofer/llm-d-benchmark @ feat/multi-variant-benchmark).
+#
+# WHY A NEW PROFILE, AND WHAT IT FIXES
+#
+# The 2026-08-07 A/B pair (staircase 5/12/5, ScaledObject capped at 2) answered
+# its question and then hit its own ceiling:
+#
+#   * At maxReplicas=2 the cap was BINDING at 12 rps -- the saturation analyzer
+#     asked for 4 replicas and was clipped to 2. Every latency number at that
+#     stage is therefore a measurement of the CAP, not of the controller. The
+#     arm without the ThroughputAnalyzer showed 7x worse p95, but that gap is
+#     inflated by the clip: with zero headroom a transient backlog can never
+#     drain, so a ~110 s provisioning deficit propagated to the end of the stage.
+#   * The cap also HID the instability we care about. TA's per-replica capacity
+#     swings 1694 <-> 3849 (2.3x) cycle-to-cycle at constant load, and the engine
+#     computes ceil(demand/prc) with no smoothing. At a ceiling of 2 that swing
+#     has nowhere to go and gets silently clamped. At a ceiling of 10 it lands
+#     directly on the replica target, so this profile is what makes the
+#     instability observable at all.
+#
+# Adopted from Ofer's ladder: the rate sequence 2,5,8,10,12,15,20.
+# Deliberately NOT adopted: his 50 s stage duration. WVA's GLOBAL_OPT_INTERVAL
+# is 60 s and a decode replica needs ~60 s to reach Ready (both measured on
+# 08-07: decisions at 17:12:20 and 18:09:09, curr=2 observed at 17:13:20 and
+# 18:10:09). A 50 s stage therefore grants at most ONE control decision, which
+# lands after the load has already moved on -- that measures transient chasing
+# and cannot show stabilisation. 300 s = 5 x the control interval leaves room to
+# decide, let KEDA act, let the pod become Ready, and reach steady state.
+#
+# The trailing return to 2 rps is not in Ofer's ladder. It is added because his
+# is monotonically increasing and so exercises only the scale-UP path; the
+# scale-down watermark (0.70) is never tested by a ladder that never descends.
+#
+# Token shape is held at ~2048 in / ~512 out, identical to
+# ta_autoscale_staircase.yaml.in. Ofer's scenario uses a shared_prefix shape
+# (2048 system + 256 question / 256 out) -- matching it here would change the
+# stimulus and the model at the same time as the replica ceiling, leaving no
+# comparable axis back to the 08-07 pair or the 08-03 baseline. Keep one
+# variable moving at a time; the shared-prefix shape is its own experiment.
+#
+# Sizing (matters -- the per-request trace is the binding resource):
+#   requests   = 300 s x (2+5+8+10+12+15+20+2) = 300 x 74 = 22,200
+#   trace size = 22,200 x 535 KB/req (measured: 4,234,888,579 B / 7920 req on
+#                the 08-07 Arm A run, same token shape) ~= 11.9 GB
+# The results PVC is 20 GB. Reclaiming the two 08-07 per-request traces frees
+# 8.44 GB and is a PRECONDITION for this profile -- verify host copies are
+# byte-identical first (session-notes/scratch/verify_pvc_vs_host.py).
+#
+# Expected replica behaviour: ~6 rps/replica was the observed 1-replica wall at
+# this token shape, so 20 rps should settle around 4 replicas and the ceiling of
+# 10 should NOT bind. If it does bind, that is a finding, not a misconfiguration.
+load:
+  type: constant
+  # Fixed seed so prompts and sampled output lengths are reproducible. Note the
+  # stage structure differs from the staircase, so the same seed does NOT
+  # reproduce that run's request stream -- it only makes THIS profile repeatable.
+  base_seed: 42
+  stages:
+  - rate: 2
+    duration: 300
+  - rate: 5
+    duration: 300
+  - rate: 8
+    duration: 300
+  - rate: 10
+    duration: 300
+  - rate: 12
+    duration: 300
+  - rate: 15
+    duration: 300
+  - rate: 20
+    duration: 300
+  # Descent: exercises the scale-down path and the 0.70 scale-down watermark.
+  - rate: 2
+    duration: 300
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+  base_url: REPLACE_ENV_LLMDBENCH_HARNESS_STACK_ENDPOINT_URL
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+data:
+  type: random
+  input_distribution:
+    min: 2000
+    max: 2100
+    mean: 2048
+    std_dev: 40
+    total_count: 2000
+  output_distribution:
+    min: 480
+    max: 550
+    mean: 512
+    std_dev: 20
+    total_count: 2000
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+    per_request: true
+storage:
+  local_storage:
+    path: /workspace

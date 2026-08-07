@@ -37,6 +37,12 @@ hack/benchmark/.env
 # llmdbenchmark workspace directories (created by benchmark runs)
 *-*-*-*-*-*/
 biran-*/
+# Our own run directories are dean-<date>-<time>-<pid>/, which is only three hyphens and so
+# is not matched by the pattern above. Each holds 100+ MB of results and must never be
+# committed; the analysis that survives a run lives in session-notes/ instead.
+dean-*/
+# Harvested copies of run results, kept locally for re-analysis (14-day retention).
+session-notes/scratch/ladder-run/
 llmd/
 llmd-infra/
 # Staged image record, moved into the run directory once the run completes.
@@ -51,3 +57,6 @@ hack/tls-certs/
 
 # AI
 .claude/worktrees/
+
+# Python bytecode from the hack/benchmark and session-notes analysis scripts
+__pycache__/

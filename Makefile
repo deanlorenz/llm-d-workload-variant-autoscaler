@@ -888,6 +888,29 @@ benchmark-restart-controller: ## Restart WVA controller to flush in-memory state
 	kubectl rollout restart -n $(BENCHMARK_NAMESPACE) $$DEPLOY; \
 	kubectl rollout status -n $(BENCHMARK_NAMESPACE) $$DEPLOY --timeout=$(WVA_ROLLOUT_TIMEOUT)
 
+# Set to true to perform the reset instead of only reporting it. Dry run is the
+# default because this writes to a shared cluster; see hack/benchmark/reset_run.py
+# for what is in and out of scope.
+BENCHMARK_RESET_APPLY ?= false
+DECODE_ROLLOUT_TIMEOUT ?= 600s
+
+.PHONY: benchmark-reset-run
+benchmark-reset-run: ## Reset per-run state between runs: leftover harness objects, PVC results, controller + decode restart (set BENCHMARK_NAMESPACE=<namespace>, BENCHMARK_RESET_APPLY=true to act)
+	@if [ -z "$(BENCHMARK_NAMESPACE)" ]; then \
+		echo "ERROR: BENCHMARK_NAMESPACE is required. Usage: make benchmark-reset-run BENCHMARK_NAMESPACE=<namespace>"; \
+		exit 1; \
+	fi
+	@# Lowest rung of the cleanup ladder: run-scoped only. It does not rebuild the
+	@# stack, does not change the namespace's shape, and touches nothing
+	@# cluster-scoped. It also does NOT un-pause KEDA -- that is a decision about
+	@# starting a run, so the script reports the pause and leaves it.
+	@python3 $(CURDIR)/hack/benchmark/reset_run.py \
+		-n $(BENCHMARK_NAMESPACE) \
+		--workspace "$(BENCHMARK_WORKSPACE)" \
+		--controller-timeout $(WVA_ROLLOUT_TIMEOUT) \
+		--decode-timeout $(DECODE_ROLLOUT_TIMEOUT) \
+		$(if $(filter true,$(BENCHMARK_RESET_APPLY)),--apply,)
+
 BURSTY_WORKLOAD    ?= bursty.yaml
 BENCHMARK_WAIT_TIMEOUT ?= 7200
 BENCHMARK_HARNESS_MEMORY ?= 40Gi

@@ -14,10 +14,14 @@ set -uo pipefail
 NS=dhl-wva-209
 DECODE=unsloth--608e585a-instruct-decode
 RES=gpu-reservation
-HOLD_TOTAL=2
+# NS and DECODE stay hardcoded on purpose: they are the blast-radius guard, not
+# a knob. Only the timing/footprint knobs are overridable, so a longer arm can
+# raise the cap without editing this file:
+#   HOLD_TOTAL=2 MAX_ITERS=900 ./gpu-reservation-coupler.sh
+HOLD_TOTAL=${HOLD_TOTAL:-2}
 STOP=/tmp/stop-gpu-coupler
-MAX_ITERS=560            # ~47 min safety cap at 5s poll
-POLL=5
+MAX_ITERS=${MAX_ITERS:-560}   # 560 x 5s ~= 47 min safety cap
+POLL=${POLL:-5}
 
 log(){ echo "$(date -u +%H:%M:%S) coupler | $*"; }
 log "start: HOLD_TOTAL=$HOLD_TOTAL decode=$DECODE res=$RES poll=${POLL}s"
