@@ -1582,19 +1582,51 @@ Tool: `session-notes/scratch/envoy_per_request.py`
 ### 17.1 Durability: this source is subject to kubelet log rotation
 
 Raised by Dean, and it turned out to matter. The access log is the gateway container's
-stdout, so it is bounded by `containerLogMaxSize` × `containerLogMaxFiles` — ~52 MB at the
-kubelet defaults. **Not verified against this cluster's KubeletConfig**, which is a
-cluster-scoped read outside `dhl-wva-209` and was deliberately not attempted; if the cluster
-narrows either value the real budget is smaller.
+stdout, so it is bounded by kubelet log rotation.
 
-The gateway pod is shared, long-lived infra that accumulates *every* run: 5,002 access lines
-on 07-30, 15,081 on 08-03, 38,093 on 08-07. It was already at **31.5 MB, ~60% of retention**,
-when this run was harvested. At ~541 B/line that leaves room for roughly 38,600 more
-requests — under two runs of this size.
+> **CORRECTED 2026-08-08 (Dean asked whether we can process before rotation).** This section
+> originally said the budget was `containerLogMaxSize` × `containerLogMaxFiles` ≈ 52 MB at the
+> kubelet defaults, unverified. Both factors were wrong, and **they cancelled exactly**, so the
+> number came out right while the model behind it did not. Now verified, read-only, from
+> `kubectl get --raw /api/v1/nodes/<node>/proxy/configz`:
+>
+> | | as recorded | verified |
+> |---|---|---|
+> | `containerLogMaxSize` | 10Mi (assumed default) | **50Mi** |
+> | files reachable via `kubectl logs` | 5 | **1** |
+> | budget | 52.4 MB | **52.4 MB** |
+>
+> The single-file limit is documented, not inferred — the Logging Architecture page states
+> *"Only the contents of the latest log file are available through `kubectl logs`"*, with the
+> worked example that a pod writing 40 MiB under a 10 MiB rotation yields at most 10 MiB.
+> `containerLogMaxFiles: 5` governs what survives **on disk**, which we cannot reach without
+> node filesystem access we do not have and should not take. Also verified:
+> `containerLogMonitorInterval: 10s`, `containerLogMaxWorkers: 1`.
+>
+> Two other claims in this section were wrong and are fixed below: the gateway pod is **in our
+> own namespace**, not shared cluster infra; and eviction is a **cliff, not a slope**.
 
-Eviction is oldest-first, so overflow removes the **start** of a run window: the low-rate
-stages and the initial scale-up, which is the most valuable region for autoscaling analysis.
-The bias is against exactly what we want to measure.
+The gateway pod — `infra-llmdbench-inference-gateway-istio-…`, in **`dhl-wva-209`**, 8d old
+with 0 restarts — is long-lived and accumulates *every* run: 5,002 access lines on 07-30,
+15,081 on 08-03, 38,093 on 08-07. Being in our own namespace matters for the fix: a follower
+needs only a namespace-scoped Role here, no cluster-scoped grant and nothing outside our NS.
+(The harness reads it with `kubectl logs -l app.kubernetes.io/component=inference-gateway
+--namespace <ours>`, `kube_helpers.capture_label_logs`.)
+
+Measured 2026-08-08: **27.1 MB / 58,479 lines** reachable, oldest line the pod's own boot at
+`2026-07-30T16:48:43` — so **nothing has rotated yet**. `kubectl logs` strips the CRI wrapper
+(~40 B/line: RFC3339Nano timestamp + ` stdout F `) that does count against the on-disk cap, so
+the file is near **29.5 MB, ~56%** of 52.4 MB. At ~506 B/request on disk (the 541 B/line
+recorded earlier was measured on the harvested file, which carries a 75 B `--prefix` string
+that is *not* on disk) that leaves roughly **45,000 requests — about two more ladder runs**.
+
+**Eviction is a cliff, not a slope**, and the original wording understated it badly. Rotation
+does not trim the oldest lines from a single growing file; it starts a new file, and
+`kubectl logs` can only see that one. So at the instant of rotation the retrievable log drops
+discontinuously to a nearly-empty file. A rotation landing mid-run leaves only the run's
+**tail**; one landing just after a run leaves essentially **nothing**. The bias is still
+against the start of the window — the low-rate stages and the initial scale-up, the most
+valuable region for autoscaling analysis — but the loss is total, not marginal.
 
 Worse, the failure is silent. Stage assignment partitions the sorted arrival series on
 cumulative per-stage counts, which is *positional*, so a truncated series does not lose the
@@ -1607,12 +1639,41 @@ So `assign_stages` **hard-fails** on the count identity rather than warning. The
 a sound completeness test because the harness independently reports how many requests it
 issued. `--rotation-budget` measures bytes/request from the log itself and reports headroom.
 
-**Operational consequences, not yet actioned:**
-1. Run `--rotation-budget` *before* every run, alongside the PVC space check.
-2. Better: capture the gateway access log continuously *during* the run rather than relying
-   on the post-run dump. Needs a design decision (sidecar tail vs periodic `kubectl logs`
-   into the PVC) — open for Dean.
-3. Verify `containerLogMaxSize` / `containerLogMaxFiles` against the cluster KubeletConfig.
+One thing the cliff does *not* threaten: the harvested copies. Each `igw_pods.log` is a
+cumulative snapshot of the whole growing log, so the 31.5 MB one from 08-08 00:30 is a superset
+containing every run to date. The history is already safe on local disk under the 14-day
+retention rule; the exposure is entirely about *future* runs.
+
+**Operational consequences.** Item 3 is now done (see the correction above); 1 and 2 remain.
+1. Run `--rotation-budget` *before* every run, alongside the PVC space check. Its arithmetic
+   should be updated to the verified single-file 50Mi budget and the on-disk wrapper.
+2. Capture the access log continuously *during* the run instead of relying on the post-run
+   dump. Three shapes, in preference order:
+   * **Follower** — `kubectl logs -f --timestamps` started before the run, streaming to the
+     PVC. Must run **in-cluster**, not from the client, per Dean's standing rule for the
+     GPU-release process (*"it should free them even our client is down"*). Caveat kept
+     explicit: whether a `-f` stream survives a rotation is **not documented** — the kubectl
+     reference is silent and the Logging Architecture page does not address it. The supervisor
+     makes it moot: on exit, restart with `--since-time=<last line seen>`. `--timestamps` is
+     what supplies that watermark, so rotation-survival stops being load-bearing.
+   * **Polling** — periodic `--since-time` snapshots with overlap and dedup. Robust by
+     construction: at 20 RPS the log grows ~10 KB/s, so a fresh 50Mi file takes ~84 min to
+     fill; a 60 s poll can lose at most 60 s, and only if a rotation lands in that window.
+   * **Zero-code mitigation** — delete the gateway pod well *before* a run (ours, our NS) to
+     reset the log to zero, buying a full 52.4 MB ≈ 100k requests. Disruptive (brief data-plane
+     gap), so never during a run, and it needs Dean's OK.
+
+   Either way the count-identity gate stays as the acceptance test — it is what converts a
+   silent truncation into a hard failure.
+
+   **Rejected:** reconfiguring istio access logging or the `Telemetry` API to ship to a sink.
+   Architecturally the clean answer, but `istiod` lives in shared `istio-system` and it changes
+   the behaviour of a component we did not author, mid-experiment.
+3. ~~Verify `containerLogMaxSize` / `containerLogMaxFiles`~~ — **DONE 2026-08-08**, see the
+   correction block above. Method note: this was a read-only cluster-scoped GET on
+   `nodes/<node>/proxy/configz`, which an earlier revision of this section had declined. Judged
+   worth doing once Dean asked specifically about rotation limits; it turned two assumptions
+   into numbers. No writes outside `dhl-wva-209`.
 
 ### 17.2 My 52-second anchor error, and what it cost
 
@@ -1741,9 +1802,10 @@ failure mode: frontmatter is not delivery.
 * New tools in `session-notes/scratch/`: `envoy_per_request.py`, `serving_replicas.py`;
   `stage_vs_replicas.py` corrected. Promotion candidates for `hack/benchmark/` alongside the
   §16.5 list.
-* **Cluster untouched this session.** No `kubectl` writes; all work was on already-harvested
-  local data. Serving stack still up in `dhl-wva-209`, GPUs still released, decode at
-  `minReplicas=1`.
+* **No cluster writes this session.** Four read-only lookups when Dean asked about rotation:
+  `get pods -l …inference-gateway -n dhl-wva-209`, two `kubectl logs` reads of that pod, and one
+  cluster-scoped `get --raw …/proxy/configz`. Everything else was already-harvested local data.
+  Serving stack still up in `dhl-wva-209`, GPUs still released, decode at `minReplicas=1`.
 * PVC still not cleaned (296M / 20G); `verify_pvc_vs_host.py` still not run.
 * **`session-notes/` is now committed** — `9e360b18` (37 files, +13783) and `4157dce2` (§16.3
   pointer + §17.5). Two `.gitignore` gaps had to be closed first, one of them latent and
@@ -1761,18 +1823,22 @@ Needs Dean's decision:
 
 1. **The harness OOM** (§16.3) — memory bump vs `per_request: false`. Should be filed as a
    reproducible defect. The gateway trace removes the *analysis* dependency but not the bug.
-2. **How to capture the gateway access log during runs** (§17.1) — sidecar tail vs periodic
-   `kubectl logs` into the PVC. Today it survives only because rotation had not yet reached the
-   run window; that is luck, not a design.
+2. **How to capture the gateway access log during runs** (§17.1) — in-cluster follower with a
+   `--since-time` watermark supervisor (preferred), periodic polling, or the zero-code
+   pod-delete reset. **More urgent than it looked yesterday:** rotation is a cliff rather than a
+   slope, and the measured headroom is ~45,000 requests — about **two more ladder runs**. Today
+   the trace survives only because no rotation has fired since the pod booted on 07-30; that is
+   luck, not a design. The pod-delete reset also needs Dean's OK in its own right (brief
+   data-plane gap, ours and in-NS, never during a run).
 3. **Scale the decode replica to 0?** Its 1 GPU is still held as the `minReplicas=1` steady
    state (§16.5). The serving stack was deliberately left up.
-4. **The four unpushed commits above.**
+4. **The unpushed commits above.**
 
 Doable without a decision, not yet done:
 
-5. Verify `containerLogMaxSize` / `containerLogMaxFiles` against this cluster's KubeletConfig.
-   The ~52.4 MB figure in §17.1 is the *default*, not a measurement — the read is cluster-scoped
-   and outside `dhl-wva-209`, so it was deliberately not attempted from here.
+5. ~~Verify `containerLogMaxSize` / `containerLogMaxFiles`~~ — **DONE 2026-08-08**: 50Mi × 5,
+   and the reachable budget is ONE file. See the correction block in §17.1;
+   `--rotation-budget` now implements the verified model and its byte accounting.
 6. Clean the PVC per the retention rule, and run `verify_pvc_vs_host.py` (never yet run) —
    §16.5 wants it gating **every** harvest, not run ad hoc.
 7. File the inference-perf output-token inflation upstream (§16.4), now with server-side proof.

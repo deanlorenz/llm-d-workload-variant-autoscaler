@@ -91,7 +91,7 @@ POD_BY_IP = {
 # whitespace, because the user-agent field ("Python/3.12 aiohttp/3.13.5") contains a space
 # and would shift every positional index after it.
 LINE = re.compile(
-    r"^\[pod/(?P<gw>[^/]+)/[^\]]+\]\s+"
+    r"^(?P<prefix>\[pod/(?P<gw>[^/]+)/[^\]]+\]\s+)"
     r"\[(?P<start>[^\]]+)\]\s+"
     r'"(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<proto>[^"]*)"\s+'
     r"(?P<code>\d+)\s+(?P<flags>\S+)\s+(?P<details>\S+)\s+(?P<term>\S+)\s+"
@@ -199,45 +199,70 @@ def fmt(epoch):
     return datetime.fromtimestamp(epoch, timezone.utc).strftime("%H:%M:%S.%f")[:-3]
 
 
-# Kubelet defaults. Worth re-checking against the cluster's KubeletConfig before trusting the
-# headroom number -- if the cluster narrows either value, the real budget is smaller.
-ROT_MAX_SIZE = 10 * 1024 * 1024
-ROT_MAX_FILES = 5
+# Verified 2026-08-08 against pokprod, read-only, via
+#   kubectl get --raw /api/v1/nodes/<node>/proxy/configz
+# The cluster is NOT on the 10Mi kubelet default. Re-check if the cluster is reconfigured.
+ROT_MAX_SIZE = 50 * 1024 * 1024
+
+# containerLogMaxFiles is 5 here, but it deliberately does NOT enter the budget below. The
+# Logging Architecture docs are explicit that "only the contents of the latest log file are
+# available through kubectl logs", so the other four survive on disk and are unreachable
+# without node filesystem access. The reachable budget is ONE file.
+ROT_MAX_FILES_ON_DISK = 5
+
+# The kubelet/CRI wrapper each line carries on disk -- an RFC3339Nano timestamp plus
+# " stdout F ". kubectl strips it, so it is invisible in the harvested file yet counts against
+# the on-disk cap. An estimate, unlike everything else here, which is measured.
+CRI_WRAPPER_BYTES = 40
 
 
 def rotation_budget(path=LOG):
-    """Report how many more requests fit before rotation starts evicting the run's start.
+    """Report how many more requests fit before the next rotation makes the log unreachable.
 
-    Measures bytes-per-request from this log rather than assuming, since the access-log line
-    width depends on the format and on header sizes.
+    Byte accounting needs two corrections in opposite directions, because the harvested file
+    and the file on the node are not the same bytes:
+
+      - kubectl's --prefix string is in the harvest but NOT on disk (measured per line).
+      - the CRI wrapper is on disk but NOT in the harvest (estimated, CRI_WRAPPER_BYTES).
+
+    Getting one of these right and not the other is worse than getting both wrong, since they
+    partly cancel. Both are applied below and reported separately.
     """
     import os
-    total = os.path.getsize(path)
-    n = acc = 0
+    harvest = os.path.getsize(path)
+    n = acc = pfx = 0
+    lines = 0
     for line in open(path, errors="replace"):
+        lines += 1
         m = LINE.match(line)
-        if m and m["path"] == "/v1/completions":
-            n += 1
-            acc += len(line)
+        if m:
+            pfx += len(m["prefix"])
+            if m["path"] == "/v1/completions":
+                n += 1
+                acc += len(line) - len(m["prefix"])
     if not n:
         print(f"no completion requests in {path}", file=sys.stderr)
         return 1
-    per = acc / n
-    budget = ROT_MAX_SIZE * ROT_MAX_FILES
+    per = acc / n + CRI_WRAPPER_BYTES
+    on_disk = harvest - pfx + lines * CRI_WRAPPER_BYTES
     print(f"{path}")
-    print(f"  size on disk        {total / 1e6:>10.1f} MB")
-    print(f"  access lines        {acc / 1e6:>10.1f} MB over {n} requests "
-          f"({per:.0f} B/request)")
-    print(f"  retention budget    {budget / 1e6:>10.1f} MB "
-          f"({ROT_MAX_FILES} x {ROT_MAX_SIZE // (1024 * 1024)}Mi kubelet default)")
-    print(f"  consumed            {100 * total / budget:>10.1f} %")
-    head = max(0, budget - total)
+    print(f"  harvested size      {harvest / 1e6:>10.1f} MB over {lines} lines")
+    print(f"  est. on-disk size   {on_disk / 1e6:>10.1f} MB "
+          f"(-{pfx / 1e6:.1f} MB kubectl prefix, "
+          f"+{lines * CRI_WRAPPER_BYTES / 1e6:.1f} MB CRI wrapper)")
+    print(f"  reachable budget    {ROT_MAX_SIZE / 1e6:>10.1f} MB "
+          f"(ONE {ROT_MAX_SIZE // (1024 * 1024)}Mi file; the other "
+          f"{ROT_MAX_FILES_ON_DISK - 1} are on disk but not reachable)")
+    print(f"  consumed            {100 * on_disk / ROT_MAX_SIZE:>10.1f} %")
+    head = max(0, ROT_MAX_SIZE - on_disk)
     print(f"  headroom            {head / 1e6:>10.1f} MB "
-          f"= ~{int(head / per)} more requests")
-    print(f"\n  per 10Mi file       ~{int(ROT_MAX_SIZE / per)} requests")
-    print("  Eviction is oldest-first, so overflow silently removes the START of the run\n"
-          "  window (low-rate stages, initial scale-up). Verify the count identity after\n"
-          "  every harvest; harvest promptly, and treat an un-copied log as at risk.")
+          f"= ~{int(head / per)} more requests ({per:.0f} B/request on disk)")
+    print(f"\n  a fresh file holds  ~{int(ROT_MAX_SIZE / per)} requests")
+    print("  Rotation is a CLIFF, not a slope: it starts a NEW file, and kubectl logs can\n"
+          "  only read that one. At the instant it fires the retrievable log drops to a\n"
+          "  nearly-empty file -- a rotation mid-run leaves only the run's tail, one just\n"
+          "  after a run leaves essentially nothing. Verify the count identity after every\n"
+          "  harvest; harvest promptly, and treat an un-copied log as at risk.")
     return 0
 
 
