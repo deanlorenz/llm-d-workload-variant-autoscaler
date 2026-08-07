@@ -1942,4 +1942,48 @@ doc-half grep = **4** hits today, not 3; `fairShareCap` is a **local variable** 
 appear in a symbol search; fsv's three call sites are `:133`, `:348`, `:350`; the Score multiply is `:73`
 and the raw-unit fallback is `:78-91`.
 
+---
+
+## C6d pre-measurement — no new finding; the mid-loop mechanism traced to its exact defect line
+
+Same pre-measurement pass for C6d, and unlike C6c it turned up nothing the plan misses. Recorded because
+the trace names the one line the fix has to change, which makes the diff review a comparison.
+
+**Grep denominator.** §6's C6d grep (`RoleSpare|prc <= 0|prcForVariant`, `internal/ docs/`) = **91** hits at
+`d9f3b97e`, of which 29 are in `_test.go` and 62 are non-test. Unlike C10's, this grep has no
+grep-to-zero target — it is a re-read-every-hit grep — so the number is only a completeness check that the
+coder read the whole set.
+
+**The defect line.** The C6d primary-red fixture works through this chain, which is worth having written
+down once because the fix site is *not* the function the plan's finding is named after:
+
+1. Live objector X sizes **v1 only** and enters the role with `RoleSpare[R] > 0`, so
+   `needsScaleDownForRole` passes at role entry (`cost_aware_optimizer.go:439`, outside the variant loop).
+2. v1 sheds. `applyDeallocationForRole` decrements X because X *does* have `prc > 0` for v1
+   (`analyzer_helpers.go:654-658`), clamping at 0 (`:659-661`). X's role spare is now exhausted.
+3. The loop reaches v2. `votesFromRoleSpare`'s `if prc <= 0 { continue }` (`:499`) drops X from the ballot
+   entirely, because X has no `VariantCapacities` entry for v2 — so X's exhausted spare casts **no vote**,
+   `combineVotes` never sees it, and v2's replicas come off.
+
+`:499` is the line that makes an exhausted live objector invisible, and it is in `votesFromRoleSpare`, not
+in `safeRemovalReplicasForRole` whose doc comment C6d must rewrite. This is the same skip-on-no-PRC pattern
+as my **Finding 4** (downgraded to "asymmetry worth closing", owned by C6d) — so C6d closes Finding 4, and
+a C6d that changes only `safeRemovalReplicasForRole`'s arithmetic without addressing the ballot-level skip
+would leave the fixture green-before-and-after.
+
+**The three comments, verbatim at baseline** (so I can diff the rewrite rather than judge it fresh):
+
+| Site | Text today | Wrong after C6d? |
+|---|---|---|
+| `analyzer_helpers.go:629-631` | "Returns 0 when no live analyzer **sizes** v" | Yes — it will also return 0 when a live analyzer that does *not* size v objects at role level |
+| `:645-648` | "non-live entries are already excluded from the veto … and the safe-removal minimum … so mutating their RoleSpare here is harmless — nothing reads it back" | Not false — the claim is about **non-live** entries, and they stay excluded. But the premise it leans on ("nothing reads it back") becomes load-bearing for *live* entries in a new way, so the plan's "re-read it against the new PRC-blind path" is the right instruction rather than a rewrite order |
+| `:232-233` | "Scale-down was already Live-gated at point of use (`needsScaleDownForRole`, `safeRemovalReplicasForRole`)" | Still accurate — both remain Live-gated; only the *PRC* blindness changes |
+
+**One coherence check I ran and it passes.** After C6d, the veto is PRC-blind but `applyDeallocationForRole`
+stays PRC-*aware* (`:655` skips `prc <= 0`). That asymmetry is deliberate and consistent: an analyzer that
+sizes no variant in the role never has its spare drawn down, so it never reaches the `<= 0` state that
+vetoes — it simply grants removal, which is the pre-existing behavior. And no live keyed analyzer can be at
+`<= 0` at role *entry*, because `needsScaleDownForRole` already vetoes that. So the only reachable veto is
+the mid-loop one, exactly as §2d.4 (c) claims. No finding.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
