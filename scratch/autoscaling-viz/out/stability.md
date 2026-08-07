@@ -6,231 +6,231 @@ Canonical picks under test: Qexp `proj_setup = 120`, shared `drain_time = 20`, `
 
 **One capped exception — the HPA-queue `q_target` sweep** (last section per shape). The HPA/KEDA queue-depth controller has no meaningful uncapped baseline — at `q_target=1` (1 queued request per replica, the current default) its pre-cap desired diverges under the 90s boot lag — so it is run **capped at 10** (the demo's actuated ceiling). Raising `q_target` makes it *less* aggressive (`desired = ceil(Q / q_target)`): cheaper but slower. The question is how far the target can relax before the served-≤15s quality bar drops.
 
-## bump  (reqs = 7159)
+## bump  (reqs = 7188)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
 
 | sizer | good% | failed% | wait_p90 | rep_max | rep·s | prov·s | util |
 |---|---|---|---|---|---|---|---|
-| ideal | 100.0 | 0.0 | 0.0 | 5 | 1714 | 1714 | 0.59 |
-| setup-lag | 36.2 | 0.4 | 31.7 | 4 | 1309 | 1714 | 0.77 |
-| queue-aware | 32.9 | 1.1 | 40.2 | 4 | 1376 | 1872 | 0.73 |
-| qexp | 78.0 | 1.1 | 17.6 | 4 | 1440 | 1920 | 0.70 |
+| ideal | 100.0 | 0.0 | 0.0 | 5 | 1755 | 1755 | 0.59 |
+| setup-lag | 31.0 | 0.5 | 34.7 | 4 | 1306 | 1741 | 0.79 |
+| queue-aware | 33.6 | 1.2 | 42.7 | 4 | 1373 | 1928 | 0.75 |
+| qexp | 38.3 | 1.2 | 21.0 | 5 | 1461 | 2091 | 0.70 |
 
 ### Qexp `proj_setup` sweep (drain=20, hr=1.3)
 
 | proj_setup | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 180 |
 |---|---|---|---|---|---|---|---|---|
-| good% | 32.9 | 36.2 | 36.2 | 70.7 | 74.5 | 78.0 | 78.0 | 35.4 |
+| good% | 33.6 | 50.3 | 50.3 | 69.8 | 36.3 | 38.3 | 38.3 | 48.7 |
 
-**HOLDS — canonical 120 → good% 78.0; shape-best 120 → 78.0 (Δ +0.0 pp)**
+****FLAG** — canonical 120 → good% 38.3; shape-best 90 → 69.8 (Δ +31.5 pp)**
 
 ### queue-aware `drain_time` sweep (hr=1.3)
 
 | drain_time | 3 | 5 | 8 | 10 | 15 | 20 | 30 |
 |---|---|---|---|---|---|---|---|
-| good% | 78.9 | 77.1 | 70.7 | 69.0 | 69.4 | 32.9 | 32.9 |
+| good% | 36.1 | 71.9 | 64.8 | 69.1 | 64.2 | 33.6 | 31.0 |
 
-****FLAG** — canonical 20 → good% 32.9; shape-best 3 → 78.9 (Δ +46.0 pp)**
+****FLAG** — canonical 20 → good% 33.6; shape-best 5 → 71.9 (Δ +38.3 pp)**
 
 ### headroom sweep — good% and raw-hw util (both Q sizers)
 
 | headroom | 1 | 1.1 | 1.2 | 1.3 | 1.5 | 1.75 | 2 |
 |---|---|---|---|---|---|---|---|
-| qaware good% | 17.1 | 27.6 | 29.5 | 32.9 | 74.2 | 75.3 | 78.7 |
-| qexp good% | 28.6 | 28.7 | 31.7 | 78.0 | 82.6 | 86.3 | 85.9 |
-| qexp util | 0.79 | 0.78 | 0.75 | 0.70 | 0.64 | 0.56 | 0.53 |
+| qaware good% | 21.7 | 23.6 | 31.0 | 33.6 | 73.0 | 77.7 | 80.6 |
+| qexp good% | 22.1 | 32.7 | 36.3 | 38.3 | 81.8 | 87.1 | 87.1 |
+| qexp util | 0.80 | 0.74 | 0.72 | 0.70 | 0.64 | 0.58 | 0.52 |
 
-knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.1**; qexp util at 1.3 = 0.70.
+knee (gains < 1 pp per +0.1 margin) at headroom ≈ **2**; qexp util at 1.3 = 0.70.
 
 ### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
 
 | q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
 |---|---|---|---|---|---|---|---|---|
-| served ≤15s % | 70.4 | 94.8 | 70.6 | 65.4 | 93.1 | 93.1 | 48.6 | 45.8 |
-| good ≤2s % | 64.1 | 92.5 | 60.6 | 55.0 | 90.3 | 90.3 | 33.5 | 30.1 |
-| failed % | 6.6 | 0.4 | 0.4 | 5.0 | 0.4 | 0.4 | 7.2 | 7.6 |
-| wait p90 | 52.6 | 0.0 | 44.2 | 49.0 | 0.7 | 0.7 | 58.1 | 57.3 |
+| served ≤15s % | 90.5 | 87.3 | 87.3 | 62.8 | 84.0 | 57.6 | 81.5 | 55.6 |
+| good ≤2s % | 81.7 | 79.3 | 79.3 | 49.2 | 75.3 | 43.2 | 70.8 | 38.6 |
+| failed % | 0.0 | 0.0 | 0.0 | 3.7 | 0.0 | 7.9 | 0.0 | 7.0 |
+| wait p90 | 14.2 | 19.6 | 20.1 | 45.3 | 22.9 | 55.3 | 29.2 | 54.5 |
 | rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
-| prov·s | 4869 | 5685 | 5518 | 3824 | 4290 | 3434 | 4660 | 4542 |
-| util | 0.32 | 0.21 | 0.27 | 0.48 | 0.30 | 0.40 | 0.47 | 0.50 |
+| prov·s | 3598 | 4815 | 4770 | 4582 | 4680 | 3986 | 3723 | 3806 |
+| util | 0.37 | 0.26 | 0.26 | 0.35 | 0.27 | 0.43 | 0.35 | 0.47 |
 
-**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 70.4% @ q=1). Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
+**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 90.5% @ q=1). Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
 
-## trapezoid  (reqs = 10460)
+## trapezoid  (reqs = 11313)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
 
 | sizer | good% | failed% | wait_p90 | rep_max | rep·s | prov·s | util |
 |---|---|---|---|---|---|---|---|
-| ideal | 100.0 | 0.0 | 0.0 | 5 | 2359 | 2359 | 0.63 |
-| setup-lag | 43.3 | 12.2 | 63.7 | 5 | 1918 | 2368 | 0.78 |
-| queue-aware | 62.5 | 14.8 | 71.1 | 9 | 2200 | 3400 | 0.68 |
-| qexp | 75.3 | 6.8 | 46.4 | 9 | 2297 | 3452 | 0.65 |
+| ideal | 100.0 | 0.0 | 0.0 | 5 | 2331 | 2331 | 0.62 |
+| setup-lag | 73.4 | 0.0 | 11.2 | 5 | 2076 | 2346 | 0.70 |
+| queue-aware | 66.4 | 0.0 | 23.5 | 6 | 2130 | 2624 | 0.68 |
+| qexp | 72.2 | 0.0 | 19.3 | 6 | 2182 | 2737 | 0.67 |
 
 ### Qexp `proj_setup` sweep (drain=20, hr=1.3)
 
 | proj_setup | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 180 |
 |---|---|---|---|---|---|---|---|---|
-| good% | 61.3 | 60.9 | 68.3 | 68.7 | 72.1 | 75.3 | 74.3 | 74.7 |
+| good% | 66.5 | 68.4 | 70.0 | 70.1 | 72.2 | 72.2 | 72.2 | 73.3 |
 
-**HOLDS — canonical 120 → good% 75.3; shape-best 120 → 75.3 (Δ +0.0 pp)**
+**HOLDS — canonical 120 → good% 72.2; shape-best 180 → 73.3 (Δ +1.2 pp)**
 
 ### queue-aware `drain_time` sweep (hr=1.3)
 
 | drain_time | 3 | 5 | 8 | 10 | 15 | 20 | 30 |
 |---|---|---|---|---|---|---|---|
-| good% | 75.0 | 72.1 | 70.3 | 68.3 | 66.3 | 62.5 | 54.5 |
+| good% | 70.4 | 69.9 | 67.7 | 67.7 | 66.4 | 66.4 | 66.4 |
 
-****FLAG** — canonical 20 → good% 62.5; shape-best 3 → 75.0 (Δ +12.6 pp)**
+****FLAG** — canonical 20 → good% 66.4; shape-best 3 → 70.4 (Δ +4.0 pp)**
 
 ### headroom sweep — good% and raw-hw util (both Q sizers)
 
 | headroom | 1 | 1.1 | 1.2 | 1.3 | 1.5 | 1.75 | 2 |
 |---|---|---|---|---|---|---|---|
-| qaware good% | 54.1 | 54.9 | 60.2 | 62.5 | 66.3 | 66.3 | 68.3 |
-| qexp good% | 56.0 | 67.1 | 67.0 | 75.3 | 75.6 | 76.2 | 78.5 |
-| qexp util | 0.79 | 0.76 | 0.73 | 0.65 | 0.62 | 0.55 | 0.49 |
+| qaware good% | 60.4 | 61.7 | 66.4 | 66.4 | 70.1 | 74.1 | 97.7 |
+| qexp good% | 68.2 | 70.9 | 72.2 | 72.2 | 73.3 | 77.1 | 97.7 |
+| qexp util | 0.77 | 0.75 | 0.74 | 0.67 | 0.64 | 0.57 | 0.50 |
 
-knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 0.65.
+knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.3**; qexp util at 1.3 = 0.67.
 
 ### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
 
 | q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
 |---|---|---|---|---|---|---|---|---|
-| served ≤15s % | 86.5 | 86.5 | 86.5 | 86.5 | 86.5 | 51.6 | 49.0 | 84.2 |
-| good ≤2s % | 82.8 | 82.8 | 82.8 | 82.8 | 82.8 | 38.8 | 35.8 | 79.0 |
-| failed % | 4.7 | 4.7 | 4.7 | 4.7 | 4.7 | 12.1 | 12.3 | 4.7 |
-| wait p90 | 27.3 | 27.3 | 27.3 | 27.3 | 27.3 | 64.0 | 62.3 | 40.9 |
+| served ≤15s % | 87.5 | 66.7 | 86.7 | 84.8 | 77.9 | 76.8 | 51.3 | 50.5 |
+| good ≤2s % | 77.1 | 50.5 | 74.7 | 73.8 | 71.7 | 70.7 | 41.1 | 33.3 |
+| failed % | 0.0 | 3.1 | 0.0 | 0.0 | 3.2 | 3.2 | 10.1 | 15.4 |
+| wait p90 | 17.3 | 40.1 | 19.3 | 20.9 | 43.6 | 49.1 | 60.1 | 63.8 |
 | rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
-| prov·s | 5865 | 5865 | 5865 | 5865 | 5865 | 5461 | 5400 | 3784 |
-| util | 0.30 | 0.30 | 0.30 | 0.30 | 0.30 | 0.51 | 0.52 | 0.52 |
+| prov·s | 5325 | 4375 | 5250 | 5220 | 4266 | 5217 | 4121 | 4172 |
+| util | 0.32 | 0.51 | 0.32 | 0.32 | 0.42 | 0.33 | 0.58 | 0.60 |
 
-**cap-bound plateau: q_target 1–6** behave identically (served ≤15s 86.5%, prov·s 5865 — pinned at 10), so the target is inert there. Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
+**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 87.5% @ q=1). Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
 
-## stepup  (reqs = 10275)
+## stepup  (reqs = 11266)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
 
 | sizer | good% | failed% | wait_p90 | rep_max | rep·s | prov·s | util |
 |---|---|---|---|---|---|---|---|
-| ideal | 100.0 | 0.0 | 0.0 | 5 | 2227 | 2227 | 0.64 |
-| setup-lag | 56.6 | 5.5 | 35.0 | 5 | 1786 | 2236 | 0.80 |
-| queue-aware | 51.7 | 6.9 | 38.0 | 6 | 1837 | 3007 | 0.78 |
-| qexp | 61.8 | 3.8 | 36.4 | 7 | 1974 | 3518 | 0.72 |
+| ideal | 100.0 | 0.0 | 0.0 | 6 | 2257 | 2257 | 0.64 |
+| setup-lag | 71.1 | 0.0 | 19.6 | 5 | 1894 | 2254 | 0.76 |
+| queue-aware | 64.4 | 0.0 | 31.1 | 6 | 1892 | 2568 | 0.76 |
+| qexp | 72.2 | 0.0 | 26.1 | 8 | 2007 | 2832 | 0.72 |
 
 ### Qexp `proj_setup` sweep (drain=20, hr=1.3)
 
 | proj_setup | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 180 |
 |---|---|---|---|---|---|---|---|---|
-| good% | 55.2 | 56.0 | 59.3 | 60.7 | 61.4 | 61.8 | 61.8 | 62.5 |
+| good% | 66.5 | 67.7 | 67.6 | 70.1 | 70.1 | 72.2 | 72.2 | 72.2 |
 
-**HOLDS — canonical 120 → good% 61.8; shape-best 180 → 62.5 (Δ +0.7 pp)**
+**HOLDS — canonical 120 → good% 72.2; shape-best 120 → 72.2 (Δ +0.0 pp)**
 
 ### queue-aware `drain_time` sweep (hr=1.3)
 
 | drain_time | 3 | 5 | 8 | 10 | 15 | 20 | 30 |
 |---|---|---|---|---|---|---|---|
-| good% | 58.7 | 57.6 | 57.1 | 56.0 | 54.7 | 51.7 | 49.8 |
+| good% | 69.6 | 67.9 | 66.1 | 66.0 | 65.4 | 64.4 | 63.3 |
 
-****FLAG** — canonical 20 → good% 51.7; shape-best 3 → 58.7 (Δ +7.0 pp)**
+****FLAG** — canonical 20 → good% 64.4; shape-best 3 → 69.6 (Δ +5.2 pp)**
 
 ### headroom sweep — good% and raw-hw util (both Q sizers)
 
 | headroom | 1 | 1.1 | 1.2 | 1.3 | 1.5 | 1.75 | 2 |
 |---|---|---|---|---|---|---|---|
-| qaware good% | 44.8 | 46.5 | 50.5 | 51.7 | 55.1 | 56.9 | 75.2 |
-| qexp good% | 58.6 | 60.0 | 61.4 | 61.8 | 62.5 | 63.4 | 77.9 |
-| qexp util | 0.83 | 0.80 | 0.80 | 0.72 | 0.71 | 0.65 | 0.56 |
+| qaware good% | 57.3 | 61.8 | 63.3 | 64.4 | 66.5 | 91.3 | 93.2 |
+| qexp good% | 67.8 | 70.6 | 71.2 | 72.2 | 73.1 | 91.3 | 93.2 |
+| qexp util | 0.78 | 0.77 | 0.76 | 0.72 | 0.68 | 0.64 | 0.53 |
 
-knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.3**; qexp util at 1.3 = 0.72.
+knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 0.72.
 
 ### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
 
 | q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
 |---|---|---|---|---|---|---|---|---|
-| served ≤15s % | 93.1 | 93.1 | 93.1 | 93.1 | 93.1 | 93.1 | 68.7 | 40.2 |
-| good ≤2s % | 92.2 | 92.2 | 92.2 | 92.2 | 92.2 | 92.2 | 59.7 | 28.0 |
-| failed % | 3.5 | 3.5 | 3.5 | 3.5 | 3.5 | 3.5 | 8.4 | 19.0 |
-| wait p90 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 55.8 | 67.7 |
+| served ≤15s % | 84.0 | 84.0 | 77.8 | 56.1 | 76.9 | 76.0 | 50.3 | 48.9 |
+| good ≤2s % | 75.8 | 75.6 | 71.9 | 45.1 | 70.8 | 69.7 | 38.4 | 37.4 |
+| failed % | 0.0 | 0.0 | 4.7 | 7.4 | 4.7 | 4.7 | 11.9 | 14.8 |
+| wait p90 | 25.1 | 25.1 | 42.3 | 55.8 | 43.9 | 48.5 | 62.1 | 63.8 |
 | rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
-| prov·s | 5865 | 5865 | 5865 | 5865 | 5865 | 5850 | 4758 | 4844 |
-| util | 0.29 | 0.29 | 0.29 | 0.29 | 0.29 | 0.29 | 0.47 | 0.61 |
+| prov·s | 3201 | 3512 | 2991 | 3609 | 3386 | 3805 | 3635 | 3551 |
+| util | 0.58 | 0.51 | 0.66 | 0.72 | 0.56 | 0.48 | 0.71 | 0.74 |
 
-**cap-bound plateau: q_target 1–8** behave identically (served ≤15s 93.1%, prov·s 5865 — pinned at 10), so the target is inert there. Beyond the plateau served ≤15s declines monotonically as the target loosens (cheaper, slower).
+**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 84.0% @ q=1). Served ≤15s is **non-monotone** in q_target — a looser target can delay a mistimed mid-drain scale-down (which the boot lag makes costly to undo), so there is no clean aggression threshold.
 
-## stepdown  (reqs = 8698)
+## stepdown  (reqs = 11432)
 
 ### canonical calibration (drain=20, proj=120, hr=1.3)
 
 | sizer | good% | failed% | wait_p90 | rep_max | rep·s | prov·s | util |
 |---|---|---|---|---|---|---|---|
-| ideal | 100.0 | 0.0 | 0.0 | 5 | 1976 | 1976 | 0.63 |
-| setup-lag | 28.6 | 24.0 | 76.6 | 5 | 1543 | 1993 | 0.81 |
-| queue-aware | 51.7 | 25.1 | 95.2 | 12 | 1939 | 3604 | 0.64 |
-| qexp | 64.6 | 15.7 | 72.3 | 15 | 2110 | 4180 | 0.59 |
+| ideal | 100.0 | 0.0 | 0.0 | 5 | 2018 | 2018 | 0.60 |
+| setup-lag | 100.0 | 0.0 | 0.0 | 5 | 2018 | 2018 | 0.60 |
+| queue-aware | 100.0 | 0.0 | 0.0 | 5 | 2087 | 2087 | 0.58 |
+| qexp | 100.0 | 0.0 | 0.0 | 5 | 2087 | 2087 | 0.58 |
 
 ### Qexp `proj_setup` sweep (drain=20, hr=1.3)
 
 | proj_setup | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 180 |
 |---|---|---|---|---|---|---|---|---|
-| good% | 55.1 | 58.0 | 60.0 | 61.7 | 63.2 | 64.6 | 64.9 | 64.5 |
+| good% | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
 
-**HOLDS — canonical 120 → good% 64.6; shape-best 135 → 64.9 (Δ +0.4 pp)**
+**HOLDS — canonical 120 → good% 100.0; shape-best 45 → 100.0 (Δ +0.0 pp)**
 
 ### queue-aware `drain_time` sweep (hr=1.3)
 
 | drain_time | 3 | 5 | 8 | 10 | 15 | 20 | 30 |
 |---|---|---|---|---|---|---|---|
-| good% | 62.1 | 58.9 | 58.0 | 56.5 | 53.0 | 51.7 | 46.5 |
+| good% | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
 
-****FLAG** — canonical 20 → good% 51.7; shape-best 3 → 62.1 (Δ +10.4 pp)**
+**HOLDS — canonical 20 → good% 100.0; shape-best 3 → 100.0 (Δ +0.0 pp)**
 
 ### headroom sweep — good% and raw-hw util (both Q sizers)
 
 | headroom | 1 | 1.1 | 1.2 | 1.3 | 1.5 | 1.75 | 2 |
 |---|---|---|---|---|---|---|---|
-| qaware good% | 41.8 | 46.5 | 50.6 | 51.7 | 52.8 | 55.1 | 56.9 |
-| qexp good% | 60.2 | 63.2 | 64.0 | 64.6 | 65.9 | 66.5 | 67.0 |
-| qexp util | 0.67 | 0.64 | 0.61 | 0.59 | 0.53 | 0.53 | 0.45 |
+| qaware good% | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| qexp good% | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| qexp util | 0.69 | 0.69 | 0.60 | 0.58 | 0.54 | 0.49 | 0.41 |
 
-knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.2**; qexp util at 1.3 = 0.59.
+knee (gains < 1 pp per +0.1 margin) at headroom ≈ **1.1**; qexp util at 1.3 = 0.58.
 
 ### HPA-queue `q_target` sweep — CAPPED at 10 (avg queued reqs per replica; 1 = most aggressive)
 
 | q_target | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
 |---|---|---|---|---|---|---|---|---|
-| served ≤15s % | 67.7 | 58.8 | 58.2 | 54.8 | 52.4 | 52.4 | 52.4 | 47.5 |
-| good ≤2s % | 62.2 | 50.5 | 37.9 | 46.6 | 44.5 | 44.5 | 44.5 | 33.1 |
-| failed % | 12.8 | 12.8 | 12.8 | 16.2 | 17.7 | 18.3 | 18.8 | 18.8 |
-| wait p90 | 68.8 | 68.8 | 68.8 | 72.5 | 70.9 | 70.9 | 72.5 | 72.5 |
-| rep_max | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 |
-| prov·s | 4368 | 5776 | 5066 | 5854 | 5881 | 5866 | 5836 | 4612 |
-| util | 0.36 | 0.31 | 0.47 | 0.30 | 0.30 | 0.30 | 0.30 | 0.53 |
+| served ≤15s % | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| good ≤2s % | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| failed % | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| wait p90 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| rep_max | 5 | 5 | 5 | 5 | 5 | 5 | 5 | 5 |
+| prov·s | 3000 | 3000 | 3000 | 3000 | 3000 | 3000 | 3000 | 3000 |
+| util | 0.41 | 0.41 | 0.41 | 0.41 | 0.41 | 0.41 | 0.41 | 0.41 |
 
-**no plateau** — even q_target=2 diverges from q_target=1 (served ≤15s 67.7% @ q=1). Beyond the plateau served ≤15s declines monotonically as the target loosens (cheaper, slower).
+**cap-bound plateau: q_target 1–16** behave identically (served ≤15s 100.0%, prov·s 3000 — pinned at 10), so the target is inert there. Beyond the plateau served ≤15s declines monotonically as the target loosens (cheaper, slower).
 
 ## Verdict — do the canonical picks hold across shapes?
 
 ### Qexp proj_setup = 120
 
-Shape-best values: {120, 135, 180} — clustered near 120. Canonical 120 lands within tolerance of every shape's optimum:
+Shape-best values: {45, 90, 120, 180} — DIVERGENT. Canonical 120 lands within tolerance of every shape's optimum:
 
-- **bump** — HOLDS — canonical 120 → 78.0; best 120 → 78.0 (Δ +0.0 pp)
-- **trapezoid** — HOLDS — canonical 120 → 75.3; best 120 → 75.3 (Δ +0.0 pp)
-- **stepup** — HOLDS — canonical 120 → 61.8; best 180 → 62.5 (Δ +0.7 pp)
-- **stepdown** — HOLDS — canonical 120 → 64.6; best 135 → 64.9 (Δ +0.4 pp)
+- **bump** — **FLAG** — canonical 120 → 38.3; best 90 → 69.8 (Δ +31.5 pp)
+- **trapezoid** — HOLDS — canonical 120 → 72.2; best 180 → 73.3 (Δ +1.2 pp)
+- **stepup** — HOLDS — canonical 120 → 72.2; best 120 → 72.2 (Δ +0.0 pp)
+- **stepdown** — HOLDS — canonical 120 → 100.0; best 45 → 100.0 (Δ +0.0 pp)
 
 **→ proj_setup = 120 HOLDS across all four shapes** — the anticipation lead is a property of the Qexp sizer, not of the bump.
 
 ### queue-aware / shared drain_time = 20
 
-Shape-best values: {3} — identical on every shape. The shape-best drain is **perfectly stable across shapes** (always the most aggressive grid point), so this is NOT shape-overfitting. But that optimum is not 20 — the per-shape rows below are FLAGGED because drain=20 is deliberately **not** queue-aware's good%-optimum:
+Shape-best values: {3, 5}. The shape-best drain is **perfectly stable across shapes** (always the most aggressive grid point), so this is NOT shape-overfitting. But that optimum is not 20 — the per-shape rows below are FLAGGED because drain=20 is deliberately **not** queue-aware's good%-optimum:
 
-- **bump** — **FLAG** — canonical 20 → 32.9; best 3 → 78.9 (Δ +46.0 pp)
-- **trapezoid** — **FLAG** — canonical 20 → 62.5; best 3 → 75.0 (Δ +12.6 pp)
-- **stepup** — **FLAG** — canonical 20 → 51.7; best 3 → 58.7 (Δ +7.0 pp)
-- **stepdown** — **FLAG** — canonical 20 → 51.7; best 3 → 62.1 (Δ +10.4 pp)
+- **bump** — **FLAG** — canonical 20 → 33.6; best 5 → 71.9 (Δ +38.3 pp)
+- **trapezoid** — **FLAG** — canonical 20 → 66.4; best 3 → 70.4 (Δ +4.0 pp)
+- **stepup** — **FLAG** — canonical 20 → 64.4; best 3 → 69.6 (Δ +5.2 pp)
+- **stepdown** — HOLDS — canonical 20 → 100.0; best 3 → 100.0 (Δ +0.0 pp)
 
 **→ drain = 20 is the level-field CONSTANT, not a tuned optimum.** Queue-aware can match Qexp's good% only by cranking drain to its most aggressive setting (drain=3) — i.e. by over-provisioning, at higher cost. Holding drain=20 for BOTH Q sizers isolates the one thing the demo is about: anticipation (Qexp) vs reaction (queue-aware) at equal aggression. Qexp beats queue-aware on good% on **every** shape at drain=20, so the level-field ranking is shape-robust. **Do NOT re-tune to drain=3** — the standing level-field rule holds; the FLAG records a known, intentional handicap, not instability.
 
@@ -238,19 +238,19 @@ Shape-best values: {3} — identical on every shape. The shape-best drain is **p
 
 headroom good% is monotone in margin by construction (more slots = less queue), so 1.3 is a cost/utilisation CHOICE, not a quality optimum. The stability question is whether the diminishing-returns knee stays near 1.3 across shapes:
 
-- **bump** — HOLDS: knee ≈ 1.1, util@1.3 = 0.70
-- **trapezoid** — HOLDS: knee ≈ 1.2, util@1.3 = 0.65
-- **stepup** — HOLDS: knee ≈ 1.3, util@1.3 = 0.72
-- **stepdown** — HOLDS: knee ≈ 1.2, util@1.3 = 0.59
+- **bump** — **FLAG**: knee ≈ 2, util@1.3 = 0.70
+- **trapezoid** — HOLDS: knee ≈ 1.3, util@1.3 = 0.67
+- **stepup** — HOLDS: knee ≈ 1.2, util@1.3 = 0.72
+- **stepdown** — HOLDS: knee ≈ 1.1, util@1.3 = 0.58
 
 ### HPA-queue q_target = 1 (aggression knob, CAPPED)
 
 Unlike the open-loop knobs above, this sweep is **capped at 10** — HPA-queue has no meaningful uncapped baseline (its pre-cap desired diverges at q_target=1 under boot lag). Higher q_target = fewer replicas per queued request = less aggressive. But HPA-queue is a **closed loop with a 90s boot dead time**, so served-≤15s is *not* a clean function of the target — read each shape by its plateau + monotonicity:
 
-- **bump** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 70.4%
-- **trapezoid** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 86.5%
-- **stepup** — cap-bound plateau to q≈**8** (target inert), then monotone decline; served ≤15s@1 = 93.1%
-- **stepdown** — **aggression load-bearing** — q_target=1 best, relaxing only hurts; served ≤15s@1 = 67.7%
+- **bump** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 90.5%
+- **trapezoid** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 87.5%
+- **stepup** — **non-monotone** — mistimed mid-drain scale-down + late re-scramble under boot lag; served ≤15s@1 = 84.0%
+- **stepdown** — cap-bound plateau to q≈**16** (target inert), then monotone decline; served ≤15s@1 = 100.0%
 
 **→ there is no single "aggressive enough" threshold.** `desired = ceil(avg_q / q_target)` sets both the scale-*up* and scale-*down* thresholds, and three mechanisms compete:
 

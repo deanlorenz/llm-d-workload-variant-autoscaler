@@ -17,17 +17,17 @@ Quality rows are the **cumulative** share of offered requests served *within* ea
 
 | metric | ideal | static | setup-lag | queue-aware | qexp | hpa-queue | hpa-concurrency | hpa-combined |
 |---|---|---|---|---|---|---|---|---|
-| ≤2s % | 100.0 | 100.0 | 36.2 | 32.9 | 78.0 | 64.1 | 2.7 | 76.9 |
-| ≤15s % | 100.0 | 100.0 | 54.9 | 72.1 | 88.9 | 70.4 | 4.2 | 95.4 |
-| ≤45s % | 100.0 | 100.0 | 98.9 | 92.2 | 95.4 | 86.5 | 18.1 | 98.9 |
-| ≤60s % | 100.0 | 100.0 | 99.6 | 98.9 | 98.9 | 93.4 | 26.2 | 99.6 |
+| ≤2s % | 100.0 | 100.0 | 31.0 | 33.6 | 38.3 | 81.7 | 12.7 | 81.7 |
+| ≤15s % | 100.0 | 100.0 | 44.4 | 79.4 | 69.0 | 90.5 | 20.0 | 90.5 |
+| ≤45s % | 100.0 | 100.0 | 98.8 | 91.4 | 95.3 | 100.0 | 51.9 | 100.0 |
+| ≤60s % | 100.0 | 100.0 | 99.5 | 98.8 | 98.8 | 100.0 | 70.5 | 100.0 |
 | unfinished | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| wait avg (s) | 0.0 | 0.0 | 13.1 | 14.0 | 5.1 | 13.5 | 70.9 | 2.6 |
-| wait p95 (s) | 0.0 | 0.0 | 36.2 | 49.6 | 40.4 | 63.3 | 95.8 | 10.4 |
-| replicas max | 5 | 10 | 4 | 4 | 4 | 10 | 4 | 10 |
-| replica·seconds | 1714 | 6001 | 1309 | 1376 | 1440 | 3159 | 1179 | 3242 |
-| provisioned·seconds | 1714 | 6001 | 1714 | 1872 | 1920 | 4869 | 1599 | 4772 |
-| utilization | 0.59 | 0.17 | 0.77 | 0.73 | 0.70 | 0.32 | 0.86 | 0.31 |
+| wait avg (s) | 0.0 | 0.0 | 16.2 | 11.8 | 11.0 | 3.1 | 39.4 | 3.1 |
+| wait p95 (s) | 0.0 | 0.0 | 38.9 | 52.4 | 42.6 | 25.6 | 62.2 | 25.6 |
+| replicas max | 5 | 10 | 4 | 4 | 5 | 10 | 4 | 10 |
+| replica·seconds | 1755 | 6000 | 1306 | 1373 | 1461 | 2788 | 1298 | 2788 |
+| provisioned·seconds | 1755 | 6000 | 1741 | 1928 | 2091 | 3598 | 1628 | 3598 |
+| utilization | 0.59 | 0.17 | 0.79 | 0.75 | 0.70 | 0.37 | 0.79 | 0.37 |
 
 Readings: the **ideal** clairvoyant sizer is the only one that sees future arrivals — 100% prompt at the lowest real cost, the reference everything else is measured against. **No scaling** is also 100% prompt but pins at the max and burns ~3.5× the ideal fleet at the lowest utilisation (0.17) — promptness bought by paying for peak through every valley. **Setup-lag → queue-aware → Qexp** is the deployable-sizer progression under 90s boot: a correct policy landing 90s late is only ~36% prompt (≤2s); adding a **reactive** backlog term (queue-aware, drain_time=20) barely moves promptness — 33% ≤2s, roughly flat — lifting only the ≤15s share (55%→72%) while worsening the p90 tail (32s→40s), because it chases the queue after the pile-up. **Qexp** — the same backlog-drain idea but **anticipatory**, sizing to the projected backlog peak — is the breakthrough: **78% prompt** (≤2s), 89% within 15s, p90 17.6s, at essentially the same fleet cost as reactive queue-aware (1920 vs 1872 prov·s). Anticipation, not extra capacity, is what buys the quality. Among the fleet-heavy KEDA options, **hpa-combined** is prompt (77% ≤2s, 95% within 15s) and **hpa-queue** middling (64% ≤2s, a 6.6% failed tail), both at ~1.8–1.9× the ideal fleet. **hpa-concurrency** is catastrophic — 74% wait over a minute — because its signal is capacity-capped and blind to the queue; the KEDA `max` in **hpa-combined** is what rescues that blind spot.
 
@@ -35,34 +35,34 @@ Readings: the **ideal** clairvoyant sizer is the only one that sees future arriv
 
 | metric | ideal | static | setup-lag | queue-aware | qexp | hpa-queue | hpa-concurrency | hpa-combined |
 |---|---|---|---|---|---|---|---|---|
-| offered | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 |
-| completed | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 | 7159 |
+| offered | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 |
+| completed | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 | 7188 |
 | completed % | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
 | unfinished | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ≤2s % | 100.0 | 100.0 | 36.2 | 32.9 | 78.0 | 64.1 | 2.7 | 76.9 |
-| ≤15s % | 100.0 | 100.0 | 54.9 | 72.1 | 88.9 | 70.4 | 4.2 | 95.4 |
-| ≤30s % | 100.0 | 100.0 | 87.2 | 84.5 | 93.1 | 78.0 | 6.3 | 96.8 |
-| ≤45s % | 100.0 | 100.0 | 98.9 | 92.2 | 95.4 | 86.5 | 18.1 | 98.9 |
-| ≤60s % | 100.0 | 100.0 | 99.6 | 98.9 | 98.9 | 93.4 | 26.2 | 99.6 |
-| failed (>60s) % | 0.0 | 0.0 | 0.4 | 1.1 | 1.1 | 6.6 | 73.8 | 0.4 |
-| wait avg (s) | 0.0 | 0.0 | 13.1 | 14.0 | 5.1 | 13.5 | 70.9 | 2.6 |
-| wait p50 (s) | 0.0 | 0.0 | 9.2 | 11.0 | 0.0 | 0.0 | 76.7 | 0.0 |
-| wait p75 (s) | 0.0 | 0.0 | 21.4 | 16.3 | 0.9 | 24.0 | 92.0 | 1.2 |
-| wait p90 (s) | 0.0 | 0.0 | 31.7 | 40.2 | 17.6 | 52.6 | 95.2 | 4.5 |
-| wait p95 (s) | 0.0 | 0.0 | 36.2 | 49.6 | 40.4 | 63.3 | 95.8 | 10.4 |
-| wait p99 (s) | 0.0 | 0.0 | 47.0 | 62.0 | 62.0 | 71.5 | 96.7 | 47.0 |
-| time/work avg (s/u) | 0.01 | 0.01 | 0.15 | 0.16 | 0.06 | 0.24 | 0.80 | 0.04 |
-| time/work p50 (s/u) | 0.01 | 0.01 | 0.02 | 0.02 | 0.01 | 0.01 | 0.11 | 0.01 |
-| time/work p90 (s/u) | 0.01 | 0.01 | 0.14 | 0.14 | 0.04 | 0.12 | 0.71 | 0.02 |
-| time/work p95 (s/u) | 0.01 | 0.01 | 0.27 | 0.30 | 0.09 | 0.26 | 1.42 | 0.05 |
-| time/work p99 (s/u) | 0.01 | 0.01 | 1.58 | 1.81 | 0.63 | 1.60 | 8.83 | 0.29 |
-| replicas avg | 2.86 | 10.00 | 2.18 | 2.29 | 2.40 | 5.26 | 1.96 | 5.40 |
-| replicas std | 1.27 | 0.12 | 1.36 | 1.36 | 1.35 | 4.18 | 1.29 | 3.91 |
-| replicas max | 5 | 10 | 4 | 4 | 4 | 10 | 4 | 10 |
-| replica·seconds | 1714 | 6001 | 1309 | 1376 | 1440 | 3159 | 1179 | 3242 |
-| provisioned·seconds | 1714 | 6001 | 1714 | 1872 | 1920 | 4869 | 1599 | 4772 |
-| boot-lag waste·s | 0 | 0 | 405 | 495 | 480 | 1710 | 420 | 1530 |
-| utilization | 0.59 | 0.17 | 0.77 | 0.73 | 0.70 | 0.32 | 0.86 | 0.31 |
+| ≤2s % | 100.0 | 100.0 | 31.0 | 33.6 | 38.3 | 81.7 | 12.7 | 81.7 |
+| ≤15s % | 100.0 | 100.0 | 44.4 | 79.4 | 69.0 | 90.5 | 20.0 | 90.5 |
+| ≤30s % | 100.0 | 100.0 | 85.2 | 86.8 | 91.8 | 97.0 | 27.1 | 97.0 |
+| ≤45s % | 100.0 | 100.0 | 98.8 | 91.4 | 95.3 | 100.0 | 51.9 | 100.0 |
+| ≤60s % | 100.0 | 100.0 | 99.5 | 98.8 | 98.8 | 100.0 | 70.5 | 100.0 |
+| failed (>60s) % | 0.0 | 0.0 | 0.5 | 1.2 | 1.2 | 0.0 | 29.5 | 0.0 |
+| wait avg (s) | 0.0 | 0.0 | 16.2 | 11.8 | 11.0 | 3.1 | 39.4 | 3.1 |
+| wait p50 (s) | 0.0 | 0.0 | 18.7 | 6.7 | 8.2 | 0.0 | 41.8 | 0.0 |
+| wait p75 (s) | 0.0 | 0.0 | 27.0 | 11.1 | 16.8 | 0.0 | 60.3 | 0.0 |
+| wait p90 (s) | 0.0 | 0.0 | 34.7 | 42.7 | 21.0 | 14.2 | 61.7 | 14.2 |
+| wait p95 (s) | 0.0 | 0.0 | 38.9 | 52.4 | 42.6 | 25.6 | 62.2 | 25.6 |
+| wait p99 (s) | 0.0 | 0.0 | 47.6 | 62.6 | 62.6 | 34.4 | 63.1 | 34.4 |
+| time/work avg (s/u) | 0.01 | 0.01 | 0.16 | 0.11 | 0.11 | 0.03 | 0.51 | 0.03 |
+| time/work p50 (s/u) | 0.01 | 0.01 | 0.03 | 0.02 | 0.02 | 0.01 | 0.06 | 0.01 |
+| time/work p90 (s/u) | 0.01 | 0.01 | 0.16 | 0.11 | 0.11 | 0.03 | 0.40 | 0.03 |
+| time/work p95 (s/u) | 0.01 | 0.01 | 0.32 | 0.24 | 0.22 | 0.06 | 0.77 | 0.06 |
+| time/work p99 (s/u) | 0.01 | 0.01 | 1.93 | 1.21 | 1.07 | 0.32 | 4.70 | 0.32 |
+| replicas avg | 2.92 | 10.00 | 2.18 | 2.29 | 2.43 | 4.65 | 2.16 | 4.65 |
+| replicas std | 1.40 | 0.18 | 1.36 | 1.36 | 1.53 | 2.91 | 1.09 | 2.91 |
+| replicas max | 5 | 10 | 4 | 4 | 5 | 10 | 4 | 10 |
+| replica·seconds | 1755 | 6000 | 1306 | 1373 | 1461 | 2788 | 1298 | 2788 |
+| provisioned·seconds | 1755 | 6000 | 1741 | 1928 | 2091 | 3598 | 1628 | 3598 |
+| boot-lag waste·s | 0 | 0 | 435 | 555 | 630 | 810 | 330 | 810 |
+| utilization | 0.59 | 0.17 | 0.79 | 0.75 | 0.70 | 0.37 | 0.79 | 0.37 |
 
 </details>
 
