@@ -4586,4 +4586,91 @@ already corrects, since `Cost = 0` collapses `Cost / PRC` to `0` and sorts the s
 whether C11 inherits that hole is a diff question. And §4a: re-sweep, with the `§C6e` ×2 and dev-guide
 `Type-1 owner` of Finding 41 still outstanding going in.
 
+---
+
+## While C11 was in flight — the abstain-gate audit re-counted, and C6f's scoping verified at `eb12089a`
+
+Three checks run against the tip while the C11 diff was being written. **All three came back in the
+coder's favour, and two of them are corrections to me, not to it.** Recording them because a review that
+only accumulates findings is not measuring anything.
+
+### The gate count is 13, not 11 — and every one of them is commented
+
+The C6f handoff states *"the eleven `prc <= 0` / `PerReplicaCapacity <= 0` gates carry
+abstain-as-a-pricing-rule comments."* At `eb12089a` there are **thirteen**, in the 6 + 7 split my earlier
+`(D-a)` audit derived:
+
+| side | gates |
+|---|---|
+| anchor-side `vc.PerReplicaCapacity <= 0` (6) | `cost_aware_optimizer.go:100`, `:135`, `:284` · `greedy_score_optimizer.go:686` · `rescale.go:446`, `:579` |
+| ballot-side `prc <= 0` (7) | `analyzer_helpers.go:77`, `:447`, `:478`, `:522`, `:768` · `cost_aware_optimizer.go:206` · `greedy_score_optimizer.go:368` |
+
+**All 13 carry the comment.** So "eleven" undercounts the coder's own work; it is not a gap, and no gate
+is unaudited.
+
+**Why this matters for C11 rather than being bookkeeping:** the comments are uniformly worded as a rule
+about *pricing*, not about zero — *"cannot price v, so it abstains"*. A `Reason`-tagged `PRC = 1` sentinel
+is priced, so it passes all thirteen by the rule as written, with nothing to reword. `(D-a)`'s premise
+that the sentinel meets only audited gates is now verified across **13** sites rather than the 6 I had
+checked, and the "is there a fourteenth gate that admits it unaudited" risk is closed by enumeration.
+
+### Method: a near-miss false positive, and a third standing check
+
+My first pass scanned four lines *above* each gate and reported **6 of 13 as uncommented**. Every one of
+those six has the comment on the first line *inside* the block. Had I written that up, I would have
+manufactured a hole in the coder's audit trail — the same failure shape as the option-(d) retraction and
+the never-removed dev-guide correction, arriving from a new direction: not a stale fact, but a
+measurement whose instrument was too narrow to see the thing it was looking for.
+
+**Third standing check, alongside the other two:** *before calling an artifact missing, confirm the
+window was wide enough to contain it.* The existing pair — substitute the numbers before endorsing a
+formula; never report a token as removed without grepping the tip — both guard against asserting a
+change that did not happen. This one guards the converse: asserting an absence that is only an absence
+of evidence.
+
+The same discipline paid twice more in the same pass. The dev-guide hit
+`throughput-analyzer.md:698` (*"Design: `plans/planning/TA-Plan.md`, `plans/planning/TA-PR4-plan.md`"*) is
+a real §4a violation — a shipped Type 4 doc citing plans-branch documents by path — but `git grep -c` at
+`eb12089a`, `075a208e` **and** `upstream/main` all return 1, so it is **pre-existing on `main` and not
+PR-2's**. It belongs in the pre-existing main-side §4a bucket in `governance-follow-ups.md`, and
+attributing it here would have been a false charge against this branch. Worth noting as a *class* my
+sweeps had been missing, though: they were token-based (`W1`, `§C6e`, `N8`), and a plans-branch **path**
+is the other half of the rule. `internal/config/saturation_scaling.go:45`'s `docs/plans/engine/…` is an
+in-repo path, not a plans-branch one — not a violation.
+
+### C6f's scoping is honest, and the pointer strip did not cost the reader the caveat
+
+The concern worth having about `4fb49ac6` (*"drop plans-branch paths from shipped comments"*) is that
+stripping the pointer to the handoff could take the caveat with it, leaving a fixture that reads as
+*"`W4` is tested"*. **It did not.** At the tip the Context comment (`greedy_score_optimizer_test.go:1660-1677`)
+carries the counterexample in full — the measured `[sat] → 4` vs `[sat,TA] → 10`, the fixture that
+produces it, the statement that the inflation *"is upstream of W4 and reachable with ONE analyzer"*, and
+the flat sentence **"the fixtures below therefore cover the aligned regime deliberately, and W4 is NOT
+fully gated by them."** The second `It()` names the regime boundary itself and pre-empts the misreading:
+*"Make the two GPUsPerReplica values differ and this equality fails; that is the open claim-pricing
+question, not a defect in this fixture."* Numbers and warning survived; only the plans-branch filename
+went. That is the right outcome of the strip, and it is what Finding 35 asked for.
+
+### Credit where it is due — the dormant spec is the correct shape for an undecided defect
+
+`537b0153` lands the two-model redistribution probe as a **`PIt`** asserting the *honest* split
+(`pricey-x` 3, `y-v` 3, `cheap-x` 1 — *"Y is a bystander and must not be starved"*) rather than a
+characterization fixture pinning today's 4/2. Its header says why: a characterization fixture *"would
+freeze the distortion and make the eventual fix look like a regression; this goes green when a fix
+lands"*, and *"if the disposition is that today's pricing is correct as designed, delete this spec — it
+encodes a premise, not a decision."*
+
+That is the right handling of a measured defect whose disposition is not yet decided, and it is not what
+the plan asked for. It also **closes the coverage question I was going to route**: the coder's offer
+(*"say the word if you want [`zz_c6f_probe_test.go`] kept as a real fixture"*) is already satisfied — the
+probe is in-tree, pending, asserting the fix. No recommendation to send.
+
+**What remains open here is a Type-1 disposition, not code and not coverage:** whether a claim may be
+priced through a variant the picker provably cannot buy. That question is already routed and measured —
+`review__ta-anchor-claim-inflation-measured-single-analyzer.md` establishes it redistributes a GPU
+between models with **one** analyzer and no `W4` escape, so `W4`'s abstention escape *reveals* the
+inflation rather than causing it. Its corollary matters for whichever fix lands: barring the abstainer
+from the vote would not touch the mispricing, because the mispricing is in reference *selection*
+(`PerReplicaCapacity > 0` with no headroom test), upstream of who votes.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
