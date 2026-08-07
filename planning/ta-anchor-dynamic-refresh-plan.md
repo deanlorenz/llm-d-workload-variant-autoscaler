@@ -45,26 +45,26 @@ rewrites C1–C5, and is coordinated then.
 - [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L69:133
 - [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:196
   - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L171:196
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:293
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L294:366
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L367:396
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L397:705
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L404:423
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L424:471
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L472:534
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L535:601
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L602:659
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L660:686
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L687:705
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L706:848
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L715:750
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L751:787
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L788:848
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L849:883
-- [§4 Ship gate & tests](#4-ship-gate--tests) L884:994
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L995:1096
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1097:1180
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1181:1231
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:309
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L310:382
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L383:412
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L413:755
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L420:439
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L440:487
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L488:550
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L551:617
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L618:709
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L710:736
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L737:755
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L756:898
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L765:800
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L801:837
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L838:898
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L899:933
+- [§4 Ship gate & tests](#4-ship-gate--tests) L934:1069
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1070:1171
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1172:1292
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1293:1343
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -251,9 +251,25 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
     `capN_candidate = ceil(target × prcRef / vc.PerReplicaCapacity)` with `prcRef` = `v_role`'s PRC. For
     `vc == v_role` the ratio is exactly 1 and this **is** `ceil(target)`, so §2d.5's neutrality
     arithmetic and (i)'s double-conversion reasoning stand unchanged; the ratio only bites on
-    fall-through. `prcRef` needs **no new closure parameter** — the closure already computes
-    `sortByCostEfficiencyAsc(roleVCs)`, and `prcRef` is that sorted slice's first `PRC > 0` entry, i.e.
-    `v_role` by construction (§2d.5 *Reference PRC*).
+    fall-through. **`prcRef` must be a new threaded parameter, and must NOT be derived inside the
+    closure** (corrected 2026-08-07 — this sentence previously said the opposite). The closure does
+    compute `sortByCostEfficiencyAsc(roleVCs)` and `prcRef` *is* that slice's first `PRC > 0` entry — but
+    `roleVCs` is a filtered view of the slice **C2's own `refreshAnchorSizing` rewrites on every
+    iteration** (`analyzer_helpers.go:569`, called at `:737` immediately *before* `pick` at `:743`),
+    whereas `target` was fixed once at fsv time (`:273`, captured at `:310`). Deriving in-closure reads
+    the post-refresh value and cancels the ratio to 1 against a `target` denominated in the *pre*-refresh
+    one: with `P0` = reference PRC at fsv time and `P1` = the same role's reference PRC at iteration *k*,
+    threading gives `ceil(target × P0 / P1) = ceil(demand / P1)` ✓ while in-closure derivation gives
+    `ceil(target) = ceil(demand / P0)` ✗ — off by `P1/P0`, **on the reference candidate itself**, which is
+    the case §2d.5 calls "exactly 1.0". Shape: compute `prcRef map[string]float64` (role → reference PRC)
+    where fsv is computed, from the pre-refresh slice; capture at `:310`, which is a valid point because
+    it runs before `allocateForModelPaired` at `:311`; signature becomes
+    `fairShareRolePick(target, prcRef, s, roles)`; the closure's ratio is
+    `prcRef[role] / vc.PerReplicaCapacity`. It is **per-role**, not a scalar — `v_role` is the *role's*
+    cheapest candidate and site (i)'s fsv sums over roles. **Do not source `prcRef` from `roleVCs`.** The
+    two dead parameters already in the signature (`_ = s`, `_ = roles`, `:399-400`, commented "available
+    for future multi-analyzer demand inspection") make the in-closure route look free; it is not. See
+    §2d.5 *Reference PRC*.
   - **(iii) scale-down tie-break `sortVariantsForScaleDown` (`cost_aware_optimizer.go:161-184`, weighted
     sum `:168`)** — a **second** `Σ_i Score_i × PRC_i[v]` site. Lower severity (orders scale-down
     candidates within a role, never sizes), but the same wrong-operator/mixed-unit pattern; sweep here
@@ -601,7 +617,7 @@ Walking this (2026-08-06) produced three findings. Dean approved acting on **(b)
 
 ### §2d.5 Fair share (Bug #5) — currency
 
-fsv's currency must match every consumer of `target`. See §2 #5 for the four sites (i)–(iv) and their
+fsv's currency must match every consumer of `target`. See §2 #5 for the five sites (i)–(v) and their
 edits; (iv) is new, found while verifying this section, and is the one that turns #5 from a shape bug into
 a units bug.
 
@@ -624,13 +640,47 @@ change.**
 `v_role`, and they must agree *exactly*. The rule is identical on both sides — the role's first
 `sortByCostEfficiencyAsc` candidate with `PRC > 0`, which is simply `sorted[0]`, because
 `costEfficiency` returns `math.MaxFloat64` for `PRC <= 0` (`cost_aware_optimizer.go:238-243`) and so
-sorts those last. Feed both sides the **same** `w.anchor.VariantCapacities` slice: `sort.Slice` is
-deterministic for a given input, so identical input ⇒ identical `sorted[0]` ⇒ `prcRef` bit-identical to
-`v_role.PerReplicaCapacity` ⇒ (ii)'s ratio is exactly `1.0` and `ceil(target × 1.0)` reproduces
-`ceil(target)` with no float drift. A separately-sourced copy, or a different role filter, re-opens the
-mismatch through a second door. (`sort.Slice` is not *stable*, so equal-efficiency ties resolve
-deterministically-but-arbitrarily; same-slice-same-rule makes that harmless. A name-ascending tie-break
-would be more robust — optional hardening, not required here.)
+sorts those last. Both sides read the **same** `w.anchor.VariantCapacities` slice (site (i)'s `anchor` at
+`greedy_score_optimizer.go:125` is the object `buildScaleUpWork` stores as `w.anchor`, and `:311` passes
+`w.anchor.VariantCapacities`), and `sort.Slice` is deterministic for a given input, so identical input ⇒
+identical `sorted[0]` ⇒ `prcRef` bit-identical to `v_role.PerReplicaCapacity` ⇒ (ii)'s ratio is exactly
+`1.0` and `ceil(target × 1.0)` reproduces `ceil(target)` with no float drift. Every link in that chain
+holds — **but the premise "identical input" does not, and same-slice is not what supplies it** (corrected
+2026-08-07). The identity is required **at one instant**, and the two reads are not at one instant:
+
+> **Capture the value, do not re-derive the rule.** C2's `refreshAnchorSizing` rewrites
+> `variants[i].PerReplicaCapacity` in place (`analyzer_helpers.go:569`) on **every** iteration of
+> `allocateForModelPaired`'s loop (`:737`), immediately *before* it calls `pick` (`:743`). Site (i)'s fsv —
+> and therefore `target` (`greedy_score_optimizer.go:273`, captured into the closure at `:310`) — is fixed
+> once, *outside* that loop. Same slice, different contents, different time. So `prcRef` must be computed
+> **where fsv is computed**, from the pre-refresh slice, and threaded in as a parameter; re-deriving it
+> from `roleVCs` inside the closure reads it at cap time and breaks the identity. Per-role
+> (`map[string]float64`), not a scalar. Full arithmetic and signature in §2 #5 (ii).
+
+Two independent failure modes, and value-capture is required for both — the second is not implied by the
+first:
+
+- **Value drift.** `sorted[0]`'s PRC is rewritten, so the ratio's numerator goes stale relative to
+  `target`. On this section's own numbers (`v1` PRC 10000 = `v_role`, `v2` PRC 2000, `target` 50000 ⇒ 5), a
+  refresh moving `v1` 10000 → 8000 yields `ceil(5 × 8000/2000) = 20` where the right answer is still
+  `ceil(5 × 10000/2000) = 25`. Same failure *mode* as the 5× fall-through below, smaller and much harder to
+  spot.
+- **Identity drift.** `costEfficiency` is `Cost/PRC`, so rewriting PRC can **reorder**
+  `sortByCostEfficiencyAsc` — `sorted[0]` may be a *different variant* on iteration 2 than on iteration 1.
+  Capturing the value fixes both; re-deriving the rule fixes neither.
+
+A separately-sourced copy, or a different role filter, re-opens the mismatch through a third door.
+(`sort.Slice` is not *stable*, so equal-efficiency ties resolve deterministically-but-arbitrarily;
+one-rule-one-instant makes that harmless. A name-ascending tie-break would be more robust — optional
+hardening, not required here.)
+
+**Nothing else in #5 is exposed to this.** Verified 2026-08-07: `refreshAnchorSizing` has exactly **one**
+non-test call site (`analyzer_helpers.go:737`), and `scaleDownRoleIterated` never refreshes, so site (iii)
+`sortVariantsForScaleDown` is unaffected; `greedy_score_optimizer.go:423` is the package's only
+`ceil(target / PRC)`, so (ii) is a single location, not a family; and the vote helpers
+(`analyzer_helpers.go:445`, `:472`, `:502`) divide by **each analyzer's own** `prcForVariant`, a different
+quantity from `prcRef` and correctly per-analyzer. The fold-in is bounded to (ii), this paragraph, and §4's
+fixture.
 
 **The fall-through case (ii) must survive.** `v_role` is the *cheapest-efficiency* candidate, and the
 picker does not always allocate it. One role; `v1` PRC 10000 (cheapest efficiency), `v2` PRC 2000;
@@ -917,7 +967,24 @@ after. Run with `-race` (§4).
     different costs, the cheaper-efficiency one made infeasible via `MaxReplicas` headroom, asserting the
     cap the **pricier** variant receives — red without the `prcRef` rescale (5 instead of 25 on §2d.5's
     numbers), and note this is the one fsv fixture that varies PRC *within* a role rather than across
-    models · a **fallback-currency** fixture for site (v): a hand-built request with `Priority = 0`
+    models ·
+    **two fixtures, not one, and say in each `It()` which mode it guards** (added 2026-08-07). The
+    fall-through fixture above guards *rescale-vs-no-rescale*; as specified it says nothing about
+    **captured-vs-recomputed `prcRef`** (§2d.5 *Reference PRC*), because `refreshAnchorSizing`
+    early-returns at `len(s) <= 1` (`analyzer_helpers.go:552-554`) — with one voting analyzer the refresh
+    is a no-op and the two `prcRef` readings are trivially identical. So add a **refresh-currency**
+    fixture: **≥2 voting analyzers**, constructed so the refresh actually *moves the reference variant's
+    PRC between iterations* (assert the movement itself, so the fixture cannot silently degrade into a
+    no-op), red with an in-closure `prcRef` and green with the threaded one. Reading one green test as
+    covering both modes is the specific mistake this split exists to prevent. Note also that **the #1513
+    goldens are blind to the `prcRef` rescale entirely**, not merely to its currency: `fairShareRolePick`
+    returns on the *first* candidate with `capN > 0` (`greedy_score_optimizer.go:432-434`), so normally
+    only `sorted[0]` = `v_role` is priced, where the ratio is 1.0 by construction — and reaching a second
+    candidate needs the `PRC <= 0` / `gpusAvail < gpusPR` / `headroom <= 0` skip to fire, while no golden
+    sets `MaxReplicas` at all and `unlimitedConstraints` is 1,000,000 GPUs per pool. (A4 has two variants
+    at genuinely different PRCs but returns at `sorted[0]`; B2 reaches both prefill variants but their PRCs
+    are **identical**, so every ratio is 1.0 regardless.) Green goldens at C6c are therefore **necessary
+    but not sufficient** for site (ii) · a **fallback-currency** fixture for site (v): a hand-built request with `Priority = 0`
     (constructed directly, bypassing `ApplyDefaults`, which would rewrite it to 1.0) asserting fsv comes
     back in replicas, not raw demand ·
     **T1.4 rewritten** per §2d.6 · **goldens re-run**.
@@ -965,8 +1032,14 @@ after. Run with `-race` (§4).
 **Plans-branch token hygiene (CODER-CONVENTIONS §4a) — two halves, only one of which a commit can fix.**
 A full-branch sweep (reviewer, 2026-08-07) found **32 code/doc locations plus a token in all nine commit
 messages** — 6 of 9 subject lines (`(N2)`, `(Bug #2)`, `(Bug #1)`, `(Bug #3)`, `(C6a)`, `(C6b)`) and 8 of 9
-bodies. None are inherited: the same grep at the base (`075a208e`) returns nothing, so this is entirely
-PR-2's. Notes for whoever actions it:
+bodies. For the `Nn` / `Bug #n` / `Cn` families that count is right and is entirely PR-2's. **But "none are
+inherited" is only true of those families** (corrected 2026-08-07 after a wider re-measure — see §6's
+cross-cutting token-sweep bullet): widening the grep to the full §4a token set (`PR-n`, `Fn`, `Commit n`,
+`§n`) gives **48 in-tree lines at `d9f3b97e`, of which 31 are PR-2's and 17 are already present at the
+PR-1 base `075a208e`**. The inherited 17 are **out of scope for this PR** — they belong to the pre-existing
+`main`-side §4a cleanup tracked in `planning/governance-follow-ups.md`, and 8 of them are the #1513
+goldens' own `Commit 2/3/4` scenario labels, which PR-2 must not churn. Any "grep to zero" criterion has to
+be scoped to the PR-2 delta or it is unachievable by construction. Notes for whoever actions it:
 
 - **The 32 code/doc locations ride one sweep commit.** C9 already touches the dev-guide, so it is the
   natural host. Two of the 32 are in the shipped Type 4 `multi-analyzer-pipeline.md` (`:338` `N7`, `:472`
@@ -985,7 +1058,9 @@ PR-2's. Notes for whoever actions it:
   "no rebase of live PR branches" rule exists to prevent. So the cheap window closes the instant the PR
   opens. **"Not worth it" is a legitimate answer** and should be recorded as accepted; what should not
   happen is the default-by-omission where the PR gets opened first and the choice is made for us.
-  Requires Dean's explicit go-ahead like any force-push.
+  Requires Dean's explicit go-ahead like any force-push. **Second, weaker deadline:** if the answer is
+  "reword", doing it before C6c keeps the rebase at **9** commits rather than 13 — C6c/C6d/C10/C9 are still
+  unwritten, and each one added is another reword to type. Not a correctness matter, only effort.
 
 [↑ TOC](#toc)
 
@@ -1142,6 +1217,13 @@ than inferring scope.
   `:15-18`, whose "*fair-share priority value*" phrasing matches none of this grep's tokens either. So
   `:15-18` is invisible to *both* C6c greps as they were originally worded, and is reached only because
   the code-grep criterion above now names it explicitly. All three should end up naming the unit.
+- **C6c — `prcRef` is captured, not re-derived** (added 2026-08-07):
+  `grep -n "sortByCostEfficiencyAsc" internal/engines/pipeline/*.go` — the call must **not** appear inside
+  `fairShareRolePick`'s closure body. `prcRef` is computed where fsv is computed, from the pre-refresh
+  slice, and threaded in as a per-role parameter; deriving it in-closure reads a PRC that C2's
+  `refreshAnchorSizing` has already rewritten this iteration (§2 #5 (ii), §2d.5 *Reference PRC*). Cheap to
+  check, and it is the one C6c mistake no golden and no single-analyzer fixture can catch — the refresh
+  no-ops at `len(s) <= 1`.
 - **C6d — role-level objection blocks removal** (skip-on-no-PRC → veto): `grep -rn "RoleSpare\|prc <= 0\|prcForVariant" internal/ docs/`
   — update every comment that says an analyzer without per-variant capacity "is skipped" on the scale-down
   path; it now still objects at role granularity. Verify the *abstain* prose for a genuinely missing
@@ -1160,8 +1242,38 @@ than inferring scope.
   FULL ballot (must NOT be switched to `votingResults`).
 - **C7 — N8 drop-fallback:** `grep -rn "satEnabled\|fallback\|(b)-fallback\|borrow" internal/ docs/`
   — remove the fallback prose; state binder-unknown ⇒ PRC=0 abstain. Update PR-1 Test 2 (v2 110→0).
-- **C8 — notation strip:** `grep -rnE "\((a|b)\)" internal/ docs/developer-guide/` — zero hits in shipped
-  comments/docs after C8 (the letters are gone; the words remain).
+- **C8 — notation strip:** `grep -rnE "\((a|b)\)" internal/ docs/developer-guide/` — zero hits **that denote
+  the (a)/(b) sizing notation** after C8 (the letters are gone; the words remain). *Criterion corrected
+  2026-08-07:* a literal "zero hits" is unachievable — the pattern also matches `math.Abs(a)`,
+  `string(b)`, `cmp.Compare(b.Priority, a.Priority)` and ordinary English "(a)… (b)…" enumerations in
+  unrelated files. **17 hits remain at `d9f3b97e` and all 17 are false positives** (each read), so C8 did
+  its real job; the reword exists so the next reader does not re-chase them and so a genuine hit is not
+  lost in the noise.
+- **Cross-cutting — §4a plans-branch token sweep (run before the final push, not per commit)** (added
+  2026-08-07):
+  `grep -rnE '\bN[0-9]\b|\bBug #[0-9]|\bPR-[0-9]\b|\bC[0-9]+[a-d]?\b|\bF[0-9]+\b|§[0-9]|\bCommit [0-9]' internal/ docs/developer-guide/`
+  — **the criterion is zero *PR-2-introduced* hits, not zero hits.** Measured at `d9f3b97e`: **48 in-tree
+  lines, 31 PR-2's, 17 inherited from the PR-1 base `075a208e`.** Per-file PR-2 delta, which is the actual
+  target list: `analyzer_helpers.go` 8 · `analyzer_helpers_test.go` 7 · `rescale.go` 4 ·
+  `optimizer_liveness_test.go` 3 · `optimizer_dynamic_refresh_test.go` 3 ·
+  `optimizer_combine_characterization_test.go` 2 · `multi-analyzer-pipeline.md` 2 ·
+  `optimizer_interfaces.go` 1 · `rescale_test.go` 1. By class: **13** shipped non-test code, **16** tests,
+  **2** dev-guide. Confirm provenance per file with
+  `git show 075a208e:<path> | grep -cE '<same regex>'` before editing — the **17 inherited** hits
+  (`optimizer_characterization_test.go` 8 = the #1513 goldens' own `Commit 2/3/4` labels ·
+  `analyzer_test.go` 4 · `throughput-analyzer.md` 2 · `constants.go` 1 · `throughput_analyzer.go` 1 ·
+  `greedy_score_optimizer_test.go` 1) are **out of scope**: they belong to the `main`-side cleanup in
+  `planning/governance-follow-ups.md`, and churning the goldens' labels would dirty a diff PR-2 is
+  supposed to leave alone. Replace each PR-2 hit with the prose the token stands for — §4a's own
+  example: "abstains rather than vetoing (N7)" → "abstains rather than vetoing — a coarser voter has no
+  basis to veto a role it never sized". **Why this bullet exists:** §6 previously had exactly one
+  §4a-flavoured grep (C8's), so the `Nn` / `Bug #n` / `PR-n` families were outside every stated criterion
+  and a coder following the plan literally had no scope to infer one — and the C6d bullet actively points
+  *at* three `N7` hits (`analyzer_helpers.go:671`, `:682`, `:694`) asking that their prose stay accurate
+  without saying to strip the token. Two of the 31 are in the shipped Type 4 `multi-analyzer-pipeline.md`
+  (`:338` `N7`, `:472` `N8`) — the most reader-visible surface on the branch, and Type 4 must be
+  self-sufficient for a reviewer reading only the diff. Real GitHub numbers (`#1228`, `#1513`) are
+  legitimate and stay. Commit messages are **not** reachable by this or any later commit — see §4.
 - **C10 — k_sat is configuration, not a constant:** `grep -rn "DefaultKSat" internal/ docs/` must return
   **zero** hits after C10 (constant deleted, four call sites threaded, dev-guide prose reworded). Then
   `grep -rni "0\.85\|k_sat\|ksat" internal/engines/analyzers/throughput/ docs/developer-guide/throughput-analyzer.md`
