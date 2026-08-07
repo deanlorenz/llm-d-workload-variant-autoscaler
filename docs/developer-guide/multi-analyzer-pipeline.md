@@ -570,7 +570,10 @@ anyRoleNeedsScaleUp(ps, roles) → loop gate: any role still has demand?
 - `costGreedyRolePick`: picks the cheapest cost-efficient variant; no GPU budget
   cap (unlimited mode).
 - `fairShareRolePick`: picks the cheapest variant within available GPU budget;
-  caps `capN` to the fair-share target (limited mode).
+  caps `capN` to what is *left* of the model's fair-share entitlement after the
+  roles that drew before it (limited mode) — not to the whole entitlement, which
+  each role would otherwise clamp against independently. See
+  [Fair-share iteration](#fair-share-iteration-greedybyscoreoptimizer-only).
 
 For non-disaggregated models, `initRoleState` synthesizes a single `"both"` role
 from the model-level scalars, so `allocateForModelPaired` handles both the
@@ -667,7 +670,7 @@ the ballot produced.
 2. Sort by `remaining` descending; take the highest.
 3. Call `allocateForModel` with budget `target = remaining − mean`: allocates
    replicas via `allocateForModelPaired` until the model's claim drops to or
-   below `mean`.
+   below `mean`, or until `target` is spent — whichever comes first.
 4. Recompute `remaining = fairShareValue(priority, s, ps, roles, variants, stateMap)`
    from the post-allocation working state.
 5. Repeat until no active models remain or no GPUs are left.
@@ -698,6 +701,45 @@ change this section does not describe. On the way back out, `allocateForModel`
 converts that bound into each analyzer's *own* metric through that entry's own
 per-replica capacity — the one place a per-replica capacity is applied leaving
 GPU space, and it converts a bound, never a quantity.
+
+**One entitlement per model, spent jointly across its roles.** `target` is a
+single balance, not a per-role allowance: prefill and decode draw it down in
+sequence, so the sum of what the roles spend is bounded by the model's `target`.
+Concretely, a P/D model no longer makes two full-budget draws — a 7-GPU
+entitlement used to let prefill commit 7 GPUs and decode commit 7 more. Both
+clamps read the *remaining* balance rather than `target`: the demand clamp in
+`allocateForModel`, which converts the balance into each entry's own metric one
+role at a time, and `fairShareRolePick`'s `capN` cap.
+
+The draw is **sequenced**, not split into fixed per-role shares — a static split
+under-serves whichever role is cheaper to satisfy, since a role needing less than
+its share cannot hand the difference back. Two floors keep the sequence from
+starving whoever draws last, and they are not the same rule. Sizing a role
+**holds back** one GPU for each role still to draw; that applies on every draw,
+because it only moves room between roles and so can never inflate the spend. On
+the model's **first** draw only, a role may additionally take one indivisible
+replica even when the balance no longer covers it: `allocateForModelPaired`'s
+pick loop is all-roles-or-nothing, so before anything is committed an empty pick
+makes the caller abandon the model outright, whereas once the model holds a
+commitment an exhausted balance merely ends the loop with that commitment intact.
+Kept on past the first draw, that floor would be a per-iteration drip the
+entitlement never bounds.
+
+Ending the loop mid-model is what makes `debitCommittedDemand` necessary.
+`allocateForModel` re-seeds picker-local demand on every call, and nothing writes
+an allocation back to `RoleCapacities[role].RequiredCapacity` — `applyAllocation`
+refreshes only the model-level scalar. So the per-role seed is subtracted by what
+the model has already been given: target replicas against observed current, per
+variant, priced at each entry's *own* `PerReplicaCapacity` for that variant —
+the same quantity the allocation loop charges when it commits. Without it the
+next round would serve the original demand a second time.
+
+**What was masking this.** Every commit is also bounded by the downstream GPU
+pool, so a model drawing its entitlement twice still could not conjure hardware
+that does not exist, and the doubled draw surfaced as a fair-share violation
+rather than as a failure: the pool was enforced, the fair share was not. It moved
+no golden either, because a golden with a single active model gets `mean == 0`
+and therefore `target == claim` — the entitlement can only bind under contention.
 
 ### Rescale pre-pass (GreedyByScoreOptimizer only)
 

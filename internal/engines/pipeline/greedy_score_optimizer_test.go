@@ -1412,6 +1412,160 @@ var _ = Describe("GreedyByScoreOptimizer", func() {
 		})
 	})
 
+	Context("Fair Share — One Entitlement per Model", func() {
+
+		// The entitlement is granted per MODEL and spent JOINTLY by its roles:
+		// Σ_role spend[role] ≤ target, in GPUs, which is the only space that sum
+		// is legal in. Handing every role — or worse, every (analyzer, role)
+		// pair — the whole target instead is one entitlement drawn several times.
+		//
+		// Both fixtures below use the same topology, and it is chosen so the bound
+		// can be asserted exactly. Prefill and decode differ in BOTH per-replica
+		// capacity and GPUs-per-replica, so no clamp can accidentally land on the
+		// right answer by borrowing the other role's numbers. Every role's demand
+		// is a whole number of replicas, and the shares the sequenced draw hands
+		// out are whole multiples of the landing variant's GPUs-per-replica, so
+		// replicasToCover rounds nothing up: without that, Σ_role spend exceeds
+		// target by the round-up, which is the deferred replicasToCover item and
+		// not this one.
+		//
+		//	prefill: 40000 / 5000 = 8 replicas × 1 GPU  =  8 GPUs
+		//	decode:  24000 / 4000 = 6 replicas × 2 GPUs = 12 GPUs
+		//	                                     claim  = 20 GPUs
+		//
+		// A second model is present only to make the mean positive, which is what
+		// makes the entitlement smaller than the claim and therefore binding: with
+		// one model the entitlement IS the whole claim and nothing can be observed.
+		// It claims 6 GPUs (20000 / 10000 = 2 replicas × 3 GPUs), so the mean is
+		// 13 and the P/D model's first-round entitlement is 20 − 13 = 7 GPUs. The
+		// pool is 7, so the first round is the only round, and the question the
+		// fixture asks is how those 7 GPUs are split across the two roles.
+		mixedRolePD := func() *domain.AnalyzerResult {
+			return &domain.AnalyzerResult{
+				RequiredCapacity: 64000,
+				RoleCapacities: map[string]domain.RoleCapacity{
+					"prefill": {Role: "prefill", RequiredCapacity: 40000, TotalDemand: 40000},
+					"decode":  {Role: "decode", RequiredCapacity: 24000, TotalDemand: 24000},
+				},
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "prefill-v", AcceleratorName: "A100", Cost: 5.0, Role: "prefill", ReplicaCount: 1, PerReplicaCapacity: 5000},
+					{VariantName: "decode-v", AcceleratorName: "A100", Cost: 5.0, Role: "decode", ReplicaCount: 1, PerReplicaCapacity: 4000},
+				},
+			}
+		}
+		pdStates := func() []domain.VariantReplicaState {
+			return []domain.VariantReplicaState{
+				{VariantName: "prefill-v", CurrentReplicas: 1, GPUsPerReplica: 1, Role: "prefill"},
+				{VariantName: "decode-v", CurrentReplicas: 1, GPUsPerReplica: 2, Role: "decode"},
+			}
+		}
+		// The mean-setter. Its claim is what makes the P/D model's entitlement a
+		// fraction of its claim; it never allocates, because the P/D model draws
+		// first on its larger claim and leaves the pool empty.
+		meanSetter := func() ModelScalingRequest {
+			return withSatEntry(&domain.AnalyzerResult{
+				RequiredCapacity: 20000,
+				VariantCapacities: []domain.VariantCapacity{
+					{VariantName: "mean-v", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 1, PerReplicaCapacity: 10000},
+				},
+			}, ModelScalingRequest{
+				ModelID:   "mean-setter",
+				Namespace: "default",
+				Priority:  1.0,
+				VariantStates: []domain.VariantReplicaState{
+					{VariantName: "mean-v", CurrentReplicas: 1, GPUsPerReplica: 3},
+				},
+			})
+		}
+		sevenGPUs := []*ResourceConstraints{
+			{Pools: map[string]ResourcePool{"A100": {Limit: 7}}},
+		}
+
+		It("spends one shared balance across the roles, never one per role", func() {
+			requests := []ModelScalingRequest{
+				withSatEntry(mixedRolePD(), ModelScalingRequest{
+					ModelID:       "pd-shared-pool",
+					Namespace:     "default",
+					Disaggregated: true,
+					Priority:      1.0,
+					VariantStates: pdStates(),
+				}),
+				meanSetter(),
+			}
+
+			dm := decisionMap(optimizer.Optimize(ctx, requests, sevenGPUs))
+
+			// Decode draws first and its share is 7 less the one GPU held back for
+			// prefill, so it takes 6 / 2 = 3 replicas; prefill draws against the
+			// 1 GPU that is left and takes 1. Seven GPUs, spent once.
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(4), "decode: 1 + 3 replicas at 2 GPUs = 6 GPUs")
+			Expect(dm["prefill-v"].TargetReplicas).To(Equal(2), "prefill: 1 + 1 replica at 1 GPU = 1 GPU")
+
+			spent := (dm["decode-v"].TargetReplicas-1)*2 + (dm["prefill-v"].TargetReplicas-1)*1
+			Expect(spent).To(Equal(7), "Σ_role spend equals the 7-GPU entitlement exactly, not once per role")
+
+			// One entitlement drawn per role instead would size each role against
+			// the whole 7: prefill alone would be allowed 7 replicas and land on 7,
+			// for 6 + 6 = 12 GPUs out of a 7-GPU pool.
+			Expect(dm["mean-setter-v"].TargetReplicas).To(Equal(0), "the mean-setter has no such variant")
+			Expect(dm["mean-v"].TargetReplicas).To(Equal(1), "the pool is empty by the time the mean-setter draws")
+		})
+
+		It("does not multiply the entitlement by the number of analyzers", func() {
+			// The clamp is applied per (analyzer, role) pair, so with two analyzers
+			// and two roles a per-pair budget is one entitlement drawn four times.
+			// The second voter here is deliberately the less demanding one and
+			// prices every variant exactly as saturation does, so it changes no
+			// sizing and no claim: the model's answer must be the one above,
+			// digit for digit. Any difference is the grid being spent.
+			satResult := mixedRolePD()
+			taResult := mixedRolePD()
+			taResult.RequiredCapacity = 32000
+			taResult.RoleCapacities = map[string]domain.RoleCapacity{
+				"prefill": {Role: "prefill", RequiredCapacity: 20000, TotalDemand: 20000},
+				"decode":  {Role: "decode", RequiredCapacity: 12000, TotalDemand: 12000},
+			}
+
+			requests := []ModelScalingRequest{
+				{
+					ModelID:       "pd-shared-pool-two-voters",
+					Namespace:     "default",
+					Disaggregated: true,
+					Priority:      1.0,
+					VariantStates: pdStates(),
+					AnalyzerResults: []NamedAnalyzerResult{
+						{Name: domain.SaturationAnalyzerName, Result: satResult, Remaining: satResult.RequiredCapacity, Enabled: true, Live: true},
+						{Name: "throughput", Result: taResult, Remaining: taResult.RequiredCapacity, Enabled: true, Live: true},
+					},
+				},
+				meanSetter(),
+			}
+
+			dm := decisionMap(optimizer.Optimize(ctx, requests, sevenGPUs))
+
+			Expect(dm["decode-v"].TargetReplicas).To(Equal(4))
+			Expect(dm["prefill-v"].TargetReplicas).To(Equal(2))
+
+			spent := (dm["decode-v"].TargetReplicas-1)*2 + (dm["prefill-v"].TargetReplicas-1)*1
+			Expect(spent).To(Equal(7), "two voters, still one 7-GPU entitlement")
+		})
+
+		It("draws the roles in a deterministic order", func() {
+			// The draw is sequenced, so which role is sized against the full
+			// balance and which against the remainder is decided by the order the
+			// roles come back in — and that order is initRoleState's, sorted. The
+			// split asserted above is only reproducible because of this.
+			s := votingResults(withSatEntry(mixedRolePD(), ModelScalingRequest{
+				ModelID:       "pd-order",
+				Disaggregated: true,
+				VariantStates: pdStates(),
+			}).AnalyzerResults)
+
+			roles, _ := initRoleState(s)
+			Expect(roles).To(Equal([]string{"decode", "prefill"}))
+		})
+	})
+
 	Context("Helper Functions", func() {
 
 		It("filterActive should return only models with remaining > 0", func() {

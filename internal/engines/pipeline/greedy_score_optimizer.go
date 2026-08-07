@@ -313,6 +313,66 @@ func (o *GreedyByScoreOptimizer) fairShareScaleUp(
 	}
 }
 
+// debitCommittedDemand subtracts what a model has already been given from the
+// freshly seeded picker-local demand, for every entry whose demand was seeded
+// per role.
+//
+// initRoleState seeds a per-role entry from RoleCapacities[role].RequiredCapacity,
+// and nothing ever decrements that field: the allocation loop decrements only the
+// caller's working RolePairedState, which is rebuilt on the next call, and
+// applyAllocation refreshes only the model-level scalar that the per-role branch
+// of initRoleState does not read. Re-seeding therefore restores the demand the
+// model started the cycle with, however much of it has been served.
+//
+// That was harmless while each role was handed the whole model entitlement,
+// because the allocation loop then always ran a model's demand to exhaustion
+// inside a single call and no second call had anything to re-serve. Once the
+// entitlement is one shared balance (W1) the loop stops mid-model whenever the
+// balance runs out, which is a defer — the model keeps what it committed and
+// comes back for the next round's entitlement — and the round after would serve
+// the same demand a second time.
+//
+// The debit is read from the authoritative record of what was given: the target
+// replica count against the observed current count, per variant, priced at each
+// entry's OWN per-replica capacity for that variant. That is the same quantity
+// the allocation loop subtracts when it commits (Bug #1), so a role served
+// entirely within one call lands on exactly the same demand either way.
+//
+// Entries seeded from the model-level scalar are skipped: applyAllocation already
+// debits that scalar, so re-seeding reads a value that is current, and debiting it
+// again would charge the same replicas twice.
+func debitCommittedDemand(
+	ps RolePairedState,
+	s []NamedAnalyzerResult,
+	variants []domain.VariantCapacity,
+	stateMap map[string]domain.VariantReplicaState,
+	targets map[string]int,
+) {
+	for i, e := range s {
+		if e.Result == nil || i >= len(ps) || e.Result.RoleCapacities == nil {
+			continue
+		}
+		for _, vc := range variants {
+			role := vc.Role
+			if role == "" {
+				role = domain.RoleBoth
+			}
+			if _, seeded := ps[i][role]; !seeded {
+				continue
+			}
+			given := targets[vc.VariantName] - stateMap[vc.VariantName].CurrentReplicas
+			if given <= 0 {
+				continue // nothing committed for this variant, or a reclaim
+			}
+			prc := prcForVariant(e.Result, vc.VariantName)
+			if prc <= 0 {
+				continue // this entry cannot price the variant, so it charged nothing
+			}
+			ps[i][role] = math.Max(0, ps[i][role]-float64(given)*prc)
+		}
+	}
+}
+
 // allocateForModel allocates replicas to bring the model's outstanding claim
 // below the mean. Dispatches to the paired path for disaggregated models.
 // After allocation, w.remaining is recomputed from the working slice.
@@ -335,9 +395,12 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	stateMap := buildStateMap(w.req.VariantStates)
 	oldRemaining := w.remaining
 
-	// Re-initialize picker-state from current s[i].Remaining each call so
-	// multi-iteration fair-sharing sees the correct post-allocation demand.
-	// Cap at target so the loop exits when the fair-share budget is exhausted.
+	// Re-seed picker-state each call so multi-iteration fair-sharing sees the
+	// correct post-allocation demand: from the model-level scalar applyAllocation
+	// decrements, and — for the per-role seed, which no allocation writes back —
+	// from that seed less what the model has already been given
+	// (debitCommittedDemand). Then cap at the fair-share budget so the loop exits
+	// when it is exhausted.
 	//
 	// target is priority-scaled GPUs while picker-local demand is each analyzer's
 	// own metric, so the bound is converted down into that analyzer's metric
@@ -346,23 +409,61 @@ func (o *GreedyByScoreOptimizer) allocateForModel(
 	// capacity is applied on the way back out of GPU space, and it converts a
 	// bound, never a quantity — picker-local demand stays raw for every
 	// downstream consumer that divides it by a per-replica capacity again.
-	_, ps := initRoleState(w.s)
+	//
+	// The budget is ONE balance per model, so the roles draw against it in
+	// sequence: each role's clamped demand is charged back in GPUs before the
+	// next role is bounded. Handing every (entry, role) pair the whole target
+	// instead lets each pair claim the entire budget, which for a P/D model is
+	// one entitlement drawn |roles| times — a double-spend, not an over-cap.
+	// The balance is per entry because the currency is: two analyzers price the
+	// same model in different metrics, and only the combine of them is ever
+	// spent. Roles are drawn in w.roles order, so the sequence is deterministic.
+	type roleRef struct {
+		role   string
+		name   string
+		gpusPR int
+	}
+	roleRefs := make([]roleRef, 0, len(w.roles))
 	for _, role := range w.roles {
 		vc, ok := referenceVariantForRole(w.anchor.VariantCapacities, role)
 		if !ok {
 			continue
 		}
-		gpusPR := gpusPerReplicaFromState(stateMap, vc.VariantName)
-		for i, e := range w.s {
-			if e.Result == nil || i >= len(ps) {
-				continue
-			}
-			bound, ok := fromGPUs(target, prcForVariant(e.Result, vc.VariantName), gpusPR)
+		roleRefs = append(roleRefs, roleRef{
+			role:   role,
+			name:   vc.VariantName,
+			gpusPR: gpusPerReplicaFromState(stateMap, vc.VariantName),
+		})
+	}
+	_, ps := initRoleState(w.s)
+	debitCommittedDemand(ps, w.s, w.anchor.VariantCapacities, stateMap, w.targets)
+	for i, e := range w.s {
+		if e.Result == nil || i >= len(ps) {
+			continue
+		}
+		balance := target
+		for _, ref := range roleRefs {
+			prc := prcForVariant(e.Result, ref.name)
+			bound, ok := fromGPUs(balance, prc, ref.gpusPR)
 			if !ok {
 				continue // no conversion factor ⇒ no budget to bind this entry
 			}
-			if ps[i][role] > bound {
-				ps[i][role] = bound
+			// One replica's worth of demand is the floor, on the same
+			// indivisible-unit policy replicasToCover states for a single role
+			// and fairShareRolePick applies to the pick: a role owed less than
+			// a whole replica still gets the whole replica. Without it a role
+			// whose predecessors drained the balance would be bounded to zero
+			// demand, which reads downstream as "this role needs nothing" and
+			// silently breaks the joint P/D commit rather than deferring it.
+			if bound < prc {
+				bound = prc
+			}
+			if ps[i][ref.role] > bound {
+				ps[i][ref.role] = bound
+			}
+			// Charge the shared balance for what this role now claims.
+			if spent, ok := toGPUs(ps[i][ref.role], prc, ref.gpusPR); ok {
+				balance = math.Max(0, balance-spent)
 			}
 		}
 	}
@@ -469,13 +570,57 @@ func effectiveAvailable(available, nsBudget map[string]int) map[string]int {
 	return eff
 }
 
-// fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired loop.
-// Each role receives the same target fair-share budget, in priority-scaled GPUs.
-// The joint Δ_util commit inside allocateForModelPaired enforces P/D coupling —
-// α is no longer needed.
+// fairShareRolePick returns a RolePickFn for the unified allocateForModelPaired
+// loop. The joint Δ_util commit inside that loop enforces P/D coupling — α is no
+// longer needed.
+//
+// The model's entitlement is ONE balance in priority-scaled GPUs, not one per
+// role. Prefill and decode compete for the same GPUs, so what binds a multi-role
+// model is a joint constraint, Σ_role spend[role] ≤ target, and the roles are a
+// sequenced draw against a shared remainder rather than a static split — a split
+// would under-serve whichever role is cheaper to satisfy. Draw order is the
+// caller's roles order, so the sequence is deterministic.
+//
+// Two ledgers, because two different things are being counted. Committed spend is
+// read back out of the targets map, so a role is charged for the replicas
+// actually taken, each at its own variant's GPUs per replica. Within one iteration
+// of the caller's loop nothing is committed yet — every role is picked before any
+// of them is sized — so a grant is also held as a reservation against the same
+// balance, and the reservations are dropped once the commit they anticipated shows
+// up in targets. That makes the accounting exact across iterations and
+// conservative within one, which is the safe direction for a reservation.
+//
+// Two floors keep the sequence from starving whoever draws last, and they are not
+// the same rule — one withholds, the other grants, and only the one that grants is
+// rationed.
+//
+// The first is a holdback: sizing a role sets aside one GPU for each role still to
+// draw, so an early role is never sized against GPUs a later role is already owed.
+// One GPU apiece because the pool is counted in whole GPUs, and a share below one
+// buys nothing. This applies on EVERY draw. It creates nothing — it only moves
+// room from an earlier role to a later one — so it cannot inflate the spend, and
+// dropping it after the first draw is what starves the last role: with the
+// reservation being conservative (what a role could take, not what it will), the
+// role drawing first can hold the whole remainder and the role drawing last then
+// picks nothing, which ends the caller's loop a full iteration early and sends the
+// model back for a second entitlement it does not need.
+//
+// The second is the indivisible unit: a role may take one replica whether or not
+// the shared remainder still covers it — the policy replicasToCover states for a
+// single role, applied jointly. This one grants beyond the balance, so it is for
+// the model's FIRST draw only, and the caller's contract is why. It reads an empty
+// pick as "this model cannot be served" and abandons the model, so before anything
+// is committed a starved role costs every role its allocation rather than just its
+// own; once the model holds something, an exhausted balance ends the caller's loop
+// with the commitment intact, which is a defer. Kept on past the first draw it
+// would be a per-iteration drip that the entitlement never bounds. With the
+// holdback in place it is reachable only when the entitlement is itself smaller
+// than one GPU per role.
 func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) RolePickFn {
-	_ = s     // slice available for future multi-analyzer demand inspection
-	_ = roles // roles available for future per-role budget splitting
+	_ = s // slice available for future multi-analyzer demand inspection
+
+	var committed0 map[string]int        // targets as of this entitlement's first draw
+	reserved := make(map[string]float64) // GPUs granted this iteration, per role
 	return func(
 		role string,
 		_ []NamedAnalyzerResult,
@@ -484,6 +629,50 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 		available map[string]int,
 		targets map[string]int,
 	) (string, int) {
+		if committed0 == nil {
+			committed0 = maps.Clone(targets)
+			if committed0 == nil {
+				committed0 = map[string]int{}
+			}
+		}
+		// A role drawing twice means the caller has moved on to its next
+		// iteration, so whatever the earlier grants became is now in targets.
+		if _, drawn := reserved[role]; drawn {
+			reserved = make(map[string]float64, len(roles))
+		}
+
+		spentGPUs := 0
+		for v, n := range targets {
+			if k := n - committed0[v]; k > 0 {
+				spentGPUs += k * gpusPerReplicaFromState(stateMap, v)
+			}
+		}
+		balance := target - float64(spentGPUs)
+		for _, g := range reserved {
+			balance -= g
+		}
+
+		// Nothing committed yet means an empty pick makes the caller abandon the
+		// model outright rather than defer it, which is the one case worth
+		// granting past the balance for. See the second floor below.
+		firstDraw := spentGPUs == 0
+
+		// Holdback: sizing a role must not spend the GPU each role still to draw
+		// is owed. One apiece — the pool is counted in whole GPUs, so a share
+		// below one buys nothing anyway. Every draw, not just the first: this
+		// only moves room between roles, and without it the role drawing last
+		// picks nothing whenever a predecessor's conservative reservation
+		// swallows the remainder.
+		share := balance
+		for _, r := range roles {
+			if r == role {
+				continue
+			}
+			if _, drawn := reserved[r]; !drawn {
+				share--
+			}
+		}
+
 		roleVCs := variantsForRole(variants, role)
 		for _, vc := range sortByCostEfficiencyAsc(roleVCs) {
 			if vc.PerReplicaCapacity <= 0 {
@@ -501,7 +690,16 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 			// purpose: the entitlement rounds up, because a replica is the
 			// indivisible unit allocation happens in, while the real pool rounds
 			// down, because those GPUs either exist or they do not.
-			capN := min(replicasToCover(target, gpusPR), gpusAvail/gpusPR)
+			capN := replicasToCover(share, gpusPR)
+			if firstDraw && capN < 1 {
+				// This role's own replica is not the shared remainder's to
+				// withhold — the same indivisible-unit policy replicasToCover
+				// states for one role, applied jointly. First draw only: it
+				// grants past the balance, and only before the first commit is
+				// an empty pick fatal to the whole model rather than a defer.
+				capN = 1
+			}
+			capN = min(capN, gpusAvail/gpusPR)
 			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
 				headroom := *state.MaxReplicas - targets[vc.VariantName]
 				if headroom <= 0 {
@@ -510,6 +708,11 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 				capN = min(capN, headroom)
 			}
 			if capN > 0 {
+				// Charge the balance, never beyond the share that sized the
+				// grant: the round-up can exceed it, and a reservation larger
+				// than the remainder would take back the room this role's
+				// successors were just left.
+				reserved[role] = math.Max(0, math.Min(float64(capN*gpusPR), share))
 				return vc.VariantName, capN
 			}
 		}
