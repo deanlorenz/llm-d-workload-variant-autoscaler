@@ -885,9 +885,14 @@ the `y > 0` ITL knee.
    filename, and the one file on it that was *not* redundant — `provenance.json`, load-bearing under
    Dean's originals policy — was carried onto this branch first (`a40dae11`). See §14.6.
 5. ~~**Ring the benchmark coder** with §9.2 (item 3 above)~~ — **DONE 2026-08-08.** Two handoffs had
-   already arrived from that thread in the other direction (see §16), and a reply carrying §9.2 plus
-   the ladder cross-check went back as
-   `plans/session/handoffs/ta-benchmark-coder__ladder-cross-check-and-capture-list.md`.
+   already arrived from that thread in the other direction, and a reply carrying §9.2 plus the ladder
+   cross-check went back as
+   `autoscaling-viz/session-notes/handoffs/benchmark__viz-cross-check-and-next-capture.md`.
+   **Convention gap found while sending it:** worktree isolation refuses writes to the shared
+   `plans/session/handoffs/`, so neither side can put a handoff there — which is why the benchmark
+   session left mine in *its* worktree and why mine sits in ours. The three-state `.md`/`.WIP`/`.DONE`
+   machine also cannot be operated across worktrees: each side can only flip files it can write.
+   Raise with Dean; the protocol assumes a shared writable directory that isolated sessions lack.
 
 **New, from the 2026-08-08 ladder cross-check** — all four are *semantic* forks sitting on top of
 work that is otherwise finished, which is why none of them is being applied unilaterally:
