@@ -1,0 +1,39 @@
+{
+  "run": "staircase-20260803",
+  "harness": "inference-perf",
+  "harness_version": "e250731ce8944f8ab76ece860e0960c6fa39b606",
+  "model": "unsloth/Meta-Llama-3.1-8B-Instruct",
+  "engine": {
+    "num_gpu_blocks": "6426",
+    "block_size": "64",
+    "gpu_memory_utilization": "0.85",
+    "enable_prefix_caching": "True",
+    "cache_dtype": "auto",
+    "sliding_window": "None"
+  },
+  "namespace": "dhl-wva-209",
+  "cluster": null,
+  "workload": "ta_autoscale_staircase.yaml",
+  "shape": {
+    "in_tok": 2053,
+    "out_tok": 510
+  },
+  "extractor_version": "0.1.0",
+  "extractor_git_sha": null,
+  "extracted_at": "2026-08-07T01:36:49+0300",
+  "published_at": "2026-08-07T01:48:19+0300",
+  "bundle_sha256": "f21abe45932a3a1784d633a424f99686dd2714cd3509e6db4e2149737d121f7d",
+  "bundle_bytes": 31234,
+  "coverage": {
+    "pass": 12,
+    "fail": 4,
+    "not_exercised": [
+      "Exercise the 0.85 ceiling",
+      "Scale-down present",
+      "Drain-vs-kill measurable",
+      "rho model valid at top"
+    ]
+  },
+  "time_anchor_trustworthy": false,
+  "source_dir": "real-trace/staircase-20260803"
+}
