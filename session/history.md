@@ -11,18 +11,20 @@
 
 ## TOC
 
-- [PR Status — TA 0.9 stack](#pr-status--ta-09-stack) L23:37
-- [PR Status — TA3 & earlier missions](#pr-status--ta3--earlier-missions) L38:57
-- [PR Status — upstream reviews & proposals](#pr-status--upstream-reviews--proposals) L58:68
-- [Activity log — 2026-07 (TA 0.9 + upstream reviews)](#activity-log--2026-07-ta-09--upstream-reviews) L69:98
-- [Activity log — 2026-06 and earlier](#activity-log--2026-06-and-earlier) L99:122
-- [Mission — TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-16](#mission--ta3-throughputanalyzer--merged-efca1b4c-2026-06-16) L123:134
-- [Mission — Multi-Analyzer](#mission--multi-analyzer) L135:148
-- [Deferred fixes (TA2 / PR-3 follow-ups)](#deferred-fixes-ta2--pr-3-follow-ups) L149:153
+- [PR Status — TA 0.9 stack](#pr-status--ta-09-stack) L24:40
+- [PR Status — TA3 & earlier missions](#pr-status--ta3--earlier-missions) L41:60
+- [PR Status — upstream reviews & proposals](#pr-status--upstream-reviews--proposals) L61:71
+- [Activity log — 2026-08](#activity-log--2026-08) L72:77
+- [Activity log — 2026-07 (TA 0.9 + upstream reviews)](#activity-log--2026-07-ta-09--upstream-reviews) L78:107
+- [Activity log — 2026-06 and earlier](#activity-log--2026-06-and-earlier) L108:131
+- [Mission — TA3 (ThroughputAnalyzer) — MERGED `efca1b4c` 2026-06-16](#mission--ta3-throughputanalyzer--merged-efca1b4c-2026-06-16) L132:143
+- [Mission — Multi-Analyzer](#mission--multi-analyzer) L144:157
+- [Deferred fixes (TA2 / PR-3 follow-ups)](#deferred-fixes-ta2--pr-3-follow-ups) L158:162
 
 ## PR Status — TA 0.9 stack
 
-All six TA-0.9 PRs MERGED 2026-07-30; `main` tip `6bfb73e1`.
+All six TA-0.9 PRs MERGED 2026-07-30; `main` tip `6bfb73e1`. One post-stack test-only follow-up
+(#1511) merged 2026-08-07 and is listed last.
 
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
@@ -32,6 +34,7 @@ All six TA-0.9 PRs MERGED 2026-07-30; `main` tip `6bfb73e1`.
 | ta-model-level-demand | [#1480](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1480) | **MERGED 2026-07-30** 09:14:38Z (merge commit `f9f04d81` on upstream `main`; merged-by ev-shindin; base upstream `main`). Merged tip `c4b65702`. Path to merge: ev-shindin APPROVED 07:51Z on `13981f1d` → auto-dismissed when HEAD advanced to `c4b65702` (`b1ec8905` merge main+D in + `c4b65702` thread `arrivalRate` through #1481 liveness test calls; linear, not a force-push) → `REVIEW_REQUIRED` → ev-shindin **re-APPROVED 09:14:29Z on `c4b65702`** → merged 9s later. Tracker **#1495 ready to close** (pending Dean's confirm). Approval's advisory phrasing note (demand-liveness warning is observability-only; real zero-arrival protection is the multi-analyzer live-consensus veto) folded into **PR F dev-guide scope**. Review: [`planning/ta-model-level-demand-review.md`](../planning/ta-model-level-demand-review.md). Plan: [`planning/ta-model-level-demand-plan.md`](../planning/ta-model-level-demand-plan.md). | `f9f04d81` |
 | ta-gate-observability (PR E) | [#1502](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1502) | **MERGED 2026-07-30** (merge `1d5553ee` on `main`; base upstream `main@da58c0e0`; ev-shindin approved) — P0, I-5 half 2 (runtime ConfigMap-edit blind spot). 2 commits, merged tip `552fda63`: `5614afb4` refactor(config) extract `ThroughputAnalyzerEnabled()` onto `*Config` (incl. `aw.Name`→`aw.EffectiveType()` gate fix from the #1486 re-rebase, +2 tests) + `1a6d2fd3` feat(controller) Warning event `ThroughputAnalyzerRestartRequired` + restart log. ev-shindin folded a bootstrap-gate bugfix as maintainer edit `552fda63` (gate the divergence check on `Config.ConfigMapsBootstrapComplete()` — was emitting a spurious restart-warning on every healthy startup). Rebased twice (`f9f04d81`→`da58c0e0`), reviewed after each. Review FINAL: [`planning/ta-gate-observability-review.md`](../planning/ta-gate-observability-review.md). Tracker **#1497 CLOSED**; cross-repo doc companion #1498. Plan: [`planning/ta-gate-observability-plan.md`](../planning/ta-gate-observability-plan.md). | `552fda63` |
 | ta-correctness-guards (PR F) | [#1503](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1503) | **MERGED 2026-07-30** (merge `6bfb73e1` on `main`, tip `7bf13b33`; base `main@da58c0e0`; ev-shindin APPROVED) — P1, I-2/I-3/I-4/I-6 + Commit 5 (D #1481 follow-ups). 5 logic/doc commits (`101e64ae` I-3 NaN-k guard; `3b0b5cdf` I-6 real per-replica freshness; `b9670047` I-2 shared `validITLModel`; `d2618824` I-4 NaN/`>1` KV-usage guard; dev-guide; `ffcdae2f` Commit 5) + ev-shindin's amended maintainer-edit `27523605`→`7bf13b33`. **The maintainer edit fixed non-blocking Finding 1 (now RESOLVED):** `worstFreshnessStatus` folded all nine timestamps without gating on `hasTimestamp`, so absent-by-design metrics (EPP arrival with no EPP; prefix/cache-config off) always won the rollup as `"missing"` — masking a genuinely stale driving metric from `sanity.go:53`'s `== "stale"` gate; the amend also extracted a `statusStale` const to clear a `goconst` break its new test tripped. Rebased twice (`f9f04d81`→`da58c0e0`), internally reviewed after each. **3 optional non-blocking test gaps** ev-shindin declined to add (Tier-2 `validITLModel` rejection; `validITLModel` w/ `Inf B`; `computeLocalDemand` non-positive-cap/negative-ITL skips) — untracked; see CURRENT.md Issues-to-Open. **No dedicated GitHub tracker** (Dean's call — sits under the epic). Review: [`planning/ta-correctness-guards-review.md`](../planning/ta-correctness-guards-review.md). Plan: [`planning/ta-correctness-guards-plan.md`](../planning/ta-correctness-guards-plan.md). | `7bf13b33` |
+| ta-itl-demand-test-gaps (post-stack follow-up) | [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511) | **MERGED 2026-08-07** 17:40:56Z (merge `8b3663ed` on `main`; base `main@6bfb73e1`; reviewer ev-shindin, assignee deanlorenz) — test-only, 5 DCO-signed commits: the 3 optional ITL-model / demand / supply guard-branch gaps ev-shindin declined to add on PR F #1503, plus a folded-in `computeVariantSupply` direct-coverage pair. Two internal reviews APPROVE; review FINAL [`planning/ta-itl-demand-test-gaps-review.md`](../planning/ta-itl-demand-test-gaps-review.md). **Deferred out:** `checkVariantGPSMismatch` diagnostic coverage → separate future test-only task (4 skip guards to satisfy, no existing test block); recorded in the plan's Commit-4 §. Plan: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md). | `96263639` |
 
 [↑ TOC](#toc)
 
@@ -63,6 +66,12 @@ All six TA-0.9 PRs MERGED 2026-07-30; `main` tip `6bfb73e1`.
 | (upstream) v2-default-analyzer | #1442 | **Reviewed 2026-07-22** — APPROVE review posted (LGTM + 2 non-blocking comments: RC-1 inverted-pair-reset middle ground, RC-2 README per-model-flip note). Review FINAL: [`planning/PR1442-review.md`](../planning/PR1442-review.md). CI green. | (fork branch) |
 | (upstream) sat-v2 decode waiting-demand | #1470 | **Reviewed + APPROVED 2026-07-27** (posted, deanlorenz). No blocking findings; per-role decision path verified clean (`RoleCapacities`→`initRoleState`). Two author-flagged pre-existing items endorsed for separate issues. Review FINAL: [`planning/PR1470-review.md`](../planning/PR1470-review.md). CI green. | `b23fe5c9` |
 | (upstream) priority-weighted rescale | #1452 | **APPROVED + MERGED 2026-07-28** — review went `COMMENTED`→APPROVED after ev-shindin's response (pointer to #1447 covers RC-1/RC-3; RC-2/RC-4 to be confirmed directly with Evgeny, not tracked in #1447). Review FINAL/closed: [`planning/PR1452-review.md`](../planning/PR1452-review.md). | (fork branch) |
+
+[↑ TOC](#toc)
+
+## Activity log — 2026-08
+
+- 2026-08-07 — **`ta-itl-demand-test-gaps` PR [#1511](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1511) MERGED** 17:40:56Z (merge commit `8b3663ed` on `main`; base `main@6bfb73e1`; reviewer ev-shindin, assignee deanlorenz). Test-only: the 3 optional ITL-model / demand / supply guard-branch gaps ev-shindin declined to add during PR F #1503's review, plus a folded-in `computeVariantSupply` direct-coverage pair — 5 commits, all DCO-signed. Two internal reviews APPROVE; review FINAL [`planning/ta-itl-demand-test-gaps-review.md`](../planning/ta-itl-demand-test-gaps-review.md). Merge landed via the background `main`-sync watcher (`aadaa596`→`8b3663ed`, auto-pushed to `origin/main`). **Still deferred:** `checkVariantGPSMismatch` diagnostic coverage — split out as a separate future test-only task (4 earlier skip guards to satisfy, no existing test block); recorded in the plan's Commit-4 §. Plan: [`planning/ta-itl-demand-test-gaps-plan.md`](../planning/ta-itl-demand-test-gaps-plan.md).
 
 [↑ TOC](#toc)
 
