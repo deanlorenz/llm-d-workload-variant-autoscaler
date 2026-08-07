@@ -6688,3 +6688,60 @@ cover — and every new occurrence is correct code that a `T1-` sweep must leave
 C9e sweep now has two live traps pulling in opposite directions: strip a real identifier and you break
 code, and both traps sit in files the sweep will open. This is the second independent reason the C9e
 check should be class-based rather than pattern-based; Finding 58 is the first.
+
+---
+
+## Pre-registration: R1–R4 for C9e
+
+Written **before C9e exists**, same reason Q1–Q4 were: a sweep commit is the easiest kind to rationalise
+after the fact, and it can be rationalised in *both* directions — over-crediting a grep that came back
+clean, or over-penalising a site correctly left alone. Committing the bars first is what makes either
+verdict mean anything. The in-scope figure is now **49**: the 48 enumerated sites plus Finding 58.
+
+### R1 — per-site accounting, not a count
+
+**PASS:** every one of the 49 in-scope sites is either moved or explicitly named as not-moved with its
+reason. **FAIL:** a summary count with no per-site trail. This is deliberately the identical bar I set for
+Q1 and scored C9d against — without the trail, a missed site is indistinguishable from one correctly
+judged out of scope, and the reader cannot tell which happened. Consistency here matters more than
+severity: I should not hold a sweep to a looser standard than I held a removal.
+
+### R2 — prose rewrite, not token strip. The load-bearing bar.
+
+§4a's remedy is *"use descriptive prose instead"* — the identifier goes, the knowledge stays. The failure
+mode that passes every grep while doing real damage is deleting `(W4)` and leaving a dangling sentence, or
+deleting the comment wholesale, so the token count reaches zero and the reader loses why the code is
+shaped that way.
+
+**PASS:** each site's replacement carries the semantic content forward — a reader who never saw the token
+learns what it meant. **FAIL:** tokens gone, content gone with them. Findings 51 and 53 are the two I
+already flagged as specifically needing rewrites rather than strips, so they are the named test cases.
+Precedent in the branch's favour: `4fb49ac6` handled exactly this correctly, saying the intent behind the
+offending comments was right and *"the compliant form is to say so in prose, which is what they now do."*
+That is the standard, and it was set by the coder, not by me.
+
+### R3 — the two traps must survive untouched
+
+**PASS:** `T1-ols` (35 occurrences, 11 files) and `greedy_score_optimizer.go:453-456`'s "floor" are
+untouched; better still if the commit names them as deliberately-skipped false positives, since that
+demonstrates the sweep distinguished them rather than never reaching them. **FAIL:** any legitimate
+identifier stripped — code broken or prose falsified in the name of compliance. This one is mechanically
+checkable and I will check it by re-grepping rather than reading the message: the count must still be 35
+across 11 files, and `:453-456` must still endorse round-up.
+
+### R4 — the inherited 7 must not move, and I must not score their survival
+
+Pre-committing to this so I cannot drift into it. The inherited sites are out of C9e's mandate and have a
+tracked home in `planning/governance-follow-ups.md`. **PASS:** they are absent from the diff, or noted as
+tracked. **FAIL — on my side, not the coder's:** me reading a still-non-zero full-tree grep after C9e as a
+sweep shortfall. Re-running the unrestricted grep *will* return hits, and the correct reading of that
+number is "delta-only scoping worked as designed," not "the sweep is short." I have flagged this trap
+twice already in this document; the point of writing it as a bar is that flagging it is not the same as
+being immune to it.
+
+### What would change my mind about Finding 58
+
+Stated in advance for the same reason: if C9e leaves `analyzer_helpers.go:659` in place *and says why* —
+for instance that a design-doc filename is judged materially different from a handoff path because the
+design doc is the durable artifact — that is a defensible position and I will record it as a disagreement,
+not a miss. What I would score as a miss is silence: the site absent from both the diff and the message.
