@@ -2285,3 +2285,81 @@ across the knob; the extreme cap=1 case; that the scratch tree is a `/tmp` extra
 was modified. **Not verified:** the post-C6c currency question above; GPU-scarce behaviour.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Findings 18 and 19 — **CLOSED** (`5b1e1606`), arithmetic independently re-verified
+
+Plan commit `5b1e1606` (+149/−37) folds both. Checked against the diff and against code, not against
+the commit message.
+
+### Finding 18 — closed, and the planner went further than the handoff asked
+
+| Item | Status |
+|---|---|
+| §2 #5 (ii)'s "`prcRef` needs **no new closure parameter**" reversed | ✓ now "must be a new threaded parameter, and must **NOT** be derived inside the closure", carrying "(corrected 2026-08-07 — this sentence previously said the opposite)" so the reversal is auditable |
+| Per-role, not scalar | ✓ `prcRef map[string]float64` (role → reference PRC); signature `fairShareRolePick(target, prcRef, s, roles)`; ratio `prcRef[role] / vc.PerReplicaCapacity`; explicit "**Do not source `prcRef` from `roleVCs`**" |
+| Value-capture framing in §2d.5 | ✓ as a set-off blockquote, "**Capture the value, do not re-derive the rule**" |
+| §2 #5 header "four sites (i)–(iv)" → five | ✓ |
+| Refresh-currency fixture in §4 | ✓ with the `len(s) <= 1` early-return rationale spelled out, and an instruction to assert the PRC *movement* so the fixture cannot silently degrade into a no-op |
+| §6 close-out item | ✓ |
+
+Two additions I did not ask for and that improve the fold-in:
+
+- **A second, independent failure mode.** Beyond `prcRef`'s *value* drifting between fsv time and cap
+  time, the refresh can reorder `sortByCostEfficiencyAsc`, so `sorted[0]` may be a **different variant**
+  on iteration 2 than on iteration 1. "Capturing the value fixes both; re-deriving the rule fixes
+  neither" — correct, and it is the sharper argument of the two.
+- **A blast-radius bound I had not established.** Verified independently by the planner: `refreshAnchorSizing`
+  has exactly one non-test call site (`analyzer_helpers.go:737`); `scaleDownRoleIterated` never refreshes,
+  so site (iii) is unaffected; `greedy_score_optimizer.go:423` is the package's only `ceil(target / PRC)`;
+  and the vote helpers (`:445`, `:472`, `:502`) divide by each analyzer's own `prcForVariant`, a different
+  quantity, correctly per-analyzer. This converts "fold-in is bounded to (ii)" from assertion to
+  measurement.
+
+**Caveat carried into C6c review:** the new refresh-currency fixture inherits **Finding 20**'s level
+question — it also discriminates only through the cap, so if written at `Optimize()` level it may be
+green both ways. Flagged in Finding 20's handoff as a hypothesis; I measure it at C6c.
+
+### Finding 19 — closed; every number re-verified, one nit
+
+§6 now carries a cross-cutting token-sweep bullet with the criterion stated as **zero *PR-2-introduced*
+hits, not zero hits** — which is the correction that mattered, since 8 of the inherited hits are the
+#1513 goldens' own `Commit 2/3/4` scenario labels that PR-2 must not churn.
+
+I re-ran the plan's exact regex at both revisions. Text-file totals: **48** at `d9f3b97e`, **17** at
+`075a208e`, delta **31**. The per-file PR-2 list sums to 31 (`analyzer_helpers.go` 8 ·
+`analyzer_helpers_test.go` 7 · `rescale.go` 4 · `optimizer_liveness_test.go` 3 ·
+`optimizer_dynamic_refresh_test.go` 3 · `optimizer_combine_characterization_test.go` 2 ·
+`multi-analyzer-pipeline.md` 2 · `optimizer_interfaces.go` 1 · `rescale_test.go` 1); the inherited
+six-file list sums to 17; the class split 13 code + 16 test + 2 dev-guide = 31. **Every figure in that
+bullet is exact.**
+
+**Nit (not worth a handoff on its own):** the regex as written, run over `internal/ docs/developer-guide/`,
+also matches **8 binary PNGs** under the dev-guide (`panel-*.png`, `wva.rules*.png`,
+`debugging-with-remote-clusters.png`). A coder running it literally gets `Binary file … matches` noise on
+top of the 48. Adding `-I` suppresses it. The bullet's explicit per-file target list means nobody is
+actually going to miscount, so this is cosmetic — I'll fold it into a later handoff if I have other
+business with the planner rather than spend a round trip on it.
+
+**Correction to my own Finding 19 count.** I reported 4 commit messages carrying tokens; that was
+measured at an earlier tip, before C6a/C6b and two others landed. Re-measured at `d9f3b97e`: **all 9**
+commit messages carry at least one token in the message body, and **6 of the 9 carry one in the subject
+line** — the surface `git log --oneline` and GitHub's commit list render. So the plan's "reword ×9" is
+literally right, not an over-estimate, and the reader-visible count is 6. This makes the effort argument
+slightly *stronger* than I had it, and Dean's cost/benefit should use these numbers, not mine:
+
+| | tokens in subject | tokens anywhere in message |
+|---|---|---|
+| commits | 6 of 9 | 9 of 9 |
+
+The plan correctly routes the reword itself to Dean as a decision, records "not worth it" as a
+legitimate answer to be accepted explicitly rather than by omission, and names both deadlines (the
+force-push window closing when the PR opens; the 9-vs-13 effort point before C6c).
+
+**Verified:** the fold-in diff for both findings; the 48/17/31 arithmetic and all three sub-tallies, by
+re-running the regex at both revisions; the 9-of-9 and 6-of-9 commit-message counts; that
+`refreshAnchorSizing` has one non-test call site. **Not verified:** that the refresh-currency fixture can
+go red as specified — that is Finding 20's open question, resolved at C6c.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
