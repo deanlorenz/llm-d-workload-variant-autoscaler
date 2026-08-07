@@ -412,6 +412,121 @@ var _ = Describe("analyzer helpers", func() {
 			Expect(anchorReversed.AnalyzerName).To(Equal("latency"))
 			Expect(anchorReversed.VariantCapacities[0].PerReplicaCapacity).To(Equal(150.0))
 		})
+
+		Context("A Variant the Binder Omits", func() {
+
+			// C11's territory, pinning what the merge does today for a variant the
+			// binder leaves out.
+			//
+			// The ballot below is the only one where this arises: saturation is
+			// enabled but not live, so it does not bind and throughput does, while
+			// saturation stays the identity carrier because it is located by name
+			// rather than by vote. Under a saturation binder there is nothing to
+			// omit, which is why the [sat]-only goldens cannot cover this in either
+			// direction.
+			//
+			// The newcomer's Cost is 0 and its AcceleratorName empty because that is
+			// what saturation actually produces for a variant with no replicas and no
+			// store record -- both come from the same zero-replica lookup. Rigging
+			// either to a plausible-looking value would be testing a state
+			// production cannot reach.
+			fzBallot := func(newcomerReplicas int) []NamedAnalyzerResult {
+				return []NamedAnalyzerResult{
+					{
+						Name: domain.SaturationAnalyzerName, Enabled: true, Live: false,
+						Result: &domain.AnalyzerResult{
+							AnalyzerName: domain.SaturationAnalyzerName,
+							ModelID:      "fz", Namespace: "default",
+							VariantCapacities: []domain.VariantCapacity{
+								{VariantName: "measured", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 8000, Reason: "P1-obs"},
+								{VariantName: "newcomer", ReplicaCount: newcomerReplicas},
+							},
+						},
+					},
+					{
+						Name: "throughput", Enabled: true, Live: true,
+						Result: &domain.AnalyzerResult{
+							AnalyzerName:     "throughput",
+							RequiredCapacity: 300,
+							VariantCapacities: []domain.VariantCapacity{
+								{VariantName: "measured", PerReplicaCapacity: 100.0, Reason: "T1-ols"},
+							},
+						},
+					},
+				}
+			}
+
+			DescribeTable("abstains on capacity, whatever the replica count",
+				func(replicas int) {
+					anchor := bindingAnchor(fzBallot(replicas))
+					Expect(anchor).NotTo(BeNil())
+					Expect(anchor.AnalyzerName).To(Equal("throughput"), "throughput must bind for this to be reachable")
+
+					vc, ok := variantCapacityByName(anchor.VariantCapacities, "newcomer")
+					Expect(ok).To(BeTrue(), "the identity carrier lists it, so the merge must keep it")
+					Expect(vc.PerReplicaCapacity).To(BeZero(), "omitted by the binder means unsized, not sized at some default")
+					Expect(vc.Reason).To(BeEmpty(), "and carries no tag for a ceiling to key on")
+					Expect(vc.TotalCapacity).To(BeZero())
+
+					// The binder's own variant is untouched by any of this.
+					m, _ := variantCapacityByName(anchor.VariantCapacities, "measured")
+					Expect(m.PerReplicaCapacity).To(Equal(100.0))
+					Expect(m.Reason).To(Equal("T1-ols"))
+				},
+				// Both rows abstain today. The zero row is the one C11's deferred
+				// admission would change, and it is pinned here so that change is
+				// visible as a deliberate edit to this table rather than a silent
+				// behavioural drift. The running row must keep abstaining either way:
+				// a binder also omits variants that ARE up but had no usable metric
+				// this cycle, and inventing a size for something whose real size is
+				// merely unknown this cycle is never right.
+				Entry("never measured, holds no replicas", 0),
+				Entry("running, but unmeasured this cycle", 3),
+			)
+		})
+	})
+
+	Describe("maxTargetReplicas", func() {
+
+		tagged := domain.VariantCapacity{VariantName: "v", Reason: ReasonFromZeroAdmission}
+		plain := domain.VariantCapacity{VariantName: "v"}
+		withMax := func(n int) domain.VariantReplicaState {
+			return domain.VariantReplicaState{VariantName: "v", MaxReplicas: &n}
+		}
+
+		It("reports no ceiling for an ordinary variant with no MaxReplicas", func() {
+			_, bounded := maxTargetReplicas(plain, domain.VariantReplicaState{VariantName: "v"})
+			Expect(bounded).To(BeFalse(), "callers must keep treating this as unbounded")
+		})
+
+		It("reports MaxReplicas verbatim for an ordinary variant", func() {
+			bound, bounded := maxTargetReplicas(plain, withMax(7))
+			Expect(bounded).To(BeTrue())
+			Expect(bound).To(Equal(7))
+		})
+
+		It("ceilings an admitted variant even with no MaxReplicas configured", func() {
+			// The reason this is a helper at all. Two of the three grant sites read
+			// "no MaxReplicas" as unbounded -- one returns math.MaxInt, the other
+			// runs a loop bounded only inside the MaxReplicas branch -- so a ceiling
+			// written into that branch is absent on exactly the configurations that
+			// leave MaxReplicas unset. The variant would be admitted and then
+			// allowed to draw without limit, silently: nothing errors, no gate
+			// objects, no golden moves.
+			bound, bounded := maxTargetReplicas(tagged, domain.VariantReplicaState{VariantName: "v"})
+			Expect(bounded).To(BeTrue())
+			Expect(bound).To(Equal(1))
+		})
+
+		It("takes the tighter of the two bounds", func() {
+			bound, bounded := maxTargetReplicas(tagged, withMax(9))
+			Expect(bounded).To(BeTrue())
+			Expect(bound).To(Equal(1), "admission never widens a configured bound")
+
+			// A configured bound already at the ceiling is not loosened either.
+			bound, _ = maxTargetReplicas(tagged, withMax(1))
+			Expect(bound).To(Equal(1))
+		})
 	})
 
 	Describe("ResultIsInformative", func() {

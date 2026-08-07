@@ -705,11 +705,18 @@ func fairShareRolePick(target float64, s []NamedAnalyzerResult, roles []string) 
 				// states for one role, applied jointly. First draw only: it
 				// grants past the balance, and only before the first commit is
 				// an empty pick fatal to the whole model rather than a defer.
+				//
+				// This raises capN, so every bound must be applied after it, not
+				// before. The two clamps below rely on that ordering.
 				capN = 1
 			}
 			capN = min(capN, gpusAvail/gpusPR)
-			if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
-				headroom := *state.MaxReplicas - targets[vc.VariantName]
+			// Skip on an exhausted ceiling rather than falling through with
+			// capN == 0: the capN > 0 guard below would return an empty pick and
+			// abandon the role, when the variants behind this one are still
+			// perfectly allocatable.
+			if maxTarget, bounded := maxTargetReplicas(vc, state); bounded {
+				headroom := maxTarget - targets[vc.VariantName]
 				if headroom <= 0 {
 					continue
 				}

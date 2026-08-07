@@ -995,6 +995,73 @@ var _ = Describe("CostAwareOptimizer", func() {
 			Expect(m2["A100"]).To(Equal(5), "finite cap wins even when the sentinel is seen first")
 		})
 	})
+
+	Context("The From-Zero Admission Ceiling", func() {
+
+		// C11 (D-b): the ceiling a from-zero-admitted variant is held to. The
+		// admitting write site is deferred (see ReasonFromZeroAdmission), so the tag
+		// is set directly here rather than obtained from bindingAnchor -- these
+		// assert the ceiling mechanism, which is what landed.
+		//
+		// costGreedyRolePick is where it is observable. fairShareRolePick also
+		// grants, but gates on available[vc.AcceleratorName] first, and a
+		// never-measured variant's AcceleratorName is empty for the same reason its
+		// Cost is zero -- both come from saturation's zero-replica lookup -- so it is
+		// skipped there regardless. Separate pre-existing gap, not C11's to close.
+		admittedVariants := []domain.VariantCapacity{
+			{VariantName: "measured", AcceleratorName: "A100", Cost: 5.0, ReplicaCount: 2, PerReplicaCapacity: 8000, Reason: "P1-obs"},
+			{VariantName: "newcomer", PerReplicaCapacity: 1, Reason: ReasonFromZeroAdmission},
+		}
+		// No MaxReplicas on either: the configuration the ceiling has to survive.
+		// Folded into the existing headroom branch it would not exist here, because
+		// that branch is behind a nil-guard and costGreedyRolePick returns
+		// math.MaxInt outside it.
+		admittedStates := buildStateMap([]domain.VariantReplicaState{
+			{VariantName: "measured", CurrentReplicas: 2, GPUsPerReplica: 1},
+			{VariantName: "newcomer", CurrentReplicas: 0, GPUsPerReplica: 1},
+		})
+
+		It("caps the admitted variant at one replica with no MaxReplicas set", func() {
+			// It is picked first, which is worth stating plainly because the plan
+			// predicted last: PRC = 1 makes cost efficiency degenerate to Cost, and a
+			// never-measured variant's Cost arrives as 0, so the ratio is 0/1 = 0 and
+			// it sorts ahead of every priced variant. No sentinel value repairs that --
+			// any positive PRC divides a zero numerator -- and the ordering recovers on
+			// its own once the zero-replica cost lookup is fixed, which is out of
+			// scope here. Until then the ceiling is not one guard among several, it is
+			// the only one.
+			targets := map[string]int{"measured": 2, "newcomer": 0}
+
+			v, capN := costGreedyRolePick(domain.RoleBoth, nil, admittedVariants, admittedStates, nil, targets)
+			Expect(v).To(Equal("newcomer"), "cost 0 over a positive PRC sorts ahead of any priced variant")
+			Expect(capN).To(Equal(1), "and the ceiling is the only thing bounding what it may take")
+		})
+
+		It("skips the variant once the ceiling is met, rather than capping it at zero", func() {
+			// The bound is on the target, not on one iteration, so an allocator coming
+			// round again buys nothing more. It must skip and move on: a picker that
+			// *returns* cap 0 makes the caller compute deltaUtil == 0 and break out of
+			// the whole model's allocation, taking every variant behind it down too.
+			// Hence the assertion is about the OTHER variant.
+			targets := map[string]int{"measured": 2, "newcomer": 1}
+
+			v, capN := costGreedyRolePick(domain.RoleBoth, nil, admittedVariants, admittedStates, nil, targets)
+			Expect(v).To(Equal("measured"), "an exhausted ceiling skips the variant, it does not zero-cap it")
+			Expect(capN).To(BeNumerically(">", 0))
+		})
+
+		It("leaves an untagged variant's headroom exactly as it was", func() {
+			// The ceiling reads through a shared helper that every grant site now uses,
+			// so this pins the other branch of it: without the tag, behaviour is the
+			// MaxReplicas check verbatim, MaxInt and all.
+			plain := []domain.VariantCapacity{{VariantName: "measured", Cost: 5.0, PerReplicaCapacity: 8000}}
+			targets := map[string]int{"measured": 2}
+
+			v, capN := costGreedyRolePick(domain.RoleBoth, nil, plain, admittedStates, nil, targets)
+			Expect(v).To(Equal("measured"))
+			Expect(capN).To(Equal(math.MaxInt), "no MaxReplicas and no tag means unbounded, as before")
+		})
+	})
 })
 
 func decisionMap(decisions []domain.VariantDecision) map[string]domain.VariantDecision {

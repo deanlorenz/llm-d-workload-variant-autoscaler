@@ -62,6 +62,63 @@ func ResultIsInformative(nr NamedAnalyzerResult) bool {
 	return false
 }
 
+// ReasonFromZeroAdmission marks a variant the anchor admitted on the from-zero
+// sentinel: the binding analyzer does not size it and it holds no replicas, so
+// nobody has ever measured it. Its PerReplicaCapacity is a declared minimum in
+// the binder's own currency, not a measurement, and the one-replica ceiling in
+// maxTargetReplicas keys on this tag.
+//
+// Deliberately NOT a member of the no-data/error family above. Those mean "no
+// usable signal"; this one means the opposite — the anchor is asserting that the
+// variant may be tried. Adding it to ResultIsInformative's set would be a
+// category error, and ResultIsInformative never sees it in any case: it runs on
+// ballot entries, and this tag is written only on the anchor the ballot builds.
+//
+// DEFERRED: nothing writes this tag yet. The ceiling below and its three grant
+// sites are complete, but the admitting write site in bindingAnchor is held: an
+// anchor-only sentinel makes a variant *selectable* without making it *sizable*.
+// Selection reads the anchor; the replica count comes from the ballot, via
+// votesFromPickerState -> combineVotes -> roleBottleneckReplicas, which abstains
+// for a variant no voting entry prices and so yields 0. allocateForModelPaired
+// then computes deltaUtil == 0 and breaks, costing the model every variant behind
+// this one -- a regression, not a missed feature. Compare the previously-live
+// variant in optimizer_scale_from_zero_test.go, which works precisely because the
+// throughput analyzer emits its PRC into the *ballot* rather than the anchor.
+// Whether the sentinel may enter the voting set is an N8 question, so it is the
+// Type-1 owner's, not this file's.
+const ReasonFromZeroAdmission = "from-zero-admission"
+
+// admissionCeilingReplicas is how many replicas a variant admitted on the
+// from-zero sentinel may hold. One bite, then measure: the sentinel does not
+// price the variant's capacity, so the spend is what has to be bounded instead.
+// Once a real measurement arrives the tag goes with it and the ceiling lifts.
+const admissionCeilingReplicas = 1
+
+// maxTargetReplicas reports the ceiling on vc's target, in replicas, and whether
+// any ceiling applies. It merges the two sources: the variant's configured
+// MaxReplicas, and the from-zero admission ceiling.
+//
+// The second is why this is a function rather than the MaxReplicas check written
+// out at each grant site. Two of the three sites treat "no MaxReplicas" as
+// unbounded -- costGreedyRolePick returns math.MaxInt, fillRole's loop is bounded
+// only inside the MaxReplicas condition -- so a ceiling folded into the existing
+// headroom branch is skipped entirely on exactly the configurations that do not
+// set MaxReplicas, which is most of them. That failure is silent: the variant is
+// admitted, no gate objects, and it absorbs whatever the allocator had to spend.
+//
+// For a variant without the tag the result is the MaxReplicas check verbatim, so
+// callers keep their existing behaviour byte for byte.
+func maxTargetReplicas(vc domain.VariantCapacity, state domain.VariantReplicaState) (int, bool) {
+	bound, bounded := 0, false
+	if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
+		bound, bounded = *state.MaxReplicas, true
+	}
+	if vc.Reason == ReasonFromZeroAdmission && (!bounded || admissionCeilingReplicas < bound) {
+		bound, bounded = admissionCeilingReplicas, true
+	}
+	return bound, bounded
+}
+
 // applyAllocation subtracts the capacity provided by n replicas of variant v
 // from each analyzer's Remaining counter. Clamps to 0. The slice is the working
 // allocation state; Result.RequiredCapacity is never mutated.
@@ -117,11 +174,16 @@ func applyAllocation(s []NamedAnalyzerResult, v string, n int) {
 // binder.
 //
 // Per-variant completeness: where the binding analyzer omits a variant the
-// identity carrier lists, the variant keeps its identity but abstains —
-// PerReplicaCapacity stays 0 and it is not proactively selectable; genuine
-// cold-starts fall to the reactive scale-from-zero engine. There is no
-// fallback to saturation's own sizing for an omitted variant, even when
-// saturation votes (N8): a binder omits a variant only when the binder itself
+// identity carrier lists, the variant keeps its identity and abstains on capacity
+// — PerReplicaCapacity stays 0 and it is not proactively selectable, because its
+// sizing must not be invented. That holds whether or not the variant is running.
+// Proactively admitting the zero-replica case, which is the one nobody has ever
+// measured, is deferred; see ReasonFromZeroAdmission for why an anchor-side
+// sentinel alone does not achieve it.
+//
+// This does not fall back to saturation's own sizing for an omitted variant,
+// even when saturation votes (N8). A binder omits a variant
+// only when the binder itself
 // is enabled-but-not-binding — Enabled && !(Live && Informative) — which is
 // precisely the condition under which its own sizing is untrustworthy (stale
 // or no-data). Borrowing it would also mix metric scales across variants
@@ -212,10 +274,13 @@ func bindingAnchor(s []NamedAnalyzerResult) *domain.AnalyzerResult {
 			out.TotalDemand = b.TotalDemand
 			out.Utilization = b.Utilization
 		}
-		// else: the binder omits this variant — PerReplicaCapacity stays 0
-		// (abstain), uniformly regardless of whether saturation votes (N8; see
-		// the doc comment above). Not proactively selectable; genuine
-		// cold-starts fall to the reactive scale-from-zero engine.
+		// else: the binder omits this variant, so it abstains -- PerReplicaCapacity
+		// stays 0 -- uniformly, regardless of whether saturation votes (N8). Its
+		// sizing must not be fabricated. Previously-live variants now at zero are
+		// covered by TA's own scale-from-zero complement from persisted supply, so
+		// what reaches this branch at zero replicas is a variant nobody has ever
+		// measured; admitting that one is the deferred work described at
+		// ReasonFromZeroAdmission.
 
 		// TotalCapacity is recomputed (not copied) so the invariant
 		// TotalCapacity == ReplicaCount × PerReplicaCapacity holds by construction.

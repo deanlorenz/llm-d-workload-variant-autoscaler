@@ -451,8 +451,15 @@ func fillRole(
 			continue
 		}
 		st := stateMap[vc.VariantName]
+		// The ceiling is on the target, not on this loop: an allocator that comes
+		// round again finds targets[v] already at the bound and buys nothing more.
+		// Hoisted because it does not depend on the loop, and read through the
+		// helper because this loop is otherwise unbounded whenever MaxReplicas is
+		// unset -- which is where a from-zero variant would absorb the whole
+		// role's GPUs one unit of capacity at a time.
+		maxTarget, bounded := maxTargetReplicas(vc, st)
 		for wantGPUs-spent >= g {
-			if st.MaxReplicas != nil && *st.MaxReplicas > 0 && targets[vc.VariantName] >= *st.MaxReplicas {
+			if bounded && targets[vc.VariantName] >= maxTarget {
 				break
 			}
 			targets[vc.VariantName]++

@@ -101,8 +101,12 @@ func costGreedyRolePick(
 			continue
 		}
 		state := stateMap[vc.VariantName]
-		if state.MaxReplicas != nil && *state.MaxReplicas > 0 {
-			headroom := *state.MaxReplicas - targets[vc.VariantName]
+		// Skip on an exhausted ceiling, never return a cap of 0: a returned 0
+		// makes the caller compute deltaUtil == 0 and break out of the whole
+		// model's allocation loop, so a bounded-out variant would take every
+		// variant behind it down with it.
+		if maxTarget, bounded := maxTargetReplicas(vc, state); bounded {
+			headroom := maxTarget - targets[vc.VariantName]
 			if headroom <= 0 {
 				continue
 			}
