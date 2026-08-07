@@ -2800,4 +2800,47 @@ points (C11 is unwritten), and whether `roleBottleneckReplicas`' internals bound
 way — I read its call site and its `min`, not its body, so item 2 stays an assertion to check rather than
 a defect I am claiming.
 
+---
+
+## C6c dev-guide sub-checklist — resolving the plan's "(both copies)"
+
+Plan §5 assigns C6c three dev-guide homes: `multi-analyzer-pipeline.md` `### Fair-share iteration` and
+`### Scale-down path`, plus `quota-limiter.md` `### Fair-share interaction` **"(both copies)"**. That
+parenthetical is ambiguous and I resolved it before it could become a finding in either direction.
+
+**There is exactly one tracked `quota-limiter.md`** (`docs/developer-guide/quota-limiter.md`;
+`git ls-files | grep quota-limiter` returns one path at `d9f3b97e`). So "both copies" is **not** two
+files. It is the same fair-share-metric statement written twice *inside* that one file:
+
+- `:284` — the `### Fair-share interaction` bullet: *"the average of the active models' remaining
+  fair-share metric (priority × score × unmet demand — see the worked-example caveat below)"*
+- `:327-328` — the worked example's own caveat: *"The exact per-round means come from the fair-share
+  metric — priority × score × demand — so treat the numbers here as an illustration of the …"*
+
+Both spell out the fsv terms, and **"unmet demand" / "demand" is exactly the quantity the pivot
+re-denominates.** So the doc obligation is real, not cosmetic:
+
+1. **Both statements updated, or neither.** Updating `:284` and leaving `:327` is the classic
+   duplicate-prose miss, and `:284` explicitly forward-references `:327`, so a half-edit leaves the file
+   self-contradicting.
+2. **Do not expect a `ceil → floor` doc edit here.** `grep -rn 'fairShareCap\|math.Ceil\|Ceil(' docs/`
+   returns **nothing** at `d9f3b97e` — the dev guide never stated the cap arithmetic, so C6c's
+   one-replica behavior change has no existing prose to correct in `quota-limiter.md`. If the coder adds
+   it, that is fine but not required; if the coder *doesn't*, that is **not** a finding. (`### Fair-share
+   iteration` in `multi-analyzer-pipeline.md` is the plan's home for the arithmetic itself.)
+3. **Whether the fsv terms need a named unit at all is a judgement call, not a defect.** Unit-table row 5
+   makes `priority × claim` a dimensionless **rank** that is never spent, so "priority × score × unmet
+   demand" may remain correct as written even after the pivot. I will accept either an unchanged
+   statement *with* a rationale in the commit message, or a statement that names the unit — but not
+   silence on a term the pivot touches.
+4. **`### Scale-down path` is C6c *and* C6d.** Both rows in the §5 map name it. If C6c edits it, C6d must
+   still be able to; watch for C6c pre-empting C6d's content, which would make C6d's diff look empty and
+   break the per-commit attribution that motivated the C6c-first ordering.
+
+**Working-set observation, not a review:** as I write, the coder's tree carries
+`cost_aware_optimizer.go` alongside `greedy_score_optimizer.go` and both dev-guide files — consistent
+with a multi-site bug-#5 commit and with the §5 map. I am recording it only so that a C6c diff *without*
+a `cost_aware_optimizer.go` hunk prompts me to ask which site was dropped, rather than passing unnoticed.
+Uncommitted work is not reviewed.
+
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
