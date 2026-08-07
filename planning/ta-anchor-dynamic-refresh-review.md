@@ -2363,3 +2363,63 @@ re-running the regex at both revisions; the 9-of-9 and 6-of-9 commit-message cou
 go red as specified — that is Finding 20's open question, resolved at C6c.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
+
+---
+
+## Finding 20 — **CLOSED** (`70c985b9`), with a caveat the planner caught that I had missed
+
+Plan commit `70c985b9` (+70/−21) folds it. Both requested edits landed, plus a mechanism trace and a
+new §6 criterion.
+
+| Requested | Status |
+|---|---|
+| State the fall-through fixture's level | ✓ "**This one is a unit test, not an `Optimize()` scenario**" — call the returned closure directly, assert `capN`, with the measured numbers and the reason inline |
+| Same for the refresh-currency fixture | ✓ "**Write this one at unit level too**", with its level explicitly recorded as unproven in *both* directions |
+| Correct §2d.5's outcome claim | ✓ "**the three rows are cap values, not allocation outcomes**", carrying "this paragraph previously closed 'a silent 5× under-allocation'" so the correction is auditable |
+| §1.1 commit-map row | ✓ both cap fixtures now marked "**both unit-level** … an `Optimize()` fixture is green both ways, measured" |
+| New §6 check | ✓ `grep -n "fairShareRolePick(" internal/engines/pipeline/*_test.go` — both cap fixtures must appear, i.e. call the closure directly. "A test that cannot go red is worse than no test — it reads as coverage." |
+
+### The planner supplied the mechanism I had only measured
+
+I established the *equivalence* empirically; the plan now explains *why*, and I verified every claim
+line-exact at `d9f3b97e`:
+
+| Claim | Site | Verified |
+|---|---|---|
+| Cap enters only via `n = min(bottleneckReplicas, capN)` | `analyzer_helpers.go:760` | ✓ |
+| `k = max(floor(deltaUtil·demand/prc), min(1, n))` — a `min(1, n)` **forward-progress floor** | `:788` | ✓ |
+| Demand drain is `pickerState[i][role] -= k·prcI` — driven by `k`, not the cap | `:816` | ✓ |
+| Pool drain is `available[…] -= k · gpusPerReplica` — likewise `k` | `:819` | ✓ |
+
+So the cap cannot gate termination: `pick` only ever returns `capN > 0`
+(`greedy_score_optimizer.go:439`), which makes `n ≥ 1`, which makes `min(1, n) = 1`, which floors `k` at
+1 — guaranteed forward progress regardless of how badly the cap is understated. That is a better
+account than "the loop re-picks", and it is the load-bearing invariant the compensation rests on.
+
+### The caveat I missed, and the planner caught
+
+**Both of my probes ran with the refresh inert.** `withSatEntry` builds a *single* ballot entry, so
+`len(s) == 1` and `refreshAnchorSizing` hit its early-return (`analyzer_helpers.go:552-554`) — it
+executed **zero** times in the single-role *and* P/D runs. I listed the post-C6c currency question and
+GPU scarcity as caveats but not this one, and it is the more consequential omission: with ≥2 voting
+analyzers the refresh runs **once per iteration** (`:737`), so an understated cap turning 1 iteration
+into 25 means 25 opportunities for `sorted[0]`'s identity to move under it. My equivalence result
+simply does not transfer to the multi-analyzer case, in either direction.
+
+Consequence for my own C6c review: I cannot treat "the loop compensates" as established for the
+refresh-currency fixture. Its level is genuinely open and I measure it rather than infer it.
+
+### Site (ii) stays in scope — correctly, and not on my finding's strength
+
+The plan keeps it for three reasons that don't depend on the outcome claim: the cap is a stated
+contract and 5-where-25-is-right is wrong on its face; the compensation is architectural happenstance
+resting on an undocumented `min(1, n)` floor; and the measured equivalence was obtained with the
+refresh inert. That is the right disposition. My finding narrowed the *fixture level* and corrected a
+*motivation*; it never argued against the fix, and the plan does not read it as having done so.
+
+**Verified:** the fold-in diff; all four mechanism claims by line at `d9f3b97e`; the `len(s) <= 1`
+early-return and that both my probes were single-entry; the new §6 grep as written. **Not verified:**
+whether the refresh-currency fixture can go red at either level — open, measured at C6c; and the
+post-C6c site-(iv) currency question, likewise open.
+
+[Back to plan](ta-anchor-dynamic-refresh-plan.md)
