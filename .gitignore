@@ -39,6 +39,9 @@ hack/benchmark/.env
 biran-*/
 llmd/
 llmd-infra/
+# Staged image record, moved into the run directory once the run completes.
+# Only lingers if a run is interrupted between those two points.
+.images-pending.yaml
 
 *.tgz
 actionlint

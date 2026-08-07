@@ -83,6 +83,12 @@ BENCHMARK_MONITORING ?= true
 # OFF in llmdbenchmark by default, so leaving this false means every
 # output-token-derived metric in the reports stays inflated.
 BENCHMARK_ANALYZE    ?= true
+# Record the images the run ACTUALLY used into its own artifacts. Image pins are
+# MINIMUM versions, not exact ones, so drift is flagged and never blocks a run --
+# what matters is that the run says what it ran on. Before this existed, only the
+# rendered (desired) images were saved, and the WVA controller image -- the whole
+# subject of the benchmark -- was recorded nowhere at all.
+BENCHMARK_RECORD_IMAGES ?= true
 BENCHMARK_UV         ?= false
 BENCHMARK_SCENARIOS_DIR ?= $(CURDIR)/test/benchmark/scenarios
 # Workload profiles owned by THIS repo, partitioned by harness. The llm-d-benchmark
@@ -540,6 +546,8 @@ benchmark-standup: ## Stand up the benchmark environment (set BENCHMARK_NAMESPAC
 		-e 's|__WVA_IMAGE_TAG__|$(WVA_IMAGE_TAG)|g' \
 		-e 's|__VLLM_IMAGE_REPO__|$(VLLM_IMAGE_REPO)|g' \
 		-e 's|__VLLM_IMAGE_TAG__|$(VLLM_IMAGE_TAG)|g' \
+		-e 's|__HARNESS_IMAGE_REPO__|$(HARNESS_IMAGE_REPO)|g' \
+		-e 's|__HARNESS_IMAGE_TAG__|$(HARNESS_IMAGE_TAG)|g' \
 		-e 's|__WVA_CHART_VERSION__|$(WVA_CHART_VERSION)|g' \
 		-e 's|__PROMETHEUS_ADAPTER_CHART_VERSION__|$(PROMETHEUS_ADAPTER_CHART_VERSION)|g' \
 		-e 's|__BENCHMARK_MODEL_ID__|$(BENCHMARK_MODEL_ID)|g' \
@@ -635,6 +643,8 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 			-e 's|__WVA_IMAGE_TAG__|$(WVA_IMAGE_TAG)|g' \
 			-e 's|__VLLM_IMAGE_REPO__|$(VLLM_IMAGE_REPO)|g' \
 			-e 's|__VLLM_IMAGE_TAG__|$(VLLM_IMAGE_TAG)|g' \
+			-e 's|__HARNESS_IMAGE_REPO__|$(HARNESS_IMAGE_REPO)|g' \
+			-e 's|__HARNESS_IMAGE_TAG__|$(HARNESS_IMAGE_TAG)|g' \
 			-e 's|__WVA_CHART_VERSION__|$(WVA_CHART_VERSION)|g' \
 			-e 's|__PROMETHEUS_ADAPTER_CHART_VERSION__|$(PROMETHEUS_ADAPTER_CHART_VERSION)|g' \
 			-e 's|__BENCHMARK_MODEL_ID__|$(BENCHMARK_MODEL_ID)|g' \
@@ -680,6 +690,19 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 			rm -f "$(BENCHMARK_REPO_DIR)/workload/profiles/$(BENCHMARK_HARNESS)/$(BENCHMARK_WORKLOAD).yaml.bak"; \
 		fi; \
 	fi
+	@# Observe the stack BEFORE load is applied -- that is the honest answer to
+	@# "what did this run run on", and it does not depend on pods surviving the
+	@# run (the harness pod is deleted, decode scales back down). Staged to a temp
+	@# file because llmdbenchmark has not created the run directory yet; filed into
+	@# it once the run completes. Reports drift, never blocks: pins are minimums.
+	@if [ "$(BENCHMARK_RECORD_IMAGES)" = "true" ]; then \
+		python3 $(CURDIR)/hack/benchmark/record_images.py \
+			-n $(BENCHMARK_NAMESPACE) \
+			--wva-image "$(WVA_IMAGE_REPO):$(WVA_IMAGE_TAG)" \
+			--vllm-image "$(VLLM_IMAGE_REPO):$(VLLM_IMAGE_TAG)" \
+			--harness-image "$(HARNESS_IMAGE_REPO):$(HARNESS_IMAGE_TAG)" \
+			--out "$(BENCHMARK_WORKSPACE)/.images-pending.yaml"; \
+	fi
 	$(LLMDBENCHMARK) $(BENCHMARK_CLI_FLAGS) run \
 		-p $(BENCHMARK_NAMESPACE) \
 		-l $(BENCHMARK_HARNESS) \
@@ -688,6 +711,25 @@ benchmark-run: ## Run a single benchmark workload (set BENCHMARK_NAMESPACE=<name
 		$(if $(filter true,$(BENCHMARK_MONITORING)),--monitoring,) \
 		$(if $(filter true,$(BENCHMARK_ANALYZE)),--analyze,) \
 		--wait-timeout $(BENCHMARK_WAIT_TIMEOUT)
+	@# File the pre-run image record into the run llmdbenchmark just created. Never
+	@# fatal: the run itself succeeded, and losing the report step over bookkeeping
+	@# would be the worse outcome.
+	@if [ -f "$(BENCHMARK_WORKSPACE)/.images-pending.yaml" ]; then \
+		RUN_DIR=$$(ls -td $(BENCHMARK_WORKSPACE)/$${USER}-*/ 2>/dev/null | head -1); \
+		if [ -z "$$RUN_DIR" ]; then \
+			echo "WARNING: could not locate the run directory; image record left at"; \
+			echo "         $(BENCHMARK_WORKSPACE)/.images-pending.yaml"; \
+		elif [ -f "$$RUN_DIR/environment/images.yaml" ]; then \
+			echo "WARNING: $$RUN_DIR already has an image record — this run created no"; \
+			echo "         directory of its own (a dry run?). Refusing to overwrite an"; \
+			echo "         earlier run's record; left at .images-pending.yaml."; \
+		else \
+			mkdir -p "$$RUN_DIR/environment" && \
+			mv "$(BENCHMARK_WORKSPACE)/.images-pending.yaml" \
+			   "$$RUN_DIR/environment/images.yaml" && \
+			echo "Recorded actual images: $$RUN_DIR/environment/images.yaml"; \
+		fi; \
+	fi
 	@echo ""
 	@echo "========================================="
 	@echo "  Generating benchmark report..."
@@ -713,6 +755,17 @@ benchmark-report: ## Generate a markdown table from the latest benchmark results
 	else \
 		python3 $(CURDIR)/hack/benchmark/postprocess.py $$LATEST_DIR; \
 	fi
+
+.PHONY: benchmark-record-images
+benchmark-record-images: ## Show the images the stack is actually running vs the .env pins (read-only)
+	@# Standalone check: run this before a benchmark to see what the stack is on.
+	@# Pins are MINIMUM versions, so a newer image is reported as fine. Always
+	@# exits 0 -- it flags drift, it does not gate.
+	@python3 $(CURDIR)/hack/benchmark/record_images.py \
+		-n $(BENCHMARK_NAMESPACE) \
+		--wva-image "$(WVA_IMAGE_REPO):$(WVA_IMAGE_TAG)" \
+		--vllm-image "$(VLLM_IMAGE_REPO):$(VLLM_IMAGE_TAG)" \
+		--harness-image "$(HARNESS_IMAGE_REPO):$(HARNESS_IMAGE_TAG)"
 
 .PHONY: benchmark-analyze
 benchmark-analyze: ## Apply the inference-perf output-token correction to the latest results (idempotent)

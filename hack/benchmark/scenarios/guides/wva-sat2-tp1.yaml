@@ -91,6 +91,15 @@ shared:
     vllmOpenai:
       repository: __VLLM_IMAGE_REPO__
       tag: __VLLM_IMAGE_TAG__
+    # Harness image, used by the download job, the harness pod and the
+    # data-access pod. Unset, llm-d-benchmark's defaults.yaml decides the in-pod
+    # inference-perf version silently -- and our host-side output-token
+    # correction is written against a specific version's behaviour. The
+    # unsubstituted-placeholder guard in the Makefile turns a missing .env pin
+    # into a hard failure rather than a silent default.
+    benchmark:
+      repository: __HARNESS_IMAGE_REPO__
+      tag: __HARNESS_IMAGE_TAG__
 
   # --------------------------------------------------------------------------
   # EPP PLUGIN CONFIG — flowControl gate required for KEDA trigger
