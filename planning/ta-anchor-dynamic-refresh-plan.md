@@ -45,26 +45,26 @@ rewrites C1–C5, and is coordinated then.
 - [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L69:133
 - [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L134:196
   - [§1.1 Commit map (C1–C10)](#11-commit-map-c1c10) L171:196
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:292
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L293:365
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L366:395
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L396:672
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L403:422
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L423:470
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L471:533
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L534:568
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L569:626
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L627:653
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L654:672
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L673:815
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L682:717
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L718:754
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L755:815
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L816:850
-- [§4 Ship gate & tests](#4-ship-gate--tests) L851:922
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L923:1005
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1006:1073
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1074:1124
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L197:293
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L294:366
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L367:396
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L397:705
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L404:423
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L424:471
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L472:534
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L535:601
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L602:659
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L660:686
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L687:705
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L706:848
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L715:750
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L751:787
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L788:848
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L849:883
+- [§4 Ship gate & tests](#4-ship-gate--tests) L884:994
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L995:1080
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1081:1155
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L1156:1206
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -183,10 +183,10 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 | **C6a** | **`combineVotes` helper + collectors** — one combine core; **merge** `roleBottleneckReplicas` + `bindingIndexForRole` (delete the duplicate loop); retrofit `roleAggRemaining` / `roleDemandGPUs` / `safeRemovalReplicasForRole` onto it. Uniform scores ⇒ **byte-identical**. | helper unit table (uniform / dominant / bounded / single / empty); 3-analyzer non-participant fixture (finding (a)) | pipeline "How results combine" | §2d.3 |
 | **C6b** | **Score dominance weighting on** — the `(sᵢ − s_bind)⁺` term; rounding **once** at the call site (`ceil` up, `floor` down). | 10-vs-5 @ scores 1/2 ⇒ 9 up, 6 down | pipeline "How results combine"; sat-config score semantics | §2d.2 |
 | **C6c** | **Bug #5** fair-share — **5** lock-step sites (i) `fairShareValue` (+ signature: it must receive the picker's variant slice) / (ii) `fairShareCap` (`prcRef` rescale, not bare `ceil(target)`) / (iii) `sortVariantsForScaleDown` / (iv) `allocateForModel`'s picker-state clamp / (v) `fairShareValue`'s raw-unit fallback; **Score out** of fsv and the scale-down tie-break; finding **(b)** participation filter. | fsv ordering + `mean` fixtures; multi-role cap fixture; **fall-through cap** fixture (two variants, one role, cheaper one infeasible); fallback-currency fixture; **T1.4 rewrite**; goldens re-run | pipeline "Fair-share iteration", "Scale-down path"; **quota-limiter "Fair-share interaction"** (3rd copy of the fsv formula) | §2 #5, §2d.5, §2d.6 |
-| **C6d** | Finding **(c)** — a **live** analyzer reporting `RoleSpare[role] <= 0` vetoes removal for that role's variants even with no per-variant PRC (distinct from C7's N7 *abstain*). | live-objector-without-PRC fixture (red: replicas removed; green: held) | pipeline "Scale-down path" | §2d.4 (c) |
+| **C6d** | Finding **(c)** — **per-variant** veto re-check in `safeRemovalReplicasForRole`: a **live** analyzer with `RoleSpare[role] <= 0` (key *present*) blocks removal, PRC-blind **and** score-blind. The entry gate already covers role *entry*; the reachable defect is **mid-loop**, after `applyDeallocationForRole` drives a spare to 0. **Not** a synthetic 0-vote — post-C6b a vote cannot encode a veto. (Distinct from C7's N7 *abstain*.) | **end-to-end** via `scaleDownRoleIterated`: one role, **two** variants, live objector sizing only the first-shed one (red: 2nd variant's replicas removed; green: held) + outscored-objector variant + N7 control | pipeline "Scale-down path" | §2d.4 (c) |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
-| **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; a correctness/configurability fix — the numeric shift is sub-1% at default config, *not* the ~6% an early draft claimed (§2e.3). | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85), **tight tolerance** | throughput-analyzer (5 named locations) | §2e |
+| **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; a correctness/configurability fix — the numeric shift is sub-1% at default config, *not* the ~6% an early draft claimed (§2e.3). | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85), expected **2618.9**, **tolerance ≤1% relative** — the file's `muSat*0.10` idiom is *above* the 6.17% bound and stays green at 0.85 (§4) | throughput-analyzer (5 named locations) | §2e |
 | **C9** | **Dev-guide multi-vote sections + goldens endgame** — multi-vote reference prose; **relax/remove** the #1513 sat-only goldens as an explicit commit once the multi-vote goldens cover the single-vote sub-case. | multi-vote goldens; hand-worked design examples | all touched dev-guides finalized | §4 |
 
 [↑ TOC](#toc)
@@ -259,7 +259,8 @@ regression test that is **red pre-fix** under a two-vote fixture. Source: design
     candidates within a role, never sizes), but the same wrong-operator/mixed-unit pattern; sweep here
     — drop the Score factor and tie-break on the **binding** analyzer's PRC (`combineVotes` binder,
     `up=false`), then name ascending. (Note: this site is **also** touched by C7's landed N7 role-coverage
-    decision and by finding (c) in C6d — coordinate all three edits.)
+    decision — coordinate both edits. C6d lands in the same scale-down path but in a *different* function,
+    `safeRemovalReplicasForRole`; it does not touch this tie-break.)
   - **(iv) `allocateForModel`'s picker-state clamp (`greedy_score_optimizer.go`, the
     `if ps[i][role] > target { ps[i][role] = target }` loop, ~`:285-291`) — NEW.** It clamps
     **raw-capacity** `ps` against `target`. The moment `target` becomes replica-space the clamp truncates
@@ -554,14 +555,46 @@ Walking this (2026-08-06) produced three findings. Dean approved acting on **(b)
   `w.remaining = -1`. Not a spin, but the model is **under-served**, and every other model's `mean` was
   distorted for the iterations it was in the running. **Fix:** fsv counts only demand that has a PRC to
   convert it — the same participation filter as the combine. (T1.4's fixture is exactly this shape — §2d.6.)
-- **(c) A live analyzer can be over-ridden on scale-down — FIX (role-level objector blocks removal), Dean-approved.**
-  `safeRemovalReplicasForRole` skips entries with `prc <= 0`, so a **live** analyzer reporting
-  `RoleSpare[role] = 0` — an explicit *"there is no spare here"* — but carrying no per-variant PRC is
-  dropped from the `min`; the other analyzers' spare wins and replicas come off **over its objection**.
-  This is **distinct from N7** (landed in C7), which reads a *missing* `RoleSpare[role]` as an **abstain**:
-  (c) is a *present, zero* role-level opinion. **Fix:** a live analyzer with `RoleSpare[role] <= 0` blocks
-  removal for every variant of that role, whether or not it sizes the variant — a role-level objection
-  needs no per-variant PRC to be meaningful. N7's abstain stays for the genuinely-absent case:
+- **(c) A live analyzer can be over-ridden on scale-down — FIX, and the trigger is *mid-loop*, not at role
+  entry (re-derived 2026-08-07 on a reviewer finding; the original wording described an unreachable state).**
+
+  **What is already enforced.** `needsScaleDownForRole` (`analyzer_helpers.go:683-702`) *already* implements
+  the PRC-blind role-level veto, at role granularity: it skips non-live entries, abstains on
+  `Result == nil || RoleSpare == nil` and on a missing key, and returns **false** for a live entry whose
+  `RoleSpare[role] <= 0` — **without ever consulting PRC**. `scaleDownRoleIterated:439` turns that into
+  `continue`, skipping the role in full. So a fixture that merely *constructs* `RoleSpare[role] = 0` and
+  runs the pipeline is held **by the gate**, not by anything C6d adds, and a unit test calling
+  `safeRemovalReplicasForRole` directly with that state exercises a state the pipeline cannot deliver at
+  role entry. **A green test of that shape would pass for the wrong reason** — this is the trap to avoid.
+
+  **What is reachable.** `scaleDownVariantSet` (`cost_aware_optimizer.go:124-155`) walks **all** of the
+  role's variants, calling `maxRemovable(vc)` per variant and `applyDeallocationForRole` after each
+  removal — which **decrements** every analyzer's `RoleSpare[role]` by `n × PRC_i[v]`, clamping at 0
+  (`:658-661`). The gate runs **once per role, before the loop**, and is never re-checked. So a role spare
+  that was positive at entry can reach 0 *during* the loop, and from that moment the objection is silently
+  discardable in **two** ways:
+
+  1. **PRC absence.** Role R, variants v1/v2; live analyzer X has `RoleSpare[R] = S > 0` (gate passes) and
+     PRC for **v1 only**. v1 sheds first ⇒ X's role spare hits 0. On v2, `votesFromRoleSpare` drops X at
+     `:499-501` (`prc <= 0`), so X's now-explicit *"no spare left in this role"* is excluded from the
+     combine, the others' spare wins, and v2's replicas come off **over X's objection**. Realistic: a
+     variant with no observed metrics yet is absent from that analyzer's `VariantCapacities` while still
+     present in the anchor.
+  2. **Being outscored — new with C6b, and it does not need partial PRC.** Even when X *does* size the
+     variant and therefore votes `0`, a `0` vote is no longer absolute under dominance weighting: with
+     `e = min vᵢ = 0`, `s_e = s_X`, and another voter at `10` with `s_Y > s_X`, the correction is
+     `(0−10)(s_Y−s_X)/(s_X+s_Y) < 0`, so `v* = +10(s_Y−s_X)/(s_X+s_Y) > 0` and `floor(v*)` can be ≥ 1.
+     **A vote cannot encode a veto.** (Only `s_Y ≤ s_X` leaves `v* = 0`.)
+
+  **Fix — a per-variant veto re-check, PRC-blind *and* score-blind.** `safeRemovalReplicasForRole` returns
+  **0**, before combining, if any live entry with `Result != nil`, `RoleSpare != nil` and the key **present**
+  has `RoleSpare[role] <= 0`. Do **not** express this as a synthetic 0-vote inside `votesFromRoleSpare` —
+  per (2) above a vote is not a veto after C6b. Using the *same predicate* as the entry gate makes the gate
+  a cheap early-out for the whole role and this the actual enforcement point; say so in the doc comment so
+  the duplication reads as intentional rather than as a copy to be de-duplicated later.
+
+  This stays **distinct from N7** (landed in C7), which reads a *missing* `RoleSpare[role]` as an
+  **abstain**: (c) is a *present, zero* role-level opinion. N7's abstain is unchanged —
   `RoleSpare == nil` or key missing ⇒ **abstain**; key present and `<= 0` ⇒ **veto**.
 
 [↑ TOC](#toc)
@@ -888,9 +921,19 @@ after. Run with `-race` (§4).
     (constructed directly, bypassing `ApplyDefaults`, which would rewrite it to 1.0) asserting fsv comes
     back in replicas, not raw demand ·
     **T1.4 rewritten** per §2d.6 · **goldens re-run**.
-  - C6d — finding (c): a **live** analyzer with `RoleSpare[role] = 0` and **no** per-variant PRC blocks
-    removal for every variant of that role. Pair it with the N7 control (key *missing* ⇒ abstain, removal
-    proceeds) so the two cases are pinned as distinct.
+  - C6d — finding (c). **Every fixture here must drive `scaleDownRoleIterated` end-to-end** — a direct
+    `safeRemovalReplicasForRole` unit call with `RoleSpare[role] = 0` exercises a state the pipeline cannot
+    deliver at role entry (`needsScaleDownForRole` vetoes the role first), so it would be **green for the
+    wrong reason** both before and after the change. Three cases, per §2d.4 (c):
+    - **PRC-absence (the primary red).** One role, **two** variants v1/v2 with costs ordered so `v1` sheds
+      first; live objector X with `RoleSpare[R] > 0` at entry (so the gate passes) and a
+      `VariantCapacities` entry for **v1 only**; a second live analyzer sizing both with ample spare. Size
+      X's spare so v1's removal decrements it to exactly 0. Red: v2 loses replicas. Green: v2 held.
+    - **Outscored objector** — X sizes *both* variants but carries a lower `Score` than the other voter;
+      after C6b its `0` vote is pulled positive by dominance weighting, so removal proceeds without the
+      veto. Red today *even with* full PRC coverage; this is the case that proves the fix must be a veto
+      rather than a vote.
+    - **N7 control** — key *missing* ⇒ abstain, removal proceeds. Pins (c) and N7 as distinct.
   - C7 — stale-enabled scale-up (VG-up no-longer-scales); role-coverage-mismatch (N7 abstain);
     Test 2 rewrite (v2 PRC=0 under N8).
   - C10 — `resolveKSat` **unit table** (config sets `KvCacheThreshold` ⇒ that value · field zero ⇒
@@ -898,8 +941,12 @@ after. Run with `-race` (§4).
     `Analyze` fixture whose `Config` carries `KvCacheThreshold: 0.5` asserting per-replica capacity tracks
     it (red before: PRC pinned at 0.85 whatever the config says). **That fixture needs a tight tolerance,
     ~1%, and must not copy the neighbours' `muSat*0.10` idiom** — on the shipped fixture model
-    `μ(0.5) = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9`, only 5.8% below the k=0.85
-    value of 2780.56, so at ±10% it passes either way and asserts nothing. Existing `analyzer_test.go`
+    `μ(0.5) = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9`, against the k=0.85 value of
+    2780.56. **The bound, stated the way the assertion consumes it:** `BeNumerically("~", 2618.9, tol)`
+    takes `tol` *relative to the expected value*, and `2780.56 − 2618.9 = 161.6` is **6.17% of 2618.9** —
+    so any `tol ≥ 6.17%` stays green at k=0.85 and pins nothing. (The same gap is 5.8% of 2780.56; that
+    framing is the one that does *not* bound the assertion — do not use it to size `tol`.) Use
+    **±1% ⇒ band `[2592.7, 2645.1]`**, which excludes 2780.56 with room. Existing `analyzer_test.go`
     expectations are **not** expected to move (0.55% shift vs ±10% tolerance — do not manufacture churn);
     if one does, re-derive it from the **two-place** ratio, numerator `N_sat = kSat × KV_max / KVreq` *and*
     denominator `itlSat = A·kSat + B`, never by scaling `0.80/0.85` (§2e.3). Also rewrite the derivation
@@ -914,6 +961,31 @@ after. Run with `-race` (§4).
 - **Full pre-push checklist incl. `-race`** for the fair-share + per-iteration refresh loop
   (`make test` / `gofmt` / `make lint` / `go build`; DCO sign-off; branch verify). See §6 for the
   semantic-pivot grep steps that must run before commit.
+
+**Plans-branch token hygiene (CODER-CONVENTIONS §4a) — two halves, only one of which a commit can fix.**
+A full-branch sweep (reviewer, 2026-08-07) found **32 code/doc locations plus a token in all nine commit
+messages** — 6 of 9 subject lines (`(N2)`, `(Bug #2)`, `(Bug #1)`, `(Bug #3)`, `(C6a)`, `(C6b)`) and 8 of 9
+bodies. None are inherited: the same grep at the base (`075a208e`) returns nothing, so this is entirely
+PR-2's. Notes for whoever actions it:
+
+- **The 32 code/doc locations ride one sweep commit.** C9 already touches the dev-guide, so it is the
+  natural host. Two of the 32 are in the shipped Type 4 `multi-analyzer-pipeline.md` (`:338` `N7`, `:472`
+  `N8`) — the most reader-visible surface on the branch. `analyzer_helpers.go:550` cites
+  `combined-analyzer-optimizer-design.md`, which is **not in the repo** — a dangling pointer; the
+  surrounding prose is self-sufficient, so delete the citation rather than repointing it. Note the
+  `Bug #n` form is worse than the `Nn` form: `Nn` is merely opaque, whereas `Bug #2` reads as a tracker
+  reference and sends a reader to an unrelated issue #2. Keep `#1513` in the golden's comment — that is a
+  real GitHub PR number and is legitimate.
+- **The nine commit *messages* are not reachable by any later commit.** A tenth commit cannot clean subject
+  lines that `git log --oneline` and the GitHub commit list show permanently; only `rebase -i` + reword ×9
+  reaches them. **This is a decision for Dean, and it is schedule-bound rather than work-bound:** the branch
+  needs a force-push regardless (`origin/ta-anchor-dynamic-refresh@f6485980` is already orphaned by PR-1's
+  reword), so folding the reword into that unavoidable force-push costs ~nothing — whereas the identical
+  reword *after* a GitHub PR is opened becomes a history rewrite on a live PR branch, which the project's
+  "no rebase of live PR branches" rule exists to prevent. So the cheap window closes the instant the PR
+  opens. **"Not worth it" is a legitimate answer** and should be recorded as accepted; what should not
+  happen is the default-by-omission where the PR gets opened first and the choice is made for us.
+  Requires Dean's explicit go-ahead like any force-push.
 
 [↑ TOC](#toc)
 
@@ -941,8 +1013,11 @@ cheap check (see §6).
 - `### Scale-up path` (~L438) — **C2** (per-iteration refresh), **C4** (`allocateForModelPaired`
   per-analyzer decrement). *Modify.*
 - `### Scale-down path` (~L463) — **C6c** (iii) (`sortVariantsForScaleDown` tie-break: Score dropped, uses
-  the binder's PRC), **C6d** (a live analyzer's role-level "no spare" blocks removal even with no
-  per-variant PRC — and how that differs from an absent key abstaining), **C7** (N7). *Modify.*
+  the binder's PRC), **C6d** (the veto is checked **per variant**, not only once per role: a live
+  analyzer's role-level "no spare" blocks removal regardless of whether it sizes that variant and
+  regardless of its Score — say *why* the role-entry gate is not sufficient on its own, namely that
+  deallocating one variant can exhaust a spare the gate already passed; and how a *present* zero differs
+  from an absent key abstaining), **C7** (N7). *Modify.*
 - `### Fair-share iteration (GreedyByScoreOptimizer only)` (~L482) — **C6c** (i)/(ii) `fairShareValue` /
   `fairShareCap` in **replica space**; state explicitly that `score` does **not** appear in fair share
   (it is consumed upstream in the combine) and that `priority` is the only fair-share weight; note the
@@ -1046,6 +1121,13 @@ than inferring scope.
   — update every comment that says an analyzer without per-variant capacity "is skipped" on the scale-down
   path; it now still objects at role granularity. Verify the *abstain* prose for a genuinely missing
   `RoleSpare` key (landed in C7) is still accurate and is stated as the distinct case.
+  **Two specific comments assert the property C6d changes and will be wrong afterwards:**
+  `safeRemovalReplicasForRole`'s own doc comment (`analyzer_helpers.go:626-631`) says it *"Returns 0 when no
+  live analyzer sizes v"* — after C6d it also returns 0 when a live analyzer that does **not** size `v`
+  objects at role level; and `applyDeallocationForRole`'s (`:643-648`) justifies not Live-gating on the
+  premise that non-live entries are *"already excluded from … the safe-removal minimum"* — still true for
+  non-**live** entries, but re-read it against the new PRC-blind path and make sure the reasoning it states
+  is the reasoning that now holds. Also re-check `:233`'s "point of use" note, which names both functions.
 - **C5 — rescale demand→GPU** (saturation-only → combined): `grep -rn "satEntry.TotalDemand\|roleDemandGPUs\|rescaleModelDecisions" internal/ docs/`
   — update comments claiming "saturation's demand" and confirm the N3 nil-guard note lands.
 - **C7 — VG-up voting gate** (`Enabled` → `Enabled && Live`): `grep -rn "votingResults\|Enabled-only\|e.Enabled" internal/ docs/`
