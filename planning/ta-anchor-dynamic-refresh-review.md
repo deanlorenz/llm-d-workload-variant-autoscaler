@@ -1,7 +1,8 @@
 # ta-anchor-dynamic-refresh (PR-2) — Internal Review
 
 **Type:** 6 (review) · **Status:** DRAFT (partial — C1–C5, C7, C8, C6a, C6b, C6c, C6d reviewed;
-C6e, C6f, C11, C10, C9 not yet landed) · **Branch:** `ta-anchor-dynamic-refresh`, tip `330fcd26`
+C6e, C6f, C11, C10, C9 not yet landed — **C11 carries a pre-review, Finding 27**, written before the
+code exists) · **Branch:** `ta-anchor-dynamic-refresh`, tip `330fcd26`
 (base `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
 [`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) **at plan revision
 `1a116e7a`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
@@ -3319,5 +3320,119 @@ I am taking none.
 (`prefill-v`/`decode-v`); it is split across role buckets. The robust reason is the per-scenario table
 in § *Golden coverage* above — the row-7 key is unreachable in all eight scenarios because Cost-desc
 resolves first in every multi-variant bucket. Same conclusion, different and durable reason.
+
+---
+
+## C11 pre-review — Finding 27 (the FZ-admission ranking inversion)
+
+Prompted by `plan__ta-anchor-c11-ranking-claim-correction.md` (Type-1 owner session → planner, not
+addressed to me; read-only). C11 has not landed; this is a pre-measurement so the finding is on the
+record before the code exists, in the same shape as the C6d pre-measurement.
+
+### What I verified of the handoff (dispositive claim: CONFIRMED)
+
+`Cost` arrives as **0** for a never-measured variant. Three reads at tip `330fcd26`:
+
+1. `internal/engines/pipeline/analyzer_helpers.go:202` — the anchor merge copies `Cost` from the
+   **(a) carrier** (saturation's entry), never from the binder.
+2. `internal/engines/analyzers/saturation_v2/analyzer.go:353-360` — `variantCost` is populated by
+   iterating `inputMetrics` only.
+3. `:373` — `cost := variantCost[vs.VariantName]`, a **bare map index**. A zero-replica variant
+   contributes no `inputMetrics`, so the lookup misses and `cost` is the zero value.
+
+Same shape as Finding 25's bare-index defect, in a different file. Worth noting as a pattern: a
+missing key silently becoming a meaningful `0` has now produced two separate findings on this branch.
+
+### Where I refine the handoff's framing (one point, and it matters forward)
+
+The handoff states *"Both halves are false, from the same root cause."* That overstates it. The
+condition for the sentinel to rank behind a measured variant is
+
+```
+Cost_s / 1  >  Cost_m / PRC_m        ⟺        Cost_s  >  Cost_m / PRC_m
+```
+
+and because measured `PRC_m ≫ 1`, the right-hand side is *tiny* — so **almost any positive `Cost_s`
+satisfies it**. The Type 1's `PRC ≫ 1` intuition is therefore sound; it fails at exactly one value,
+`Cost_s = 0`, which is the production value. The rationale is not wrong in principle — it is wrong
+because of one unstated premise (`Cost_s > 0`).
+
+This is not pedantry: it means the intended guarantee is **recoverable** the moment the saturation
+zero-replica cost bug is fixed, with no change to C11. That is the strongest argument for the
+handoff's optional dormant spec, and it is the sentence a future reader needs. "The rationale was
+always false" would tell them to redesign something that is fine.
+
+### What neither the handoff nor the plan says: C11 *introduces* the inversion
+
+Today the claimed property **holds** — by a mechanism the Type 1 never cites:
+
+- `cost_aware_optimizer.go:267-270` — `costEfficiency` returns `math.MaxFloat64` when
+  `PerReplicaCapacity <= 0`. A never-measured variant sorts **strictly last** in its role.
+- `cost_aware_optimizer.go:95-97` — `costGreedyRolePick` then `continue`s on `PRC <= 0` anyway.
+
+So the sentinel population is guarded **twice** today: sorted last *and* skipped. C11's `PRC = 1`
+lifts the variant out of the `MaxFloat64` branch into `Cost/PRC = 0/1 = 0`, which sorts **strictly
+first**, and simultaneously clears the skip. Both guards fall to the same one-line change.
+
+The honest characterization is therefore *"C11 inverts a property that currently holds"* — a
+regression introduced by the fix — not *"the Type 1 mis-stated a property that never held."* The
+consequence for review: after C11 the **one-replica cap is the sole remaining guard** on this
+population, where today there are three (sort-last, skip, and no cap needed). That is what makes the
+plan's `:2065-2080` tag/cap-coupling grep load-bearing, and it is a stronger reason than the handoff
+gives.
+
+### Concrete hazard to check when C11 lands
+
+`cost_aware_optimizer.go:99-106` — the pick returns `headroom` when `MaxReplicas` is set and
+non-zero, and **`math.MaxInt`** otherwise (`:106`). A sentinel that now sorts first therefore claims
+an *unbounded* grant on the `MaxReplicas == nil` path. So:
+
+> If C11 implements the one-replica ceiling only inside the `MaxReplicas` headroom branch, the
+> `MaxReplicas == nil` path bypasses it completely and the sentinel absorbs the entire grant.
+
+The cap must sit at the granting site (or unconditionally in the pick), not in the headroom branch.
+This is the failure the handoff's suggested assertion-2 shape catches; I am naming the exact line it
+has to catch.
+
+### Golden risk: measured at zero, for a reason worth recording
+
+No golden can move through the ranking path, because **none has a never-measured input variant**.
+Every input `VariantCapacity` across all eight scenarios carries `PerReplicaCapacity: 10000` and
+`ReplicaCount >= 2`.
+
+One trap for the next reader: grepping `Replicas: 0` in `optimizer_characterization_test.go` hits
+`:342` (`"expensive-p": {Replicas: 0, ...}`) in scenario B2, which looks like a zero-replica input.
+It is not — that line is inside the **`want` map** (the expected post-decision target after
+`expensive-p` is fully removed). B2's *input* for `expensive-p` is
+`ReplicaCount: 2, PerReplicaCapacity: 10000` (`:317`). The sentinel population is empty in the
+goldens.
+
+### Checklist additions for C11 (extends the existing 9 items)
+
+10. The one-replica cap is at the granting site, not only in the `MaxReplicas != nil` branch
+    (`cost_aware_optimizer.go:99-106`) — see the hazard above.
+11. Every spec produces `Cost = 0` the way production does (no replica metrics for that variant), not
+    by rigging a non-zero `Cost` — otherwise the spec asserts an invariant production lacks.
+12. No spec asserts *which* of several never-measured peers wins: they tie at efficiency `0` under
+    `sort.Slice` (`:260-262`), which is unstable. Set-level totals only.
+13. `analyzer_helpers.go:213-216` — the comment *"Not proactively selectable; genuine cold-starts
+    fall to the reactive scale-from-zero engine"* is the exact claim C11 reverses, and must change in
+    the same commit. Confirmed present at `330fcd26`.
+14. The greedy path is **not** a substitute for the cost path in these specs: `fairShareRolePick`
+    gates on `available[vc.AcceleratorName]` (`greedy_score_optimizer.go:419-422`), and a
+    never-measured variant's `AcceleratorName` is empty from the same zero-replica lookup
+    (`saturation_v2/analyzer.go:372`), so `available[""] == 0` skips it regardless of PRC. Verified.
+    Pre-existing; **not** C11's to fix.
+
+Items 13 and 14 are the handoff's; 10–12 are mine. Item 14 is the one that would otherwise cost the
+coder an afternoon debugging a working sentinel, so it is worth carrying even though it is a
+non-finding.
+
+### Scope note
+
+The requested edits land in the **Type 3** (`§2f` ranking row, C11 assertion 2, the grep block) and
+the defect is in the **frozen Type 1** at `:1530-1533`. Neither is in my write scope. I am recording
+the verification and the two refinements here and routing them to the planner; the Type-1 touch is
+Dean's call, as the handoff itself says.
 
 [Back to plan](ta-anchor-dynamic-refresh-plan.md)
