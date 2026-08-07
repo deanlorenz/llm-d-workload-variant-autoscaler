@@ -5341,3 +5341,128 @@ gone unnoticed: the fields that would look alarming if wrong are right, and the 
 I am not routing this to the coder. A reviewer telling a coder to update its status file is direction, not
 review, and the conventions put status writes solely in the coder's hands. Flagging it for Dean is the
 correct channel, and this entry is the record.
+
+---
+
+## `757fc6f5` — docs: capacity-gauge currency gap + the deprioritize idiom
+
+Documentation-only, 2 files, +50/−3, no code change. **Verdict: sound.** Every substantive claim was
+checked against the code and every one of them holds, several of them to the line. It also closes a real
+staleness defect in a shipped reference doc, and it is the **first §4a-clean commit on the branch**.
+
+The commit's own framing — "two documentation-only items with no code change to pair with, so they have no
+commit of their own and would otherwise go unwritten" — is the right instinct. Both items are things a
+reader would otherwise have to discover by reading the source.
+
+### Claims verified against code
+
+**1. RC/SC come from the anchor, per-role with a model-level fallback.** Exact.
+`buildDecisionsWithOptimizer` (`cost_aware_optimizer.go:296`) at `:356-367`: seeds from
+`anchor.RequiredCapacity/SpareCapacity`, then overwrites from `anchor.RoleCapacities[role]` when that role
+has an entry, with `role == "" → RoleBoth`. The doc's "per-role when the binder has an entry for the
+variant's role, model-level otherwise" is a precise reading.
+
+**2. The `unit` label is stamped unconditionally for every V2 decision.** Exact, and the attribution to
+`enrichDecisionsWithKvTokenData` is right. `saturation/engine.go:1297` sets
+`d.RequiredCapacityUnit = constants.UnitContinuous` **outside** the `if a, ok := agg[...]` guard, so it
+lands on every decision whether or not KV aggregates exist for it. It is the only non-test assignment of
+either unit constant in the tree, and it is reached from `optimizeV2` (`engine.go:955`) at Stage 4
+(`:1062`) over `allDecisions`. So "every V2 decision unconditionally" is not an approximation.
+
+**3. The help text names the KV-token analyzer as the source.** Both gauges. `metrics.go:183` (required):
+`"continuous" → token demand from the Token-based analyzer`; `metrics.go:176` (spare): `→ token surplus
+from the Token-based analyzer, max(0, TotalSupply - TotalDemand/scaleDownBoundary)`. When a throughput
+result is the binder, both the label and the help attribute the value to an analyzer that did not produce
+it. The gap is real and correctly described.
+
+**4. The binder can change between cycles.** Exact. `bindingAnchor` (`analyzer_helpers.go:196`) binds
+saturation when `Enabled && Live && ResultIsInformative` (`:211`), and otherwise falls through to the
+lowest-ballot-index enabled+live+informative non-saturation entry (`:214-228`). A staleness lapse drops
+`Live`, which hands binding elsewhere with no metric-label change — which is exactly the failure mode the
+note warns about, and the one that makes this worth documenting rather than filing.
+
+**5. The priority claims — all three, to the line.** `ApplyDefaults` rewrites an exact zero:
+`saturation_scaling.go:290-291` `if c.Priority == 0 { c.Priority = DefaultPriority }` with
+`DefaultPriority = 1.0`. `Merge` skips an exact zero override: `:377-378` `if override.Priority != 0`,
+leaving the global value. `Validate` accepts it: `:413-414` rejects only `< 0`. So `priority: 0` is erased
+twice over and passes validation while doing the opposite of what it looks like — a genuinely
+counter-intuitive behaviour that deserved to be written down.
+
+**6. The first-draw floor is real and load-bearing for exactly this case.**
+`greedy_score_optimizer.go:702-711`: `if firstDraw && capN < 1 { capN = 1 }`. And it matters here
+specifically because `replicasToCover` returns **0** for a non-positive entitlement (`:834-835`) — so
+without the floor a model whose share rounds away would be skipped rather than served. The doc's "served
+in single-replica steps, via the first-draw floor, once the higher-priority models have been satisfied or
+dropped" is an accurate description of the mechanism, including the "what the others leave" part: the draw
+still has to clear `gpusAvail < gpusPR` (`:692`), so leftovers are a real precondition, not a formality.
+
+**7. The replaced note — the old text was wrong in both halves, and the new text is right in all of
+them.** The universal post-step is in this tree and it is per-analyzer: `engine_v2.go:122-123` resolves and
+applies saturation's thresholds, `:181-182` does the same inside the loop with
+`resolveThresholds(entry.name, config)` — the analyzer's own registered override. And
+`applyUniversalThreshold` recalibrates at both scopes: model-level at `:481-494`, then every
+`RoleCapacities` entry at `:496+`. "at model level and per role", "for every analyzer", "using either the
+analyzer's own registered override or these model-level values" — all three clauses check out.
+
+**8. Both new anchor links resolve.** `#data-model-analyzerresult--namedanalyzerresult` matches
+`multi-analyzer-pipeline.md:531` `## Data model: AnalyzerResult → NamedAnalyzerResult` — including the
+double hyphen the dropped `→` produces in the GitHub slug. `#v2-analyzer-parameters` matches
+`saturation-scaling-config.md:159`. Broken anchors in shipped docs are cheap to ship and annoying to find;
+these are correct.
+
+### Credit where it is due
+
+Removing the `multi-analyzer-threshold` forward reference is the right call and the message's reasoning for
+it — "a shipped reference doc should also not send readers to an unmerged PR, so the forward reference is
+gone rather than updated" — is exactly the Type 4 discipline. Updating it would have preserved a pointer
+that cannot resolve for anyone reading the merged tree.
+
+The "please do not file it as a bug or fix the defaulting — the fix would break every config that omits the
+field" framing is also worth noting. It documents not just the behaviour but why the behaviour must stay,
+which is what stops a future reader from "fixing" it.
+
+### Finding 51 — a §4a comment whose fix is not a token strip
+
+`internal/engines/pipeline/analyzer_helpers.go:216-218`:
+
+```go
+// Otherwise the lowest-ballot-index enabled+live+informative
+// non-saturation entry binds (N2 deterministic tie-break): once PR-2
+// admits multiple non-saturation voters, a later qualifying entry does
+// not overwrite the earlier one — it votes without binding.
+```
+
+Two problems, and the second is the one that matters:
+
+- **Two §4a tokens** (`N2`, `PR-2`) in a shipped code comment. Already inside the 54-location count.
+- **The tense is wrong on this branch.** "once PR-2 admits multiple non-saturation voters" describes as a
+  future event something that is already true in the same tree: `votingResults`
+  (`analyzer_helpers.go:315-323`) admits every `Enabled && Live` entry with no cap on how many
+  non-saturation ones qualify. The condition the comment defers to has already arrived.
+
+Flagging it because a mechanical §4a sweep makes this worse, not better: strip the tokens and you get
+"once this change admits multiple non-saturation voters", which is still future-tense about the present.
+The correct rewrite states the invariant in the present — *with multiple non-saturation voters admitted, a
+later qualifying entry does not overwrite the earlier one; it votes without binding* — which is both
+§4a-clean and true. This is the general hazard with the sweep: the tokens are load-bearing markers of
+"written before X landed", so some of the 54 are stale in content and not merely in vocabulary.
+
+### One precision nit, not a request
+
+The doc says a small positive priority "sorts the model behind every other model in the fair-share loop".
+Strictly the ordering key is `priority × claim` (`fairShareValue:135`, sorted descending by
+`sortByRemainingDesc:768`), so a deprioritized model outranks a normal-priority one when its claim is more
+than `1/priority` times larger — 100000× at `0.00001`. In GPU space, where claims are single- or
+double-digit, that cannot happen, so the simplification is fair and I would not change the sentence. Noted
+only so the exactness of the surrounding claims is not read as exactness here too.
+
+### Ledger delta
+
+- **Code/doc token locations: 54, unchanged.** The added doc lines are token-free.
+- **Commit-message class: 18 of 21** (was 18 of 20). The denominator moved, the numerator did not — this is
+  the first message on the branch that carries no plans-branch identifier, and it is a docs commit, which
+  is the easiest case. Still: it demonstrates the messages can be written this way.
+- **This commit is not the §4a sweep** and does not claim to be. It carries no commit label, and the plan's
+  dev-guide-plus-goldens commit is still ahead of us, so the sweep and the remaining doc corrections
+  (`analyzer_helpers.go:213-216`, the path/filename class, Finding 46's constraint on describing the
+  from-zero ceiling) all remain pending there.
