@@ -206,3 +206,76 @@ var _ = Describe("rescaleModelDecisions", func() {
 		Expect(free).To(Equal(4), "a request with no anchor must not consume the cycle's free GPUs")
 	})
 })
+
+var _ = Describe("fillRole", func() {
+	// fillRole's inner loop spends GPUs one replica at a time and its only exit is
+	// exhausting wantGPUs, so an unbounded variant absorbs the whole role. The
+	// from-zero admission ceiling (C11) is what stops a variant admitted at
+	// PerReplicaCapacity = 1 from doing that, and this is the site where the
+	// difference is largest.
+	const wantGPUs = 10
+
+	fill := func(vc domain.VariantCapacity, st domain.VariantReplicaState, targets map[string]int) (int, map[string]int) {
+		if targets == nil {
+			targets = map[string]int{}
+		}
+		spent := fillRole([]domain.VariantCapacity{vc}, domain.RoleBoth,
+			buildStateMap([]domain.VariantReplicaState{st}), targets, wantGPUs)
+		return spent, targets
+	}
+
+	admitted := domain.VariantCapacity{
+		VariantName:        "newcomer",
+		PerReplicaCapacity: 1,
+		Reason:             ReasonFromZeroAdmission,
+	}
+	// MaxReplicas nil: the case the ceiling exists for. A never-measured variant is
+	// the population least likely to carry a tuned MaxReplicas, and without one
+	// this loop has no other bound.
+	fromZero := domain.VariantReplicaState{VariantName: "newcomer", GPUsPerReplica: 1}
+
+	It("grants an admitted variant one replica out of the whole role's GPUs", func() {
+		spent, targets := fill(admitted, fromZero, nil)
+		Expect(targets["newcomer"]).To(Equal(1))
+		Expect(spent).To(Equal(1), "the other 9 GPUs stay unspent and fall to the caller")
+	})
+
+	It("does not top up on a second pass", func() {
+		// The bound is on the target, not on one invocation: an allocator that comes
+		// round again with the same targets map must buy nothing more.
+		_, targets := fill(admitted, fromZero, nil)
+		spent, targets := fill(admitted, fromZero, targets)
+		Expect(spent).To(BeZero())
+		Expect(targets["newcomer"]).To(Equal(1))
+	})
+
+	It("absorbs the whole role when the same variant is untagged", func() {
+		// Same capacity, same state, no tag. This is the pre-ceiling behaviour and
+		// the measure of what the tag buys: 10 replicas rather than 1.
+		untagged := admitted
+		untagged.Reason = "T1-ols"
+		spent, targets := fill(untagged, fromZero, nil)
+		Expect(targets["newcomer"]).To(Equal(wantGPUs))
+		Expect(spent).To(Equal(wantGPUs))
+	})
+
+	It("keeps honouring a configured MaxReplicas when it is the tighter bound", func() {
+		untagged := admitted
+		untagged.Reason = "T1-ols"
+		st := fromZero
+		max := 3
+		st.MaxReplicas = &max
+		spent, targets := fill(untagged, st, nil)
+		Expect(targets["newcomer"]).To(Equal(3))
+		Expect(spent).To(Equal(3))
+	})
+
+	It("takes the admission ceiling over a looser MaxReplicas", func() {
+		st := fromZero
+		max := 8
+		st.MaxReplicas = &max
+		spent, targets := fill(admitted, st, nil)
+		Expect(targets["newcomer"]).To(Equal(1))
+		Expect(spent).To(Equal(1))
+	})
+})
