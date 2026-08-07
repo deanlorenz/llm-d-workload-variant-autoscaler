@@ -229,6 +229,21 @@ func (c *SaturationScalingConfig) GetAnalyzerName() string {
 	return c.AnalyzerName
 }
 
+// KSat returns the KV-utilization fraction at which a replica counts as full —
+// the system-wide k_sat. This is the definition of "full" that shapes
+// per-replica capacity, and it is deliberately NOT ScaleUpThreshold or
+// ScaleDownBoundary: those two are margins around the steady state that the
+// engine applies to required/spare capacity after an analyzer returns.
+//
+// Exposed as a method so an analyzer in a higher layer can read k_sat without
+// importing this package. internal/config is below the analyzers (see
+// throughputAnalyzerName in config.go), and the throughput analyzer's own
+// in-package tests are on the other side of that line, so a direct import is a
+// test-binary import cycle rather than a layering preference.
+func (c *SaturationScalingConfig) KSat() float64 {
+	return c.KvCacheThreshold
+}
+
 // IsV2 returns true if this config selects the V2 token-based analyzer path.
 // V2 is active when either the Analyzers list is populated (new-style) or
 // AnalyzerName is "saturation" (old-style, backward compat).

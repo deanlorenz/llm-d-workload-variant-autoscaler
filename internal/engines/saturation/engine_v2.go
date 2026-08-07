@@ -123,12 +123,15 @@ func (e *Engine) runAnalyzersAndScore(
 	applyUniversalThreshold(baseResult, satUp, satDown)
 
 	// Build AnalyzerInput once; shared by all non-saturation analyzers.
-	// Note: &config has had saturation's per-entry threshold overrides applied
-	// (the loop above). Non-saturation analyzers therefore receive the
-	// saturation-adjusted config rather than the original. This is harmless
-	// on this branch (their results are discarded), and the clean fix —
-	// engine applies thresholds universally after each analyzer runs —
-	// is tracked on multi-analyzer-threshold (PR #1228).
+	//
+	// Every analyzer receives the whole SaturationScalingConfig, not a per-analyzer
+	// slice of it, and reads what it needs: throughput reads KvCacheThreshold as
+	// k_sat (resolveKSat) so both analyzers agree on what "full" means. The
+	// scale-up/scale-down thresholds resolved above are per-analyzer and applied to
+	// each result after Analyze returns (applyUniversalThreshold), so a
+	// per-analyzer override does not reach any analyzer through this config —
+	// nothing here has been rewritten, and an analyzer must not read those two
+	// fields expecting its own override.
 	input := domain.AnalyzerInput{
 		ModelID:        modelID,
 		Namespace:      namespace,

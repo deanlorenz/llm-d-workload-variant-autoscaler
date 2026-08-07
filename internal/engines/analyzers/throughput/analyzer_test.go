@@ -14,6 +14,14 @@ import (
 	"github.com/llm-d/llm-d-workload-variant-autoscaler/internal/engines/aggregation"
 )
 
+// testModelID and testNamespace identify the model under test across the
+// throughput analyzer specs. Named rather than repeated inline so a spec block
+// cannot drift onto a different key and silently observe an empty variant state.
+const (
+	testModelID   = "llama3-8b"
+	testNamespace = "default"
+)
+
 // makeMetrics builds a slice of healthy ReplicaMetrics for a single variant,
 // each with a distinct KvCacheUsage/KvUsageInstant to provide k-spread.
 func makeMetrics(variant string, count int, baseK float64, kStep float64) []domain.ReplicaMetrics {
@@ -67,8 +75,8 @@ var _ = Describe("ThroughputAnalyzer", func() {
 	BeforeEach(func() {
 		analyzer = NewThroughputAnalyzer()
 		ctx = context.Background()
-		modelID = "llama3-8b"
-		namespace = "default"
+		modelID = testModelID
+		namespace = testNamespace
 	})
 
 	Describe("Name", func() {
@@ -256,12 +264,19 @@ var _ = Describe("ThroughputAnalyzer", func() {
 	})
 
 	Describe("Analyze — scaling signal (tier-1 OLS fit)", func() {
-		// Scenario: IL=5000, OL=200, prefix=0.1, KV_max=1024000, A=0.073, B=0.006
+		// Scenario: IL=5000, OL=200, prefix=0.1, KV_max=1024000, A=0.073, B=0.006.
+		// These inputs carry no saturation config, so k_sat is the fallback (0.80);
+		// k_sat is configuration, not a constant, and both places it appears below
+		// must be the same k. See resolveKSat and k_sat_test.go.
 		//   ILeff   = 5000 × 0.9 = 4500
 		//   KVreq   = 4500 + 100 = 4600
-		//   N_sat   = 0.85 × 1024000 / 4600 ≈ 189.2 in-flight at k_sat
-		//   ITL_sat = 0.073×0.85 + 0.006 = 0.068 s/tok
-		//   μ_sat   ≈ 189.2 / 0.068 ≈ 2782 tok/s per replica
+		//   N_sat   = 0.80 × 1024000 / 4600 ≈ 178.1 in-flight at k_sat
+		//   ITL_sat = 0.073×0.80 + 0.006 = 0.0644 s/tok
+		//   μ_sat   ≈ 178.1 / 0.0644 ≈ 2765 tok/s per replica
+		//
+		// The ±10% assertions below are order-of-magnitude checks and cannot pin
+		// k_sat: k divides out of the ratio almost entirely, so the whole plausible
+		// range of k lands inside the band. k_sat_test.go pins it at 0.2%.
 
 		const (
 			il     = 5000.0
@@ -270,7 +285,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			kvMax  = int64(1024000)
 			A      = 0.073
 			B      = 0.006
-			muSat  = 2782.0 // approximate, used for order-of-magnitude assertions
+			muSat  = 2765.0 // approximate, used for order-of-magnitude assertions
 		)
 
 		// kValues: 10 points spanning [0.20, 0.65], spread = 0.45 ≥ DefaultMinKSpread
@@ -551,7 +566,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 					return analyzer.variantStates[variantKey(namespace, modelID, "v1")]
 				}(),
 				[]domain.ReplicaMetrics{idleMetrics},
-				namespace, modelID, "v1",
+				namespace, modelID, "v1", fallbackKSat,
 			)
 			Expect(ok).To(BeFalse())
 			Expect(reason).To(Equal(itlReasonT2Failed))
@@ -2180,8 +2195,8 @@ var _ = Describe("ThroughputAnalyzer — scale-from-zero PRC-only complement", f
 	BeforeEach(func() {
 		analyzer = NewThroughputAnalyzer()
 		ctx = context.Background()
-		modelID = "llama3-8b"
-		namespace = "default"
+		modelID = testModelID
+		namespace = testNamespace
 	})
 
 	// liveReplica drives a single healthy replica at k=0.50 so a live Analyze cycle
