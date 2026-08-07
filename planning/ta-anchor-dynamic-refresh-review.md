@@ -4892,3 +4892,65 @@ Not independently verified — I do not build or test in the coder's worktree. T
 this commit (`last_update: 2026-08-07T21:00:00Z`, `current_step` still reads C6d), so gate results for
 `b6bb525c` are unrecorded. Not a finding against the code; noted so a later reader does not mistake
 this section for a gate sign-off.
+
+### Finding 47 — of the two sites a tagged variant can actually reach, the one the code names as the worst case is the one with no test, and its omission is the only one left undisclosed
+
+Not predicted. Found by auditing the 182 new test lines rather than the 97 new code lines — Finding 46
+established that with `(D-a)` deferred the tests are the *only* thing exercising the ceiling anywhere,
+which makes their discrimination load-bearing rather than supporting.
+
+`(D-b)` clamps three grant sites. Their reachability for a tagged variant — the question that decides
+what a test is worth at each — is not uniform:
+
+| site | tagged variant reaches it? | why | C11 test |
+|---|---|---|---|
+| `costGreedyRolePick` | **yes** | no accelerator gate before the clamp | **3 behavioural specs** |
+| `fairShareRolePick` | **no** | `gpusAvail := available[vc.AcceleratorName]` then `continue` on `<= 0`; a never-measured variant's `AcceleratorName` is empty | none — **disclosed and justified** in the test comment |
+| `fillRole` | **yes** | see below | **none, and no disclosure** |
+
+`fillRole`'s only gates before the clamp are `rescale.go:446` `vc.PerReplicaCapacity <= 0` and `:450`
+`g <= 0`. A `PRC = 1` sentinel passes the first *by construction* — 1 is the tag's whole point — and
+the second reads `gpusPerReplicaFromState(stateMap, ...)`, which is **state**-derived, not
+capacity-derived, so the empty `AcceleratorName` that stops `fairShareRolePick` does not stop this. A
+tagged variant arrives at the clamp.
+
+What makes the gap worth a finding rather than a note is that this is the site the commit itself
+nominates as the dangerous one. `rescale.go:456-459`:
+
+> *"read through the helper because this loop is otherwise unbounded whenever MaxReplicas is unset --
+> which is where a from-zero variant would absorb the whole role's GPUs one unit of capacity at a
+> time."*
+
+and `analyzer_helpers.go:103-104`: *"fillRole's loop is bounded only inside the MaxReplicas
+condition."* The inner `for wantGPUs-spent >= g` loop breaks **only** under `bounded`, so the entire
+claim that a tagged variant takes one bite instead of the role's whole budget rests, at this site, on
+prose. Combined with Finding 46 — nothing writes the tag, so production exercises none of this —
+"untested" here means *wholly unvalidated*, not *validated in the field but not in CI*.
+
+**Fair accounting of what C11 owes.** `fillRole` has zero direct test references tree-wide (`git grep
+fillRole` at `b6bb525c` returns four hits: two comments, one caller at `rescale.go:388`, one
+definition). That absence is **pre-existing** — C11 did not remove coverage, and the site was already
+reachable only through its caller. The charge is narrower and, I think, still fair: C11 added a guard
+at a site with no direct test, added none, and *did* write the justification for skipping the other
+site. One omission is reasoned in the test file; the identical omission at a reachable site is silent.
+A later reader diffing the tests will find the disclosed gap and conclude the undisclosed one was
+covered.
+
+**Cost to close is near zero, and the fixture is maximally discriminating.** `fillRole` is unexported
+but in-package, and takes plain arguments — `variants, role, stateMap, targets, wantGPUs` — with no
+`available` map and no interfaces to stand up. One tagged `VariantCapacity{PerReplicaCapacity: 1,
+Reason: ReasonFromZeroAdmission}`, a state with `GPUsPerReplica: 1` and `MaxReplicas` nil, and
+`wantGPUs: 10` asserts `spent == 1` and `targets[v] == 1`. The same fixture against the pre-C11 body
+returns `spent == 10` — a 10× miss, not an off-by-one. That is the strongest discrimination signal
+available anywhere in C11, and it is the one not taken.
+
+**Severity: low now, by exactly the reasoning that makes it worth recording.** While `(D-a)` is
+deferred the site is dormant (Finding 46), so nothing is broken today. It becomes the untested half of
+the guard at the precise moment `(D-a)` lands — i.e. the moment the guard starts mattering — and by
+then the commit that would naturally have carried the test is many commits back. Recommendation, for
+whoever owns the disposition: either land the ~15-line fixture with C11, or list it explicitly as owed
+work in the `(D-a)` follow-up. Not silently, and not as "covered by the helper's unit tests" — the
+four `maxTargetReplicas` specs prove the helper returns the right number, which is not the same claim
+as the loop honouring it.
+
+**No §4a delta.** This finding proposes a test, not a comment; nothing here adds a token.
