@@ -6531,3 +6531,160 @@ consistency verdict"*), and it generalises past this one map.
 close-in-PR-2; the review-relevant content is that the two findings the verdict rests on are confirmed,
 one of them by `main`, and that the deferral's grounds should carry the two preconditions above rather
 than the unqualified "works". Nothing here asks the coder to stop.
+
+---
+
+## C9c (`209e148f`) and C9d (`4e369f10`) — all four pre-registered questions scored
+
+Scored against the bars I committed in `58b55399` **before** either commit existed, re-read first so the
+scoring could not drift to fit what landed. C9c adds the multi-vote goldens plus the Invariant 7 direct
+test (2 files, **+879**, no deletions); C9d removes the #1513 sat-only goldens (1 file, **+17/−352**).
+Both verified tests-only by `--stat` and `--name-only`: **no non-test path is touched by either.**
+
+### Q1 — PASS, and above the bar I set
+
+My bar asked for "each removed golden named, alongside the multi-vote scenario that subsumes it, with the
+*asserted decision set* shown equivalent rather than the scenario name merely matching." C9d's message
+carries a seven-row table doing exactly that, one line per removed spec, literal decision set on the left.
+Three things put it above the bar:
+
+1. **Identity, not equivalence.** I spot-checked two of seven against the pre-image rather than trusting
+   the table. Removed A1 asserted `{"v": {Replicas: 4, RequiredCapacity: 15000, SpareCapacity: 0,
+   Utilization: 0.71}}`; M1's `shapeSatOnly` entry asserts the same map **byte-identically**. C1 →
+   M7 likewise (`{Replicas: 2, RC 50000, SC 0, U 0.9}`). The transcription even carries its provenance —
+   `// Transcribed verbatim from A1 (captured main@9906dac5)` — which is the right annotation for a
+   characterization literal, because it records *where the number came from* and not merely that it was
+   copied.
+2. **Identity extended to the call, which my bar did not ask for.** The message claims the optimizer and
+   constraints pairing was "verified pair by pair" and enumerates it. Checked on both spot-checks: A1 ran
+   `CostAware(…, nil)` + `GreedyByScore(…, unlimitedConstraints("A100"))` and M1 runs that same pair;
+   C1 was GreedyByScore-only with a quota/unconstrained pair plus a constrained-below-unconstrained
+   check, and M7 reproduces that shape. A decision set can be preserved while silently losing an
+   optimizer; this closes that gap.
+3. **The one non-identical case is broken out rather than folded in.** The eighth removed spec — the
+   harness smoke test, `{v: 2, RC 0, SC 0, U 0.5}` — is explicitly refused the word "identical" and
+   labelled *subsumption*, with what survives (property and purpose, into M3) separated from what does
+   not (its literal set, "because it was a different fixture"). That is the distinction whose absence I
+   would have scored as the auditability gap, volunteered without being asked. It also checks out: M3
+   mirrors A3's *two*-variant fixture, so the smoke test's single-variant literals are genuinely not
+   reproduced anywhere, exactly as stated.
+
+Also correct on the deletion-documentation rule: classified in terms, "a considered removal of superseded
+coverage, not a deprecation and not a deferral," with the reason a characterization suite should *not*
+outlive its refactor (leaving it on `main` would freeze today's allocation arithmetic as a permanent
+optimizer contract). One piece of knowledge from the removed prose — CostAware ignores
+`ResourceConstraints` entirely — was relocated to a named home rather than lost with its spec; verified
+present in M7's header comment. Spec delta `394 → 386` matches the diff exactly: **8 `It(` removed, 0
+added.** The three shared helpers survive (`expectDecisionSet:43`, `unlimitedConstraints:68`, and
+`goldenDecision`, still referenced by `:43`'s own signature).
+
+### Q2 — PASS on the first horn, verified in code rather than argued
+
+The bar: "either the harness yields an identical ballot for that sub-case, or the difference is named and
+argued harmless." It is the first, and it holds by construction, which is stronger than an argument.
+`applyShape`'s `case shapeSatOnly:` is a bare `return req` — I read the case body rather than relying on
+the header comment (*"shapeSatOnly deliberately touches nothing"*). So the `[sat]`-only ballot is
+`withSatEntry(sat, req)`, the identical construction the standalone goldens used. The hazard I flagged —
+that #1513's own Finding 2 `withSatEntry` stability rule implied the harness might build the ballot
+differently — does not materialise: **the same helper builds both, so a future change to `withSatEntry`
+moves the new goldens and the old ones together rather than sparing one.** That is the durability property
+#1513 Finding 2 actually wanted, and it is now structural rather than remembered.
+
+### Q3 — PASS, the sharpest discrimination account in the PR
+
+Bar: "the test fails when the invariant is violated, either demonstrated or argued via the specific
+mutation." `optimizer_invariant7_test.go`'s third spec does all three parts:
+
+- **Named mutation, verified real.** The guard is `if len(s) <= 1 { return }` at
+  `analyzer_helpers.go:661-663`, genuine code and not a comment.
+- **Decidable outcome.** The fixture is deliberately out of step with the ballot — every sizing field
+  differs from saturation's — so a refresh that ran would rewrite them and `Expect(variants).To(
+  Equal(before))` fails. The test says so at the site, and says *why* the fixture is unrealistic:
+  *"Nothing builds an anchor like this -- that is the point. The subject is the guard, not a realistic
+  anchor."*
+- **An in-test control.** The same call with a second voting entry *does* rewrite the slice, asserted
+  immediately below. So the primary assertion pins the early return rather than an inert fixture.
+
+And the boundary is stated: *"deleting the early return fails exactly one spec in the package, the third
+one, while the two equality specs stay green -- which is why the equality specs alone were not enough."*
+That is right, and it is the subtle part — the two equality specs use *realistic* anchors, where a refresh
+that ran would recompute the same values, so removing the guard is semantically invisible to them. A
+reviewer who only had the equality specs would have concluded Invariant 7 was covered when the guard was
+untested. This is the second consecutive commit (after `79a590d6`) to ship the mutation result unprompted.
+
+### Q4 — my prediction is falsified; the hazard was anticipated and neutralised
+
+Stated plainly, because the polarity matters: Q4 predicted *"C9c's golden will freeze the unresolved
+ceil/floor fork."* **It does not.** M7's quota fixture is deliberately constructed fork-neutral, and I
+verified the arithmetic rather than the claim: `NamespacePools{"team-a": {"A100": {Limit: 4, Used: 2}}}`
+at `GPUsPerReplica: 2` leaves exactly two free GPUs = exactly one replica, so `ceil` and `floor` agree and
+no golden pins either side. The reasoning is written at the site, not just in the message: *"An exact
+whole-replica entitlement, so the unresolved ceil/floor fork in `replicasToCover` cannot be frozen by this
+golden either way."*
+
+Consequences for my own committed finding, recorded honestly:
+
+- **Item #1 (the divergence is undeclared) — remedied.** C9c's message states it (*"replicasToCover still
+  rounds a GPU entitlement up where the plan specifies a whole-replica floor, and that fork is unresolved
+  in this tree"*) and M7's comment states it again in code. A reviewer reading only this branch can now
+  discover the divergence. That was the item I priced at "one sentence, free while unpushed"; it was paid
+  from a different commit than I expected, which does not make it unpaid.
+- **Items #2 and #3 — unchanged.** The mandated fixture still spends its assertion on the opposite
+  direction, and the Type 4 doc still documents neither. The earlier freeze at
+  `greedy_score_optimizer_test.go:1386` also stands: it is a unit test rather than a golden, so C9c/C9d's
+  fork-neutrality does not reach it.
+
+Net: the *mechanism* behind Q4 was real — a golden authored at this tip was in a position to freeze the
+fork — and the coder saw it and defused it. Twice now on Q4 I have had to separate mechanism from
+artifact; this time the separation lands in the coder's favour and I am scoring it that way.
+
+---
+
+## Finding 58 — a §4a site that two independent sweeps both missed, and the reason why
+
+`internal/engines/pipeline/analyzer_helpers.go:659` carries, inside a shipped code comment:
+
+```go
+// combined-analyzer-optimizer-design.md § invariants #7.
+```
+
+That is a plans-branch document cited by filename and section from code that merges. It is unresolvable
+for a reader of `main` — the same class §4a names explicitly. **New in PR-2**, not inherited: the grep is
+clean at PR-1's tip `075a208e`, and `-S` places its introduction in `b106b929` (the per-iteration refresh),
+which added two such citations. One of the two — `§ anchor` — was removed incidentally by C6a `8eb6ee2d`.
+This one survives at the tip.
+
+The interesting part is *why* it survived, because it was not for lack of sweeping. Two sweeps have run
+over this ground and both missed this site:
+
+- **The coder's own dedicated sweep, `4fb49ac6`** — literally titled *"drop plans-branch paths from
+  shipped comments."* Its message even distinguishes the two classes: plans-branch **paths** are "a worse
+  class than the bare plan tokens the cross-cutting sweep is scoped to." What it removed confirms the
+  pattern it matched: `plans/session/handoffs/plan__…md`, a `Refs:` block of three `review__…md` names.
+  Every removal carries a directory prefix or a `handoff`/`review__` shape.
+- **My own 48-site enumeration**, which patterned on plans-branch *identifiers* (`T1-n`, `W-n`, `§`-refs).
+
+This site is neither. It is a bare design-doc filename with no directory prefix and no identifier token —
+so it falls in the **seam between the two patterns**, invisible to a path-shaped grep and to a
+token-shaped grep alike. I am recording my own miss as prominently as the coder's, because the point is
+not that either of us was careless: it is that **two sweeps patterned on two different shapes left a gap
+exactly where the shapes did not overlap**, which is the concrete form of the argument I have been making
+about grep-driven compliance. The fix for C9e is a *class*-based check — "does this comment name anything
+a `main` reader cannot open" — not a third pattern.
+
+**Disposition:** one line, comment-only, no code change. C9e is its natural host. Cheap now; it is the
+kind of thing that survives to merge precisely because every individual sweep was scoped reasonably.
+
+## Finding 59 — the `T1-ols` sweep trap grew by 13 inside C9c itself
+
+Recorded as sweep-hazard evidence, not a defect: `T1-ols` is a legitimate ITL tier name
+(`throughput/constants.go:129`, unexported, hence the raw string in `pipeline` tests). It now stands at
+**35 occurrences across 11 files**, of which **13 are in the two files C9c just added** (12 in
+`optimizer_multivote_characterization_test.go`, 1 in `optimizer_invariant7_test.go`).
+
+So between my flagging the trap and C9e running, the trap grew inside the commit range the sweep must
+cover — and every new occurrence is correct code that a `T1-` sweep must leave alone. Together with
+`greedy_score_optimizer.go:453-456` (the word "floor" used for an unrelated rounding endorsement), the
+C9e sweep now has two live traps pulling in opposite directions: strip a real identifier and you break
+code, and both traps sit in files the sweep will open. This is the second independent reason the C9e
+check should be class-based rather than pattern-based; Finding 58 is the first.
