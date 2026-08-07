@@ -1,0 +1,83 @@
+from: review (PR-2 internal reviewer)
+to: planner
+session: §4a — PR-2 has shipped 28 plans-branch tokens; §6 greps only one of the three families
+
+**Time-sensitive in one half.** Four of the 28 are in **commit messages**. §4 says that reword window
+closes the instant the PR opens; `gh pr list --head ta-anchor-dynamic-refresh` returns nothing, so it is
+still open. The other 24 are in-tree and **will grow** with the four remaining commits — C6c is literally
+"Bug #5" in §2d.5's own title.
+
+This is a **plan gap first, coder-compliance second**. §6 is thorough on semantic pivots but has exactly
+one §4a-flavoured grep — C8's `\((a|b)\)` — which the coder ran and closed (`1140a4c2`). Nothing in §6
+mentions the `Nn` or `Bug #n` families, so per CODER-CONVENTIONS §2 the coder had no scope to infer and
+correctly did not invent one.
+
+## Measured at `d9f3b97e`, provenance split against PR-1 tip `075a208e`
+
+| Family | In-tree hits | PR-2-introduced | Inherited from PR-1 |
+|---|---|---|---|
+| `\bN[0-9]\b` (N2/N3/N7/N8 — dataflow-map §9 findings) | 17 | **16** | 1 (`greedy_score_optimizer_test.go`) |
+| `\bBug #[0-9]` (plan §2 bug numbering) | 8 | **8** | 0 |
+| **in-tree total** | 25 | **24** | 1 |
+
+Plus **4 commit messages**: `680bebdb …multi-vote ballots (N2)`, `50034d15 …raw units (Bug #2)`,
+`07b8fdb7 …the anchor's (Bug #1)`, `3c9d45bb …across voters (Bug #3)`. **Grand total 28.**
+
+By artifact class (§4a covers all four explicitly — "code comments, doc-strings, … dev-guide text, test
+descriptions, and commit messages"):
+
+| Class | Count | Locations |
+|---|---|---|
+| shipped non-test code | 13 | `analyzer_helpers.go` (6 N: `:119`, `:149`, `:214`, `:671`, `:682`, `:694`; 2 Bug: `:584`, `:806`) · `optimizer_interfaces.go:54` (N2) · `rescale.go` (N3 `:348`; Bug #3 `:49`, `:539`, `:560`) |
+| tests (comments + `It()` descriptions) | 9 | `analyzer_helpers_test.go` (N `:153`, `:193`, `:339`, `:375`; Bug `:746`, `:777`) · `optimizer_liveness_test.go` (`:10`, `:75`) · `rescale_test.go:152` |
+| **dev-guide (Type 4 — ships in the diff)** | 2 | `multi-analyzer-pipeline.md:338` "(N7)", `:472` "(N8)" |
+| commit messages | 4 | the four above |
+
+The dev-guide two are the worst of the set: Type 4 must be self-sufficient for a reviewer reading only
+the PR diff, and "(N7)" / "(N8)" resolve to nothing for ev-shindin.
+
+## §6 actively steers into it
+
+The **C6d** bullet (L1145-1155) tells the coder to "verify the *abstain* prose for a genuinely missing
+`RoleSpare` key (landed in C7) is still accurate". That prose is `analyzer_helpers.go:671`, `:682`, `:694`
+— three of the `N7` hits. So the instruction points at the tokens, asks for their prose to be kept
+accurate, and never says to strip them. Following §6 as written perpetuates them.
+
+## Suggested §6 additions (one bullet, cross-cutting)
+
+- **§4a token sweep (every commit):**
+  `grep -rnE '\bN[0-9]\b|\bBug #[0-9]|\bF[0-9]+\b|\bC[0-9]+[a-d]?\b|§[0-9]' internal/ docs/developer-guide/`
+  → zero hits in shipped comments, doc-strings, test descriptions and dev-guide prose. Replace each with
+  the descriptive prose the token stands for (§4a's table: "abstains rather than vetoing (N7)" →
+  "abstains rather than vetoing — a coarser voter has no basis to veto a role it never sized").
+- **Commit messages:** same rule; check `git log --oneline <base>..HEAD` before push.
+- Real GitHub numbers stay legitimate — the plan itself cites `#1228` at L1173 and `#1513` appears
+  nowhere in shipped code (verified zero). Only plans-branch identifiers are in scope.
+
+Note the `\((a|b)\)` grep in C8 is **not** achievable as literally specified ("zero hits"): it matches
+`math.Abs(a)`, `string(b)`, `c.getTarget(a)`, `cmp.Compare(b.Priority, a.Priority)` and four ordinary
+English "(a)… (b)…" enumerations in unrelated files. 17 hits remain at `d9f3b97e` and **all 17 are
+false positives** — C8 did its real job. Worth rewording the criterion to "zero hits *that denote the
+(a)/(b) sizing notation*" so the next reader doesn't chase it, and so a genuine hit isn't lost in noise.
+
+## Decision that is yours, not mine
+
+Whether the 4 commit messages get reworded (9-commit interactive rebase, cheap now, history rewrite on a
+live PR later) or accepted as-is with Dean's sign-off. I am flagging that the window is open and closing,
+not asking for a particular outcome. If the answer is "reword", it wants to happen before C6c so the
+rebase is over 9 commits rather than 13.
+
+## Verified vs not verified
+
+**Verified:** all counts above, by grep at `d9f3b97e` and `git show 075a208e:<path>` per file for the
+provenance split; that no GitHub PR exists for the branch; that §6 contains no `Nn` / `Bug #n` grep; that
+all 17 `\((a|b)\)` hits are false positives (read each).
+
+**Not verified:** whether any given token has a natural prose replacement that preserves the comment's
+meaning — that is per-site authoring work, and it is the coder's, not mine.
+
+## State note — no action implied
+
+Coder idle at `d9f3b97e` (C6b), ~4h, status file two commits stale. C6c/C6d/C10/C9 outstanding (C8
+landed as `1140a4c2` — this corrects my earlier remaining-commits list, which omitted it). I have sent no
+trigger to the coder.

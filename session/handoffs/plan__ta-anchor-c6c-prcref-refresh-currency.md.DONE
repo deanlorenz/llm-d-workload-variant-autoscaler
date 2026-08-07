@@ -1,0 +1,136 @@
+from: review (PR-2 internal reviewer)
+to: planner
+session: C6c prcRef vs C2's per-iteration anchor refresh
+
+## The finding
+
+§2d.5's "one selection rule, one slice" paragraph makes `prcRef` neutrality rest on this premise:
+
+> Feed both sides the **same** `w.anchor.VariantCapacities` slice: `sort.Slice` is deterministic for a
+> given input, so **identical input ⇒ identical `sorted[0]`** ⇒ `prcRef` bit-identical to
+> `v_role.PerReplicaCapacity` ⇒ (ii)'s ratio is exactly `1.0`
+
+The slice-identity half is achievable and I verified it holds (`greedy_score_optimizer.go:311` passes
+`w.anchor.VariantCapacities`; site (i)'s `anchor` at `:125` is the same object `buildScaleUpWork` stores as
+`w.anchor`). **But "identical input" is false**, because PR-2's own C2 mutates that slice's contents
+between site (i)'s read and site (ii)'s:
+
+```go
+// analyzer_helpers.go:736-743, allocateForModelPaired
+for anyRoleNeedsScaleUp(pickerState, roles) {
+    refreshAnchorSizing(variants, s, pickerState)   // :737 — rewrites variants[i] EVERY iteration
+    ...
+        v, capN := pick(role, s, variants, stateMap, available, targets)   // :743 — reads the mutation
+```
+
+and `refreshAnchorSizing` assigns PRC directly (`analyzer_helpers.go:569`):
+
+```go
+vc.PerReplicaCapacity = b.PerReplicaCapacity
+```
+
+Timeline, all verified at branch tip `d9f3b97e`:
+
+1. `w.remaining = fairShareValue(...)` — `greedy_score_optimizer.go:133` (first pass) / `:348`/`:350`
+   (per-round recompute). Site (i) divides by `prcRef` here, so `target` is denominated in *that* `prcRef`.
+2. `target := w.remaining - mean` — `:273`. Fixed scalar.
+3. `pick := fairShareRolePick(target, w.s, w.roles)` — `:310`. `target` **captured into the closure**,
+   before the loop.
+4. `allocateForModelPaired(...)` — `:311`. Its loop calls `refreshAnchorSizing` at `:737`, **then** `pick`
+   at `:743`, on every iteration.
+5. Site (ii) `fairShareCap := ceil(target / vc.PerReplicaCapacity)` — `greedy_score_optimizer.go:423`,
+   reading the freshly-mutated `vc`.
+
+So the neutrality algebra `target_new × prcRef = target_old` holds only if the `prcRef` used at step 5 is
+the **step-1 value**. §2d.5 as written tells the coder the two sides agree because they read the same
+slice under the same rule — which, applied literally inside the closure, re-derives `prcRef` from the
+*post-refresh* slice and breaks the identity.
+
+Two distinct ways it breaks, not one:
+
+- **Value drift.** `sorted[0]`'s PRC is rewritten, so the ratio's numerator is stale relative to `target`.
+  Worked against §2d.5's own table (`v1` PRC 10000 = `v_role`, `v2` PRC 2000, `target` 50000 ⇒ 5): if the
+  refresh moves `v1` 10000 → 8000, a closure-recomputed `prcRef` gives `ceil(5 × 8000/2000) = 20` where
+  the correct answer is still `ceil(5 × 10000/2000) = 25`. A 20% under-allocation, same failure *mode* as
+  the 5× one §2d.5 already documents, just smaller and harder to spot.
+- **Identity drift.** The refresh changes PRC, `costEfficiency` is `Cost/PRC`
+  (`cost_aware_optimizer.go:238-243`), so `sortByCostEfficiencyAsc` can **reorder** — `sorted[0]` may be a
+  *different variant* on iteration 2 than on iteration 1. Capturing the value fixes both; re-deriving the
+  rule fixes neither.
+
+## Why no planned test catches it
+
+`refreshAnchorSizing` early-returns at `len(s) <= 1` (`analyzer_helpers.go:552-554`). So:
+
+- **All 8 #1513 goldens are blind.** They are sat-v2-only, so the refresh is a no-op and pre/post-refresh
+  `prcRef` are trivially identical. (I enumerated them for a separate reason and they are blind to the
+  `prcRef` rescale *entirely* — see the note at the end.)
+- **§4's new fall-through fixture is blind as specified.** §4 asks for "one role, two variants with
+  different PRCs **and** different costs, the cheaper-efficiency one made infeasible via `MaxReplicas`
+  headroom". It does not say *multi-analyzer*. With one voting analyzer the refresh no-ops, so the fixture
+  distinguishes rescale-vs-no-rescale (its stated job, which it does well) but **cannot** distinguish
+  captured-`prcRef` from recomputed-`prcRef`.
+
+That combination is what makes this worth a handoff rather than a review note: the defect is in the path
+PR-2 exists to serve (≥2 live analyzers), the plan's guidance leads toward the buggy form, and nothing in
+the planned suite would go red.
+
+## Suggested plan edits
+
+1. **§2d.5, the "one selection rule, one slice" paragraph** — recast the requirement from *slice identity*
+   to *value capture*: `prcRef` is computed **once, where fsv is computed**, and threaded into
+   `fairShareRolePick` alongside `target`; it is **not** re-derived inside the closure. Cite the reason
+   inline — `refreshAnchorSizing` rewrites `variants[i].PerReplicaCapacity` at `analyzer_helpers.go:569`,
+   called at `:737` on every iteration of `allocateForModelPaired`'s loop, before `pick` at `:743`. The
+   existing `sort.Slice`-determinism argument stays correct and useful; it just needs "…for a given
+   input, **and the input is only stable if you capture `prcRef` before the refresh loop**".
+2. **Same paragraph** — add the identity-drift sentence, since it is not implied by the value argument:
+   the refresh changes `Cost/PRC`, so `sorted[0]` can change *which variant it is* mid-loop.
+3. **§4, the fall-through cap fixture** — require **≥2 voting analyzers**, with the refresh actually moving
+   the reference variant's PRC between iterations, so the fixture separates captured from recomputed
+   `prcRef`. Otherwise add it as a second fixture and say explicitly which of the two failure modes each
+   one guards, so a coder does not read one green test as covering both.
+4. **§6, C6c** — optional criterion, cheap to check: `prcRef` must not be derived inside
+   `fairShareRolePick`'s closure body. A `grep -n "sortByCostEfficiencyAsc" internal/engines/pipeline/`
+   confirming the call does not appear inside `fairShareRolePick` is enough.
+
+## Scope of what I verified vs. did not
+
+**Verified at `d9f3b97e`:** the mutation (`:569`), its call site inside the loop (`:737`) ahead of `pick`
+(`:743`), the `len(s) <= 1` early return (`:552`), `target`'s fsv provenance (`:273` ← `:133`/`:348`/`:350`),
+the pre-loop capture (`:310`), site (ii)'s read of the mutated field (`:423`), slice identity between site
+(i) and (ii) (`:125`/`:311`), and `costEfficiency`'s PRC dependence (`cost_aware_optimizer.go:238-243`).
+
+**Not verified:** that a *realistic* multi-analyzer refresh moves the reference variant's PRC by enough to
+change a replica count. The mechanism is present and unguarded; the magnitude depends on fixture
+construction. The 10000→8000 numbers above are illustrative, not measured.
+
+## Adjacent, no action requested — the #1513 goldens are blind to the `prcRef` rescale generally
+
+Found while getting a denominator for this, and recorded here only so it is on the record somewhere the
+planner can see it; it needs no plan change because §4 already mandates the fall-through fixture.
+
+`fairShareRolePick` **returns on the first candidate with `capN > 0`** (`greedy_score_optimizer.go:432-434`),
+so normally only `sorted[0]`'s cap is computed — and `sorted[0]` *is* `v_role`, where the ratio is 1.0 by
+construction. Reaching a second candidate needs the `PRC <= 0` (`:411`), `gpusAvail < gpusPR` (`:420`), or
+`headroom <= 0` (`:427`) skip to fire. Across all 8 goldens: no fixture sets `MaxReplicas` at all, and
+`unlimitedConstraints` is 1,000,000 GPUs per pool. Per spec — A1/A2/A3 single-variant; **A4** two variants
+with genuinely different PRCs (10000/20000) but the loop returns at `sorted[0]`=`cheap` and never computes
+`expensive`'s cap; B1 one variant per role; **B2** two prefill variants that *are* both reached, but with
+**identical** PRCs (10000/10000), so every ratio is 1.0 regardless; C1 single-variant, and its quota binds
+through `gpusAvail/gpusPR = 1` rather than `fairShareCap`.
+
+So §2d.5's "the goldens stay green" prediction is right, and its stated reason ("single-variant-per-role")
+is right for 6 of 8 — A4 and B2 are green for the two additional reasons above. The consequence for review
+is mine to carry, not the plan's: green goldens at C6c are **necessary but not sufficient** for site (ii),
+and I have corrected my own checklist accordingly so I do not read them as evidence the rescale landed.
+
+## State note — no action implied
+
+Branch tip `d9f3b97e` (C6b), clean tree, coder idle since 03:37 with `session/status/ta-anchor-dynamic-refresh.md`
+stale by two commits (says tip `1140a4c2`). C6c is unwritten, which is why this is worth sending now rather
+than as a mid-commit correction. Finding 17's handoff was folded by `9f09b91d` and I have verified that
+fold-in; this is independent of it. Two coder-addressed triggers
+(`ta-anchor-dynamic-refresh__c6c-c6d-c10-plan-updates.md`, `__c10-effect-corrected.md`) are still open and
+already point at the plan, so a coder re-read would pick up any edit from this handoff without a new
+trigger — I have not written one, and routing a trigger to the coder is not mine to do in any case.

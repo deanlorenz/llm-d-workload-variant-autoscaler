@@ -1,0 +1,111 @@
+from: review (PR-2 internal reviewer)
+to: planner
+session: C6c prcRef — the "no new closure parameter" sentence must be reversed
+
+**Supplement to `plan__ta-anchor-c6c-prcref-refresh-currency.md` (currently `.WIP`).** That file is
+yours and mid-edit, so per CONVENTIONS I'm adding a sibling rather than touching it. Read this one
+second; it does not replace the first, it adds a second site and one correction to what I asked for.
+
+## Why this is a separate handoff and not a note in my review doc
+
+My first handoff asked you to recast **§2d.5 *Reference PRC*** from slice-identity to value-capture.
+That was incomplete. There is a **second** mandate of the same broken form, in **§2 #5 site (ii)** —
+and it is the more load-bearing of the two, because §2 #5 is the per-commit site enumeration the coder
+follows literally when writing C6c.
+
+If §2d.5 is recast and §2 #5 (ii) is left as-is, the plan **contradicts itself** on the one decision
+C6c turns on. That is a worse end state than either half alone: the coder would have a value-capture
+paragraph in the design section and an explicit "no new parameter" instruction in the commit spec.
+Hence the interrupt while you are still in the file.
+
+## The sentence
+
+`planning/ta-anchor-dynamic-refresh-plan.md` §2 #5 (ii), **L254-256**:
+
+> `prcRef` needs **no new closure parameter** — the closure already computes
+> `sortByCostEfficiencyAsc(roleVCs)`, and `prcRef` is that sorted slice's first `PRC > 0` entry, i.e.
+> `v_role` by construction (§2d.5 *Reference PRC*).
+
+This needs to be **reversed**: a threaded value is exactly what is required. The reason is the one in
+my first handoff — `refreshAnchorSizing` (`analyzer_helpers.go:737`, every iteration, **before** `pick`
+at `:743`) rewrites `variants[i].PerReplicaCapacity` at `:569`, and `roleVCs` is a filtered view of
+that same mutated slice. Deriving `prcRef` inside the closure therefore reads it **at cap time**,
+whereas `target` was fixed **at fsv time** (`:273` → captured at `:310`).
+
+Arithmetic, with `P0` = reference PRC at fsv time and `P1` = same role's reference PRC at iteration *k*:
+
+| | `capN` | correct? |
+|---|---|---|
+| threaded `prcRef = P0` | `ceil(target × P0 / P1)` = `ceil(demand / P1)` | ✓ |
+| derived in closure (`prcRef = P1`) | `ceil(target × P1 / P1)` = `ceil(target)` = `ceil(demand / P0)` | ✗ off by `P1/P0` |
+
+Note this is **not** the fall-through case §2d.5 already covers. It bites on the reference candidate
+itself — the case §2d.5 says is "exactly 1.0" — because the ratio is 1.0 *within* an iteration while
+the *value* has drifted *between* iterations. Same-slice guarantees the former and says nothing about
+the latter.
+
+## The §2d.5 chain that needs the same treatment (restating my first handoff, for one-place reading)
+
+**L627-629:** "Feed both sides the **same** `w.anchor.VariantCapacities` slice: `sort.Slice` is
+deterministic for a given input, so identical input ⇒ identical `sorted[0]` ⇒ `prcRef` bit-identical
+to `v_role.PerReplicaCapacity`". Every link holds; the premise "identical input" is what the refresh
+breaks. Same slice, different *contents*, different time. Suggest keeping the paragraph and adding
+that the identity is required **at one instant**, and that C2's refresh means the two reads are not at
+one instant, so the value must be captured and carried.
+
+## Constructive minimal fix (one correction to my first handoff)
+
+I wrote "threaded into `fairShareRolePick` alongside `target`" as if `prcRef` were a scalar. It is
+**per-role** — §2d.5 L623-624 says "the **role's** first `sortByCostEfficiencyAsc` candidate", and
+site (i)'s fsv sums over roles. So:
+
+- compute `prcRef map[string]float64` (role → reference PRC) **where fsv is computed**, using the
+  existing rule, from the pre-refresh slice;
+- `:310` is a valid capture point — `pick := fairShareRolePick(target, w.s, w.roles)` runs *before*
+  `allocateForModelPaired` at `:311`, so the slice there is still in the state that produced `target`;
+- signature becomes `fairShareRolePick(target, prcRef, s, roles)`; in the closure the ratio is
+  `prcRef[role] / vc.PerReplicaCapacity`.
+
+**Hazard worth a word in the plan:** `fairShareRolePick` currently carries two dead parameters,
+`_ = s` and `_ = roles` (`greedy_score_optimizer.go:399-400`), commented "available for future
+multi-analyzer demand inspection". Those lines actively invite deriving `prcRef` in-closure from
+material already in scope. A one-line "do not derive `prcRef` from `roleVCs`" in (ii) is cheap
+insurance.
+
+## Trivial, since you are in the file
+
+**L604** reads "See §2 #5 for the **four** sites (i)–(iv)". There are five — the §2 #5 header (L185)
+says "**5** lock-step sites" and (v) is at L271. Stale count from before (v) was added.
+
+## Scope — narrowed since my first handoff (good news)
+
+I checked whether the hazard reaches the other lock-step sites. It does not:
+
+- `refreshAnchorSizing` has exactly **one** non-test call site, `analyzer_helpers.go:737`, inside
+  `allocateForModelPaired`'s scale-up loop. **`scaleDownRoleIterated` never refreshes**, so site (iii)
+  `sortVariantsForScaleDown` is unaffected.
+- `greedy_score_optimizer.go:423` is the **only** `ceil(target / PRC)` in the package, so site (ii) is
+  a single location, not a family.
+- The vote helpers (`analyzer_helpers.go:445`, `:472`, `:502`) divide by **each analyzer's own**
+  `prcForVariant`, which is the correct per-analyzer conversion and is not the same quantity as
+  `prcRef`. Untouched by this.
+
+So the fold-in is bounded: §2 #5 (ii), §2d.5 *Reference PRC*, plus §4's fixture requirement from my
+first handoff. Nothing else needs to move.
+
+## Verified vs not verified
+
+**Verified by reading code at branch tip `d9f3b97e`:** the refresh call site and its position relative
+to `pick`; the mutation at `:569`; `target`'s capture at `:310` and its fsv provenance at `:133` /
+`:348` / `:350`; the `len(s) <= 1` early return at `:552-554`; `costEfficiency`'s `MaxFloat64` rule at
+`cost_aware_optimizer.go:238-243`; the single refresh call site and single `ceil` site above.
+
+**Not verified — cannot be, C6c is unwritten:** that the coder would in fact take the in-closure
+route. I am flagging the instruction, not a defect in code that exists. If you judge the risk
+acceptable and prefer to leave (ii) as written, that is your call as plan owner; I'll review C6c
+against whatever the plan says at the time it lands.
+
+## State note — no action implied
+
+Coder is idle at `d9f3b97e` (C6b), ~4h, status file two commits stale. C6c unwritten, so this window
+is still free. I have sent no trigger to the coder and will not — not mine to do.
