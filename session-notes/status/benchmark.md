@@ -1861,10 +1861,19 @@ Doable without a decision, not yet done:
 5. ~~Verify `containerLogMaxSize` / `containerLogMaxFiles`~~ — **DONE 2026-08-08**: 50Mi × 5,
    and the reachable budget is ONE file. See the correction block in §17.1;
    `--rotation-budget` now implements the verified model and its byte accounting.
-6. Clean the PVC per the retention rule, and run `verify_pvc_vs_host.py` (never yet run) —
-   §16.5 wants it gating **every** harvest, not run ad hoc. Retention scope, sharpened by
-   §17.11 item 2: the multi-GB per-replica files go, **`metrics/raw/` stays** — 12–35 MB/run and
-   the only time-resolved source of KV / running / waiting / ITL / preemption.
+6. ~~Clean the PVC per the retention rule~~ — **already done, and correctly**, observed
+   2026-08-08: `workload-pvc` is at **296 MB used / 20 GB available**, every multi-GB
+   `per_request_lifecycle_metrics.json` is gone, and each run's `metrics/` (21–57 MB) survived —
+   exactly the retention scope §17.11 item 2 sharpened (the multi-GB per-replica files go,
+   `metrics/raw/` stays). Host copies verified present and full-size: 3.97 / 4.20 / 4.21 /
+   4.23 GB across the four runs that produced one, plus the ladder run's **0-byte** file, which
+   is the OOM's own signature. The 4,234,888,579 B figure quoted as the per-request sizing basis
+   is the same file, so the sizing arithmetic is cross-confirmed against the artifact.
+   **Still open, and it is a process gap not a data gap:** `verify_pvc_vs_host.py` has **still
+   never run**, and it can no longer be applied to these files — the PVC side is deleted, so
+   there is nothing left to compare against. The local copies are all we have for those runs.
+   §16.5 wants this tool gating **every** harvest; the next run is the first opportunity to
+   actually make it a gate rather than a good intention.
 7. File the inference-perf output-token inflation upstream (§16.4), now with server-side proof.
 8. Promote the `session-notes/scratch/` tools into `hack/benchmark/` (list in §16.5 + §17.7).
 9. Suppress step_09's local report regeneration (§15.17); add controller-log capture to the
@@ -2234,9 +2243,10 @@ and settles the question the other way.
 
 #### Preconditions before this run can start
 
-1. **PVC reclaim to ≥14 GB free**, with host copies verified byte-identical first via
-   `verify_pvc_vs_host.py` — which has **never been run** (§17.8 item 6). Retention scope per §17.11:
-   the multi-GB per-replica traces go, **`metrics/raw/` stays**.
+1. ~~**PVC reclaim to ≥14 GB free**~~ — **already satisfied**: `workload-pvc` reads **296 MB used /
+   20 GB available**, so the 11.3 GB report fits with ~8 GB to spare. Details and the one residual gap (`verify_pvc_vs_host.py` still never run, and no longer
+   applicable to the deleted files) are in §17.8 item 6. **Make it a gate on this run's harvest**,
+   which is the first chance to.
 2. **Confirm the 96Gi harness pod schedules** in `dhl-wva-209`. Node allocatable is ~2 TiB so this
    should be uneventful, but requests == limits means it is a real claim on a shared cluster.
 3. **Cluster footprint flag, not a blocker:** at the observed ~6 rps/replica wall for this token
