@@ -3,9 +3,19 @@
 > **Reading protocol:** Read the TOC first. Fetch only the sections you need via
 > `Read <file> offset:<start> limit:<end-start+1>`. Never read the whole file up front.
 
-**Type:** 1 (design) · **addendum — additive only** · **Status: FINAL for the analysis;
+**Type:** 1 (design) · **addendum — additive only** · **Rev 7** · **Status: FINAL for the analysis;
 [`AD8`](#ad8) decided by Dean 2026-08-08 (repair the pricing), [`AD5`](#ad5) still open, and what
 remains on each is named** ([§ disposition](#disposition)).
+
+> **Rev 7 (2026-08-08) — evidence corrections only; no ruling, severity, or open question moved.**
+> Rev 6 closed the `[sat, TA]`-with-saturation-non-live cell and Dean approved that revision. The
+> closure is **CONFIRMED** — independently, by a reviewer counter-example search (four candidate
+> single-fault stories, all four fail) — but Rev 6's *argument* for it was wrong in three cited
+> mechanisms and is **withdrawn** ([§ withdrawn](#withdrawn) item 9): the correct reason is same-event
+> containment, not a retention asymmetry, and it needs no time constant. Rev 6's own residual is
+> retired; a narrower `k1`/`k2` one replaces it ([§ residual](#residual)). **If you consumed Rev 6,
+> nothing you were told to do has changed** — re-read only item 9, and stop citing "7 days vs 1 hour".
+> `AD8`'s **placement in PR-2 remains the single open question with Dean**, exactly as in Rev 6.
 
 **Parent:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md) —
 **Status: FINAL, frozen 2026-08-07 @ `8c2a9b04`**. **The parent is deliberately unedited.** Dean,
@@ -52,28 +62,30 @@ settling it.
 **Provenance.** This addendum records the outcome of a design discussion held 2026-08-07/08 in which
 Dean issued three rulings and rejected two of this author's proposals. His rulings are quoted where
 they are load-bearing. Rulings are **unaffected by the Rev 2 re-baseline** — they are decisions, not
-code readings. Three of the author's own framings were wrong and were withdrawn; they are recorded in
-[§ withdrawn](#withdrawn) rather than deleted, because the corrected version is only legible against
-them.
+code readings. **Four** of the author's own framings were wrong and were withdrawn; they are recorded
+in [§ withdrawn](#withdrawn) rather than deleted, because the corrected version is only legible against
+them. The fourth (item 9, Rev 7) is of a different kind and worth naming here: it withdraws the
+*argument* under a conclusion that **stands** — so nothing it touches changes a ruling, a severity, or
+an open question, and no reader needs to re-open the document on its account.
 
 ---
 
 ## TOC {#toc}
 
-- [Why this addendum exists {#why}](#why-this-addendum-exists-why) L78:97
-- [AD1 — the ThroughputAnalyzer is not a P/D-complete analyzer {#ad1}](#ad1--the-throughputanalyzer-is-not-a-pd-complete-analyzer-ad1) L98:173
-- [AD2 — ruling: `[TA]`-only is unsupported on P/D models; both analyzers is the default {#ad2}](#ad2--ruling-ta-only-is-unsupported-on-pd-models-both-analyzers-is-the-default-ad2) L174:201
-- [AD3 — the from-zero PRC work is scoped to `decode` and `both` roles only {#ad3}](#ad3--the-from-zero-prc-work-is-scoped-to-decode-and-both-roles-only-ad3) L202:255
-- [AD4 — TA cannot veto saturation, but under PR-2 it can dilute it {#ad4}](#ad4--ta-cannot-veto-saturation-but-under-pr-2-it-can-dilute-it-ad4) L256:336
-- [AD5 — the one real override is the binding path, not voting — OPEN {#ad5}](#ad5--the-one-real-override-is-the-binding-path-not-voting--open-ad5) L337:443
-- [AD6 — rejected: TA cross-variant sibling pricing. Retained: the retention exception {#ad6}](#ad6--rejected-ta-cross-variant-sibling-pricing-retained-the-retention-exception-ad6) L444:493
-- [AD7 — `N5` (saturation `Cost = 0` at zero replicas) is to be fixed {#ad7}](#ad7--n5-saturation-cost--0-at-zero-replicas-is-to-be-fixed-ad7) L494:516
-- [AD8 — the prefill role is not merely starved: it is frozen or drained — DECIDED: repair the pricing {#ad8}](#ad8--the-prefill-role-is-not-merely-starved-it-is-frozen-or-drained--decided-repair-the-pricing-ad8) L517:1019
-  - [Interim operator note — the highlights, until the pricing repair lands {#ad8-operator-note}](#interim-operator-note--the-highlights-until-the-pricing-repair-lands-ad8-operator-note) L985:1019
-- [Residual band after the rulings {#residual}](#residual-band-after-the-rulings-residual) L1020:1066
-- [Verification checklist — for the planner and reviewer {#checklist}](#verification-checklist--for-the-planner-and-reviewer-checklist) L1067:1101
-- [Withdrawn framings {#withdrawn}](#withdrawn-framings-withdrawn) L1102:1239
-- [Disposition summary {#disposition}](#disposition-summary-disposition) L1240:1268
+- [Why this addendum exists {#why}](#why-this-addendum-exists-why) L90:109
+- [AD1 — the ThroughputAnalyzer is not a P/D-complete analyzer {#ad1}](#ad1--the-throughputanalyzer-is-not-a-pd-complete-analyzer-ad1) L110:185
+- [AD2 — ruling: `[TA]`-only is unsupported on P/D models; both analyzers is the default {#ad2}](#ad2--ruling-ta-only-is-unsupported-on-pd-models-both-analyzers-is-the-default-ad2) L186:213
+- [AD3 — the from-zero PRC work is scoped to `decode` and `both` roles only {#ad3}](#ad3--the-from-zero-prc-work-is-scoped-to-decode-and-both-roles-only-ad3) L214:267
+- [AD4 — TA cannot veto saturation, but under PR-2 it can dilute it {#ad4}](#ad4--ta-cannot-veto-saturation-but-under-pr-2-it-can-dilute-it-ad4) L268:348
+- [AD5 — the one real override is the binding path, not voting — OPEN {#ad5}](#ad5--the-one-real-override-is-the-binding-path-not-voting--open-ad5) L349:455
+- [AD6 — rejected: TA cross-variant sibling pricing. Retained: the retention exception {#ad6}](#ad6--rejected-ta-cross-variant-sibling-pricing-retained-the-retention-exception-ad6) L456:505
+- [AD7 — `N5` (saturation `Cost = 0` at zero replicas) is to be fixed {#ad7}](#ad7--n5-saturation-cost--0-at-zero-replicas-is-to-be-fixed-ad7) L506:528
+- [AD8 — the prefill role is not merely starved: it is frozen or drained — DECIDED: repair the pricing {#ad8}](#ad8--the-prefill-role-is-not-merely-starved-it-is-frozen-or-drained--decided-repair-the-pricing-ad8) L529:1060
+  - [Interim operator note — the highlights, until the pricing repair lands {#ad8-operator-note}](#interim-operator-note--the-highlights-until-the-pricing-repair-lands-ad8-operator-note) L1026:1060
+- [Residual band after the rulings {#residual}](#residual-band-after-the-rulings-residual) L1061:1124
+- [Verification checklist — for the planner and reviewer {#checklist}](#verification-checklist--for-the-planner-and-reviewer-checklist) L1125:1159
+- [Withdrawn framings {#withdrawn}](#withdrawn-framings-withdrawn) L1160:1390
+- [Disposition summary {#disposition}](#disposition-summary-disposition) L1391:1419
 
 ## Why this addendum exists {#why}
 
@@ -670,7 +682,7 @@ TA's zero is inert. Three cells, therefore, and only two of them matter:
 |---|---|---|
 | `[sat, TA]`, both live, uniform scores (**the recommended default**) | sat's vote wins the max | **no — TA's zero is inert** |
 | `[TA]`-only on P/D | TA is the sole voter; structural 0 | **yes** — already an unsupported config ([`AD2`](#ad2)) |
-| `[sat, TA]`, sat non-live | `VG-up` prunes sat; TA would survive on its **own** persisted supply — see below | **no — closed in Rev 6** ([§ withdrawn](#withdrawn) item 8). Neither a cold start nor a sustained metrics gap gets here: saturation's capacity store is refilled from the scale targets every cycle and kept 7 days, while TA's persisted supply needs observed live metrics and expires in 1 hour, so **TA warm ⟹ sat warm**. Residual is a fresh process with every scale-target fetch failing — where TA is cold too |
+| `[sat, TA]`, sat non-live | `VG-up` prunes sat; TA would survive on its **own** persisted supply — see below | **no — closed in Rev 6; confirmed by counter-example search in Rev 7** ([§ withdrawn](#withdrawn) items 8 **and 9**). Neither a cold start nor a sustained metrics gap gets here, and the reason is **same-event**, not retention: every replica-metric row writes saturation a `learnedFromLive` capacity record (`saturation_v2/analyzer.go:198-207`) in the same key space TA's persisted supply is warmed from, so **TA warm ⟹ sat warm** with no duration in the argument. Rev 6 argued this from a 7 d-vs-1 h retention asymmetry; **that framing is withdrawn** — the eviction it cited never runs (item 9). Rev 6's residual is retired too: a model whose every scale-target fetch fails has empty maps and is skipped whole (`saturation/engine.go:1500-1507` → `:1540-1545`), so it is *no model*, not an all-`NoData` one |
 | `[sat, TA]`, both live, **TA scored above sat** | dominance correction `(e−v_i)(s_i−s_e)+` pulls toward TA's 0 | **partially** — latent; shipped scores are uniform |
 
 <a id="ad8-third-row"></a>
@@ -729,15 +741,28 @@ The two failure conditions are different objects:
   `Reason: itlReasonScaleFromZero` (`throughput/analyzer.go:427-440`) — which is neither `NoData` nor
   `Error`, so TA is **informative** and stays `Live`.
 
-⚠️ **The asymmetry runs the other way, and that is what closes this cell** ([§ withdrawn](#withdrawn)
-item 8). Saturation does not have to find its record the hard way: the store is refilled from the scale
-targets every cycle and retained for **7 days** (`CapacityEvictionTimeout`, `saturation_v2/constants.go:19`).
-TA's `lastPerReplicaSupply` is warmed **only** by observed live replica metrics and is evicted after **1
-hour** of non-observation (`2 × DefaultObservationMaxAge`, `throughput/analyzer.go:157-162`,
-`throughput/constants.go:24`). Both memories live in the same process, so **TA warm ⟹ saturation warm**: TA
-can only hold a persisted supply for a variant it saw live, and that same cycle's metrics wrote saturation a
-`learnedFromLive` record (`saturation_v2/analyzer.go:206`) which outlives TA's by 168×. There is no window
-in which TA is the surviving voter *because saturation went quiet*.
+⚠️ **The two memories warm from the same event, and that is what closes this cell**
+([§ withdrawn](#withdrawn) item 8, on the corrected reasoning of item 9). The implication needs **no
+duration and no retention policy**: the *only* thing that can leave TA holding a positive
+`lastPerReplicaSupply` for a variant is having observed a usable replica-metric row for it
+(`throughput/analyzer.go:427-440` `continue`s without a prior observation) — and processing that same row
+writes saturation a `learnedFromLive` capacity record in the same key space, keyed on the same
+`rm.VariantName` (`saturation_v2/analyzer.go:198-207`), which nothing subsequently removes
+(`capacity_store.go:98-101` refuses to overwrite a live record with a weaker source, and the eviction path
+never runs — item 9 correction (a)). Both memories live in the same process, so **TA warm ⟹ saturation
+warm**, per variant, from the same cycle. There is no window in which TA is the surviving voter *because
+saturation went quiet*.
+
+Saturation is in fact warm over a **strictly broader** set than TA: the store is also pre-populated from
+the scale-target objects on step 1 of every cycle (`saturation/engine_v2.go:38-53` → `LoadFromScaleTarget`,
+stamped `learnedFromScaleTarget`), which reaches variants that have **no metric rows at all** — variants TA
+has never seen. Containment, not a race.
+
+> Rev 6 argued this same conclusion from a retention asymmetry (7 d vs 1 h). **That argument is withdrawn**
+> — both eviction functions are dead code, and the TA clock it cited keys on a different field than the one
+> the cell depends on. Details and the corrected citations: [§ withdrawn](#withdrawn) item 9. The
+> conclusion is unchanged and now rests on the same-event implication above, which has no time constant in
+> it at all.
 
 **Demand does not go to zero with the metrics, which is what makes the pruned entry's `RC` positive.**
 Per-variant demand accumulates only inside the live-replica branch, so every `NoData` variant reports
@@ -760,11 +785,27 @@ zero ([`AD2`](#ad2)).
 
 ⚠️ **Both entry paths Rev 5 offered are closed** ([§ withdrawn](#withdrawn) item 8). The **cold start** is
 closed by the store pre-population — a first deploy is priced `P0-store` on cycle one. The **sustained
-metrics gap** is closed by the same store plus its 7-day retention — a scrape failure does not remove the
-record that keeps saturation informative. What remains is a **fresh controller process in which every
-variant's scale-target fetch also fails** (`saturation/engine.go:1500-1507` `continue`s on error, writing no
-store entry) — and in that state TA is cold too, so it cannot be the surviving voter. **In `[sat, TA]` this
-cell is not reachable by any operational fault we can name.**
+metrics gap** is closed by the same store: a scrape failure does not remove the record that keeps saturation
+informative, because nothing removes records at all (item 9 correction (a)).
+
+Rev 6 named one residual here — a fresh controller process in which every variant's scale-target fetch also
+fails. **That residual is retired**, by two closures Rev 6 did not cite. A failed `FetchScaleTarget`
+`continue`s at `saturation/engine.go:1506` **before** `scaleTargets[key] = scaleTarget` (`:1520`) and before
+`variantAutoscalings[variantKey] = va` (`:1523`), so such a model reaches `RunAnalysis` with *empty* maps;
+and `saturation/engine.go:1540-1545` returns early on `len(replicaMetrics) == 0`, skipping the model before
+`BuildVariantStates` (`:1547`) and before any analyzer runs. The state is therefore **no model on the
+ballot**, not an all-`NoData` model — and there is no ballot for TA to be the sole voter on.
+
+**What remains — the reviewer's residual, which is not a liveness state at all.** For saturation to stamp
+`NoData` on a variant it must have **zero** replica-metric rows for it: `saturation_v2/analyzer.go:390`
+takes the first branch on `len(replicas) > 0` and yields a non-`NoData` reason whatever the arithmetic
+produces. So the only way in is a variant with rows whose priced capacity is nonetheless rejected —
+`min(k1, k2) ≤ 0` at `saturation_v2/analyzer.go:185-188` — for **every** variant of the model, on the same
+cycle TA computed a positive `perReplicaSupply` from those same rows, **and** `lookupCompatibleCapacity`
+missing for every variant too. Not claimed reachable; **not closed by reading either**. It is a
+`k1`/`k2` arithmetic question, so probing it needs a k1/k2 fixture, not a liveness fixture — and it is
+recorded, deliberately, as a band rather than a closure. **In `[sat, TA]` this cell is not reachable by any
+operational fault we can name.**
 
 What that does *not* close, and why the disposition below is unchanged: **`[TA]`-only needs no saturation
 death at all** — saturation is not on the ballot, so `AD8` is reachable there directly with no liveness
@@ -1062,6 +1103,23 @@ reach a single cold variant of a warm model. But it is reactive **under queueing
 is load that matters and has not queued yet. That band is the honest residual, and `N8` is the right
 answer within it — an analyzer that cannot price a variant should abstain, not guess.
 
+**A second band, added in Rev 7 — the `[sat, TA]`-sat-non-live cell's arithmetic remainder.** That cell
+is **closed** as a liveness state ([§ withdrawn](#withdrawn) items 8 and 9: `TA warm ⟹ sat warm`,
+same-event), and four candidate single-fault stories were searched and all four fail. What is not closed
+is one arithmetic predicate, and it is recorded here rather than presented as a closure:
+
+> on the last cycle with replica-metric rows, `min(k1, k2) ≤ 0` (`saturation_v2/analyzer.go:185-188`)
+> for **every** variant of the model, while TA computed a positive `perReplicaSupply` from those same
+> rows, **and** `lookupCompatibleCapacity` missed for every variant too.
+
+Why it has this shape and not another: `saturation_v2/analyzer.go:390` branches on `len(replicas) > 0`,
+so a variant with **any** row gets a non-`NoData` reason whatever the arithmetic yields — a variant must
+therefore have rows that price to nothing, not merely have no rows. That is a **`k1`/`k2` question, not a
+liveness question**, so probing it needs a k1/k2 fixture; a stale-timestamp or metrics-gap fixture lands
+somewhere else entirely. It is not claimed reachable and not claimed unreachable, and **no ruling,
+severity, or disposition in this addendum depends on which it turns out to be** — the reachable
+configuration for [`AD8`](#ad8) remains `[TA]`-only either way.
+
 [↑ TOC](#toc)
 
 ## Verification checklist — for the planner and reviewer {#checklist}
@@ -1078,7 +1136,7 @@ tip to detect drift.
 | `AD3` | Scoped to `decode`/`both` | **CONCLUSION HOLDS; RATIONALE REPLACED** — "all mechanisms equally inert" is **false**: pricing removes the unpriced-skip. Valid only for a **zero-replica** prefill variant; a live one is already priced | `git show a9afb740:internal/engines/pipeline/cost_aware_optimizer.go \| sed -n '139,141p'` (the skip) + `throughput/analyzer.go:398-408` (TA prices live prefill) |
 | `AD4` | TA cannot veto sat | **CHANGED** — verdict holds, argument replaced; **new**: dilution when `Score_TA > Score_sat`; **and** "no veto" is not benign ([`AD8`](#ad8)) | read `combineVotes` `:456-494`, `voteScore` `:512-517`, `votesFromPickerState` `:522-534`, `roleSpareVetoed` `:736-771` |
 | `AD5` | Prefill gets no fair-share GPU budget when TA is sole voter | **HOLDS** — mechanism restated (ballot combine, not anchor read); **three sub-regimes** distinguished, only (i) is `AD5` | read `roleDemandGPUs` `rescale.go:579-603`; confirm `s := votingResults(...)` at `:360` and `:518`; `variantsOnType` `:606-614` |
-| `AD8` | TA's prefill spare **authorizes draining the role**; two routes, both **inherited from base**, with route (A) made **deterministic** by `VG-up` | **NEW in Rev 3 — corrects Rev 1/Rev 2's "harmless".** Route (A) **CONFIRMED by execution** (prefill → 1 from 2/4/8, both optimizers, decode holds); route (B) read-only | `grep -n "scaleDownVariantSet(" internal/engines/pipeline/*.go` (expect exactly 2 callers: `cost_aware_optimizer.go:496`, `rescale.go:415`); then `cost_aware_optimizer.go:488,498` vs `rescale.go:415-421`; `engine_v2.go:509`; `analyzer_helpers.go:385`; the `#1237` clamp at `cost_aware_optimizer.go:157-160`. **Provenance:** `git show 075a208e:…/rescale.go \| grep -n "func roleDemandGPUs"` (no `s` param ⇒ base read the anchor) + `075a208e:analyzer_helpers.go:138,147` (base binder already `Live`-gated) + `075a208e:analyzer_helpers.go:237` (base `votingResults` = `Enabled` only ⇒ route (A)'s mask was real). **Base run:** arm 1 (all-zero `RC` on the pruned entry) executed 2026-08-08 — base drains identically at 2/4/8, both optimizers. **Arm 2 also executed 2026-08-08 and split the attribution:** with any one role's `RequiredCapacity` positive, **base does not drain** (prefill preserved, model scaled up on data no analyzer stood behind) **and HEAD does** — so route (A) is inherited in the all-zero regime and **HEAD-reachable** in the positive regime. Suites differ: base **308** specs, HEAD **386**. **Reachability of the decisive cell — verify this whole chain, it replaces a withdrawn "unreachable" claim:** (i) saturation stamps `satReasonNoData` when a variant has no live replicas *and* both store lookups miss (`saturation_v2/analyzer.go:389`, `:421-431`); all variants there ⇒ `ResultIsInformative` false (`analyzer_helpers.go:53-63`). **Verify the liveness step in its two-route form — non-informative ≠ non-live** (Dean, 2026-08-08): `nr.Live = ok && now.Sub(lastGood) <= threshold`, `threshold = 3 × interval` = 90 s default (`saturation/engine_v2.go:233`, `:245-247`, const `:84`), so a *previously*-informative saturation stays `Live` — and unpruned, still voting — for 90 s, while a **never**-informative one (`ok == false`) is non-live on cycle one with no window at all — **but verify that `ok == false` is reachable before relying on it, because Rev 6 concluded it is not** (see the closing note on this row); (ii) **TA does not go quiet on the same input** — it emits PRC-only capacities from its own persisted `lastPerReplicaSupply` with `Reason: itlReasonScaleFromZero` (`throughput/analyzer.go:427-440`), which is not a no-data sentinel ⇒ TA informative and `Live`; (iii) role demand survives the metrics gap via `estimateSchedulerQueueDemand` (`saturation_v2/analyzer.go:750-795`, `inputTokens = QueueBytes / BytesPerToken`, no `replicaMetrics` dependence) added per role at `:485-491` ⇒ prefill and decode both positive — precondition is **`QueueBytes > 0` specifically** (`QueueSize > 0` with zero bytes yields an all-zero demand and does *not* open the route), and the load-bearing line is that the `satReasonNoData` branch **falls through to the append** rather than skipping the variant (`:430-432`, then `:441-453`); had it skipped, `activeRoles` would be empty and `aggregateByRole` would return nil at `:479-481`, closing the route — so preserve that fall-through in any fixture; (iv) `applyUniversalThreshold` (`saturation/engine_v2.go:476-513`) has **no reference to `VariantCapacities`**, so non-informative + positive role `RC` are orthogonal by construction and **every** role is positive, not one (measured `470.588` both roles). ⇒ compliant `[sat, TA]` P/D + missing replica metrics ⇒ prefill sheds to 1 with real pods running. ⚠️ **Rev 6 closes that last implication — the chain's links (ii)/(iii)/(iv) hold, link (i) does not** ([§ withdrawn](#withdrawn) item 8): saturation's capacity store is refilled from the scale targets at step 1 of **every** cycle before `Analyze` runs (`saturation/engine_v2.go:38-53`) on a path with no zero-yielding branch (`capacity_store.go:126-128` → `deployment_parser.go:281-303`, reached on every return of both parsers) and retained **7 days** (`saturation_v2/constants.go:19`), while TA's `lastPerReplicaSupply` needs observed live metrics and expires in **1 hour** (`throughput/analyzer.go:157-162`, `constants.go:24`) — same process, so **TA warm ⟹ sat warm** and there is no window with TA the sole voter. Residual: a fresh process with *every* variant's scale-target fetch failing (`saturation/engine.go:1500-1507`), where TA is cold too. **Verify by counter-example, not by re-deriving:** find any single-fault story in which saturation stamps `no-data` on every variant while TA emits a `T-sfz` capacity. If none exists, the `[sat, TA]` cell is closed and only `[TA]`-only remains. **Do not test this with a faked stale timestamp** — no carry-forward exists (`updateLivenessAndSetLive:209-251` sets `Live` in place; `Result` is this cycle's), so a stale-timestamp fixture lands in the all-zero regime. **Floor-at-1 confirmed by mutation:** disabling `cost_aware_optimizer.go:157-161` drains prefill to **0** on both paths at all three heights and fails 4 other specs — the surviving replica is an accident of a model-level guard applied per-role, not a designed floor. **Route (B) also CONFIRMED 2026-08-08** — 12 configurations (hog demand 1000/2000/4000/8000 × limit 8/10/12), byte-identical base ≡ HEAD, prefill pinned at 1 at every budget. **Reachability bound:** `votesFromTotalDemand:552-566` — absent key abstains, `prc <= 0` abstains, **present-key-zero votes 0** — plus `combineVotes` max at `:461-470`, so a live sat outvotes TA's zero under uniform scores; the exposed cells are `[TA]`-only and **`[sat,TA]` with sat non-live**. **`MinReplicas` is already the explicit floor** — read at `cost_aware_optimizer.go:143-149`, *before* the cheapest-at-1 clause, so it dominates it; measured pf=1/1/2 for unset/1/2 with the clause live and 0/1/2 with it disabled (coder, 2026-08-08). So it fully substitutes and is strictly more expressive, but it is an **operator-set per-variant field**, so relying on it is documentation, not a fix: every unconfigured P/D model stays exposed, and it fails correlated with `AD8` (the operators who did not price prefill are the ones who did not floor it). Reviewer Finding 71/72 add the proof (`:142-161`: `n <= current − minReplicas` at every route in, clause needs `n >= current`, so it requires `minReplicas <= 0`) and two narrowings: it is **per-variant**, and the `states == nil` route to `minReplicas == 0` is dead tree-wide, so the exposed population is exactly "operators who left the field unset." **And it only helps one of the two regimes — verify this.** `greedy_saturation_algorithm.go:112-115` is the only floor that *raises* a target, and it **does** run on V2 decisions (`saturation/engine.go:761` → `default_limiter.go:101` → `Allocate`; it is the limiter's allocation algorithm, not a separate optimizer — do not dismiss it on optimizer identity), but it is unreachable in the frozen case twice: `filterScaleUpCandidates` keeps only `TargetReplicas > CurrentReplicas` (`:52-63`) and `allocateForDecision` early-returns on `replicasNeeded <= 0` (`:80-83`). So `MinReplicas` can preserve a scale-up, never originate one. **And verify its cost:** `hasMinReplicasAboveZero` (`saturation/engine.go:1362`) makes a `minReplicas > 0` on *any* variant skip `applyScaleToZeroEnforcement` **model-wide**, including the total-zero minimum-replica preservation — so the lever is a documented severity floor with a model-wide side effect, not a free mitigation. **Two regimes, measured** (coder, 2026-08-08, both optimizers, `cur` ∈ {0,1,2}, base vs HEAD): with decode `RC > 0` the dispatch takes **scale-up**, `scaleDownRoleIterated` is never entered, and prefill **freezes** at `cur` — at `cur = 0`, decode reaches 4 with prefill still 0 (measured HEAD 0/1/2 vs base 1/2/3 across `cur` ∈ {0,1,2}), and the enforcer cannot rescue it: it returns early on the model *total* (`enforcer.go:138-147`), and its total-zero fallback selects by `Cost`/`VariantName` with **no `Role` reference at all** (`:150-174`), so it may set a decode variant to 1 and leave prefill at 0; with decode `RC == 0` prefill **drains to 1**. The dispatch predicate is a global OR over roles (`analyzer_helpers.go:709-718`) with mutually exclusive arms (`cost_aware_optimizer.go:62-67`) — that is why one role captures the model. Base bought prefill exactly one replica per cycle in the same state, so the HEAD-vs-base delta is one replica, not the whole tier. **The Type-1 phrasing *"prefill's target collapses to 1"* is the drain regime only and understates the freeze.** **New harm:** `modelDemandGPUs` sums roles (`rescale.go:560-566`) → `rescaleInputsForGroup:540-546` feeds the understated total into **both** `Demand` and `CapGPUs` → constant-5-across-budgets in the sweep is the **cap** signature, so `CapGPUs` is a second repair site |
+| `AD8` | TA's prefill spare **authorizes draining the role**; two routes, both **inherited from base**, with route (A) made **deterministic** by `VG-up` | **NEW in Rev 3 — corrects Rev 1/Rev 2's "harmless".** Route (A) **CONFIRMED by execution** (prefill → 1 from 2/4/8, both optimizers, decode holds); route (B) read-only | `grep -n "scaleDownVariantSet(" internal/engines/pipeline/*.go` (expect exactly 2 callers: `cost_aware_optimizer.go:496`, `rescale.go:415`); then `cost_aware_optimizer.go:488,498` vs `rescale.go:415-421`; `engine_v2.go:509`; `analyzer_helpers.go:385`; the `#1237` clamp at `cost_aware_optimizer.go:157-160`. **Provenance:** `git show 075a208e:…/rescale.go \| grep -n "func roleDemandGPUs"` (no `s` param ⇒ base read the anchor) + `075a208e:analyzer_helpers.go:138,147` (base binder already `Live`-gated) + `075a208e:analyzer_helpers.go:237` (base `votingResults` = `Enabled` only ⇒ route (A)'s mask was real). **Base run:** arm 1 (all-zero `RC` on the pruned entry) executed 2026-08-08 — base drains identically at 2/4/8, both optimizers. **Arm 2 also executed 2026-08-08 and split the attribution:** with any one role's `RequiredCapacity` positive, **base does not drain** (prefill preserved, model scaled up on data no analyzer stood behind) **and HEAD does** — so route (A) is inherited in the all-zero regime and **HEAD-reachable** in the positive regime. Suites differ: base **308** specs, HEAD **386**. **Reachability of the decisive cell — verify this whole chain, it replaces a withdrawn "unreachable" claim:** (i) saturation stamps `satReasonNoData` when a variant has no live replicas *and* both store lookups miss (`saturation_v2/analyzer.go:389`, `:421-431`); all variants there ⇒ `ResultIsInformative` false (`analyzer_helpers.go:53-63`). **Verify the liveness step in its two-route form — non-informative ≠ non-live** (Dean, 2026-08-08): `nr.Live = ok && now.Sub(lastGood) <= threshold`, `threshold = 3 × interval` = 90 s default (`saturation/engine_v2.go:233`, `:245-247`, const `:84`), so a *previously*-informative saturation stays `Live` — and unpruned, still voting — for 90 s, while a **never**-informative one (`ok == false`) is non-live on cycle one with no window at all — **but do not spend effort proving `ok == false` reachable — Rev 6 concluded it is not, and Rev 7's counter-example search confirmed the conclusion on independent grounds** (see the closing note on this row); (ii) **TA does not go quiet on the same input** — it emits PRC-only capacities from its own persisted `lastPerReplicaSupply` with `Reason: itlReasonScaleFromZero` (`throughput/analyzer.go:427-440`), which is not a no-data sentinel ⇒ TA informative and `Live`; (iii) role demand survives the metrics gap via `estimateSchedulerQueueDemand` (`saturation_v2/analyzer.go:750-795`, `inputTokens = QueueBytes / BytesPerToken`, no `replicaMetrics` dependence) added per role at `:485-491` ⇒ prefill and decode both positive — precondition is **`QueueBytes > 0` specifically** (`QueueSize > 0` with zero bytes yields an all-zero demand and does *not* open the route), and the load-bearing line is that the `satReasonNoData` branch **falls through to the append** rather than skipping the variant (`:430-432`, then `:441-453`); had it skipped, `activeRoles` would be empty and `aggregateByRole` would return nil at `:479-481`, closing the route — so preserve that fall-through in any fixture; (iv) `applyUniversalThreshold` (`saturation/engine_v2.go:476-513`) has **no reference to `VariantCapacities`**, so non-informative + positive role `RC` are orthogonal by construction and **every** role is positive, not one (measured `470.588` both roles). ⇒ compliant `[sat, TA]` P/D + missing replica metrics ⇒ prefill sheds to 1 with real pods running. ⚠️ **Rev 6 closes that last implication — the chain's links (ii)/(iii)/(iv) hold, link (i) does not** ([§ withdrawn](#withdrawn) item 8, on the corrected reasoning of item 9): saturation's capacity store is refilled from the scale targets at step 1 of **every** cycle before `Analyze` runs (`saturation/engine_v2.go:38-53`) on a path with no zero-yielding branch (`capacity_store.go:126-128` → `deployment_parser.go:281-303`, reached on every return of both parsers), **and** — the load-bearing write, which Rev 6 did not use — every replica-metric row itself stamps a `learnedFromLive` record in the same key space TA's memory is warmed from (`saturation_v2/analyzer.go:198-207`, keyed `rm.VariantName`), so **TA warm ⟹ sat warm** *same-event*, with no duration in the argument and no window in which TA is the sole voter. ⚠️ Rev 6 reached this from a 7 d-vs-1 h retention asymmetry; **that argument is withdrawn and must not be re-verified** — both eviction functions are dead code and the TA clock it cited keys on a different field (item 9 corrections (a) and (b)). **The counter-example ask this row used to carry is ANSWERED** (reviewer, Finding 75): four candidate single-fault stories were tried — model-wide metric loss, all-scale-target-fetch failure, unparseable engine args, and a collector-vs-`BuildVariantStates` variant-name mismatch — and **all four fail**, three of them because they take saturation and TA blind together and one because no such code path exists. Rev 6's own residual is retired with them: `saturation/engine.go:1506` `continue`s **before** `:1520`/`:1523`, and `:1540-1545` returns early on `len(replicaMetrics) == 0` before `BuildVariantStates` at `:1547`, so that state is **no model on the ballot**, not an all-`NoData` one. **The residual that survives is not a liveness state and cannot be closed by reading** — `saturation_v2/analyzer.go:390` gives any variant with rows a non-`NoData` reason, so entry requires `min(k1, k2) ≤ 0` (`:185-188`) on **every** variant of the model while TA computed a positive `perReplicaSupply` from the same rows and `lookupCompatibleCapacity` missed for all of them. Probing that needs a **`k1`/`k2` arithmetic fixture, not a liveness fixture**; it is recorded as a band, and nothing in this addendum's rulings depends on it. **Do not test this with a faked stale timestamp** — no carry-forward exists (`updateLivenessAndSetLive:209-251` sets `Live` in place; `Result` is this cycle's), so a stale-timestamp fixture lands in the all-zero regime. **Floor-at-1 confirmed by mutation:** disabling `cost_aware_optimizer.go:157-161` drains prefill to **0** on both paths at all three heights and fails 4 other specs — the surviving replica is an accident of a model-level guard applied per-role, not a designed floor. **Route (B) also CONFIRMED 2026-08-08** — 12 configurations (hog demand 1000/2000/4000/8000 × limit 8/10/12), byte-identical base ≡ HEAD, prefill pinned at 1 at every budget. **Reachability bound:** `votesFromTotalDemand:552-566` — absent key abstains, `prc <= 0` abstains, **present-key-zero votes 0** — plus `combineVotes` max at `:461-470`, so a live sat outvotes TA's zero under uniform scores; the exposed cells are `[TA]`-only and **`[sat,TA]` with sat non-live**. **`MinReplicas` is already the explicit floor** — read at `cost_aware_optimizer.go:143-149`, *before* the cheapest-at-1 clause, so it dominates it; measured pf=1/1/2 for unset/1/2 with the clause live and 0/1/2 with it disabled (coder, 2026-08-08). So it fully substitutes and is strictly more expressive, but it is an **operator-set per-variant field**, so relying on it is documentation, not a fix: every unconfigured P/D model stays exposed, and it fails correlated with `AD8` (the operators who did not price prefill are the ones who did not floor it). Reviewer Finding 71/72 add the proof (`:142-161`: `n <= current − minReplicas` at every route in, clause needs `n >= current`, so it requires `minReplicas <= 0`) and two narrowings: it is **per-variant**, and the `states == nil` route to `minReplicas == 0` is dead tree-wide, so the exposed population is exactly "operators who left the field unset." **And it only helps one of the two regimes — verify this.** `greedy_saturation_algorithm.go:112-115` is the only floor that *raises* a target, and it **does** run on V2 decisions (`saturation/engine.go:761` → `default_limiter.go:101` → `Allocate`; it is the limiter's allocation algorithm, not a separate optimizer — do not dismiss it on optimizer identity), but it is unreachable in the frozen case twice: `filterScaleUpCandidates` keeps only `TargetReplicas > CurrentReplicas` (`:52-63`) and `allocateForDecision` early-returns on `replicasNeeded <= 0` (`:80-83`). So `MinReplicas` can preserve a scale-up, never originate one. **And verify its cost:** `hasMinReplicasAboveZero` (`saturation/engine.go:1362`) makes a `minReplicas > 0` on *any* variant skip `applyScaleToZeroEnforcement` **model-wide**, including the total-zero minimum-replica preservation — so the lever is a documented severity floor with a model-wide side effect, not a free mitigation. **Two regimes, measured** (coder, 2026-08-08, both optimizers, `cur` ∈ {0,1,2}, base vs HEAD): with decode `RC > 0` the dispatch takes **scale-up**, `scaleDownRoleIterated` is never entered, and prefill **freezes** at `cur` — at `cur = 0`, decode reaches 4 with prefill still 0 (measured HEAD 0/1/2 vs base 1/2/3 across `cur` ∈ {0,1,2}), and the enforcer cannot rescue it: it returns early on the model *total* (`enforcer.go:138-147`), and its total-zero fallback selects by `Cost`/`VariantName` with **no `Role` reference at all** (`:150-174`), so it may set a decode variant to 1 and leave prefill at 0; with decode `RC == 0` prefill **drains to 1**. The dispatch predicate is a global OR over roles (`analyzer_helpers.go:709-718`) with mutually exclusive arms (`cost_aware_optimizer.go:62-67`) — that is why one role captures the model. Base bought prefill exactly one replica per cycle in the same state, so the HEAD-vs-base delta is one replica, not the whole tier. **The Type-1 phrasing *"prefill's target collapses to 1"* is the drain regime only and understates the freeze.** **New harm:** `modelDemandGPUs` sums roles (`rescale.go:560-566`) → `rescaleInputsForGroup:540-546` feeds the understated total into **both** `Demand` and `CapGPUs` → constant-5-across-budgets in the sweep is the **cap** signature, so `CapGPUs` is a second repair site |
 | `AD5`b | `VG-up` status | **LANDED** (Rev 1 said pending) | `git show a9afb740:internal/engines/pipeline/analyzer_helpers.go \| sed -n '335p'` → `if e.Enabled && e.Live` |
 | `AD6` | Sibling pricing not cheap; 2-field prerequisite | **HOLDS** — but (a) re-costed: identity already derived pod-free | `git show a9afb740:internal/engines/saturation/engine_v2.go \| sed -n '41,50p'` |
 | `AD7` | `N5` root cause is sourcing, not arithmetic | **HOLDS** | `git show a9afb740:internal/domain/saturation_analyzer.go \| sed -n '58,59p'` |
@@ -1175,19 +1233,27 @@ Recorded because the corrected claims above are only legible against them.
    recorded as **latent** rather than retired.
    **What is wrong:** the *direction*. Rev 5 read the store's warm-up (it fills from scale targets) and
    inferred that an empty one silences saturation while TA keeps talking. Reading the other side inverts
-   the conclusion, because the two memories in the same process have opposite time constants:
+   the conclusion.
 
-   | | warmed by | evicted after |
+   > ⚠️ **Rev 7: the argument recorded in the rest of this item is itself withdrawn — see item 9. The
+   > conclusion is not.** The two-memory table below and the "168×" figure are kept as the historical
+   > record of *how* Rev 6 reached the right answer, and are **not** citable: the eviction column is dead
+   > code, and the TA row conflates two fields. The live argument is same-event containment (item 9).
+
+   Rev 6's reasoning, superseded — the two memories in the same process were read as having opposite time
+   constants:
+
+   | | warmed by | evicted after (⚠️ **withdrawn — never runs; see item 9**) |
    |---|---|---|
-   | saturation's capacity store | **scale-target objects**, every cycle — step 1 of `RunAnalysis` (`saturation/engine_v2.go:38-53`), before the ballot is built | **7 days** (`CapacityEvictionTimeout`, `saturation_v2/constants.go:19`) |
-   | TA's `variantStates.lastPerReplicaSupply` | **observed live replica metrics only** (`throughput/analyzer.go:427-440` — the `T-sfz` complement `continue`s unless a prior observation exists) | **1 hour** (`2 × DefaultObservationMaxAge`, `throughput/analyzer.go:157-162`) |
+   | saturation's capacity store | **scale-target objects**, every cycle — step 1 of `RunAnalysis` (`saturation/engine_v2.go:38-53`), before the ballot is built | ~~**7 days** (`CapacityEvictionTimeout`, `saturation_v2/constants.go:19`)~~ — `EvictStale` has no callers |
+   | TA's `variantStates.lastPerReplicaSupply` | **observed live replica metrics only** (`throughput/analyzer.go:427-440` — the `T-sfz` complement `continue`s unless a prior observation exists) | ~~**1 hour** (`2 × DefaultObservationMaxAge`, `throughput/analyzer.go:157-162`)~~ — that clock keys on `lastObservedAt`, a *different* field |
 
-   So **TA warm ⟹ saturation warm**: TA can only republish a supply for a variant it once saw live, and
-   that same cycle's metrics wrote saturation a `learnedFromLive` record outliving TA's by 168×. Neither
-   Rev 5 route reaches the cell — a cold start leaves *both* cold, and a metrics gap long enough to make
-   saturation non-live has already emptied TA. The residual is a fresh process in which **every** variant's
-   scale-target fetch also fails (`saturation/engine.go:1500-1507` `continue`s without writing a record),
-   and TA is cold there too, so it cannot be the surviving voter.
+   So **TA warm ⟹ saturation warm** — the conclusion, which survives on item 9's grounds: TA can only
+   republish a supply for a variant it once saw live, and processing that same row wrote saturation a
+   `learnedFromLive` record. Neither Rev 5 route reaches the cell — a cold start leaves *both* cold, and a
+   metrics gap that silences saturation has already silenced TA. Rev 6 also named a residual — a fresh
+   process in which **every** variant's scale-target fetch fails — which item 9 **retires**: such a model
+   is skipped whole, so it is not on the ballot at all.
    **Blast radius of the correction — narrow, and it does not reach the ruling.** It moves one matrix cell
    from reachable to closed. It does **not** touch `[TA]`-only, which needs no saturation death at all
    (saturation simply is not on the ballot) and is the configuration [`AD2`](#ad2)'s guard addresses; nor
@@ -1200,6 +1266,91 @@ Recorded because the corrected claims above are only legible against them.
    reciprocal lesson is this one — **an asymmetry between two stores is a claim about both of them, and its
    existence does not imply its direction.** Rev 5 established that the stores differ, then read one and
    assumed the sign. Two reads, not one: warm-up *and* eviction, on *both* sides.
+
+9. **"`TA warm ⟹ sat warm` because saturation's records are retained 7 days and TA's expire in 1 hour."**
+   This author's, Rev 6 — the **argument** for item 8's closure. Withdrawn 2026-08-08 on reviewer
+   Finding 75, every claim of which was re-verified against PR-2 HEAD `a9afb740` before being accepted.
+   **Item 8's conclusion is unaffected and is now on better ground; severity does not move again, and
+   `AD8`'s placement stays the single open question with Dean.** This item exists because a withdrawn
+   argument under a surviving conclusion is the easiest kind of stale citation to propagate — six places in
+   this addendum carried the retention framing, and all six are corrected.
+
+   **The replacement, which needs no time constant at all — same-event containment.** The *only* thing that
+   can leave TA holding a positive `lastPerReplicaSupply` for a variant is having processed a usable
+   replica-metric row for it, and processing that same row writes saturation a `learnedFromLive` capacity
+   record keyed on the same `rm.VariantName`, in the same key space, on the same cycle
+   (`saturation_v2/analyzer.go:198-207`); `capacity_store.go:98-101` then refuses to overwrite a live record
+   with a weaker source. Saturation is warm over a **strictly broader** set, because the store is *also*
+   pre-populated from scale-target objects on step 1 of every cycle (`saturation/engine_v2.go:38-53` →
+   `LoadFromScaleTarget`, stamped `learnedFromScaleTarget`), reaching variants with no metric rows at all.
+   Containment, not a race — so the implication holds per variant, instantaneously, with no appeal to
+   retention.
+
+   **Three cited mechanisms were wrong. Each is worth its own line, because each fails differently:**
+
+   - **(a) The retention numbers describe dead code.** `EvictStale` (`capacity_store.go:137`) and
+     `EvictStaleHistory` (`saturation_v2/analyzer.go:50`) have **zero callers tree-wide, tests included**,
+     and `CapacityEvictionTimeout` (`constants.go:19`) / `HistoryEvictionTimeout` (`:25`) appear only at
+     their own declarations. Records live for the process lifetime. The conclusion is therefore *stronger*
+     than Rev 6 claimed — but the mechanism Rev 6 named for it **never runs**, so the "7 days" and the
+     "168×" were arithmetic over two constants nothing reads. (Adjacent: `capacity_store.go:135`'s comment
+     cites an `EvictionTimeout = 24h` that does not exist; the real 24 h constant belongs to the k2 history,
+     not the capacity store.)
+   - **(b) The TA side conflated two fields with two different conditions.** `state.lastObservedAt = now`
+     (`throughput/analyzer.go:99`) is assigned inside the `groupByVariant` loop (`:86`, `:92`) — **before**
+     the `SanityIssueNoReplicas` `continue` (`:101-108`) and before the `!report.OK()` branch (`:109`). So
+     the eviction clock (`:159-163`, `2 × DefaultObservationMaxAge` = 1 h, `throughput/constants.go:24`)
+     keys on a variant merely **appearing** in the metrics slice, not on its rows being usable: a
+     rows-present-but-unusable gap keeps TA's state alive indefinitely, and only a rows-**absent** gap
+     evicts. `lastPerReplicaSupply` — the field the `T-sfz` complement actually reads — is the one that
+     needs usable rows. Two fields, two conditions; Rev 6 attached the clock of one to the semantics of the
+     other.
+   - **(c) The `NoData` stamp is governed by row *count*, not by the store lookups alone.**
+     `saturation_v2/analyzer.go:390` branches on `if len(replicas) > 0` — a variant with any row takes the
+     first branch and receives a non-`NoData` reason whatever its arithmetic yields. Both item 8's chain and
+     reviewer Finding 74 lean on that branch; naming it is what makes the surviving residual narrow instead
+     of open-ended.
+
+   **Two independent closures Rev 6 did not cite, and should have** — they matter because they do not depend
+   on the fragile `EffectiveMaxBatchedTokens` link Finding 74 flagged: `saturation/engine.go:1540-1545`
+   returns early on `len(replicaMetrics) == 0`, skipping the model **before** `BuildVariantStates` (`:1547`)
+   and before any analyzer runs; and a failed `FetchScaleTarget` `continue`s at `:1506`, **before**
+   `scaleTargets[key] = scaleTarget` (`:1520`) and `variantAutoscalings[variantKey] = va` (`:1523`).
+   Together they **retire Rev 6's own residual**: a model whose every scale-target fetch fails has empty
+   maps and is skipped whole, so the state is *no model on the ballot*, not an all-`NoData` model — there is
+   nothing for TA to be the sole voter on.
+
+   **The counter-example ask is answered, and by search rather than derivation.** Rev 6's checklist asked
+   for any single-fault story in which saturation stamps `no-data` on every variant while TA emits a `T-sfz`
+   capacity. Four were tried (reviewer, Finding 75) and **all four fail**: model-wide metric loss → closure
+   above, and TA emits nothing either; all-scale-target-fetch failure → the same closure via empty maps;
+   unparseable engine args → **no such path exists** (`resolveEffectiveMaxBatchedTokens` precedes every
+   return of both parsers, and `ParseEngineArgs:14-19`'s terminal assignment is unconditional); and a
+   collector-vs-`BuildVariantStates` variant-name mismatch → fails because TA's *emission* also keys off
+   `input.VariantStates` (`throughput/analyzer.go:426`) and misses its own memory (`:430-431`), so both
+   analyzers go blind on the same input for the same reason. **Three of the four fail for the same
+   structural reason** — the faults that starve saturation starve TA through the same door — which is the
+   general form of why this cell is closed.
+
+   **The one residual that survives is not a liveness state and was not closable by reading.** Given (c),
+   entry requires: on the last cycle with rows, `min(k1, k2) ≤ 0` (`saturation_v2/analyzer.go:185-188`) for
+   **every** variant of the model, while TA computed a positive `perReplicaSupply` from those same rows,
+   **and** `lookupCompatibleCapacity` missed for every variant too. Not claimed reachable, not claimed
+   unreachable — a **`k1`/`k2` arithmetic** question, so probing it needs a k1/k2 fixture rather than a
+   liveness fixture. Recorded as a band; nothing in this addendum's rulings rests on it.
+
+   **A code-hygiene item falls out of (a), and it is explicitly *not* a PR-2 ask** — dead `EvictStale` /
+   `EvictStaleHistory` pair, two constants referenced only at their declarations, and a doc comment naming a
+   constant that does not exist. Backlog, at Dean's direction; raising it against PR-2 would be scope creep
+   on a defect that changes no behavior (dead code that never ran cannot have been doing anything).
+
+   **The rule:** item 8's lesson was that an asymmetry's existence does not imply its direction. This one is
+   the next step down the same road — **a conclusion can survive the withdrawal of its own argument, and
+   that is not the same as the conclusion having been confirmed.** Rev 6 got the answer right by a route
+   made of two dead functions and a mis-attributed field; had the true mechanism pointed the other way, the
+   same evidence would have read as support. So the discipline is: verify the *mechanism* at the line, not
+   just the *implication* at the conclusion — and when a peer confirms a conclusion, read what they confirmed
+   it *with*.
 
 **Formerly-unverified items, now closed.** Rev 1 flagged saturation's two tier-2 preconditions as
 asserted-by-others rather than verified by this author. Both are now read and verified benign — see
@@ -1246,7 +1397,7 @@ section is now open against a peer.
 | `AD3` | From-zero PRC work scoped to `decode`/`both` only | **DECIDED (Dean)** — follows from `AD1` | — |
 | `AD4` | TA cannot veto sat — **but can dilute it when scored above sat** | **Verified fact; argument replaced in Rev 2** | whether the dilution finding gets its own line — planner |
 | `AD5` | Binding-path override; hold the role when the binder is not role-complete | **OPEN** | PR-2 scope — planner; priority — Dean. ⚠️ A fix here does **not** fix [`AD8`](#ad8) route (A): this predicate acts on *demand*, route (A) runs off `RoleSpare` |
-| `AD8` | TA's prefill `SpareCapacity` **authorizes draining the role**, and the same structurally-zero demand **leaves a rising role unsized** — **two regimes from one cause**: prefill **frozen at its current count, including 0**, on the scale-up arm, or **drained to 1** on the scale-down arm, while decode scales normally; **and under contention the model loses total budget, not just prefill's share** | **DECIDED (Dean, 2026-08-08) — repair the pricing.** The previous revision's "defer, unreachable" is WITHDRAWN. Both routes confirmed by execution at HEAD *and* at base; arm 2 shows route (A) is HEAD-reachable when the pruned entry carries a positive `RC`. The withdrawn claim was that saturation cannot go non-live while TA lives. **It can, and the split is structural** ([chain verified](#ad8-third-row), four links): saturation needs a capacity record or live replica metrics and stamps `NoData` without both; TA on the *same* empty input emits persisted-supply capacities and stays informative; role demand survives on `QueueBytes`; and non-informative + positive role `RC` are orthogonal by construction. **Non-informative ≠ non-live** (Dean, 2026-08-08): a previously-informative saturation stays `Live` for `3 × interval` = 90 s and is not pruned in that window, so the pruned state needs either a never-informative saturation (`ok == false`, no window) or a gap sustained past 90 s — and **Rev 6 finds neither is reachable in `[sat, TA]`** ([§ withdrawn](#withdrawn) item 8): the capacity store is refilled from the scale targets every cycle and kept 7 days, TA's persisted supply needs live metrics and expires in 1 hour, same process ⇒ **TA warm ⟹ sat warm**. So the reachable configuration is **`[TA]`-only**, which the guard makes hold. This is a severity correction; the decision below stands as made, but **placement in PR-2 is now a live question for Dean**. With that, a **compliant `[sat, TA]` P/D model sheds prefill to 1** — real pods, no misconfiguration. Severity undiminished: prefill tier minus all-but-one, surviving replica an accident (mutation → 0) | **Dean, 2026-08-08 — decided: fix the pricing. The guard covers only its own case, and the liveness variant is rejected.** (1) **Guard, confirmed as scoped:** on a disaggregated model with TA and **no saturation**, do nothing. It enforces [`AD2`](#ad2) rather than documenting it. (2) **Option (a) — the liveness-aware refusal — REJECTED** (*"PD not SAT — DONT"*): the rule stays keyed on the *enabled* set, and no second refusal predicate is wanted. (3) **Option (b) — the pricing repair — APPROVED**, and it is what covers the metrics-gap cell: once TA prices prefill per-role, the pruned-entry state no longer authorizes removing the whole tier, so the cell closes without a new gate. Three sites: per-role sizing; `CapGPUs`/`Demand` in `rescaleInputsForGroup:540-546` (fixing only the role split leaves the model hard-capped at its understated demand); `cost_aware_optimizer.go:350-367` observability. (4) **Interim documentation (option (c)) is additive, not alternative** — the highlights are in [§ AD8 operator note](#ad8-operator-note). `MinReplicas` is **not** a fourth option: it works on the drain (proof at `cost_aware_optimizer.go:142-161`, per-variant) but is an unset-by-default operator field, fails correlated with the defect, **does not reach regime (i) at all** (it can preserve a scale-up, never originate one — `greedy_saturation_algorithm.go:52-63` + `:80-83`), and **is not free**: any variant with `minReplicas > 0` makes `applyScaleToZeroEnforcement` skip the enforcer **model-wide** (`saturation/engine.go:1362`). It survives only as a documented severity floor for regime (ii), cost attached. **Sequencing constraint on the repair** (coder + reviewer, verified — and it governs **regime (ii) only**, since everything it protects lives inside `scaleDownVariantSet`, which regime (i) never enters): if #1237's positional rule is ever tidied, floor **every variant in the role** first — tidy-first re-opens this at every height on both scale-down paths (measured, prefill → 0). **Two rows, not one** — the planner's scoping ask, accepted: the freeze and the drain must reach the Type-3/backlog as separate items, because a fix verified on one says nothing about the other. **Label collision, so nobody talks past anyone:** the planner's `A68`/`B15` round numbers the mitigations **(i)/(ii)** where (i) = the `MinReplicas` floor and (ii) = the per-role pricing repair; this addendum's letters are **(a)** = liveness-aware refusal (rejected), **(b)** = pricing repair (approved), **(c)** = interim documentation. Planner-(ii) ≡ addendum-(b); planner-(i) is the `MinReplicas` lever, which is not one of this addendum's three. Verdicts agree in substance. **Noted, explicitly not proposed:** the reviewer observes that the state is *constructible* because informativeness reads only per-variant `Reason` while the RC that reaches the optimizer comes from `RoleCapacities` — two predicates nothing in the code relates (`applyUniversalThreshold`, `saturation/engine_v2.go:476-513`, never mentions `VariantCapacities`). **That seam is real and survives Rev 6; what Rev 6 removes is the claim that production can reach it** — the capacity store keeps saturation informative, so the seam is **latent, not live**, and "no production data can retire it" overstates a gap no production data can open either. Aligning the two predicates (informativeness considering role demand, or the queue term marking the variants it speaks for) would close it. That is a Type-1 design question, it is **not** in PR-2, and it is **not** a revival of rejected option (a) (different site: the liveness computation, not a second refusal predicate in the optimizer). Recorded here for a later round; no ask attached. Scope/placement — planner |
+| `AD8` | TA's prefill `SpareCapacity` **authorizes draining the role**, and the same structurally-zero demand **leaves a rising role unsized** — **two regimes from one cause**: prefill **frozen at its current count, including 0**, on the scale-up arm, or **drained to 1** on the scale-down arm, while decode scales normally; **and under contention the model loses total budget, not just prefill's share** | **DECIDED (Dean, 2026-08-08) — repair the pricing.** The previous revision's "defer, unreachable" is WITHDRAWN. Both routes confirmed by execution at HEAD *and* at base; arm 2 shows route (A) is HEAD-reachable when the pruned entry carries a positive `RC`. The withdrawn claim was that saturation cannot go non-live while TA lives. **It can, and the split is structural** ([chain verified](#ad8-third-row), four links): saturation needs a capacity record or live replica metrics and stamps `NoData` without both; TA on the *same* empty input emits persisted-supply capacities and stays informative; role demand survives on `QueueBytes`; and non-informative + positive role `RC` are orthogonal by construction. **Non-informative ≠ non-live** (Dean, 2026-08-08): a previously-informative saturation stays `Live` for `3 × interval` = 90 s and is not pruned in that window, so the pruned state needs either a never-informative saturation (`ok == false`, no window) or a gap sustained past 90 s — and **Rev 6 finds neither is reachable in `[sat, TA]`** ([§ withdrawn](#withdrawn) item 8), a closure the reviewer's counter-example search independently confirmed in Rev 7 (four candidate faults, all fail): every replica-metric row writes saturation a `learnedFromLive` record in the same key space, on the same cycle, that TA's persisted supply is warmed from (`saturation_v2/analyzer.go:198-207`) ⇒ **TA warm ⟹ sat warm**, same-event, no time constant. ⚠️ Rev 6 argued it from a 7 d-vs-1 h retention asymmetry instead; **that argument is withdrawn** ([§ withdrawn](#withdrawn) item 9 — the eviction never runs) while the conclusion is unchanged. So the reachable configuration is **`[TA]`-only**, which the guard makes hold. This is a severity correction; the decision below stands as made, but **placement in PR-2 is now a live question for Dean**. With that, a **compliant `[sat, TA]` P/D model sheds prefill to 1** — real pods, no misconfiguration. Severity undiminished: prefill tier minus all-but-one, surviving replica an accident (mutation → 0) | **Dean, 2026-08-08 — decided: fix the pricing. The guard covers only its own case, and the liveness variant is rejected.** (1) **Guard, confirmed as scoped:** on a disaggregated model with TA and **no saturation**, do nothing. It enforces [`AD2`](#ad2) rather than documenting it. (2) **Option (a) — the liveness-aware refusal — REJECTED** (*"PD not SAT — DONT"*): the rule stays keyed on the *enabled* set, and no second refusal predicate is wanted. (3) **Option (b) — the pricing repair — APPROVED**, and it is what covers the metrics-gap cell: once TA prices prefill per-role, the pruned-entry state no longer authorizes removing the whole tier, so the cell closes without a new gate. Three sites: per-role sizing; `CapGPUs`/`Demand` in `rescaleInputsForGroup:540-546` (fixing only the role split leaves the model hard-capped at its understated demand); `cost_aware_optimizer.go:350-367` observability. (4) **Interim documentation (option (c)) is additive, not alternative** — the highlights are in [§ AD8 operator note](#ad8-operator-note). `MinReplicas` is **not** a fourth option: it works on the drain (proof at `cost_aware_optimizer.go:142-161`, per-variant) but is an unset-by-default operator field, fails correlated with the defect, **does not reach regime (i) at all** (it can preserve a scale-up, never originate one — `greedy_saturation_algorithm.go:52-63` + `:80-83`), and **is not free**: any variant with `minReplicas > 0` makes `applyScaleToZeroEnforcement` skip the enforcer **model-wide** (`saturation/engine.go:1362`). It survives only as a documented severity floor for regime (ii), cost attached. **Sequencing constraint on the repair** (coder + reviewer, verified — and it governs **regime (ii) only**, since everything it protects lives inside `scaleDownVariantSet`, which regime (i) never enters): if #1237's positional rule is ever tidied, floor **every variant in the role** first — tidy-first re-opens this at every height on both scale-down paths (measured, prefill → 0). **Two rows, not one** — the planner's scoping ask, accepted: the freeze and the drain must reach the Type-3/backlog as separate items, because a fix verified on one says nothing about the other. **Label collision, so nobody talks past anyone:** the planner's `A68`/`B15` round numbers the mitigations **(i)/(ii)** where (i) = the `MinReplicas` floor and (ii) = the per-role pricing repair; this addendum's letters are **(a)** = liveness-aware refusal (rejected), **(b)** = pricing repair (approved), **(c)** = interim documentation. Planner-(ii) ≡ addendum-(b); planner-(i) is the `MinReplicas` lever, which is not one of this addendum's three. Verdicts agree in substance. **Noted, explicitly not proposed:** the reviewer observes that the state is *constructible* because informativeness reads only per-variant `Reason` while the RC that reaches the optimizer comes from `RoleCapacities` — two predicates nothing in the code relates (`applyUniversalThreshold`, `saturation/engine_v2.go:476-513`, never mentions `VariantCapacities`). **That seam is real and survives Rev 6; what Rev 6 removes is the claim that production can reach it** — the capacity store keeps saturation informative, so the seam is **latent, not live**, and "no production data can retire it" overstates a gap no production data can open either. Aligning the two predicates (informativeness considering role demand, or the queue term marking the variants it speaks for) would close it. That is a Type-1 design question, it is **not** in PR-2, and it is **not** a revival of rejected option (a) (different site: the liveness computation, not a second refusal predicate in the optimizer). Recorded here for a later round; no ask attached. Scope/placement — planner |
 | `AD6` | Sibling pricing rejected; retention exception retained; shared 2-field prerequisite | **DECIDED (Dean) to skip the lookup**; retention **OPEN** | retention scoping — planner |
 | `AD7` | `N5` sat `Cost = 0` at zero replicas | **DECIDED (Dean): fix** | sizing/placement — planner |
 | res-1 | sat tier-2 rung fires without pods | **VERIFIED in Rev 2** (was unverified) | — |
