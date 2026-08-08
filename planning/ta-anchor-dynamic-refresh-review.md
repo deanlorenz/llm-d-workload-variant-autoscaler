@@ -8033,3 +8033,127 @@ default.
 Still open, unchanged: `reclaimRole` un-instrumented per-function; what llm-d actually serves with prefill
 at 0 (a router/deployment question neither of us has measured); the *rate* at which real clusters enter the
 state, which §3 argues is now the less useful question. Closed from my side unless new code lands.
+
+---
+
+## Finding 74 — I was wrong in Finding 73 §3, in the direction that overstates a defect: the store pre-population prices every variant with a resolvable scale target, and that alone makes the analyzer Live
+
+**Severity: correction to my own Finding 73 §3.** Verified at `a9afb740`. This retracts the
+"reachable by construction" conclusion and re-prices the ship-decision item *downward*. Finding 73
+§§1, 2, 4, 5 and Findings 71–72 are unaffected.
+
+### 1. What I missed
+
+Finding 73 §3 argued that because informativeness and the RC that reaches the optimizer read disjoint
+field families — `ResultIsInformative` inspects only per-variant `Reason`
+([analyzer_helpers.go:53-63](../ta-anchor-dynamic-refresh/internal/engines/pipeline/analyzer_helpers.go#L53-L63)),
+while the positive per-role RC comes from `RoleCapacities` via the queue term — the composite
+`Enabled && !Live && RC > 0` is "what any queue-only-demand input produces." The premise is true. The
+conclusion does not follow, because I never checked what fills `Reason` on a variant with no live
+replicas.
+
+It is filled, deliberately, and it is filled with a **non-NoData** label.
+
+### 2. The chain that closes the window
+
+`RunAnalysis` step 1 pre-populates the capacity store for every VariantAutoscaling whose scale target
+resolves, and does so **before** the analyzer input is built and `Analyze` is called — same cycle, so
+even the first cycle is covered
+([saturation/engine_v2.go:39-53](../ta-anchor-dynamic-refresh/internal/engines/saturation/engine_v2.go#L39-L53)):
+
+```go
+// 1. Pre-populate capacity store with scale target-derived params
+for _, va := range variantAutoscalings {
+    scaleTarget := scaleTargets[key]
+    if scaleTarget == nil { ... continue }
+    e.capacityStore.LoadFromScaleTarget(namespace, modelID, va.Name, accelerator, gpuCount, scaleTarget)
+}
+// 2. Build AnalyzerInput
+```
+
+`LoadFromScaleTarget` writes a positive `EffectiveCapacity`, and the comment states the purpose in so
+many words ([capacity_store.go:122-128](../ta-anchor-dynamic-refresh/internal/engines/analyzers/saturation_v2/capacity_store.go#L122-L128)):
+
+> Provide a conservative capacity estimate so that brand-new variants with no live data or compatible
+> siblings can still be considered for scale-up.
+
+```go
+if record.EffectiveCapacity <= 0 && params.EffectiveMaxBatchedTokens > 0 {
+    record.EffectiveCapacity = params.EffectiveMaxBatchedTokens
+}
+```
+
+And `EffectiveMaxBatchedTokens` **has no zero-yielding path**
+([deployment_parser.go:281-302](../ta-anchor-dynamic-refresh/internal/engines/analyzers/saturation_v2/deployment_parser.go#L281-L302)) —
+every branch either returns positive or falls through to a terminal default:
+
+| Case | Value |
+|---|---|
+| `--max-num-batched-tokens` explicit | that value |
+| chunked prefill, V1 engine | 8192 |
+| chunked prefill, V0 engine | 2048 |
+| unchunked, `MaxModelLen > 2048` | `MaxModelLen` |
+| fallback (terminal, unconditional) | 2048 |
+
+So on the next `Analyze`, such a variant takes the **store branch**, not the final `else`
+([analyzer.go:421-424](../ta-anchor-dynamic-refresh/internal/engines/analyzers/saturation_v2/analyzer.go#L421-L424)):
+
+```go
+} else if rec := a.capacityStore.Get(namespace, modelID, vs.VariantName); rec != nil && rec.EffectiveCapacity > 0 {
+    perReplicaCapacity = a.estimateStoredCapacity(...)
+    capacityLabel = satReasonP0Store
+```
+
+`satReasonP0Store` is the literal `"P0-store"`, and only `satReasonNoData` aliases
+`pipeline.ReasonNoData`
+([types.go:27-31](../ta-anchor-dynamic-refresh/internal/engines/analyzers/saturation_v2/types.go#L27-L31)).
+`ResultIsInformative` returns `true` on the **first** non-NoData, non-Error variant anywhere in the
+result — one priced variant carries the whole result — so `updateLivenessAndSetLive` stamps
+`perAnalyzer[sat]` and sets `Live = true`
+([engine_v2.go:202-251](../ta-anchor-dynamic-refresh/internal/engines/saturation/engine_v2.go#L202-L251)),
+and `VG-up`'s `Enabled && Live` prune does not remove saturation. **No `AD5` window opens.**
+
+### 3. What the state actually requires
+
+Retracting "by construction," the composite needs *all* of:
+
+1. `QueueBytes > 0` upstream (Finding 73 §1 — still verified);
+2. **every** variant of the model in the final `else`: no live replicas, no store record, no compatible
+   sibling — which given §2 means **every** variant's scale target is missing or unresolvable
+   (`scaleTargets[key] == nil` at
+   [engine_v2.go:43-47](../ta-anchor-dynamic-refresh/internal/engines/saturation/engine_v2.go#L43-L47),
+   or the nil guard inside `LoadFromScaleTarget`);
+3. TA `Live` with prefill a structural zero (the `AD5` shape).
+
+Condition 2 is not a routine startup shape. It is a VA whose scale target the controller cannot
+resolve — degenerate, and arguably a louder problem than the starvation it would enable. That is a
+materially weaker frequency argument than the one I filed yesterday, in the opposite direction.
+
+### 4. What survives, and what does not
+
+**Survives.** The structural asymmetry itself is real and still worth the Type 1's attention: liveness
+is judged on per-variant `Reason` while the RC that reaches the optimizer is computed from
+`RoleCapacities`, and nothing keeps those two aligned. §2 shows the *store* currently closes the gap
+as a side effect of an unrelated feature (a conservative sizing estimate for new variants), not
+because any predicate relates the two. A change to that estimate — an engine whose args don't parse,
+a future `EffectiveCapacity` gate — reopens it silently. Also unaffected: Finding 73 §1 (the queue
+route), §2 (my vacuous `ok`-gate), §4 (no `MinReplicas` site can raise a frozen-at-zero prefill),
+§5 (the enforcer is role-blind), and Findings 71–72 (regime (ii)).
+
+**Does not survive.** "Reachable by construction"; "what any queue-only-demand input produces"; and
+the §6 claim that the frequency answer "raises severity rather than softening it." It softens it.
+
+**Unaffected: the coder's execution numbers.** Its fixtures construct the analyzer result directly,
+with no `capacityStore` and no `LoadFromScaleTarget`, so the measured regime split (Findings 66–70)
+stands exactly as recorded. The fixture exhibits the state legitimately; my error was inferring
+production frequency from it without checking the production fill path.
+
+### 5. Standing
+
+The ship-decision item stands, but at lower urgency and with the argument reversed: deferring `VG-up`
+is **more** defensible than Finding 73 made it look, because the starvation needs an unresolvable
+scale target on every variant of the model. What I would still put in front of Dean is the asymmetry
+in §4 — that today's protection is incidental — not a near-term starvation risk.
+
+I got this wrong within a day of filing it, and the error inflated a defect. Routed as a correction
+to the same three recipients that received Finding 73.
