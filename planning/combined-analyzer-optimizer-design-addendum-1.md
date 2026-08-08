@@ -67,11 +67,11 @@ them.
 - [AD5 — the one real override is the binding path, not voting — OPEN {#ad5}](#ad5--the-one-real-override-is-the-binding-path-not-voting--open-ad5) L335:441
 - [AD6 — rejected: TA cross-variant sibling pricing. Retained: the retention exception {#ad6}](#ad6--rejected-ta-cross-variant-sibling-pricing-retained-the-retention-exception-ad6) L442:491
 - [AD7 — `N5` (saturation `Cost = 0` at zero replicas) is to be fixed {#ad7}](#ad7--n5-saturation-cost--0-at-zero-replicas-is-to-be-fixed-ad7) L492:514
-- [AD8 — the prefill role is not merely starved, it is actively drained — OPEN {#ad8}](#ad8--the-prefill-role-is-not-merely-starved-it-is-actively-drained--open-ad8) L515:695
-- [Residual band after the rulings {#residual}](#residual-band-after-the-rulings-residual) L696:742
-- [Verification checklist — for the planner and reviewer {#checklist}](#verification-checklist--for-the-planner-and-reviewer-checklist) L743:777
-- [Withdrawn framings {#withdrawn}](#withdrawn-framings-withdrawn) L778:835
-- [Disposition summary {#disposition}](#disposition-summary-disposition) L836:864
+- [AD8 — the prefill role is not merely starved, it is actively drained — OPEN {#ad8}](#ad8--the-prefill-role-is-not-merely-starved-it-is-actively-drained--open-ad8) L515:723
+- [Residual band after the rulings {#residual}](#residual-band-after-the-rulings-residual) L724:770
+- [Verification checklist — for the planner and reviewer {#checklist}](#verification-checklist--for-the-planner-and-reviewer-checklist) L771:805
+- [Withdrawn framings {#withdrawn}](#withdrawn-framings-withdrawn) L806:875
+- [Disposition summary {#disposition}](#disposition-summary-disposition) L876:904
 
 ## Why this addendum exists {#why}
 
@@ -639,6 +639,14 @@ on **either** route, so both would floor at 1 and route (B) would not give 0. **
 coder's "which path ran" is still open, not closed** — and route (B)'s status stays PLAUSIBLE for
 exactly the reason the coder gave, which is contention, not the floor.
 
+> **Settled since, by the claim's own author.** Finding 68 (`a798dc87`) retracts the instrumentation
+> inference on exactly these grounds, so this is a closed point rather than a live disagreement. It
+> adds one fact this author did not have and has verified: **the clamp is present at base too**, same
+> post-callback ordering (`075a208e:cost_aware_optimizer.go` — `n := maxRemovable(vc)` then the
+> `#1237` positional rule), which is why the measured floor is 1 on **both sides at every height,
+> whichever path ran**. Distinguishing the two routes now requires path instrumentation; no outcome
+> value can do it.
+
 The only other backstop is `minReplicas`, commonly unset. A missed scale-up forgoes headroom; this
 removes capacity from a role serving traffic.
 
@@ -673,12 +681,32 @@ removes capacity from a role serving traffic.
   exercised — the run used unlimited constraints, so it was almost certainly not contended and very
   likely never entered `reclaimRole`. Its links are source reads only. **The provenance claim above
   for route (B) is likewise a base-versus-HEAD source read**, not an executed base run.
-- **The provenance claim has its own falsifier, and it is cheap.** Run the same fixture at base
-  `075a208e` in two variants: the stale saturation's `RoleCapacities` **all-zero**, and with **any one
-  role positive**. Prediction from the reading above: base **drains** in the first and **does not** in
-  the second; HEAD drains in both. A base run that drains with a positive `RC` present would falsify
-  the dispatch-mask account and restore "unconditionally inherited". (The instrument is the reviewer's,
-  Finding 67; it is the one test that separates the two attributions, and neither has been run.)
+- **The provenance falsifier is now half-run, and the executed half came out as predicted.** The test
+  is the same fixture at base `075a208e` in two variants: stale saturation `RoleCapacities`
+  **all-zero**, and with **any one role positive**. Prediction from the reading above: base **drains**
+  in the first and **does not** in the second; HEAD drains in both. **Arm 1 ran, and base drains
+  identically** — prefill → 1 from starts of 2, 4 and 8, both optimizers, decode holding as control,
+  measured in a throwaway detached worktree at base (coder,
+  `plan__ta-anchor-ad5-attribution-settled-base-drains-identically`, 2026-08-08). Calibration for
+  cross-run comparison: the base pipeline suite is **308** specs against HEAD's **386**.
+- **Arm 2 is still unrun — and that run's own refinement does not substitute for it.** The base run
+  additionally carried a **non-zero stale prefill `TotalDemand`**, offered as a form of the inherited
+  claim stronger than the argument needed. It is not: `TotalDemand` (`domain/analyzer.go:82`) and
+  `RequiredCapacity` (`:88`) are **distinct fields of the same `RoleCapacity` struct**, and the
+  dispatch reads only the latter — `pickerState[i][role] = rc.RequiredCapacity` in `initRoleState`,
+  byte-identical at base and HEAD. Nor could the one derive the other in that fixture: the sole code
+  computing per-role `RequiredCapacity` **from** per-role `TotalDemand` is `applyUniversalThreshold`
+  (`saturation/engine_v2.go:496-512`, `rc.TotalDemand/scaleUp - rc.TotalAnticipatedSupply`), which
+  lives in the **saturation engine** and so never runs on a hand-built `AnalyzerResult` handed
+  straight to an optimizer. That variant therefore sharpens route (B)'s anchor-sourced-demand point
+  and leaves route (A)'s dispatch untouched. **So the executed run *is* arm 1, on two independent
+  grounds** — the fixture presented the dispatch with all-zero `RC` by construction, and by
+  entailment: the dispatch is a strict either/or (`cost_aware_optimizer.go:61-65` —
+  `anyRoleNeedsScaleUp` ⇒ `allocateForModelPaired`, `else` ⇒ `scaleDownRoleIterated`), so reaching the
+  drain through route (A) requires `anyRoleNeedsScaleUp == false`, i.e. **no** entry-role pair holding
+  `RequiredCapacity > 0` anywhere in the stale snapshot. A base run that drains **with** a positive
+  `RC` present would falsify the dispatch-mask account and restore "unconditionally inherited"; that
+  run has not happened. (Instrument: the reviewer's, Finding 67.)
 - **Not instrumented either way:** which internal path each optimizer took (the table shows two
   *optimizers* reproducing it, not two *gates*) — **and the floor at 1 does not supply it**, per the
   rejected inference above — and the second observability site
@@ -754,7 +782,7 @@ tip to detect drift.
 | `AD3` | Scoped to `decode`/`both` | **CONCLUSION HOLDS; RATIONALE REPLACED** — "all mechanisms equally inert" is **false**: pricing removes the unpriced-skip. Valid only for a **zero-replica** prefill variant; a live one is already priced | `git show a9afb740:internal/engines/pipeline/cost_aware_optimizer.go \| sed -n '139,141p'` (the skip) + `throughput/analyzer.go:398-408` (TA prices live prefill) |
 | `AD4` | TA cannot veto sat | **CHANGED** — verdict holds, argument replaced; **new**: dilution when `Score_TA > Score_sat`; **and** "no veto" is not benign ([`AD8`](#ad8)) | read `combineVotes` `:456-494`, `voteScore` `:512-517`, `votesFromPickerState` `:522-534`, `roleSpareVetoed` `:736-771` |
 | `AD5` | Prefill gets no fair-share GPU budget when TA is sole voter | **HOLDS** — mechanism restated (ballot combine, not anchor read); **three sub-regimes** distinguished, only (i) is `AD5` | read `roleDemandGPUs` `rescale.go:579-603`; confirm `s := votingResults(...)` at `:360` and `:518`; `variantsOnType` `:606-614` |
-| `AD8` | TA's prefill spare **authorizes draining the role**; two routes, both **inherited from base**, with route (A) made **deterministic** by `VG-up` | **NEW in Rev 3 — corrects Rev 1/Rev 2's "harmless".** Route (A) **CONFIRMED by execution** (prefill → 1 from 2/4/8, both optimizers, decode holds); route (B) read-only | `grep -n "scaleDownVariantSet(" internal/engines/pipeline/*.go` (expect exactly 2 callers: `cost_aware_optimizer.go:496`, `rescale.go:415`); then `cost_aware_optimizer.go:488,498` vs `rescale.go:415-421`; `engine_v2.go:509`; `analyzer_helpers.go:385`; the `#1237` clamp at `cost_aware_optimizer.go:157-160`. **Provenance:** `git show 075a208e:…/rescale.go \| grep -n "func roleDemandGPUs"` (no `s` param ⇒ base read the anchor) + `075a208e:analyzer_helpers.go:138,147` (base binder already `Live`-gated) + `075a208e:analyzer_helpers.go:237` (base `votingResults` = `Enabled` only ⇒ route (A)'s mask was real) |
+| `AD8` | TA's prefill spare **authorizes draining the role**; two routes, both **inherited from base**, with route (A) made **deterministic** by `VG-up` | **NEW in Rev 3 — corrects Rev 1/Rev 2's "harmless".** Route (A) **CONFIRMED by execution** (prefill → 1 from 2/4/8, both optimizers, decode holds); route (B) read-only | `grep -n "scaleDownVariantSet(" internal/engines/pipeline/*.go` (expect exactly 2 callers: `cost_aware_optimizer.go:496`, `rescale.go:415`); then `cost_aware_optimizer.go:488,498` vs `rescale.go:415-421`; `engine_v2.go:509`; `analyzer_helpers.go:385`; the `#1237` clamp at `cost_aware_optimizer.go:157-160`. **Provenance:** `git show 075a208e:…/rescale.go \| grep -n "func roleDemandGPUs"` (no `s` param ⇒ base read the anchor) + `075a208e:analyzer_helpers.go:138,147` (base binder already `Live`-gated) + `075a208e:analyzer_helpers.go:237` (base `votingResults` = `Enabled` only ⇒ route (A)'s mask was real). **Base run:** arm 1 (all-zero stale `RC`) executed 2026-08-08 — base drains identically at 2/4/8, both optimizers; **arm 2 (any one role's `RequiredCapacity` positive) is the discriminating test and is unrun.** Suites differ: base **308** specs, HEAD **386** |
 | `AD5`b | `VG-up` status | **LANDED** (Rev 1 said pending) | `git show a9afb740:internal/engines/pipeline/analyzer_helpers.go \| sed -n '335p'` → `if e.Enabled && e.Live` |
 | `AD6` | Sibling pricing not cheap; 2-field prerequisite | **HOLDS** — but (a) re-costed: identity already derived pod-free | `git show a9afb740:internal/engines/saturation/engine_v2.go \| sed -n '41,50p'` |
 | `AD7` | `N5` root cause is sourcing, not arithmetic | **HOLDS** | `git show a9afb740:internal/domain/saturation_analyzer.go \| sed -n '58,59p'` |
@@ -824,12 +852,24 @@ Recorded because the corrected claims above are only legible against them.
 asserted-by-others rather than verified by this author. Both are now read and verified benign — see
 [§ residual](#residual). Nothing in this addendum is now carried on someone else's unchecked claim.
 
-**Two claims from peers that this addendum declines rather than withdraws**, recorded here so the
-disagreement is visible rather than silently resolved: the floor at 1 as route instrumentation
-(Finding 67 — rejected in [`AD8`](#ad8) on the clamp's position relative to the callback, with both
-docstrings agreeing), and route (A) as *unconditionally* inherited (Finding 66 and the planner's
-handoff — narrowed in `AD8` to the case where the dead analyzer held no positive `RC` on any role).
-Both are cited at the point of disagreement, not only here.
+**Claims from peers that this addendum declines rather than withdraws** — recorded so disagreement is
+visible rather than silently resolved. **One of the two has since closed:** the floor at 1 as route
+instrumentation (Finding 67) was rejected in [`AD8`](#ad8) on the clamp's position relative to the
+callback, with both docstrings agreeing, and **its author retracted it on the same grounds** in
+Finding 68 (`a798dc87`), adding that the clamp is present at base too. **One remains open:** route (A)
+as *unconditionally* inherited (Finding 66 and the planner's handoff — narrowed in `AD8` to the case
+where the dead analyzer held no positive `RC` on any role). It stays open on evidence, not on
+opinion: the base run that has been executed is the all-zero-`RC` arm, which both sides predict
+drains, and the discriminating arm is still unrun. Both are cited at the point of disagreement, not
+only here.
+
+> **A pattern worth naming, since it has now produced four corrections in this section alone.** Every
+> one of them — the "harmless" reading, `reclaimRole` as newly-unmasked, the floor as instrumentation,
+> and the `TotalDemand` refinement — was a claim about a *helper's* behavior inferred from its
+> *caller's* description, or about a field inferred from a sibling field's name. In each case the
+> disconfirming evidence was one `git show` away, and in two of them it was written in the docstring of
+> the very function being reasoned about. The addendum's rule follows: **for any claim of the form "X
+> does not do Y", read X**, and prefer a cheap executed arm over a confident reading.
 
 [↑ TOC](#toc)
 
@@ -842,7 +882,7 @@ Both are cited at the point of disagreement, not only here.
 | `AD3` | From-zero PRC work scoped to `decode`/`both` only | **DECIDED (Dean)** — follows from `AD1` | — |
 | `AD4` | TA cannot veto sat — **but can dilute it when scored above sat** | **Verified fact; argument replaced in Rev 2** | whether the dilution finding gets its own line — planner |
 | `AD5` | Binding-path override; hold the role when the binder is not role-complete | **OPEN** | PR-2 scope — planner; priority — Dean. ⚠️ A fix here does **not** fix [`AD8`](#ad8) route (A): this predicate acts on *demand*, route (A) runs off `RoleSpare` |
-| `AD8` | TA's prefill `SpareCapacity` **authorizes draining the role** — prefill collapses to 1 from any height while decode scales normally | **OPEN — the most consequential item here.** Route (A) **CONFIRMED by execution**; route (B) PLAUSIBLE by reading. Pre-existing defect, *conditionally* so (see `AD8` provenance) | PR-2 scope — planner; priority — Dean. Two sites if fixed (sizing + `cost_aware_optimizer.go:350-367` observability); route (A) needs a `RoleSpare`-side predicate that does not exist yet |
+| `AD8` | TA's prefill `SpareCapacity` **authorizes draining the role** — prefill collapses to 1 from any height while decode scales normally | **OPEN — the most consequential item here.** Route (A) **CONFIRMED by execution at HEAD *and* at base** (arm 1); route (B) PLAUSIBLE by reading. Pre-existing defect, *conditionally* so — the discriminating arm 2 is unrun, so the qualifier stays | PR-2 scope — planner; priority — Dean. Two sites if fixed (sizing + `cost_aware_optimizer.go:350-367` observability); route (A) needs a `RoleSpare`-side predicate that does not exist yet. **Cheapest next step is arm 2, one field in an existing fixture** |
 | `AD6` | Sibling pricing rejected; retention exception retained; shared 2-field prerequisite | **DECIDED (Dean) to skip the lookup**; retention **OPEN** | retention scoping — planner |
 | `AD7` | `N5` sat `Cost = 0` at zero replicas | **DECIDED (Dean): fix** | sizing/placement — planner |
 | res-1 | sat tier-2 rung fires without pods | **VERIFIED in Rev 2** (was unverified) | — |
