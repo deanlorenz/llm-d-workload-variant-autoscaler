@@ -2434,9 +2434,14 @@ necessary, not precautionary. A future tightening to ~48Gi would be safe; 32Gi i
 
 ### §18.13 Deliverables from this run
 
-- `session-notes/scratch/controller-decisions-20260808-dwell.log` — 33-tick decision trace, captured
-  live with `--since-time` retroactive to run start. **The irreplaceable artifact** (the ladder lost
-  its equivalent to rotation). Closes the §17.8 "add controller-log capture" item for this run.
+- `session-notes/scratch/controller-decisions-20260808-dwell.log` — decision trace, captured live with
+  `--since-time` retroactive to run start. **The irreplaceable artifact** (the ladder lost its
+  equivalent to rotation). Closes the §17.8 "add controller-log capture" item for this run.
+  **Span note for a cold reader:** the follower was left running past the load phase, so the final
+  file is 872 lines / **54** `scaling-decision` records spanning **02:19:09Z → 03:12:15Z**. All
+  analysis in §18.1–§18.11 is of the **33 load-phase ticks (02:19–02:51)**; decisions 34–54 are
+  post-load idle and sit flat at 1 replica, which independently corroborates the clean descent in
+  §18.1. The count difference is coverage, not a discrepancy — no finding changes.
 - `session-notes/handoffs/plan__benchmark-dwell-run-findings.md` — full findings + 5 prioritised
   asks. **Supersedes** the rate-invariance hypothesis in the delivered
   `plan__benchmark-dwell-operating-point.md` (a sender does not edit a sent handoff).
@@ -2458,3 +2463,140 @@ New from this run: `ta_calibration_probe.yaml.in` is tracked in the fork and sho
 
 **Nothing pushed.** `benchmark` is 11 ahead of `origin/benchmark`; fork `wva-ta-benchmark` 1 ahead.
 Both await Dean's explicit per-push confirmation.
+
+### §18.15 Post-run state — GPUs RELEASED, and the exact restore path
+
+**GPUs are released. `dhl-wva-209` holds 0 GPUs** (verified by enumerating every container's
+`limits."nvidia.com/gpu"` across the namespace: 0 GPU-requesting pods). Done on Dean's instruction
+"when you finish this test free the GPUs", ~16 min after the load phase ended — inside his 10–15 min
+idle rule.
+
+Sequence used, and why in this order:
+
+1. **Ran the rotation-sensitive analysis step first**, before touching anything:
+   `python3 hack/benchmark/dump_wva_target_timeseries.py <results_dir> -n dhl-wva-209`
+   → `metrics/processed/wva_target_timeseries.json`, **41 snapshots, window 02:19:56Z → 03:00:19Z**.
+   Checked coverage first: the controller log still reached back to **2026-08-07T23:12:51Z**, far
+   before run start, so **nothing was lost to rotation this time**. This step was safe to run
+   mid-collection because everything it reads (`run_metadata.yaml`, `metrics/raw/`) lands early;
+   only the 11 GB file was still growing.
+2. **Confirmed no remaining analysis step needs a live pod.** Of the five `post_run_analyze.sh`
+   steps, only step 1 touches the cluster at all, and only via `kubectl logs` on the *controller* —
+   never the decode pods. So scaling decode to 0 cannot invalidate any later step. This check is the
+   reason the release could happen before the harvest finished rather than after.
+3. **Released**, per the §5-verified procedure:
+   `kubectl annotate scaledobject unsloth--608e585a-instruct-decode-scaler -n dhl-wva-209 autoscaling.keda.sh/paused-replicas="0" --overwrite`
+   `gpu-reservation` was already at 0, so the whole hold was decode's `minReplicas: 1` — 1 GPU.
+
+**⚠️ RESTORE IS A MANDATORY FIRST STEP OF THE NEXT RUN.** The ScaledObject is *paused*, not merely
+scaled down — KEDA will hold it at 0 forever. A next run launched without un-pausing produces a
+**flat 0-replica trace that looks like a successful no-scaling result**, which is the dangerous
+failure mode: silent, not loud.
+
+```
+kubectl annotate scaledobject unsloth--608e585a-instruct-decode-scaler -n dhl-wva-209 \
+  autoscaling.keda.sh/paused-replicas-        # trailing '-' REMOVES the annotation
+```
+
+Then verify `PAUSED` reads `<none>` before launching:
+`kubectl get scaledobject -n dhl-wva-209 -o custom-columns='NAME:.metadata.name,MIN:.spec.minReplicaCount,MAX:.spec.maxReplicaCount,PAUSED:.metadata.annotations.autoscaling\.keda\.sh/paused-replicas'`
+
+Also stopped the controller-log follower (PID group 1279372/1279437/1279438) so it would stop
+appending to a now-committed file; its background task reports **exit 144, which is the kill, not a
+failure**.
+
+**Full pre-next-run checklist** (three items, all still outstanding):
+1. Un-pause the ScaledObject (above).
+2. Reclaim this run's **11 GB** `per_request_lifecycle_metrics.json` from the PVC — only **9.4 GB**
+   free, so the next run will not fit. Run `session-notes/scratch/verify_pvc_vs_host.py` **before**
+   deleting anything; it has still never actually executed, and it exists precisely because
+   `reset_run.py`'s reclaim uses an existence check where a completeness check is required.
+3. **Restart the WVA controller and record its start time** — the new protocol from §18.4. Without
+   it the next run inherits this run's contaminated `computeCapacityHistory` and is not an
+   independent sample.
+### §18.16 The plan's dwell decision rule ANSWERED — and it would have misled
+
+Triggered by the doorbell handoff `benchmark__dwell-operating-point-in-plan.md` (re-read
+`planning/ta-pokprod-testing-plan.md` §7.6 / §7.6.1 / §9.1 T11). §7.6's staged decision rule was:
+*"if **both** rungs come back at KV ≈ 0.67, that is a clean positive result for rate-invariance"*, and
+§7.6.1 step 5 has the planner read the two rungs. **It is now answerable, from this run.**
+
+First, the rungs place exactly on the trajectory. Executed schedule (from the profile copied into the
+results dir), anchored at harness start 02:19:56Z:
+
+| Stage | Rate | Window (UTC) | Role |
+|---|---|---|---|
+| entry | 5 | 02:19:56–02:21:56 | ramp |
+| entry | 14 | 02:21:56–02:24:56 | ramp |
+| **rung A** | **20** | **02:24:56–02:30:56** | the ladder control, retained deliberately |
+| **rung B** | **26** | **02:30:56–02:36:56** | the 1.3× quantization sample |
+| descent | 2 | 02:36:56–02:48:56 | scale-down |
+
+Sum = 1740 s = 29 min, so the load phase ended 02:48:56Z — which is why the 33-tick analysis window
+(02:19–02:51) is exactly the load phase and ticks 34–54 are idle. Independent confirmation of §18.15.
+
+**KV must come from the engine, not the analyzer.** The controller's `util` is *not* kv-cache
+utilisation — §18.9 has real kv 0.9987 against a reported `util` 0.360. Reading `util` here would
+answer a different question while looking like it answered this one. The true source is the per-pod
+vLLM scrapes in `metrics/raw/`, metric **`vllm:kv_cache_usage_perc`**. Extracted with
+`session-notes/scratch/kv_per_rung.py` (new, read-only).
+
+| Rate | n | kv_mean | kv_p50 | kv_p90 | kv_max | mean running | mean waiting |
+|---|---|---|---|---|---|---|---|
+| 5 | 8 | 0.084 | 0.084 | 0.186 | 0.186 | 25.5 | 0.0 |
+| **14** (entry) | 16 | **0.623** | **0.990** | 0.999 | 0.999 | 122.3 | **266.4** |
+| **20 (rung A)** | 153 | **0.127** | **0.066** | 0.265 | 1.000 | 23.0 | 22.3 |
+| **26 (rung B)** | 119 | **0.248** | **0.098** | **0.994** | 1.000 | 44.9 | 27.0 |
+| 2 (descent) | 229 | 0.120 | 0.011 | 0.409 | 1.000 | 21.4 | 8.6 |
+
+Scrape accounting, fully reconciled so the coverage is not taken on trust: **803** scrape files =
+**569** usable decode + **80** `503 ServiceUnavailable` (pods still starting) + **153** EPP-endpoint
+scrapes (no vLLM kv by design — not a loss) + **1** `Failed to collect` (02:31:11Z, mid-collapse).
+Real decode loss is 81/650 = **12.5%**, and it **clusters in the scale-up transients** — i.e. exactly
+the hot moments — so every rung's mean is biased *downward*. The bias direction matters and does not
+rescue the numbers below.
+
+**Three conclusions.**
+
+1. **The rule's premise fails outright.** Neither rung reads ≈ 0.67: rung A is **0.127 mean / 0.066
+   median**, rung B **0.248 / 0.098**. Read literally, step 5 returns *"both rungs low ⇒
+   rate-invariance refuted"* and sends the plan to the §7.6.1 step-6 32-RPS follow-up run. **That
+   would be the wrong move**, and it is the concrete risk in leaving the rule as written.
+2. **The mean of a limit cycle is not a steady state.** Rung B is the giveaway: mean 0.248 but
+   **p90 0.994 and max 1.000**. The distribution is bimodal — saturated at low replica counts,
+   near-empty at 10 — so no single number describes an operating point, and "steady-state KV" is not
+   a well-defined quantity for this system at these settings. **The dwell question is malformed until
+   the oscillation in §18.2 is fixed.** This is the load-bearing conclusion.
+3. **The only near-band dwell in the whole run was an accident — and it was the 14 RPS *entry* rung**
+   (mean 0.623, p50 0.990, mean waiting 266). That is the stage I criticised in §18.11 as too short
+   and too sharp. It parked KV in-band because the replica count was *lagging* the load: 1→4 replicas
+   while 14 RPS was already offered. So the dwell is produced by **replica lag**, not by rate — which
+   **supports §7.6's headline** ("the dwell is a controller-configuration lever, not a workload
+   lever") while **invalidating the specific test** §7.6 designed to prove it. The planner's
+   conclusion is right; the instrument is not.
+
+⚠️ **Tool defect found while doing this — `dump_wva_target_timeseries.py` silently emits nulls.**
+It wrote "41 snapshots" and looked healthy, but **0 of 41** had `utilization`, `totalSupply`,
+`totalDemand`, `requiredCapacity`, or `spareCapacity`. Cause is log-format drift: its `ANALYSIS_PAT`
+matches `saturation/engine_v2.go:\d+ V2 saturation analysis completed`, which this controller build
+**never emits** (0 occurrences). It now logs `analyzer-result` (`engine_v2.go:695`, 108 lines = 2 per
+tick, one per analyzer) and `scaling-decision` (`engine_v2.go:744`, 54). The fields exist under
+**renamed keys**: `supply`, `demand`, `util`, `rc`, `sc` — plus per-variant `prc` / `reason` and
+`scaleUpThreshold` / `scaleDownBoundary` that the tool does not know about. `DECISION_PAT` still
+matches (54 hits), which is why `primary` populated and the failure looked like success.
+
+Two consequences worth stating separately:
+- The end-of-script guard only refuses to clobber when `samples` is **empty**. Here it was 41
+  non-empty rows, so a **partial parse will happily overwrite a good earlier file**. The guard
+  protects against rotation, not against drift.
+- §7.6.1's precondition 4 ("run `post_run_analyze.sh` **immediately**") is **necessary but not
+  sufficient** — promptness cannot fix a pattern that no longer matches. The ladder's missing
+  `metrics/processed/wva_*` was attributed to rotation; at least part of that story may be this drift.
+
+**Not fixed here, deliberately.** The fix is a focused single-file edit (add the `analyzer-result`
+pattern, map the five renamed keys, key on `analyzer == "saturation"`, capture `prc`/`reason`), but it
+is outside the "free the GPUs / save state / write handoffs" scope of this round and needs Dean's
+approval per the substantial-single-file-edit rule. **No data is at risk:** the raw controller log is
+committed at `session-notes/scratch/controller-decisions-20260808-dwell.log`, so the timeseries can be
+regenerated offline at any time, with no dependence on the cluster or on rotation.
+
