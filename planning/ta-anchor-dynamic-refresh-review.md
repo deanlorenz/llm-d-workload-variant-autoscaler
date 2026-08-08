@@ -7132,3 +7132,177 @@ Note the same discipline on the rounding fork: the new suite avoids `replicasToC
 2 free GPUs at 2 per replica, where ceil and floor agree at 1 — with the exposure named rather than
 implied: *"avoiding it is not the same as it being absent."* If the fork resolves to floor, nothing in the
 new suite has to move.
+
+## Finding 66 — `AD5` verified at HEAD: the conclusion holds, all three stated mechanisms do not, and the severity is understated
+
+Three documents now describe `AD5`: the designer's Addendum-1 handoff, the coder's correction, and the
+planner's verification. **All three reach the right conclusion — prefill is not sized during a saturation
+outage — and all three name a mechanism that does not fire.** I verified the chain independently at HEAD
+`a9afb740`. The conclusion survives; the placement advice in all three does not, and the consequence is
+worse than any of them states.
+
+Scope note first: **the disposition is the planner's and Dean's, not mine.** I am supplying the mechanism
+and the severity, because the fix placement each document proposes would produce a predicate that never
+fires, and because the severity gap changes what "defer" costs.
+
+### What I credit
+
+- The designer's `AD5` conclusion, and its instinct that `VG-up` is the trigger worth catching *before*
+  the branch lands rather than after.
+- The coder's catch that `AD5`'s `rescale.go:554-570` citation is a **stale-revision** citation, not a
+  mis-numbering: bug #3 (`07b8fdb7` + `3c9d45bb`) moved sizing onto the ballot, and at HEAD `:597` reads
+  `combineVotes(votesFromTotalDemand(s, role, bestVariant), true)`. Verified: the cited line range lands
+  inside the *base* function's body. (One phrasing correction to the coder's own note, immaterial to its
+  point: `952d2fff` is the 20th of 25 commits — five before the tip, not "20 commits before code-complete.")
+- The planner's §3 correction of the `N7` mechanism. Verified at `analyzer_helpers.go:891`: a missing role
+  key reads `if _, ok := e.RoleSpare[role]; !ok { continue }` — *"this analyzer doesn't decompose this role;
+  abstain, not veto"* — and the function returns `liveCount > 0`. The veto framing was wrong; the
+  disposition survives, and the planner is right that the framing matters because it makes a teardown look
+  impossible when it is not.
+
+### The decisive read: the anchor is built from the raw list, not the ballot
+
+Every anchor construction passes the **unpruned** results — `bindingAnchor(req.AnalyzerResults)` at
+`cost_aware_optimizer.go:48`, `:309`, `greedy_score_optimizer.go:171`, `:212`, `rescale.go:229`, `:346`,
+`:492`, `:513`, `:624`, `:639` — while `votingResults(...)` is a *separate* call producing the ballot `s`.
+And `bindingAnchor` locates saturation **by name, not by vote** (`:208-217`, whose comment says so
+explicitly: *"It may be present even when it does not vote"*).
+
+This is deliberate and it is correct: a stale saturation still carries the model's **identity** —
+`AcceleratorName`, `Cost`, `Role`, `ReplicaCount` (`:279-284`) — so accelerator topology survives an
+outage even though the stale entry is barred from voting. `VG-up` prunes the ballot without disturbing it.
+
+Three consequences, each killing one proposed fix site:
+
+1. **`AcceleratorName` survives**, so `variantsOnType(anchor.VariantCapacities, accType)` is non-empty and
+   the reference-variant loop at `rescale.go:582-592` finds a candidate. The planner's §2 chain —
+   `bestVariant == ""`, returning 0 *before* the combine — **does not fire.** (It would fire if TA were the
+   identity carrier, since TA sets no `AcceleratorName` at `analyzer.go:398-408`; but that needs saturation
+   absent from the results entirely, not merely stale.)
+2. **TA prices live prefill variants.** The per-variant loop skips only on missing shape (`:297`), no ITL
+   model (`:312`), non-positive `itlSat` (`:322`), and `supply == 0` (`:327`) — nothing role-gates
+   `perReplicaSupply`, and the `RolePrefill` guard at `:364` scopes only the decode ITL/OL averaging. So a
+   running prefill variant reaches `:398-408` with `PerReplicaCapacity > 0`, the merge's sizing lookup hits
+   (`analyzer_helpers.go:286-291`), and the anchor's prefill PRC is **positive**. The `:292-302`
+   "binder omits this variant" comment the planner cites describes a different case — a variant the binder
+   *cannot* price, i.e. one at zero replicas.
+3. **TA's `RoleCapacities` has a `prefill` key.** `Role: state.role` at `:400` → `AggregateByRole`
+   (`aggregation.go:72-86`) → `aggregateRoleCapacities` (`analyzer.go:953-970`). So the ballot lookup
+   `rc, ok := e.Result.RoleCapacities[role]` succeeds, and the coder's abstain branch — no role key, hence
+   no vote — **does not fire either.**
+
+### The operative mechanism: a real vote, honestly valued zero
+
+With the key present and the PRC positive, `votesFromTotalDemand` (`:545-570`) emits a genuine vote whose
+`Value` is `0 / prc` = 0. The zero is authored upstream, in `distributeDemandByRole:928`'s
+`if role != domain.RolePrefill` exclusion — **deliberate and documented** at `:912-917`: both demand terms
+are decode-rate-denominated, so there is no prefill-denominated demand to distribute. `TAdec` has no model
+of prefill demand, and says so by producing nothing.
+
+The zero then survives arithmetic that looks like it should round it away. `combineVotes(…, true)` returns
+`(0, binder ≥ 0)`: the trust correction accumulates only where `excess := vt.Score - votes[b].Score` is
+strictly positive (`:484-493`), so with a single vote the binder's own excess is 0, the correction is 0, and
+the result is **exactly** 0 — not an epsilon that `int(math.Ceil(value))` at `:598` would lift to 1.
+
+**So the state is "an analyzer that models this role priced it at zero", not "nobody priced it".** That
+distinction is the entire placement problem: a hold predicate keyed on `binder < 0`, on an empty vote set,
+or on `bestVariant == ""` — the three sites the three documents propose between them — **would not fire in
+`AD5`'s own scenario.** This is the abstain-versus-veto seam PR-2 already settled for pricing, arriving
+again one layer up; and it is the planner's own §4 question, which is therefore not a refinement to make
+later but the precondition for the predicate existing at all.
+
+Where the abstain branch *does* arise is the zero-replica corner: the from-zero complement leaves `Role`
+unset (`analyzer.go:419-421`, deliberately), both `AggregateByRole:75-78` and `distributeDemandByRole:924-926`
+coerce `""` → `both`, and `aggregateRoleCapacities:956` returns **nil** when the only key is `both`. A
+predicate written for that corner and one written for `AD5` are not the same predicate.
+
+### The gauge half is a second site, not the same one
+
+`AD5`'s invisibility claim is live, and it is now a *separate* site from sizing.
+`cost_aware_optimizer.go:350-367` still reads `anchor.RoleCapacities[role]` wholesale and assigns
+`decision.RequiredCapacity` from it. Bug #3 moved **sizing** onto the ballot and left **observability** on
+the anchor. Since the anchor's `RoleCapacities` is `binding.Result.RoleCapacities` verbatim (`:266`) and TA
+binds, the prefill gauge publishes TA's structural zero.
+
+Consequence for whoever fixes this: **a sizing-only fix leaves the operator-facing series at 0.** Two
+sites, one per half of `AD5`.
+
+### The severity: two scale-down paths, and a teardown nobody has named
+
+The planner's §2 states that *"the scale-down gate does not [protect the role] either, because
+`scaleDownVariantSet` consults neither `needsScaleDownForRole` nor `safeRemovalReplicasForRole`."*
+`scaleDownVariantSet` is a **helper parameterised by a `maxRemovable` callback** (`:124-131`), so what it
+consults is entirely up to its caller — and there are two, which differ exactly here:
+
+**Path A — `scaleDownRoleIterated` (`:474-505`), reached from `cost_aware_optimizer.go:65` and
+`greedy_score_optimizer.go:225`.** This one **does** consult both: the role gate at `:488` and
+`safeRemovalReplicasForRole` as `maxRemovable` at `:498`. Under `AD5`'s preconditions those gates pass
+rather than protect:
+
+- Dispatch reaches it when `!anyRoleNeedsScaleUp(ps, roles)` (`:61-66`) — i.e. steady state. **No opt-in,
+  no contention required.**
+- `roleSpareVetoed(s, prefill)` is false: TA's prefill `SpareCapacity` is
+  `TotalSupply − TotalDemand/scaleDown` (`engine_v2.go:474-506`, applied to registered analyzers too per
+  `:91`/`:182`) with `TotalDemand = 0`, hence the **full prefill supply** — positive, so no veto.
+- `needsScaleDownForRole` then counts TA as live-with-key → `liveCount == 1` → **true**.
+- `safeRemovalReplicasForRole` min-combines `RoleSpare[prefill] / prc` ≈ the **entire prefill fleet**.
+- `scaleDownVariantSet` sheds to `minReplicas` (0 when unset), with the cheapest-at-1 positional rule
+  (`:159-161`) leaving exactly one replica on the cheapest prefill variant.
+
+This path is **inherited, not PR-2's**: base `075a208e` had `safeRemovalReplicasForRole` at `:390` with the
+same `!e.Live` / `prc <= 0` abstain structure and min-across-live semantics, and a stale saturation was
+already skipped there by `!e.Live` regardless of ballot pruning. `VG-up` does not create it; it **widens
+the window**, by removing stale-but-positive `RequiredCapacity` that would sometimes have diverted the
+model to the allocate branch instead.
+
+**Path B — `reclaimRole` (`rescale.go:404-427`), reached from `:382`.** This one consults neither gate: its
+`maxRemovable` is a pure GPU delta (`remaining / g`, `:416-422`). The chain:
+`demByRole[prefill] = roleDemandGPUs(...) = 0` → `distributeGPUsByWeight` (`:661-706`) reserves each role
+only its floor and apportions the remainder by demand weight, so prefill receives
+`roleFloorGPUs = minReplicas × GPUsPerReplica` = **0 when `minReplicas` is unset** → `rt < rc` → reclaim of
+the role's whole GPU allocation. **The PRC ≤ 0 skip at `:139` does not protect a live prefill variant**,
+because TA prices it (above). Narrower reachability than path A — rescale must be enabled for the scope and
+the group contended (`:204-213`, `:239`) — but this half **is** newly unmasked by `VG-up`: pre-`VG-up` a
+stale-but-enabled saturation sat in the ballot and kept `demByRole[prefill] > 0`.
+
+**So `AD5`'s framing — *"a model that quietly stops scaling half of itself"* — understates it.** Under the
+same preconditions the model does not merely fail to grow prefill; it **sheds prefill to ~1 replica** while
+decode scales normally, and the prefill `wva_required_capacity` series reads 0 throughout. A missed
+scale-up is a lost opportunity; this is an active drain on a role that is serving traffic.
+
+This also corrects the planner's §1 cancellation story. Its claim — that the `PerReplicaCapacity <= 0` skip
+is *"the only thing declining the prefill reclaim"*, hence that `(D-a)`'s deferral plus `AD3`'s scoping hold
+the cancellation in place — **holds only for a zero-replica prefill variant.** For a *live* one TA already
+supplies a positive PRC, so the skip is already not firing, and nothing downstream of it declines the
+reclaim today. The coupling the planner wants recorded is real for the from-zero case and worth recording;
+it is not what protects a running prefill role, because nothing does.
+
+### Evidence status, and the test that would settle it
+
+**PLAUSIBLE by reading, not CONFIRMED by execution.** I do not build or test in the coder's worktree, so
+every step above is a source read, not an observed run. The chains are short and each link is quoted, but
+the composition is exactly the kind of thing a fixture settles and eyeballs do not.
+
+The decisive test is cheap and belongs with the `VG-up` commit: a P/D model, `[sat,TA]`, saturation
+`Enabled: true, Live: false`, TA live and binding, prefill and decode variants each at ≥ 2 replicas, no
+`MinReplicas`. Assert on the steady-state (path A) dispatch that prefill's target is **not** reduced. The
+same fixture with rescale enabled and the group contended covers path B. Both should be red today if this
+reading is right; if either is green, my chain is wrong somewhere and I would want to know which link.
+
+### Two smaller items
+
+**The designer's unverified tier-2 row — closed, and it does not widen the residual.** Neither precondition
+blocks a zero-replica variant: the `engine_v2.go:38-53` prepopulate loop iterates `variantAutoscalings`
+(VA *specs*, which exist for a scaled-to-zero variant) and its `:42` skip catches a **missing** scale
+target, not a target scaled to zero; and `capacity_store.go:126-128` exists for precisely this case per its
+own comment — *"so that brand-new variants with no live data or compatible siblings can still be considered
+for scale-up."* The coder reached the same conclusion; I verified it independently rather than relaying it.
+One sharpening the designer may want: on a freshly-constructed record `EffectiveCapacity` is always 0, so
+`EffectiveCapacity <= 0 && EffectiveMaxBatchedTokens > 0` reduces to the second conjunct alone — the rung
+is gated on the params being present, nothing more.
+
+**My own authority line.** This review's header cites the frozen Type 1 and plan `1a116e7a`. Addendum 1 is
+later and governs where they overlap, and is currently reachable only by filename — so I have added it here
+rather than waiting on the Type-3 and CURRENT.md pointers, which are the planner's and sync's to place:
+design authority for this review is `combined-analyzer-optimizer-design.md` (FINAL, frozen `8c2a9b04`)
+**together with** `combined-analyzer-optimizer-design-addendum-1.md`, the latter governing on overlap.
