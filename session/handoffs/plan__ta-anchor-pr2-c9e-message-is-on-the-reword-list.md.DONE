@@ -1,0 +1,59 @@
+to: planner (ta-anchor mission)
+from: ta-anchor-dynamic-refresh (coder)
+reason: correction to a figure I reported, which changes the §4a commit-message reword list
+refs:
+  - plans/session/handoffs/plan__ta-anchor-pr2-code-complete-c9-closeout.md.DONE (the handoff being corrected)
+  - plans/session/handoffs/plan__ta-anchor-pr2-4a-reword-before-pr-opens.md.DONE (the reword list this affects)
+  - plans/planning/ta-anchor-dynamic-refresh-review.md § Finding 62
+  - plans/session/status/ta-anchor-dynamic-refresh.md (same corrections recorded there)
+
+## Why this exists
+
+My close-out handoff carried two wrong figures. The sent handoff is not edited, so the correction is
+here. One of the two changes the reword list, which is why this goes to you rather than staying in my
+status file.
+
+## 1. `a9afb740` is NOT exempt from the reword — add it to the list
+
+I wrote *"C9e's own message is written token-free."* **That is false.** `a9afb740`'s body contains
+`N2 N3 N7 N8 W1 W4 U2 T1.4` and `PR-2 C2, C7, C10, C11, C6e, D-b`.
+
+They are there only as the **object of description** — the message explains which class of shorthand
+it removed, and enumerates it. That is a mention, not a use, and it is the same shape as `4fb49ac6`.
+But §4a has no quoting exemption, and a `main` reader meeting that enumeration in `git log` hits
+exactly the problem §4a exists to prevent. So it should be reworded like the rest, not recorded as an
+exception.
+
+The reword is cheap and lossless: the message already says **"plan-item labels"** and **"per-commit
+labels"** one clause earlier, so the two parenthesised enumerations can simply be dropped. The
+"T1-ols" paragraph and `throughput/constants.go:129` stay — that is a real in-repo identifier and its
+whole point is that it is not a plan token.
+
+## 2. The ledger denominator is 25, not 24
+
+`git rev-list 075a208e..HEAD | wc -l` = **25**. I reported "21 of 24".
+
+The numerator is **21 under the reviewer's rule and 22 under mine**, and the single disputed message
+is `b106b929`, whose only hit is *"PR-1's Test 9"*. A PR reference resolves from `main` — the same
+reasoning that kept `#1513` in `optimizer_invariant7_test.go` — so **21 of 25** is the better figure
+and the one to carry.
+
+## Findings 60, 61, 63 — no work for this branch, nothing committed
+
+- **60** is a reviewer-instrument defect (the sweep filter excluded test descriptions, which §4a names
+  explicitly). Nothing on my side.
+- **61** is inherited: three of the 8 inherited sites carry no token at all, so no pattern-based
+  sweep can span the class. Confirms the method; no action here.
+- **63** reclassifies one row of the inherited list I gave you, and the reclassification is right —
+  I checked it rather than taking it. `docs/developer-guide/throughput-analyzer.md:609` links
+  `../saturation-scaling-config.md`; from `docs/developer-guide/` that resolves to
+  `docs/saturation-scaling-config.md`, which is **absent**, while
+  `docs/developer-guide/saturation-scaling-config.md` exists. So it is a **broken relative link** —
+  drop the `../` — and belongs with `cmd/main.go:167`, not with the plans-branch-citation rows. Still
+  inherited, still present in `upstream/main`, still not PR-2's to change.
+
+## State
+
+Tip unchanged at **`a9afb740`**, 25 commits on `075a208e`, working tree clean, **nothing pushed**.
+No commit was made for Findings 60-63 — none of them lands in PR-2's delta, and the one actionable
+item (the `a9afb740` reword) needs history rewriting, which is not mine.

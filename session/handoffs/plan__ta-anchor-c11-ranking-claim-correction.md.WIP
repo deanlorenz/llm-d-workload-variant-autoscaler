@@ -1,0 +1,177 @@
+from: plans (Type-1 owner / PR-2 Type-3 review session)
+to: planner
+session: ta-anchor C11 FZ-admission ranking-claim correction
+
+## Summary — one wrong justification, no design change, three small Type-3 edits
+
+Reviewed `planning/ta-anchor-dynamic-refresh-plan.md` @ `1a116e7a` against the frozen Type 1
+@ `8c2a9b04`. The refresh is a faithful and in places improved transcription — this is the only
+substantive finding, and it originates in **my own Type 1 text**, not in your work.
+
+**The `FZ-admission` decision is unchanged and correct.** The `PRC = 1` sentinel stands, the
+one-replica target ceiling stands, `Reason`-tagging stands. What is wrong is the Type 1's stated
+*rationale* for the ranking property, which the Type 3 transcribes as ✅ and turns into a test
+assertion that cannot pass on production values.
+
+Dean has seen this finding and confirmed the mechanism stands ("the sentinel 1 would work"),
+and asked for this handoff. **No production-code change follows from it.**
+
+Timing: the coder is at C6c and C11 is four commits out (`C6c → C6d → C6e → C6f → C11`), so
+there is runway. It should land in the Type 3 before C11 is written. The trigger to the coder is
+yours to send, not mine.
+
+---
+
+## The finding
+
+Type 1 `planning/combined-analyzer-optimizer-design.md:1530-1533` asserts:
+
+> **ranking** — `costEfficiency = Cost / PRC` degenerates to `Cost`, which totally orders the
+> never-seen peers by cost, exactly as wanted. And because measured PRCs are ≫ 1, a never-seen
+> variant ranks *behind* every measured option — conservative, and desirable: it wins only when
+> nothing measured can absorb the load.
+
+Transcribed into the Type 3 at `:1324` (§2f ranking row, marked ✅) and at `:288` (C11's four
+assertions: *"ranking (it sorts **behind** every measured option)"*).
+
+**Both halves are false, from the same root cause.** Ranking behind a measured variant needs
+`Cost_s > Cost_m / P_m` — a *cost-ratio* condition. Measured PRCs being ≫ 1 is not sufficient.
+And the sentinel variant's actual `Cost` is **0**:
+
+- the anchor merge copies `Cost` from the **(a) carrier**, i.e. saturation's entry —
+  `internal/engines/pipeline/analyzer_helpers.go:202`;
+- saturation builds `variantCost` **only from `inputMetrics`** (live per-replica metrics) —
+  `internal/engines/analyzers/saturation_v2/analyzer.go:352-360`, consumed `:373`, emitted `:443`;
+- a zero-replica variant contributes no `inputMetrics`, so the map misses and `cost = 0`.
+
+That is `N5`, and its population is *exactly* the one C11 admits. So
+`costEfficiency = 0 / 1 = 0` and the sentinel sorts **first**, unconditionally — the inverse of
+the stated property. Under `costGreedyRolePick` it is the **first pick** for that role.
+
+The peer-ordering half fails too: all never-measured peers tie at `0`, and
+`sortByCostEfficiencyAsc` uses unstable `sort.Slice` (`cost_aware_optimizer.go:228-235`), so the
+pick among them is arbitrary, not cost-ordered.
+
+`N5` is explicitly out of PR-2 (plan `:121`, `:2205`), so this is the **default** case, not a
+corner. The plan lists `N5` and notes it reaches all three configs, but never connects it to C11.
+
+**Why no sentinel value fixes it (and why `1` is therefore right):** `Cost = 0` makes
+`costEfficiency` zero for *any* positive PRC — `1`, ε, `1e9`. The sentinel value is orthogonal to
+the ranking defect. A tiny-ε variant is not an improvement; do not adopt one.
+
+## Why the mechanism is nonetheless safe — a better argument than the Type 1 gives
+
+Two mitigations the Type 1 does not claim, both verified at `d9f3b97e`:
+
+1. **Self-healing after one cycle.** Once admitted with a replica, the variant has `inputMetrics`
+   → real `Cost`, real PRC → normal ranking. The mis-ranking costs exactly one replica, once, per
+   never-measured variant.
+2. **The cap covers the non-healing case.** If that replica sticks pending (never ready → still no
+   metrics → `Cost` stays 0 → picked first again), the one-replica *target* ceiling yields headroom
+   0 and the variant is skipped. It cannot accumulate.
+
+So the honest statement is: *the cap bounds it, and it self-heals in one cycle* — not *it ranks
+last*. This is also why your `:2065-2080` tag/cap-coupling grep is load-bearing for correctness
+rather than belt-and-braces; that paragraph is the best in the doc and should be cross-referenced
+from the corrected §2f row.
+
+---
+
+## Requested Type-3 edits (three)
+
+### 1. §2f ranking row (`:1324`) — ✅ → honest statement
+
+Replace the ranking row's claim and mark it ⚠ rather than ✅. Suggested content (yours to word):
+
+> **ranking** — `costEfficiency = Cost / PRC` degenerates to `Cost`, and for a never-measured
+> variant `Cost` arrives as **0** from saturation's zero-replica path, so cost-efficiency is `0`
+> and the sentinel sorts **first**, not last. No sentinel value changes this. What makes admission
+> safe is the one-replica ceiling plus self-healing on the next cycle, once the variant has
+> metrics — not its rank.
+
+Please label this the way §7.1 and §2d.5 already label superseded framings, and state explicitly
+that **only the Type 1's rationale is superseded, not any decision** — the mechanism and the cap
+are unchanged. That keeps "the Type 1 governs" intact: no decision diverges.
+
+**Do not edit the Type 1.** It is frozen at `8c2a9b04` and it is not your file. `:1530-1533`
+needs a post-freeze touch at Dean's discretion; flag it to him rather than fixing it.
+
+### 2. C11 assertion 2 (`:288`) — replace with a test that can pass
+
+Current: *"ranking (it sorts **behind** every measured option)"*. That can only pass on a fixture
+with a rigged non-zero `Cost`, which encodes an invariant production does not have.
+
+Suggested replacement:
+
+> **ranking** — a never-measured variant is selected **first** in its role, not last: its cost
+> arrives as `0` from the zero-replica path, so cost-efficiency is `0`. The allocation is
+> nonetheless correct — it receives **exactly one** replica and the balance goes to the cheapest
+> measured variant.
+
+Why this shape:
+
+- **Passes on production values.** The fixture must produce `Cost = 0` the way production does —
+  no replica metrics for that variant — or the spec asserts nothing.
+- **Goes red on the real hazard.** Remove the cap and the sentinel absorbs the whole grant; this
+  catches it. The old wording would have gone red on an unrelated cost-ratio accident.
+- **Pairs with assertion 4.** Assertion 2 says the cap fires; the skip-not-zero-cap assertion says
+  firing doesn't zero the model's loop.
+- **Its description carries the reason.** Per §4a the spec text must name *"the saturation
+  zero-replica cost bug"* in prose — no plans-branch token in the test description.
+
+Two guard-rails to state in the same place:
+
+- **Never assert which of several never-measured peers wins.** They tie at efficiency `0` under an
+  unstable `sort.Slice` — deterministic today, not contractually. Give the fixture enough budget
+  for one replica each, or assert set-level totals only.
+- **Optional second spec — one cycle only.** After admission, a cycle with metrics present ranks
+  the variant normally. Cheap, and it pins the self-healing property the whole design rests on.
+
+**Optional, your call:** a *pending* spec (`PIt`) stating *"once the saturation zero-replica cost
+is real, a never-measured variant ranks behind every measured option"* preserves the intended
+guarantee without encoding a false invariant or carrying a red test; whoever fixes that bug flips
+it on. Skip it if you'd rather not carry a dormant spec.
+
+### 3. Two additions to the C11 grep/notes block (`:2065-2080`)
+
+- **Which path the specs run through.** Eligibility and ranking must be exercised through the
+  **cost** optimizer. `fairShareRolePick` additionally gates on `available[vc.AcceleratorName]`
+  (`greedy_score_optimizer.go:419-422`) against a map keyed by real accelerator types
+  (`mergeConstraints`, `cost_aware_optimizer.go:327-349`); a never-measured variant's
+  `AcceleratorName` is **empty** from the same zero-replica lookup
+  (`saturation_v2/analyzer.go:372`, filled from `replicas[0]` only when replicas exist at
+  `:417-418`), so `available[""] = 0` and it is skipped there **regardless of PRC**.
+  `costGreedyRolePick` ignores the `available` map entirely (parameter `_`,
+  `cost_aware_optimizer.go:85-109`), so the sentinel is eligible on that path.
+  **This is pre-existing and must NOT be fixed inside C11** — but without the note the coder
+  debugs a working sentinel for an afternoon. I find no existing label for this half; `N5` covers
+  only the `Cost` half.
+- **The comment C11 invalidates.** `analyzer_helpers.go:213-216` currently reads *"Not proactively
+  selectable; genuine cold-starts fall to the reactive scale-from-zero engine"* — the exact claim
+  C11 reverses. Your grep list catches the new `Reason` constant and the literal `1` but not this.
+
+---
+
+## Explicitly out of scope for this correction
+
+- **Do not fix `N5`** in PR-2. It stays where the plan already puts it (`:121`, `:2205`).
+- **Do not fix the empty-`AcceleratorName` half** either; same reasoning, and it would move
+  `[sat]`-only goldens.
+- **Do not change the sentinel value or the cap.** `PRC = 1` + one-replica target ceiling +
+  `Reason` tag, exactly as §2f has it.
+- **No production-code change follows from this handoff.** The deltas are one plan row, one test
+  assertion, two notes, and one code *comment* the coder was already going to touch at C11.
+
+## Evidence base
+
+All code reads at worktree `ta-anchor-dynamic-refresh`, branch tip `d9f3b97e` (read-only):
+`internal/engines/pipeline/analyzer_helpers.go:202,:213-216`;
+`internal/engines/pipeline/cost_aware_optimizer.go:85-109,:228-235,:238-243,:327-349`;
+`internal/engines/pipeline/greedy_score_optimizer.go:419-422`;
+`internal/engines/analyzers/saturation_v2/analyzer.go:352-360,:372,:373,:417-418,:443`.
+
+Docs: Type 1 `planning/combined-analyzer-optimizer-design.md:1339,:1511-1552` (esp. `:1530-1533`);
+Type 3 `planning/ta-anchor-dynamic-refresh-plan.md:121,:188-191,:251-296` (`:288`),
+`:1252-1395` (`:1324`), `:2065-2080`, `:2205`.
+
+No files were edited other than this handoff; the Type 1 remains at `8c2a9b04`.

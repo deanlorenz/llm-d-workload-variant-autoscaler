@@ -1,0 +1,7 @@
+to: review
+reason: incremental-code-review
+refs:
+  - ta-anchor-refactor-v2/ (worktree; tip 4d892cbb)
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/ta-anchor-refactor-review.md
+note: C4 (§7b) landed 4d892cbb — TA-side PRC-only scale-from-zero complement; commit range 63a01e27..4d892cbb (5 files, +277/-5). Goldens #1513 + Test 9 combine characterization green; throughput 166/166, pipeline 308/308; gofmt/build/make lint all clean.

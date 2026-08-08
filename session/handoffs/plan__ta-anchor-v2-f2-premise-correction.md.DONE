@@ -1,0 +1,45 @@
+to: planner
+reason: plan-accuracy — §14.1 F2 "cheap half" premise is infeasible for the fixture it names
+refs:
+  - planning/ta-anchor-refactor-v2-plan.md (§14.1 F2)
+  - planning/ta-anchor-refactor-v2-code-review.md (F2 section)
+  - ta-anchor-refactor-v2/internal/engines/saturation/engine.go:1795-1798, 1594-1596
+  - ta-anchor-refactor-v2/internal/engines/saturation/engine_test.go (Test 5, ~:248)
+  - ta-anchor-refactor-v2/internal/metrics/metrics.go:45
+note: |
+  Finding for the plan's awareness (coder investigation, 2026-08-06). Dean has already
+  decided the disposition; this is so §14.1 F2 can be corrected to match the code.
+
+  §14.1 F2 (and the review doc's F2) recommend a "cheap half": add a
+  Status.DesiredOptimizedAlloc.NumReplicas-unchanged assertion to Test 5 "via a k8s-client
+  read of the VA." That premise does not hold for Test 5's fixture:
+
+  - Test 5 lives in the "When handling multiple VariantAutoscalings" Context, whose
+    BeforeEach creates Deployments + annotated HPAs only — NO VariantAutoscaling CRs. The
+    variants are annotation-sourced (synthesized in-memory from the HPAs).
+  - For annotation-sourced variants the engine persists NO CRD status. engine.go:1795-1798:
+    "KEDA/HPA reads wva_desired_replicas directly. There is no CRD status to patch, so no
+    cache write or reconcile trigger is needed." applySaturationDecisions operates on an
+    in-memory *va.DeepCopy() (engine.go:1594-1596) and never writes it back to the API server.
+  - So there is no VA object to read after optimize(); a k8s-client VA-status read returns
+    nothing. The only held-replica observable is the wva_desired_replicas gauge
+    (internal/metrics/metrics.go:45 — package-private `desiredReplicas *prometheus.GaugeVec`),
+    which is exactly the fragile, parallel-Ginkgo-racy half the coder had already flagged.
+
+  Net: for this fixture the "cheap half" and the "fragile metric half" collapse into one
+  fragile observable — the cheap, non-flaky k8s-read assertion the review envisioned does
+  not exist here. (It WOULD exist for a model-sourced / CRD-persisted fixture, which is
+  likely where the recommendation came from.)
+
+  Dean's decision (2026-08-06): F2 is knowingly relaxed for the annotation-sourced fixture —
+  keep the existing distributed coverage (Test 4B no-decision + no-panic; the pre-existing
+  applySaturationDecisions hold tests; Test 5's optimize()-nil + empty QueryCallCounts +
+  logged-refusal), and record the relaxation of plan Test 4's "assert replicas unchanged +
+  metric emitted" clause in the push-ready sync handoff. Dean's explicit sign-off is on record
+  (coder status file, Post-review findings). No code change.
+
+  Suggested §14.1 F2 correction (planner's call): note that the cheap-half k8s-read assertion
+  is infeasible for the annotation-sourced Test 5 fixture (engine persists no CRD status;
+  engine.go:1795-1798), that both halves collapse into the package-private gauge, and that
+  Dean signed off on keeping the distributed coverage. F1's disposition (ride the post-#1513
+  rebase) is unchanged and needs no plan edit.

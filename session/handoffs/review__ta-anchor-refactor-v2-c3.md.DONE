@@ -1,0 +1,55 @@
+to: review
+reason: code-review-before-push
+refs:
+  - ta-anchor-refactor-v2/ (worktree)
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/ta-anchor-refactor-review.md
+note: |
+  Incremental review of the third coded commit (C4-C5 still WIP; NOT push-ready).
+  Base a2f49ccf (goldens tip); C1 6cea41f2, C2 4b820281 already reviewed.
+  Commit:
+    63a01e27 — C3 (§7) repoint the dispatch switch's queueing-model case from
+      optimizeQueueingModel to a new refuseQueueingModel (log-only, no decisions);
+      unconditional applySaturationDecisions then holds each model at last-good
+      replicas and still emits the scaling metric. Tests 4 + 5.
+
+  Deferral (DEFERRED, not deprecated): optimizeQueueingModel +
+  runQueueingModelAnalysis + buildQMConfig are RETAINED in-tree, no longer
+  dispatched. Design intent (a queueing-model-driven first-class voting analyzer)
+  is preserved; re-enable by restoring the dispatch to optimizeQueueingModel. A
+  blank reference (var _ = (*Engine).optimizeQueueingModel) keeps the parked
+  subtree reachable so the unused linter (staticcheck U1000) does not flag it.
+  The formal DEFERRED classification for the planner will also ride the eventual
+  push-ready sync handoff.
+
+  Latitude worth a reviewer eye:
+    - refuseQueueingModel returns nothing (unparam would flag an always-empty
+      return); it logs an error via errors.New (perfsprint wants errors.New, not
+      a verbless fmt.Errorf) and leaves allDecisions empty at the call site.
+    - QM ballot entry in optimizeQueueingModel sets Enabled:true + Live:true
+      statically (single-analyzer path, not a per-analyzer-liveness participant) —
+      unchanged behavior of the parked path, kept only for the liveness regression
+      guard, since the path is no longer reached.
+
+  Test placement:
+    - Test 4A: bindingAnchor nil-condition units appended to the existing
+      Describe("bindingAnchor") in pipeline/analyzer_helpers_test.go (empty ballot,
+      no enabled+live+informative analyzer, ambiguous multi-binder).
+    - Test 4B: new pipeline/optimizer_hold_test.go — both optimizers produce no
+      decision and never index into an unbindable ballot (empty-ballot regression).
+    - Test 5: new envtest It in saturation/engine_test.go piggybacking the existing
+      multi-VA fixture — QM ConfigMap present routes to refuse; asserts the refusal
+      is logged AND mockPromAPI.QueryCallCounts stays empty (proof of no V2/V1
+      fall-through, since refuse never calls prepareModelData).
+
+  Known coverage gap (documented, intentional): Test 5 does not assert the exact
+  desiredReplicas gauge VALUE emitted by the hold path — that gauge is
+  package-private and fragile to read cross-package under parallel Ginkgo. The
+  refuse->hold->emit path is exercised end-to-end via optimize() returning nil
+  error with the routing proof above; the hold's replica arithmetic is covered by
+  the existing applySaturationDecisions tests.
+
+  Gates green as of C3: gofmt (dirs), go build ./..., go test -count=1
+  pipeline+saturation (307/307 + 98/98 specs, no pending/skipped), make lint
+  (0 issues). Ship gate: #1513 goldens (optimizer_characterization_test.go) green
+  after C3.

@@ -1,0 +1,10 @@
+to: ta-anchor-dynamic-refresh (coder)
+from: designer (Type-1 owner)
+reason: other — a Type-1 addendum was added as a new file; the frozen parent is unedited
+date: 2026-08-08
+refs:
+  - planning/combined-analyzer-optimizer-design-addendum-1.md
+  - planning/combined-analyzer-optimizer-design.md
+  - planning/ta-anchor-dynamic-refresh-plan.md
+note: Addendum 1 is a separate file — the frozen Type 1 does not link it, so its § disposition
+  table is the only index of what it changes.

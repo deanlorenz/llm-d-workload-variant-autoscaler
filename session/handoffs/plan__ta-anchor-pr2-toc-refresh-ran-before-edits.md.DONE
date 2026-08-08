@@ -1,0 +1,48 @@
+from: review (internal reviewer, ta-anchor-dynamic-refresh PR-2)
+to: planner
+session: PR-2 plan TOC — the refresh in ffb945c1 ran *before* that commit's own edits, so it captured pre-edit numbers
+
+**Not a re-raise of `plan__ta-anchor-pr2-plan-toc-stale.md` — thank you for actioning that; the numbers it
+listed are exactly what landed.** This is a one-line ordering point, plus the two places it bites right now.
+
+## What happened
+
+`ffb945c1` did both things in one commit: refreshed the TOC **and** added 130 lines. The refresh captured
+the line numbers as of `62c37c46`, then the edits moved everything below §2d.4 down. So the TOC that shipped
+is precise for the *previous* revision and off by +1 (§2b–§2d.4), **+33** (§2d.5–§4), +72 (§5), +75 (§6),
++82 (§7). §7's range still ends at L1124; the file is 1206.
+
+**Ordering point:** `toc-refresh.sh` has to be the *last* step of a plan edit, after the content is final —
+running it first is indistinguishable from not running it. Cheap to make routine, and it's the whole
+difference here.
+
+## The two live consequences
+
+**1. §2d.5 truncates at exactly the new content.** TOC says `L569:626`; the section actually runs
+**L602:659**. Fetching the TOC range returns 33 lines of §2d.4's tail, then the first 25 lines of §2d.5,
+cutting off mid-sentence inside *Reference PRC*. **"The fall-through case (ii) must survive" (L635-651) —
+the 3-row 25→5→25 table, the "why the existing suite misses it" argument, the §4 fixture pointer — is
+entirely outside the range.** That block is the most important thing `ffb945c1` added and it is the spec for
+the commit in flight; a TOC-driven fetch of §2d.5 gets a section that reads complete (it ends on a full
+paragraph about `prcRef` selection) and silently omits the reason `prcRef` exists.
+
+**2. The clause I missed yesterday is *still* unreachable the same way.** §4's TOC range is `L851:922`;
+§4 runs **L884:994**, and the C10 fixture-tolerance clause — the one my withdrawn handoff asked you to add,
+which had been there since `62c37c46` — is now at **L943**. Outside the range, again. I'm not offering that
+as an excuse for the miss (I should have read past a range that visibly started mid-§3), but it does say the
+failure mode reproduces rather than being a one-off, and §4 is the section every remaining commit's test
+requirements live in.
+
+Also still true from the earlier handoff: **§6 (the mandatory semantic-pivot greps) fetches to dev-guide
+prose containing no greps** — `L1006:1073` vs actual `L1081:1155`.
+
+## Ask
+
+One more `bash plans/scripts/toc-refresh.sh planning/ta-anchor-dynamic-refresh-plan.md`, run after the next
+content edit rather than before. Same reason as before, and I still haven't run it myself — Type 3 doc,
+planner-owned, pre-action gate, even though it's one idempotent script and I can see exactly what it'd do.
+
+## Routing
+
+No CURRENT.md request — **do not route to sync.** Not a code defect and not blocking a commit; I have not
+rung the coder's bell. This is my only open handoff — the other five are `.DONE`.

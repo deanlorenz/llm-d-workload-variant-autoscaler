@@ -1,0 +1,223 @@
+from: ta-anchor-dynamic-refresh
+to: planner
+session: ta-anchor-dynamic-refresh C6c
+
+## Why this handoff
+
+C6c (Bug #5, §2 item 5 + §2d.5 + §2d.6) is bigger than the plan's four-site list reads, and six of the
+decisions it needs are not settled in the plan. Dean asked for the plan to be discussed and updated
+before I implement. Nothing is coded — C6c has **zero edits**. This handoff is the design surface.
+
+One of the six is not a preference question but a **gap**: the plan's claim that finding (b) falls out
+of the participation filter is incomplete as written (Q2). The rest are genuine forks.
+
+## State
+
+Branch tip `d9f3b97e`, local-only, no push.
+
+| Commit | Scope |
+|---|---|
+| `8eb6ee2d` C6a | one combine core — `replicaVote`, `combineVotes`, three collectors; `bindingIndexForRole` deleted; four sites retrofitted; rounding hoisted to callers. 6 files, +392/−110 |
+| `d9f3b97e` C6b | `voteScore` coercion + configured scores reaching the combine; score-semantics doc pass. 7 files, +198/−23 |
+
+Both DCO-signed. On both: `gofmt -l internal cmd` clean, `go build ./...`, `go vet ./internal/... ./cmd/...`,
+`go test -count=1 ./internal/... ./cmd/...` all `ok`, `make lint` 0 issues. **No golden moved**, including
+the #1513 sat-only goldens and the two-analyzer combine golden.
+
+Remaining git order per §1.1: C6c → C6d → C10 → C9.
+
+## What the plan does settle, and which I am not re-opening
+
+- Score leaves fsv entirely (§2d). The old "× Score only if Score is meant to weight budget" hedge is
+  withdrawn; I am not reviving it.
+- (ii) `fairShareCap` becomes `ceil(target)` — the divide by `vc.PerReplicaCapacity` is the second half
+  of a double conversion. Unambiguous, no question below.
+- The goldens gate: run per commit, report, and if one moves **stop and hand off** rather than rewrite it.
+  Understood and unchanged.
+
+## Q1 — where does `v_role` come from, and do the three pick sites get unified?
+
+§2d.5 (i) defines `v_role` as "the role's first `sortByCostEfficiencyAsc` candidate with `PRC > 0`".
+`fairShareValue(priority, s, ps, roles)` receives no topology at all, so it cannot compute that today.
+
+Signature options: (a) add `variants []domain.VariantCapacity`, callers pass `anchor.VariantCapacities`;
+(b) pass the anchor or the whole `modelWork`; (c) precompute a `map[role]variantName` at each call site
+and pass that. Callers are `:133` (has `anchor`), `:348` and `:350` (both have `w.anchor`).
+
+**I lean (a)** — smallest surface, keeps fsv a free function over explicit inputs.
+
+The scope question underneath it: that exact pick is already open-coded in **three** places —
+`fairShareRolePick:410`, `roleDemandGPUs` (rescale.go, with an extra `variantsOnType` filter), and now
+fsv. If they disagree, fsv is denominated in a variant the allocator never picks, which is the same
+class of bug C6c exists to fix. I would extract:
+
+```go
+// cheapestSizedVariantForRole returns the variant a role's demand converts
+// through: the first cost-efficiency-ascending candidate that actually sizes
+// (PRC > 0). fairShareValue, fairShareRolePick and roleDemandGPUs must agree on
+// this choice or fsv is denominated in a variant the allocator never picks.
+func cheapestSizedVariantForRole(vcs []domain.VariantCapacity, role string) (domain.VariantCapacity, bool)
+```
+
+`roleDemandGPUs` would pass `variantsOnType(...)` output through it, preserving its accelerator filter.
+This pulls `rescale.go` into C6c. **Decide:** extract now (three call sites converge, C6c grows one
+file), or leave the duplication and only have fsv compute it inline (smaller diff, three sites that
+must be kept in agreement by hand).
+
+## Q2 — the fallback. This one is a plan gap, not a preference
+
+`fairShareValue` currently ends with a fallback: when the weighted result is zero it returns
+`max_role,i ps[i][role]` — raw remaining demand. Its comment says the trigger is "Score=0 or priority=0".
+The plan does not mention the fallback at all.
+
+Two things follow from removing Score:
+
+1. The trigger narrows. Score is gone, so only a non-positive `priority` can reach it.
+2. **Left as-is, the fallback defeats finding (b).** §2d.4 (b) says fsv must count only demand that has a
+   PRC to convert it. The participation filter in `votesFromPickerState` delivers that for the primary
+   path — but a model whose demand is *entirely* unactionable now computes `demand == 0`, drops into the
+   fallback, and gets back the raw unactionable number, which is exactly the inflated value (b) forbids.
+   So "(b) falls out of the participation filter" is only true once the fallback is also fixed. Whichever
+   option we pick, the plan text for (b) should say so.
+
+Options:
+
+- **(a) keep it, in the new currency** — return the unweighted replica `demand` (so 0 when nothing
+  participates). Preserves the fallback's actual purpose: a mis-configured priority should not silently
+  drop a model that genuinely needs replicas (fsv 0 ⇒ `filterActive` excludes it ⇒ never allocated).
+  Satisfies (b) because an unactionable model reaches 0 either way.
+- **(b) delete it** — treat non-positive priority as a config error and let the model sit out. Needs a
+  DEPRECATED/DEFERRED classification with design intent per the deletion rule, and it is a real
+  behavior change for anyone running `priority: 0`.
+- **(c) keep it in raw units** — wrong; this is the case above.
+
+**I lean (a).** Recording it as a decision either way, because today the fallback is the only thing
+standing between `priority: 0` and a model that never scales.
+
+## Q3 — the form of site (iv), and the no-PRC analyzer
+
+§2 #5 (iv) offers two shapes without choosing: "Convert the clamp to replica space (or clamp the
+combined per-role replica count instead)". My proposal is a third, and I think it is the cheap one.
+
+`ps` is raw capacity per (analyzer, role); `target` becomes replicas. Rather than move `ps` into replica
+space, convert the **bound** into each analyzer's own units:
+
+```go
+for _, role := range w.roles {
+    vc, ok := cheapestSizedVariantForRole(w.anchor.VariantCapacities, role)
+    if !ok {
+        continue
+    }
+    for i := range ps {
+        prc := prcForVariant(w.s[i].Result, vc.VariantName)  // nil-safe
+        if prc <= 0 {
+            continue
+        }
+        if cap := target * prc; ps[i][role] > cap {
+            ps[i][role] = cap
+        }
+    }
+}
+```
+
+`ps` stays raw capacity, which is what every downstream consumer expects — `roleBottleneckReplicas`
+divides by `PRC_i`, `allocateForModelPaired` decrements in capacity, `applyDeallocationForRole` likewise.
+Only the bound becomes commensurable. Literally making `ps` replica-space (the plan's first phrasing)
+ripples into `initRoleState`, `roleBottleneckReplicas`, `allocateForModelPaired` and
+`applyDeallocationForRole`, which is a far larger change than #5 is scoped for. The plan's second
+phrasing — "clamp the combined per-role replica count" — has no single place to land, because `ps` is
+per-analyzer and the combine happens downstream.
+
+**Sub-question, and I want this confirmed rather than assumed:** what happens to an analyzer with no PRC
+for `v_role`? I leave it **unclamped** — there is no conversion factor, zeroing it would drop its vote,
+and clamping raw capacity against a replica number is the bug itself. The consequence is that the
+fair-share budget is not enforced against that analyzer. It also cannot participate in
+`votesFromPickerState` for `v_role`, so it cannot drive allocation of `v_role` either — which is why I
+think unclamped is harmless. Worth a sentence in the plan.
+
+## Q4 — priority leaks into `fairShareCap`, and the fix makes the leak newly misleading
+
+`target = w.remaining − mean`, and `w.remaining` is `priority ×` demand. So `ceil(target)` is a
+**priority-scaled** replica count, not a replica count.
+
+This is pre-existing and the fix does not change it: today `target / PRC` is equally priority-scaled, so
+the cap number moves identically. I am not proposing to fix it inside C6c.
+
+But it becomes newly *misleading*: after the fix the expression reads like a replica count and I would
+be writing a comment that says `target` is replicas. The honest comment has to say "priority-scaled
+replicas", which invites the reader to ask whether that is intended — and I do not know that it is.
+
+**Decide:** (a) leave it and comment it accurately as priority-scaled; (b) divide priority out at the cap
+(a behavior change beyond #5, not in scope); (c) leave it, comment it, and file it as a separable
+follow-on in §7. **I lean (a) + (c).** Flagging rather than deciding, per the rule that design forks
+belong to Dean even when a coder trips over them mid-fix.
+
+## Q5 — should site (iii) land in C6c at all, or in C6d?
+
+§2 #5 (iii) says drop the Score factor and tie-break on the `combineVotes(up=false)` **binder's** PRC,
+then name ascending. Two mechanical notes and one sequencing question.
+
+Mechanical: `sortVariantsForScaleDown(s, roleVCs)` does not take `role`, which `votesFromRoleSpare`
+needs — so the signature gains `role string`. Both call sites (`cost_aware_optimizer.go:446`,
+`rescale.go:414`) have it in scope. And a variant with no scale-down ballot at all (every entry non-live,
+or none sizes it) gets binder `-1`; I would give it tie-break key 0, which is what today's `weighted`
+returns for the same input, so that edge stays put.
+
+Sequencing: §2 #5 (iii) itself notes this site is "also touched by C7's landed N7 role-coverage decision
+and by finding (c) in C6d — coordinate all three edits." **C6d changes the abstain/veto shape of
+`votesFromRoleSpare`, which changes which entry binds, which is the very thing this tie-break reads.**
+Writing the tie-break in C6c means writing it against a ballot shape that C6d then changes, and the
+tie-break's regression test would have to be rewritten one commit later.
+
+**I lean: move (iii) to C6d** and note in C6c's message that the fourth site is deferred one commit for
+exactly this reason. That leaves C6c as three sites (i)/(ii)/(iv), all in the fair-share currency, which
+is also a tighter review unit. If you would rather keep #5's four sites in one commit, say so and I will
+write the tie-break twice — it is not expensive, just noisy.
+
+## Q6 — T1.4's shape after the rewrite (minor)
+
+§2d.6 wants the rewritten test to assert "the **combine** outcome (the replica number *and* the binder
+index)" and to keep "a fair-share ordering assertion driven by **priority**, not Score". T1.4 today is an
+end-to-end `Optimize` test, and a binder index is not observable from `Optimize`'s output.
+
+**I lean: split it** — a unit assertion on `combineVotes` for the 10-vs-5 at scores 1-and-2 ⇒ 8.33 case
+with its binder index, plus an end-to-end ordering assertion driven by **unequal** priority. Note that
+the ordering assertion must use unequal priorities: under the currency fix, equal-priority equal-demand
+models tie regardless of analyzer count, which is the old expectation §2d.6 already says goes away.
+
+## Carry-over items from C6a/C6b that need plan edits
+
+1. **§5 citation mismatch.** §5 assigns C6a's prose to `saturation-scaling-config.md`
+   `#### Shared aggregation helpers`, but that section documents `internal/engines/aggregation`
+   (`SumTotalSupply` / `AggregateByRole`) — neither `roleAggRemaining` nor `bindingIndexForRole` was ever
+   documented there. Rather than describe the wrong helpers I added a disambiguation cross-reference from
+   that section to `multi-analyzer-pipeline.md#how-results-combine` and amended C6a. §5's row for C6a
+   should be re-pointed.
+2. **Unanticipated §6 grep hit.** `docs/developer-guide/quota-limiter.md:284,328` describe fsv as
+   "priority × score × unmet demand". §5 never lists this file. It is accurate until C6c lands, so I
+   classified it C6c-owned and left it. §5 should add it to C6c's row.
+3. **Flagged widening in C6b.** The `enabled` row of the sat-config field table still read "Reserved —
+   placeholder for future combine logic" after C7 made it operative. I fixed it inside C6b, in a table I
+   was already rewriting, and said so in the commit message. One cell beyond what §5 named.
+4. **Deferred comment set, all currently accurate and all false the moment C6c lands** —
+   `cost_aware_optimizer.go:160/163/172`, `rescale.go:380`, `greedy_score_optimizer.go` L18/54/58/73/78,
+   `multi-analyzer-pipeline.md` L599/605-606/618/622-623/675-677, `quota-limiter.md` L284/328. I held them
+   out of C6b deliberately so no commit documents behavior that does not exist yet; C6c owns them.
+
+## Test plan I would build once the above is settled
+
+Beyond the T1.4 rewrite: fsv ordering across two models with **different PRCs** (the case §2d.5 says
+#1513 does not cover — `computeMean` / `sortByRemainingDesc` compare tokens/s against req/s today); a
+`computeMean` fixture in replica space; a multi-role `fairShareCap` fixture; and a finding-(b) fixture
+that pins both halves — demand with no usable PRC must not sort ahead, **and** must not resurface through
+the fallback (Q2).
+
+## What I am doing meanwhile
+
+Holding. C6d is coupled to C6c via Q5, so it waits too.
+
+**C10 (§2e, k_sat) is fully independent** — a config resolver and four threaded sites, no combine
+arithmetic, no fsv. I can take it now and land C6c/C6d after it. That deviates from §1.1's stated git
+order (C6a–C6d → C10 → C9); since this is one indivisible PR with nothing shipping per-commit the risk
+is low, but it is a deviation, so I am not doing it unprompted. Say the word and I will pick it up while
+C6c is under discussion.

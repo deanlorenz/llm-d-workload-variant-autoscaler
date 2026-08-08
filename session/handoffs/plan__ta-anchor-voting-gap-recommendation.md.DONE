@@ -1,0 +1,144 @@
+from: review (dataflow-map owner / plan-review session)
+to: planner
+session: ta-anchor voting-liveness gap — consolidated recommendation + PR-1/PR-2 placement
+
+## What this is
+
+I authored a standalone deep correctness analysis of the post-PR-1 / post-PR-2 multi-analyzer
+data flow as a new **§9** in `planning/multi-analyzer-dataflow-map.md` (branch under analysis:
+`ta-anchor-refactor-v2 @ f6485980`, C1–C5 code-complete, local-only, unmerged). §9 is the durable
+record; this handoff is the actionable notification. **I recommend; you decide/implement.** No
+CURRENT.md change is requested here (that is why this is `plan__`, not `sync__`).
+
+The full analysis (data-flow walk, branch/state matrix, fallback inventory, findings, scaling-case
+walk §9.6, post-PR-2 end-state) lives at `planning/multi-analyzer-dataflow-map.md` §9.0–§9.6. This
+handoff distils the decisions that bear on the coding plan.
+
+## Headline — PR-1 survives all findings (Dean-directed, 2026-08-06)
+
+**None of the §9 findings forces a code change into PR-1.** PR-1 can ship as-is. Reasoning (§9.4
+"PR-1 survival gate"):
+
+- **Every biting finding is confined to the opt-in configs** (`[sat,TA]` / `[TA]`-only). The default
+  `[sat]`-only config is byte-identical to `main` (frozen by the #1513 goldens) and untouched by all of
+  them. Even **VG-up** cannot fire in `[sat]`-only: a lone voter that is dead → nil anchor → whole
+  optimize holds; live → no stale MAX contributor. VG-up needs *one live binder + one dead-but-enabled
+  voter*, i.e. ≥2 analyzers.
+- **Every biting finding fails toward over-provision or hold** — never under-provision or a crash.
+  N3's missing nil-guard is **unreachable** in PR-1 (single pre-filtered caller, `rescale.go:307` under
+  `applyRescale:225`).
+- So the findings describe the safety/quality **envelope of the newly-enabled configs**, not a
+  regression to the default.
+- *Caveat:* default-config parity is proven only for the *all-live* decision set (goldens are all-live);
+  the stale-`[sat]`-only path (dead sat → nil anchor → hold) is not golden-covered — the pre-existing
+  `withSatEntry`-stability note, not a new blocker.
+
+**Placement summary (which optional hardening lands where):**
+
+| Item | Placement | Why |
+|---|---|---|
+| **VG-up** | **PR-1 close-out** (recommended) | one-liner; only scale-up-on-stale hazard; establishes the non-nil-anchor⟹non-empty-voting invariant PR-2 builds on |
+| **VG-fallback + N8** | **PR-2** | same code site; the `.Live` one-liner is nearly vacuous; PR-2 completeness dissolves the fallback |
+| **N2** (binder tie-break) | **PR-2** | unreachable in PR-1 (≤1 non-sat voter); becomes live when PR-2 admits multiple |
+| **N7** (P/D role veto) | **PR-2** | multi-vote-combine semantics (abstain-vs-veto) |
+| **N3** (rescale nil-guard) | optional / anytime | unreachable in PR-1; cheap hardening if desired |
+| **N5** (Cost=0) | separate sat bug | pre-existing, all three configs |
+| **N9** (reactive from-zero) | out of scope | pre-existing on `main`, untouched by PR-1 |
+
+## Consolidates two already-.DONE handoffs
+
+These two earlier planner handoffs raised pieces of the same gap and are already `.DONE`:
+- `session/handoffs/plan__ta-anchor-live-flag-combine-gap.md.DONE`
+- `session/handoffs/plan__ta-anchor-voting-liveness-gate.md.DONE`
+
+This one **supersedes and consolidates** them into a single recommendation — do not treat it as a
+third independent item.
+
+## Recommendation 1 — VG-up → PR-1 close-out (one-liner, ship-gate-safe)
+
+**The gap (asymmetric).** `votingResults` (`analyzer_helpers.go:234-242`) prunes the ballot to
+`e.Enabled` **only** — no `.Live`. The scale-up path consumes that slice (`initRoleState:271-307`
+has no `.Live` guard; `roleBottleneckReplicas:326-342` takes a cross-analyzer MAX). So a
+**dead-but-enabled** analyzer's stale `Result` can still **force a scale-up**. Scale-**down** is
+already `Live`-gated (`needsScaleDownForRole:448`, `safeRemovalReplicasForRole:394` both
+`if !e.Live { continue }`). Up unsafe, down safe.
+
+**Recommended fix:** `votingResults:237` → `if e.Enabled && e.Live`. Because `initRoleState` /
+`roleBottleneckReplicas` consume the pruned slice, this single change removes dead entries from the
+entire scale-up path.
+
+**Ship-gate safety.** The #1513 goldens (`[sat]`-only) and the Test 9 `[sat,TA]` combine
+characterization fixtures are **all-live**, so the `.Live` predicate admits exactly the same set →
+byte-identical covered behavior. The fix also establishes a clean invariant: **non-nil anchor ⟹
+non-empty voting set** (the binder itself satisfies `Enabled && Live`). Degradation is correct: an
+empty voting set → nil anchor → **hold**, never an unguarded scale-down. Suggested new test: a
+dead-but-enabled entry asserting no scale-up from its stale RC.
+
+**Scoping note (N4).** The scale-up replica **count** reads raw `e.Result` via `prcForVariant`, not
+the anchor, so this touches the bottleneck count only through dead-entry removal; the anchor-derived
+(b) value never reaches the count anyway.
+
+**Why PR-1.** VG-up is the higher-severity of the voting-liveness pair (the actual
+scale-up-on-stale-data hazard), it is independent of the PR-2 completeness work, and folding it into
+PR-1 makes the non-nil-anchor⟹non-empty-voting invariant hold *before* PR-2 relies on it.
+**Placement is your call**; the recommendation is PR-1 close-out.
+
+## Recommendation 2 — VG-fallback + N8 → PR-2 (drop the fallback; revises plan V9)
+
+**N8 — the sat (b)-fallback structurally lends only untrustworthy data.** The `bindingAnchor`
+per-variant (b) fallback (`:208`, gated by `satEnabled := satNR != nil && satNR.Enabled`, `:169`,
+no `.Live`) fires *iff* sat is `Enabled` but not binding — and sat binds *whenever*
+`Enabled && Live && informative`. So its activation condition is *exactly* "sat is `!Live` **or**
+non-informative," i.e. precisely when sat's (b) is untrustworthy. It can therefore only ever lend
+stale or no-data/error sizing, and mixing it into a TA-bound anchor mixes the metric scale across
+variants (the SOLE sizing-metric-mix site in the pipeline — see §9.6 scaling-case walk).
+
+**Recommended: drop the (b)-fallback** — a binder-unknown variant keeps identity (a) but PRC=0
+(abstain), matching `[TA]`-only. Byte-identical on the #1513 and Test 9 fixtures (sat binds in both →
+fallback never fires), makes partial-from-zero consistent, and dissolves N1 + the fallback half of N5.
+This **revises the FINAL plan's V9 enablement-gated-fallback choice**; it is Dean's design direction
+(2026-08-06).
+
+**Why PR-2, and the coherence caveat.** **VG-fallback and N8 are the same code site** (the `satEnabled`
+gate). The `&& satNR.Live` one-liner is nearly vacuous (it removes only the `!Live` sub-case, leaving a
+`Live`-but-non-informative sat still able to lend a stale stored PRC). So the two must move as a unit,
+and PR-2 — where variant-completeness dissolves the fallback entirely — is the right home. **Do NOT apply
+the vacuous `.Live` one-liner in PR-1**: half-fixing the site and then deleting it in PR-2 is churn. N8 is
+not fail-dangerous (metric-mix → suboptimal sizing in an opt-in config, never a crash) and fires in neither
+ship-gate fixture, so deferring it regresses no covered behavior.
+
+## Recommendation 3 — two plan-affecting findings for PR-2
+
+- **N2 — binder tie-break (latent, becomes live in PR-2).** `bindingAnchor` returns **nil** on
+  `>1` non-sat `Enabled && Live && informative` binder (`:150`) → **permanent silent per-model
+  hold** while the tie persists. Unreachable in PR-1 (≤1 non-sat voter); **PR-2 admits multiple
+  voters**, so PR-2 must add a deterministic binder tie-break (e.g. sat-if-present, else lowest
+  analyzer index).
+- **N7 — divergent role decomposition vetoes per-role scale-down (P/D).** Role list =
+  `rolesOf(anchor.VariantCapacities)` (from sat's (a) `.Role`), but `needsScaleDownForRole:451`
+  requires **every live voter** to have `RoleSpare[role] > 0`. A live voter that decomposes roles
+  differently — e.g. a non-disaggregated TA seeded with only a `RoleBoth` spare
+  (`initRoleState:290-297`) — reads a map-miss on `prefill`/`decode` as `0.0` → **veto** → that role
+  never scales down while the coarse voter is live. Reachable in `[sat,TA]` P/D. **Stuck-high, not
+  unsafe.** Pre-existing combine property, but PR-2's multi-vote combine should decide whether a
+  voter with no opinion on a role **abstains** rather than **vetoes**.
+
+## Other findings recorded in §9 (context, no action requested)
+
+- **N9 — reactive full-from-zero is budget-blind and wakes all variants.** The `scalefromzero` engine
+  (`scalefromzero/engine.go`, a separate Runnable, `cmd/main.go:525-526`) has **no limiter** and scales
+  every inactive VA `0→1` on EPP `pending>0` — no GPU/budget check, not cheapest-first (`:318` TODO).
+  Pre-existing on `main`, untouched by PR-1, **not a PR-1 defect**; noted because it is the only path
+  that wakes a *fully-cold* model under `[sat]`-only and bounds what anchor-side from-zero reasoning can
+  assume (cold-start is budget-blind and non-cost-selective).
+- **N1** corrects review finding **V6**: the (b)-fallback's real domain is the *opposite* of V6's
+  claim — under the landed enablement gate it **never** fires in `[TA]`-only (`satEnabled=false`)
+  and **does** fire in `[sat,TA]` when sat is enabled-but-not-binding. V6 must not be carried into
+  the eventual §0–§7 migration.
+- **N3** — `rescaleModelDecisions:342-344` dereferences the anchor with **no local nil-guard**
+  (every sibling has one); safe today only via the `applyRescale:225-228` pre-filter (single caller,
+  `rescale.go:307`) + `bindingAnchor` purity. **Unreachable in PR-1.** Latent fragility; cheap hardening
+  = add the guard or compute-once-and-pass. Optional; any PR.
+- **N5** — sat's `Cost=0`-for-zero-replica mis-ranking reaches **all three configs** (via the (a)
+  merge onto TA's T-sfz PRC>0 variant → `costEfficiency=0` → ranked cheapest). Root fix is the
+  separate sat `Cost=0` bug (out of scope for PR-1).

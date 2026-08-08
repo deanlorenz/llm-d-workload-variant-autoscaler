@@ -1,0 +1,215 @@
+# plan__ta-anchor-partial-sfz-per-config-verdict
+
+from: designer (Type-1 owner, `combined-analyzer-optimizer-design.md`; author of dataflow-map §9)
+to: planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc: review (PR-2 internal code reviewer) — settles Findings 56/57's consequence; credits both
+not-for: sync — no CURRENT.md request in this file
+session: partial-scale-from-zero per-config verdict
+date: 2026-08-08
+ask: decide
+
+**Supersedes §2 of `plan__ta-anchor-pd-fix-is-one-line-already-on-main.md`** (now `.WIP`, so not
+edited): the fix expression there is wrong. Corrected below.
+
+**Retraction up front.** I asserted "nothing is broken today" about partial scale-from-zero, in that
+handoff and to Dean. **It is wrong.** Dean named the counter-scenario; I traced it per config and it
+breaks in two of three. This file is the verdict, the fix, and the corrected deferral grounds.
+
+---
+
+## 1. The scenario, and the verdict per config
+
+**Scenario (Dean's, verbatim intent):** one model, two variants, `minReplicas = 1` set at the
+**model** level, one variant drops to 0 replicas. The model is *not* cold — the sibling serves
+traffic — so the reactive `scalefromzero` engine never fires. Bringing the cold variant back up is
+the pipeline's job. Dean: *"This is a real use case by design."* He is right, and the design intent
+is written into the code (§1.1 below).
+
+| config | non-disaggregated | disaggregated (P/D) |
+|---|---|---|
+| `[sat]` (default) | **WORKS** | **WORKS** |
+| `[sat, TA]` | **WORKS** — sat carries | **BROKEN** — whole model gets no scale-up, *and* decode demand understated 2× |
+| `[TA]` only | **WORKS iff TA measured it before**; **silent no-op** if never-measured or lapsed | same, plus the P/D break |
+
+### 1.1 Why `[sat]` works — a three-tier ladder, deliberately
+
+`saturation_v2/analyzer.go:412-432` prices a zero-replica variant three ways, in order:
+
+1. live median over ready replicas (`:395-420`) — n/a at zero;
+2. `:421` own stored record → `estimateStoredCapacity`. Records are **not** only live-learned:
+   `capacity_store.go:88-131` `LoadFromScaleTarget` parses the Deployment/LWS **spec**
+   (`ParseEngineArgs`) and is called per-VA unconditionally at `saturation/engine_v2.go:50` — **no
+   pods required**;
+3. `:426` `lookupCompatibleCapacity` → cross-variant estimate from a compatible sibling.
+
+And the intent is stated outright at `capacity_store.go:123-128`:
+
+> *"Provide a conservative capacity estimate so that **brand-new variants with no live data or
+> compatible siblings can still be considered for scale-up**. EffectiveMaxBatchedTokens … is a safe
+> lower bound."*
+
+So this is not merely a use case that happens to work — it is a commented feature of saturation, and
+my claim contradicted it. Sat also sets `Role: vs.Role` **unconditionally** at `:445`, so it never
+manufactures a phantom role bucket. Residual defect here is only `N5` (`Cost = 0` for a zero-replica
+variant ranks it cheapest): a **mis-ranking**, not a failure to come up.
+
+### 1.2 Why `[sat, TA]` non-P/D works
+
+`prcForVariant:344` returns **0** for a variant an analyzer lacks; `votesFromPickerState` **abstains**
+on `prc <= 0` rather than voting zero; scale-up is `combineVotes(..., true)` = MAX over
+non-abstainers. So sat's vote carries the count whenever TA has nothing for the variant. Verified.
+
+### 1.3 Why P/D breaks as soon as TA holds state — two effects, one cause
+
+TA's scale-from-zero complement at `throughput/analyzer.go:433-439` omits `Role`. Then:
+
+- `distributeDemandByRole:918-933` and `aggregation.AggregateByRole:72-86` both canonicalize blank →
+  `domain.RoleBoth`;
+- `byRole` becomes {prefill, decode, **both**}; `len == 3`, so the only-`both` nil-return guard at
+  `:953-958` does **not** fire — TA ships a phantom `"both"` key in `RoleCapacities`;
+- `initRoleState:369-398` unions role keys across **every** voting entry, so `roles` gains `"both"`;
+- `pick("both")` finds no anchor variant in that role (anchor roles come from sat's (a) carrier) →
+  `allPicked = false` at `:951` → `break` at `:958` on the **first** iteration →
+  **zero scale-up decisions for the whole model**, co-tenant variant included.
+
+**Second effect (reviewer Finding 57, `5d0470da` — correctly charged; neither my earlier handoff nor
+the planner's derived it):** `distributeDemandByRole` divides by `len(roles)`, so decode goes from
+{decode} to {decode, both} and its demand is understated **exactly 2×**. That share reaches TA's
+`RoleCapacities[decode].TotalDemand` and the threshold post-step that publishes per-role RC/SC — on a
+path **independent of whether the pick succeeds**. Net: the cluster stalls while telemetry reports a
+healthy, under-subscribed role.
+
+Note the inversion: the mechanism meant to *enable* partial from-zero under TA is exactly what kills
+the model. TA need not bind — enabled + live suffices.
+
+### 1.4 Why `[TA]`-only silently fails for a never-measured variant
+
+TA's complement requires `st.lastPerReplicaSupply > 0` (`:432`). TA has **no** spec-derived tier and
+**no** cross-variant tier — no ladder. And the anchor's per-variant (b)-fallback is gated on
+`satEnabled = satNR != nil && satNR.Enabled`, which is **false** in `[TA]`-only, so sat's ladder is
+not consulted either (this is `N1`). PRC stays 0 → `costGreedyRolePick:100` `continue`s → the variant
+is never selected. **No event, no log, no condition.** Silent.
+
+---
+
+## 2. How dataflow-map §9 got this wrong (Dean asked; the planner and reviewer read §9, so it matters)
+
+§9 was not missing the case. It has a dedicated **Case 5 — Partial-scale-from-zero** at map
+`:1884-1899`. Three concrete defects, all mine:
+
+**(a) A false backstop sentence.** Case 5's closing line: *"The reactive engine (Case 3) is the
+backstop for variants TA cannot size."* Case 3 is `scalefromzero`, gated on the **model** being fully
+cold. With `min = 1` the model is warm, so Case 3 **never fires**. There is no backstop. That one
+sentence is what made "nothing is broken" feel safe to me.
+
+**(b) sat's ladder recorded at one tier.** §9's fallback inventory row **G2** (`:187`) reads only
+"sat's persisted per-replica estimate." Tiers 2 and 3 (spec-parsed, cross-variant) are absent, so
+Case 5 writes `[sat]`-only up as the *weak* config — "a cold variant carries only sat's G2
+stored-estimate", verdict "cost-mis-ranked" — when it is in fact the config that works, by design.
+That wrong model of saturation is also what produced my later claim that the cold variant's anchor
+PRC is 0.
+
+**(c) A caveat recorded, then dropped one line later.** Case 5's *Owner/gate* line says correctly
+*"A never-seen variant emits nothing (PRC=0 → not selectable)."* The *Per config* line two lines down
+says `[TA]`-only "drives a metric-consistent proactive size" — the caveat is not re-applied to the one
+config where nothing stands behind TA. The fact was present and un-propagated.
+
+**The structural reason, which is the part worth fixing.** §9 is organized by *mechanism*, and its
+verdicts answer a **consistency** predicate — "is this sized from the binder's own metric?" — not a
+**liveness** predicate — "does the variant come up at all?". Case 5's verdict
+("metric-inconsistent via the fallback; cost-mis-ranked under `[sat]`") is a true answer to the first
+question that reads like an answer to the second. `N8` compounded it: N8 *prefers* abstention
+(PRC = 0) over borrowing, so inside §9's own value system a cold variant landing at PRC = 0 reads as
+the **correct** outcome rather than a break. The design's consistency principle masked the use-case
+failure. Mechanism-complete, use-case-blind.
+
+**And why §9 missed the phantom bucket specifically:** Case 5's trace says "identity (a) fills from sat
+via the anchor merge" — true of the **anchor**, but TA's `RoleCapacities` is computed *before* the
+ballot and never passes through that merge. The damage happens upstream of the path §9 traced. Same
+ballot-vs-anchor split as the rest of this mission, one level up.
+
+---
+
+## 3. The fix — one line, and it fixes both effects
+
+At `throughput/analyzer.go:433-439`, add to the scale-from-zero `VariantCapacity`:
+
+```go
+Role: st.role,
+```
+
+**Correcting myself: the expression is `st.role`, not `vs.Role`.** Reviewer Finding 56 (`5d0470da`)
+and the planner's A36 are right; I was wrong. Verified directly against `a38d7b73`'s hunk in `Main/`
+(`+			Role:               st.role,`). This matters twice:
+
+1. it matches the **live** loop at `:400` (`Role: state.role`), and `state.role` is refreshed from
+   `vs.Role` every cycle at `:253` — so it is the in-house idiom, not a coincidence;
+2. it is **byte-identical to what is on `main`**, which restores the clean-no-op-at-rebase property
+   that Dean's "line now, rebase later" depends on. Under my wrong `vs.Role` that property was void
+   (the reviewer correctly said so) — under `st.role` it holds.
+
+**Why this line rather than an allocator-side workaround:** it removes the phantom bucket **at its
+source**, so it fixes the whole-model break *and* Finding 57's 2× decode dilution together. Any fix
+that only teaches the allocator to skip an unsatisfiable role leaves the bucket in place and the
+telemetry still lying. Also: **the `break` at `:958` must stay** — it is load-bearing for the
+joint-commit invariant; do not "fix" the break by removing it.
+
+Provenance: PR-1-inherited, **not** a PR-2 regression (reviewer `386e6477` agrees).
+
+**Dean's decision, already given:** *"Both — line now, rebase later."*
+
+---
+
+## 4. What is still broken afterwards, and who owns it
+
+Exactly one cell: **`[TA]`-only + a variant TA has never measured** (or whose per-variant state lapsed
+past 2× observation max age). That is precisely `(D-a)`'s domain.
+
+**Solution, if it is taken:** `(D-a)` ballot-side as the Type 1 already specifies — TA emits a
+`Reason`-tagged `PRC = 1` on **its own ballot entry** for a variant it cannot price. The arbitrariness
+of `1` is not a defect: **C11's one-replica target ceiling (landed, `b6bb525c`) turns it into a
+one-replica probe**, after which real measurement takes over the next cycle. That is also why it does
+not violate `N8` — a declared minimum, not a borrowed measurement (Type 1 `:1512-1515`).
+
+**My recommendation is unchanged — defer — but the grounds change completely.** Not "nothing is
+broken." The grounds:
+
+> After the `Role` line lands, partial scale-from-zero works in **every config where saturation
+> votes**. The one config where it does not is the config a user reaches by writing
+> `saturation: {enabled: false}` — which is itself the known **F1 no-op bug** already under separate
+> redesign. "Where do capacities come from when saturation is not voting" is that redesign's central
+> question. A TA-side sentinel in PR-2 pre-empts a decision that redesign should own.
+
+If the planner or Dean prefers to close it in PR-2 instead, the mechanism above is ready and its cap
+is already landed; the missing piece is Finding 47's `fillRole` fixture, which the coder has since
+landed as `79a590d6`.
+
+---
+
+## 5. Required correction to the §4b DEFERRED classification
+
+Whatever the disposition, the deferral text **must not** say "nothing writes the tag, no live gap."
+Correct content:
+
+- **Gap:** `[TA]`-only, variant never measured by TA or state lapsed → cold variant never scales up.
+- **Failure mode:** **silent** — `costGreedyRolePick:100` skips it; no event, no log, no condition.
+- **Not covered by:** the reactive `scalefromzero` engine (fires only when the whole model is cold —
+  with a model-level `min ≥ 1` it never fires), nor by sat's ladder (`satEnabled` false ⇒ the
+  per-variant (b)-fallback is off).
+- **Mechanism when taken:** ballot-side `Reason`-tagged `PRC = 1` + C11's landed one-replica ceiling.
+- **Owner:** the F1 saturation-disable redesign, not PR-2.
+
+---
+
+## 6. Scope
+
+No file edited outside this handoff. Per Dean (2026-08-07): *"we do not correct until coder lands.
+Only handoffs until then."* Two Type-1/map amendments are queued by this analysis and **held**:
+
+1. map §9 Case 5 — delete the false backstop sentence; correct the `[sat]`-only cell and the **G2**
+   row to sat's full three-tier ladder; re-apply the never-seen caveat to the `[TA]`-only cell; and
+   add a liveness verdict alongside the consistency verdict (the general lesson: every case needs
+   both predicates answered);
+2. Type 1 `:1524-1526` — replace the `(D-a)` justification with §4/§5 above.
+
+Both are mine to make and neither is urgent; they are wrong-in-the-doc, not wrong-in-the-code.

@@ -1,0 +1,118 @@
+# plan__ta-anchor-c6f-w4-no-spend-is-false
+
+to: planner (ta-anchor-dynamic-refresh plan owner)
+from: coder, branch `ta-anchor-dynamic-refresh`
+date: 2026-08-07
+re: C6f / `W4` — the prescribed equality fixture is RED, and the reason is in the code, not the fixture
+
+## Summary
+
+C6f asks for an equality fixture and nothing else, on the grounds that `W4` is already correct in
+code: "The `continue` above is the abstention" (L548-556). I built that fixture. **It is red.**
+
+`W4` asserts an entry with no PRC for the role's reference variant makes **no claim and no spend**.
+The no-claim half is true — `claimGPUs` skips the entry for exactly that reason. **The no-spend half
+is false.** I have a measured reproducer in which such an entry causes the model to spend its entire
+entitlement, an entitlement computed *without* the entry's contribution.
+
+This is not a quibble with the plan's *argument*; the property `W4` names does not hold. So C6f
+cannot be a test-only commit that pins it, and I am not treating the mechanism as mine to change
+(§7.1 L2257-2260). Both are why this is a handoff rather than a judgment call.
+
+## Where the harmlessness argument breaks
+
+L552-556 says the escape is harmless because
+
+> the same `prc <= 0` filter in `votesFromPickerState` (`analyzer_helpers.go:441-443`) already
+> excludes the entry from `roleBottleneckReplicas` for that variant, so it cannot drive allocation
+> of the variant whose budget it escaped.
+
+Those two filters are keyed on **different variants**:
+
+- the **clamp** in `allocateForModel` keys on `referenceVariantForRole(...)` — the role's
+  cost-efficiency winner with a positive anchor PRC;
+- the **vote** in `votesFromPickerState` keys on the variant the picker actually **picked**.
+
+`referenceVariantForRole`'s own doc comment (`greedy_score_optimizer.go:839`) says divergence is
+**expected** — the picker takes the first *feasible* candidate, so when the reference variant is at
+its replica ceiling or the pool is dry, reference ≠ picked. An entry with no PRC for the *reference*
+variant escapes the clamp and then votes normally for the *picked* variant, which it can price.
+That is the budget-exempt draw `W4` forbids, reached without either filter misbehaving.
+
+## Reproducer (measured, not traced)
+
+Single-role model, pool 100 (never binds), `[sat]` vs `[sat,TA]`. TA prices **only** `pricey-v`, so
+it has no PRC for `cheap-v`, the role's reference variant. sat demand 30000, TA demand 100000.
+
+    cheap-v   Cost  5, PRC 10000, GPUsPerReplica 3, CurrentReplicas 1, MaxReplicas 1
+    pricey-v  Cost 20, PRC 10000, GPUsPerReplica 1, CurrentReplicas 1
+
+| regime | `[sat]` | `[sat,TA]` |
+|---|---|---|
+| A — reference variant open, picker lands on it | `pricey-v` 1 | 1 |
+| B — reference at ceiling, both 1 GPU/replica | `pricey-v` 4 | 4 |
+| **C — reference at ceiling, 3 GPUs/replica vs 1** | **`pricey-v` 4** | **`pricey-v` 10** |
+
+Case C is the equality violation: **+3 replicas becomes +9.**
+
+The arithmetic says plainly whose budget was spent. sat's claim is priced at the reference variant:
+`30000 / 10000 × 3 GPUs = 9 GPUs`. Single model, so `allocationMean = 0` and `target == claim == 9`.
+Converted at the picked variant's 1 GPU/replica, `capN = replicasToCover(9, 1) = 9`. TA drew all 9.
+**The entitlement was computed from sat's demand alone and spent entirely on TA's demand.**
+
+A and B are green only because `capN` happens to coincide with sat's own bottleneck: `claim` is
+priced at the reference variant and `capN` converts it at the picked variant, so when the two share
+a `GPUsPerReplica` the entitlement lands exactly on the replica count sat alone would ask for, and
+`n = min(bottleneck, capN)` is bound by the entitlement whatever TA votes. Case C breaks the
+coincidence by making the reference variant the more GPU-hungry one, which inflates `claim` in GPUs
+while leaving the picked variant cheap to buy — `capN` opens to 9 and the unclamped vote fills it.
+
+**This is reachable by configuration, and it is a corner, not systemic.** I probed the route I
+expected to generalise it — P/D with every `GPUsPerReplica` equal to 1, where the entitlement is
+non-binding for free because it is granted per model and shared across two roles, prefill's
+reference variant pinned at its ceiling, TA pricing only the picked prefill variant:
+
+| regime | `[sat]` | `[sat,TA]` |
+|---|---|---|
+| D — P/D, equal GPUs/replica | `pricey-p` 4, `decode-v` 4 | 4, 4 |
+
+D holds. **I do not have a confirmed mechanism for why**, and I am not guessing one — the candidates
+I can see are the cross-role `deltaUtil` min and the named-role path through `roleAggRemaining`, and
+distinguishing them is more instrumentation than this handoff needs. What it means for your decision
+is that the divergence appears to need the `GPUsPerReplica` asymmetry between a role's reference and
+picked variants, not merely a non-binding entitlement. I have not established that any real
+accelerator catalog produces that asymmetry; nothing validates against it either.
+
+## The fork — yours, not mine
+
+1. **C6f stays test-only.** The equality fixture is scoped to the regime where the property holds
+   (reference == picked, or entitlement-binding), the case-C counterexample is recorded as a named
+   known gap, and `W4` ships with a hole. Cheap; honest only if the scope is stated where a reader
+   of the test will see it.
+2. **C6f gains a code fix.** The abstention has to reach the vote too — either the entry is barred
+   from `votesFromPickerState` for variants whose *role reference* it cannot price, or the clamp
+   keys on the picked variant so clamp and vote agree by construction. That is a behaviour change
+   beyond C6f's stated scope and a change to a `W`-item mechanism, so I am not making it.
+
+Option 2 is the one that makes `W4` true. I have no view on whether it belongs in C6f, a new commit,
+or PR-3, and the second variant of it touches the same clamp C6e just rewrote.
+
+## What I did instead of blocking
+
+Per Dean's standing instruction I took option 1 as the default and kept moving, rather than stopping
+with nothing delivered:
+
+- the equality fixture landed **scoped**, with the regime named in the `It()` text and the case-C
+  numbers written into the Context comment pointing at this handoff — so it cannot read as "`W4` is
+  tested" to anyone who opens the file;
+- the abstain-not-exempt comments landed on the `prc <= 0` gates, worded as a rule about **pricing**
+  rather than about zero (so they survive C11), and the clamp-site comment does **not** claim
+  harmlessness;
+- the dev-guide paragraphs landed, and say the quiet part: "leaving it unclamped is harmless" is the
+  wrong reading, with the reference-vs-picked divergence as the reason;
+- the §6 C6f grep is answered per hit.
+
+If you take option 2, the fixture's scope qualifier and the dev-guide caveat both come back out, and
+case C becomes the fixture. Nothing I committed assumes option 1 is the final answer.
+
+Next: C11, then C10, C9, in the plan's §0 git order. Nothing here blocks that.

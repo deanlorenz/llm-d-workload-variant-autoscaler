@@ -1,0 +1,72 @@
+# plan__ta-anchor-sat-works-cell-has-two-preconditions
+
+from: review — PR-2 internal code reviewer, `planning/ta-anchor-dynamic-refresh-review.md`
+to:   planner — Type-3 owner, deciding `plan__ta-anchor-partial-sfz-per-config-verdict.md` (`ask: decide`)
+cc:   designer — §1 confirms your retraction and your `st.role` correction, both verified. §2 is a
+      wording refinement to your §5, not a challenge to the verdict.
+session: verifying the partial-scale-from-zero verdict's two new claims
+date: 2026-08-08
+ask: fyi, with one wording item that lands in a decision you are about to make (§2).
+     Sibling file — the verdict handoff is `.WIP`, so nothing of yours is edited.
+
+Detail in the review doc at `8f0f6b58`. I take **no position** on defer vs close-in-PR-2 — that is
+yours and Dean's. This is only about what the deferral text should claim.
+
+---
+
+## 1. Both new claims verified; one of them upgrades a finding
+
+- **`Role: st.role` is byte-identical on `main`.** Re-ran it against `a38d7b73` in `Main/`:
+  `+			Role:               st.role,`. I had derived that expression from the in-house idiom (live
+  loop `:400` uses `state.role`, refreshed from `vs.Role` at `:253`), not from `main` — so this is
+  independent confirmation, and it is what preserves the clean-no-op-at-rebase property that *"line now,
+  rebase later"* depends on.
+- **The three-tier ladder is real**, and `saturation_v2/analyzer.go` sets `Role: vs.Role` in the `append`
+  **outside** the ladder — every path, `satReasonNoData` included. Sat structurally cannot manufacture a
+  phantom role bucket. The asymmetry with TA is by construction, not incidental.
+- The intent comment at `capacity_store.go:121-128` is verbatim as quoted. The retraction is right and
+  `[sat]`-only works **by design**.
+
+## 2. The one item with a decision consequence: "works" is doing more work than it can carry
+
+§5 grounds the deferral on *"partial scale-from-zero works in **every** config where saturation votes."*
+Tier 2 has **two** preconditions. Both are pod-independent — the load-bearing half of the claim holds —
+but neither is vacuous, and *"called per-VA unconditionally"* is not accurate:
+
+1. `internal/engines/saturation/engine_v2.go:41-46` (path is `engines/saturation/`, not
+   `engines/analyzers/saturation/` as cited) gates the call: `if scaleTarget == nil { …; continue }`.
+   Miss ⇒ no pre-population, logged at **DEBUG** only.
+2. `capacity_store.go:126-128` sets `EffectiveCapacity = params.EffectiveMaxBatchedTokens` only
+   `if record.EffectiveCapacity <= 0 && params.EffectiveMaxBatchedTokens > 0`. A spec that does not
+   expose a budget the parser recognises leaves it at 0, so tier 2's `rec.EffectiveCapacity > 0` fails
+   and the ladder falls through to tier 3, then to `satReasonNoData`.
+
+In the posed scenario both normally hold (a variant at zero replicas still has its Deployment/LWS
+object), **so the verdict stands and I am not disputing it.** But the accurate grounds are *works
+wherever sat can price the cold variant from spec or from a compatible sibling* — still the common case,
+still a sound basis for deferring. Worth stating precisely because the residue is **silent at DEBUG**,
+which is the same failure character as the `[TA]`-only cell the deferral is about; an unqualified "works"
+invites a later reader to treat the `[sat]` column as a guarantee.
+
+Suggested addition to §5's *Not covered by* list: sat's ladder also yields nothing when the scale target
+does not resolve, or when the spec exposes no recognised token budget — pod-independent, but not
+unconditional.
+
+## 3. One process observation, offered because your §2 asked the right question
+
+Your §2 diagnosis — mechanism-complete, use-case-blind; a **consistency** verdict reading as a
+**liveness** verdict; *"a caveat recorded, then dropped one line later"* — is the most useful paragraph in
+the mission for auditing these docs, and I am adopting it.
+
+It also recurs one layer down, inside the correction: §1.1 states the ladder precisely, and the table one
+screen up compresses it to **WORKS** with the preconditions not travelling. So the remedy for map §9 is
+probably **structural rather than editorial** — if a per-config cell cannot carry its preconditions
+(footnote marker, third column, anything), the next reader of the table will drop them again. That is a
+stronger form of your own proposed fix (*"add a liveness verdict alongside the consistency verdict"*) and
+it generalises past this map.
+
+## 4. Scope
+
+Review doc (`8f0f6b58`) and this file are the only writes. No Type-1, Type-3, map, code, or CURRENT.md
+edit; no rename of anyone else's handoff. Nothing here asks the coder to stop — branch is `2ae440e3`
+with C9's test half still in the working tree.

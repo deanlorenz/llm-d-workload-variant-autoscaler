@@ -1,0 +1,129 @@
+# plan__ta-anchor-da-sentinel-belongs-on-the-ballot
+
+from: designer (Type-1 owner, `planning/combined-analyzer-optimizer-design.md`)
+to: planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc: review (PR-2 internal code reviewer) — this answers the open half of your Finding 46/47 pair;
+    no action requested of you
+date: 2026-08-08
+ask: decide — where the `(D-a)` sentinel is written, and whether anything lands in PR-2
+re: sibling to `plan__ta-anchor-c11-da-sentinel-unsized.md` and
+    `plan__ta-anchor-c11-da-domain-is-exhaustive.md` (both `.WIP`, so not edited). This is a new
+    handoff, not an amendment to either.
+
+## Standing
+
+The defect is **mine**. The `FZ-admission` mechanism I froze into the Type 1 at `8c2a9b04`
+(a `Reason`-tagged `PRC = 1` sentinel in the anchor's no-variant branch, plus a one-replica target
+ceiling at the granting sites) is insufficient as written. Dean asked me to verify whether it would
+kill partial scale-from-zero with two variants and TA binding. It would. Every citation below is
+`git show HEAD:` against the coder's tip **`2ae440e3`** *"docs: write from-zero admission as deferred
+and fix four false premises"* — committed state only, never the working tree. (Line numbers moved
+under that commit; an earlier draft of this handoff carried the pre-`2ae440e3` numbers and the wrong
+tip label. Substance is unchanged — the code did not move, only its line numbers.)
+
+The coder was right to stop, and right about why — `analyzer_helpers.go:85` states the problem
+correctly ("*an anchor-only sentinel makes a variant selectable without making it sizable*"). This
+handoff supplies the answer that block routes back to me.
+
+## What I verified
+
+Two variants: `V_run` measured and wanting more replicas, `V_zero` never measured at zero
+replicas. TA holds the bind (i.e. saturation failed `Enabled && Live && Informative`).
+
+**Today, with `(D-a)` deferred and nothing writing the tag — safe.** `V_zero`'s anchor PRC is 0,
+so `cost_aware_optimizer.go:100` passes it over as unpriceable and `V_run` is picked normally.
+Partial scale-from-zero does not happen; nothing else is harmed. There is no live bug to bypass
+today.
+
+**With the anchor-only sentinel as the Type 1 specifies — it breaks the whole model's scale-up.**
+
+1. `sortByCostEfficiencyAsc`: `V_zero`'s anchor `Cost` arrives from saturation's (a) identity merge,
+   and saturation reports `Cost = 0` for a zero-replica variant (`N5`). `0/1 = 0` ⇒ `V_zero` sorts
+   **first**. The bad path is therefore the default ordering, not an unlucky one.
+2. `PerReplicaCapacity <= 0` at `:100` — passes. That is the sentinel working as intended.
+3. `maxTargetReplicas` returns `(1, true)`; headroom `1 - 0 = 1` ⇒ pick returns `(V_zero, 1)`.
+   `allPicked` stays true, so there is no early exit.
+4. `roleBottleneckReplicas` (`:624-633`) → `votesFromPickerState` (`analyzer_helpers.go:522-535`)
+   reads `prcForVariant(e.Result, v)` — **the ballot entry, not the anchor**. Every entry hits
+   `if prc <= 0 { continue }`. Zero votes ⇒ `combineVotes` ⇒ `binder < 0` ⇒ `n = 0`.
+5. `roleAggRemaining` (`:698-704`) abstains identically ⇒ `demand = 0` ⇒ `utilByRole = 1.0`, so the
+   `deltaUtil <= 0` guard at `:982` does **not** fire.
+6. `k` is computed only `if prc > 0 && demand > 0` ⇒ `k = 0` ⇒ `!anyPositive` ⇒ **`break` at
+   `:1001`, out of the entire `for anyRoleNeedsScaleUp(...)` loop.** `V_run` is never picked.
+
+So the failure is not "the from-zero variant gets nothing" — it is "**the co-tenant variant loses
+its scale-up too**", and per (1) that is the expected ordering.
+
+Note `cost_aware_optimizer.go:103-107` already defends this exact hazard on the *cap* path ("*a
+returned 0 makes the caller compute deltaUtil == 0 and break out of the whole model's allocation
+loop, so a bounded-out variant would take every variant behind it down with it*"). The sentinel
+re-opens the same break through the *demand* path instead.
+
+**Secondary, P/D:** if the never-measured variant is the only one in its role, the other role's
+positive `k` keeps `anyPositive` true, so there is no break — instead prefill commits while decode
+stays at zero, violating the matched-joint-commit that `allocateForModelPaired` exists to
+guarantee. Terminates (it does not spin), but the commit is unmatched. Same root cause.
+
+## The fix I recommend
+
+**Write the `Reason`-tagged `PRC = 1` on the binding analyzer's own ballot entry, and let the (b)
+merge carry it onto the anchor as a consequence.** One write site instead of two. Everything
+downstream then works with no further change:
+
+| consumer | why it works |
+|---|---|
+| eligibility | the existing `PRC <= 0` gates, unchanged — no new predicate at any site |
+| ranking | the existing `sortByCostEfficiencyAsc`, unchanged |
+| **sizing** | the binder now casts `state[binder][role] / 1`, so `roleBottleneckReplicas` returns a positive `n` and `roleAggRemaining` returns a positive demand — this is the half the anchor-only shape could not reach |
+| bound | C11's one-replica ceiling, already landed, unchanged |
+
+The arithmetic closes at one replica: `n = min(bottleneck, 1) = 1` ⇒ `utilByRole = 1·1/demand` ⇒
+`deltaUtil = 1/demand` (single role; `min` over roles for P/D, so never larger) ⇒
+`k = max(floor(deltaUtil·demand/1), min(1,n)) = 1`. Next iteration headroom is `1-1 = 0` ⇒
+`continue` ⇒ `V_run` is picked. Partial scale-from-zero works and the co-tenant is unharmed.
+
+This also makes true a claim the Type 1 **already** asserts at `:1512-1515` — that the sentinel is
+"in the binder's own currency, so it is a declared minimum, not a borrowed measurement, and `N8`
+stays intact". Anchor-only made that sentence false. Ballot-side makes it correct, so this is a
+correction *toward* the frozen design's stated intent, not a new direction.
+
+## Options Dean floated, and why one of them is closed
+
+- **"Use sat's demand."** Structurally unavailable in exactly this configuration. TA binds only when
+  saturation fails `Enabled && Live && Informative`; `votingResults` (`:315-323`) prunes the voting
+  set on `Enabled && Live`. If saturation failed on `Live` it is not in the voting set at all — no
+  donor. If it is Live-but-not-Informative it survives the prune, but *not-Informative means* every
+  one of its variant capacities is a no-data/error sentinel, so `prcForVariant <= 0` and it abstains
+  anyway. There is no saturation demand to borrow at the moment TA binds. (It would exist in
+  `[sat,TA]` with saturation live and informative — but then saturation binds and this question does
+  not arise.) `N8` independently rules against borrowing across analyzers on unit-mixing grounds.
+- **Turn the `break` into a skip.** Fixes the blast radius but not the feature, and needs a
+  per-iteration exclusion set or the re-pick spins. Not a small change; not recommended as the
+  quick one.
+- **Leave `(D-a)` deferred.** Zero-risk and it is where the coder already left it. Today's behaviour
+  is safe; the gap is a missed feature, not a live bug. A legitimate answer to "what ships in PR-2".
+
+## What I am and am not asking for
+
+I am **not** proposing a commit, and I am not asking for PR-2 scope to grow. The disposition is
+yours and Dean's. What I am asking is that whichever of these is chosen, it is chosen explicitly —
+the thing that must not happen is `(D-a)` landing later, from the frozen Type-1 text, in the
+anchor-only shape. That shape ships a regression.
+
+If it stays deferred, the follow-up must carry the ballot-side requirement, not just "write the
+sentinel"; otherwise a future implementer reads my Type 1 and builds the broken version.
+
+## My own follow-up (no action for you)
+
+I am not editing the Type 1 while the coder is in flight. Queued for my next amendment pass, so you
+can see what will change under you:
+
+- `:1524-1526` — currently marks **eligibility** as "the whole point". That is the located error:
+  necessary treated as sufficient. Will be rewritten to name sizing as a separate, unmet consumer.
+- `:1512-1515` — keeps its conclusion, gains the ballot-side precondition that makes it true.
+- `:2062` roll-up — "*leaving nothing open on either*" is wrong; the admission axis is open.
+- The `FZ-admission` findings row — "Adopted — folds into PR-2" overstates settled state.
+- The `N2` / `N7` Disposition cells still read "Open" although both are Dean-confirmed RULEs
+  recorded ~400 lines earlier and both shipped. Opposite failure direction from the above (a
+  manufactured finding rather than a missed gap), but the same root cause: the Disposition column
+  needs a sweep against the branch, not spot fixes.

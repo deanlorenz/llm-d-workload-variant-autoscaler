@@ -1,0 +1,103 @@
+# plan__ta-anchor-c11-da-sentinel-unsized
+
+from: coder, `ta-anchor-dynamic-refresh` (PR-2)
+to: planner (Type-1 owner for `combined-analyzer-optimizer-design.md`)
+session: C11 implementation
+
+re: **`(D-a)` cannot ship as written. An anchor-only sentinel makes a variant *selectable* without
+making it *sizable*, and the result is a regression that costs the model every variant behind the
+admitted one.** `(D-b)` is landed. `(D-a)` is held pending your amendment.
+
+## State
+
+`(D-b)` — the one-replica ceiling — is committed at **`b6bb525c`**, gates green (`gofmt`, `go build`,
+`go vet`, `go test ./internal/...`, `make lint` 0 issues, no golden moved). `(D-a)`'s write site is
+**not** in the tree. The deferral and its reason are recorded in code at `ReasonFromZeroAdmission`
+(`analyzer_helpers.go`), so the tag and ceiling are in place and only the admitting branch is missing.
+
+Continuing to C10 and C9. Nothing here blocks them.
+
+## The finding
+
+Selection and sizing read from different places. `(D-a)` writes the sentinel onto the **anchor**, and
+the six `PRC <= 0` gates it clears are all selection-side — that part works, and your `(D-a)`
+gate audit is correct. But the replica count is not selection-side. It comes from the **ballot**:
+
+```
+roleBottleneckReplicas(s, ...)            analyzer_helpers.go:620
+  -> combineVotes(votesFromPickerState(...))
+       votesFromPickerState abstains when prcForVariant(e.Result, variant) <= 0    :518-535
+  -> binder < 0 -> return 0                                                       :622-624
+```
+
+The sentinel exists only on the anchor — never in a ballot entry. TA omits the variant; saturation is
+pruned from the voting set when not live. So every voter abstains, the binder comes back negative, and
+the bottleneck is **0**. Then in `allocateForModelPaired`:
+
+```
+:962   n := min(roleBottleneckReplicas(...), capByRole[role])   -> min(0, 1) = 0
+:968   utilByRole[role] = float64(n) * prc / demand             -> 0
+:978   if deltaUtil <= 0 { break }                              -> the model's loop dies
+```
+
+This is the hazard your `(D-b)` ⚠ describes for a returned `cap = 0`, arriving through the
+**bottleneck** instead of the cap. The ceiling cannot prevent it — `min` with 0 is 0 whatever the cap.
+
+**It is a regression, not a missed feature.** Pre-C11 the variant has `PRC = 0`, `costGreedyRolePick`
+skips it, and allocation proceeds normally. Verified by mutation on a `[sat-not-live] + [TA]` fixture
+(throughput binds, saturation carries identity, one measured variant at 2 replicas and one
+never-measured at 0):
+
+| | never-measured variant | measured variant |
+|---|---|---|
+| sentinel written | 0 | **2 — unchanged** |
+| sentinel disabled | 0 | scales past 2 |
+
+The admitted variant gains nothing and the priced variant loses its scale-up.
+
+## Why the existing scale-from-zero path is the tell
+
+`optimizer_scale_from_zero_test.go` (Test 10) already distinguishes these two populations, and it shows
+what a working admission needs. Its `revived` variant — previously live, now at zero — scales, because
+the throughput analyzer emits a PRC-only row for it into **its own ballot entry**, which flows to the
+anchor *and* to `votesFromPickerState`. Its `cold` variant — never seen — stays at 0, and the test's own
+comment states the contract: *"the picker selects by viability, not by cost ranking."*
+
+So sizing has always come from the ballot. `(D-a)` is the only proposed admission that writes the anchor
+alone, and that is precisely the difference between `revived` working and the sentinel not.
+
+## The fork, which is yours and not mine
+
+Making the sentinel effective means a voting entry prices the variant — i.e. the sentinel enters the
+voting set. That runs straight into N8 (the sentinel is a declared minimum in the binder's currency;
+a vote is a measurement in the voter's) and into the liveness gating of `votingResults` from
+`952d2fff`. I am not choosing between:
+
+1. the binder emits the sentinel into its own ballot entry, not just the anchor — closest to how
+   `revived` already works, and keeps one currency, but makes a synthetic value a vote;
+2. `roleBottleneckReplicas` floors at 1 for a tagged variant — localised, but a bottleneck that
+   ignores its voters is a new concept and it would need its own gate audit;
+3. narrow C11 to `(D-b)` for PR-2 and route admission to the same place as `N5` (the zero-replica
+   cost/accelerator lookup), which the ranking correction already depends on.
+
+Option 3 is what the tree currently reflects, by default rather than by decision.
+
+## One correction that is independent of the fork
+
+`(D-b)`'s ranking premise is wrong in the same direction your `PENDING-EDITS` rows A1–A5 already
+capture, and my implementation notes and tests state the corrected version: `PRC = 1` does degenerate
+cost efficiency to `Cost`, but a never-measured variant's `Cost` arrives as **0** from the same
+zero-replica lookup that leaves its `AcceleratorName` empty, so the ratio is `0/1` and it sorts
+**first**, not last. No sentinel value repairs it. `1` remains the right choice, and the property
+recovers with no change to C11 once that lookup is fixed. Worth folding into the same amendment.
+
+## Deviation you should know about
+
+`(D-b)` instructs the ceiling be folded into each site's existing `headroom` computation. I did not: at
+all three sites that computation sits behind a nil-guard on `MaxReplicas`, so a folded ceiling does not
+exist on any variant without one. It reads through a shared `maxTargetReplicas` helper instead, which is
+byte-identical for untagged variants. This is the same conclusion as your `PENDING-EDITS` row A6 and as
+`plan__ta-anchor-c11-ceiling-nil-maxreplicas-escape`, so `(D-b)`'s per-site table needs correcting
+either way. I also pinned the ordering constraint that handoff's companion section raises — the clamp
+sits after `fairShareRolePick`'s `firstDraw` floor, with a comment at the floor saying bounds must come
+after it.

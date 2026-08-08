@@ -1,0 +1,154 @@
+# C6c landed — one deferred behavior change, two plan defects, one broken grep
+
+to: planner (ta-anchor-dynamic-refresh / PR-2)
+from: coder, branch `ta-anchor-dynamic-refresh`
+re: C6c (bug #5 currency pivot to GPU space) — committed; four items need your call
+
+C6c is code-complete and committed. Build, vet, gofmt and the full `./internal/...`
+suite are green, and **every golden is unchanged** — the pivot is value-neutral as
+the plan predicted, on one condition that is item 3 below.
+
+Four items, in descending order of how much they matter.
+
+---
+
+## 1. The `floor` fill evicts models instead of deferring them — I deferred it (DESIGN FORK)
+
+**§6's C6c `ceil` criterion is deliberately unsatisfied.** The plan says
+`fairShareCap`'s `ceil` "must be **gone**, replaced by the whole-replica `floor`
+fill." I implemented that first, measured it, and backed it out. The `ceil` is still
+there, renamed `replicasToCover` and documented as a deliberate choice. **This is a
+design fork, not a bug fix I folded in silently** — it is your call, and I am naming
+it rather than shipping it either way without you.
+
+### What I measured
+
+I wrote the plan's `floor` (`wholeReplicaFill`) exactly as specified, then ran the
+suite: **9 failures out of 334**. The deltas were:
+
+| observed | expected | delta |
+|---|---|---|
+| `bv` | 6 | 2 | −4 |
+| — | 3 | 2 | −1 |
+| — | 4 | 3 | −1 |
+| — | 4 | 3 | −1 |
+| — | 3 | 1 | −2 |
+| — | 2 | 1 | −1 |
+| — | >1 | 1 | collapse |
+| team-b | 2+ | 1 | collapse |
+
+Several are **more than one replica**, and one (`bv` 6→2) is under an
+*unconstrained* GPU budget. That is far outside the plan's stop condition ("one
+replica at a mid-replica boundary"), so I did not touch a golden. I diagnosed
+instead.
+
+### Mechanism
+
+`floor` is not a smaller allocation — it is a **termination**. In
+`fairShareRolePick`, `capN == 0` returns `("", 0)`, so `allocated == false`, so
+`fairShareScaleUp` sets `w.remaining = -1`, which drops the model out of `active`
+**permanently**. It is never revisited, even as the mean falls in later rounds and
+its entitlement grows past a whole replica. So a model behind the water level by
+less than one replica's worth of GPUs is not deferred to the next round — it is
+evicted from the cycle with zero replicas. That is the collapse-to-1 signature in
+the table.
+
+Under `ceil`, `target > 0` guaranteed `capN >= 1`, so every iteration made progress
+and the loop always converged by allocating. `floor` removes that guarantee.
+
+### Why I think the `floor` protects nothing
+
+The `min` already has a floored term: `gpusAvail/gpusPR` is integer division on the
+**real pool**, and it is the term that decides whether the hardware exists. Flooring
+the *other* term — the entitlement — does not prevent overcommit, because the pool
+term is what bounds physical GPUs. What flooring the entitlement decides is whether
+a model owed a *fraction* of a replica may take the one indivisible unit that
+allocation happens in. The entitlement is a fair-share water-level **gap**, not a
+pool of GPUs on hand; rounding it up cannot commit a GPU that isn't there. And the
+caller's own water-level check (`w.remaining > mean ⇒ -1`) is what stops the model
+from taking a *second* replica.
+
+So the two terms rounding in opposite directions is not the inconsistency the plan
+worried the diff would look like — it is the rule the plan itself states, applied
+per-term: **round up when asking how many replicas a demand needs, round down when
+asking how many replicas a budget can afford.** The entitlement is the first
+question; the pool is the second.
+
+### What I need from you
+
+Either (a) confirm the `ceil` stays and strike §6's C6c `ceil` bullet, or (b) keep
+the `floor` and tell me what should happen to the evicted model — the honest fix is
+that `capN == 0` must mean *defer*, not *evict*, which means `!allocated` can no
+longer unconditionally set `remaining = -1`, and that is a change to the loop's
+termination argument, not to the cap. It is more than a one-line commit and I would
+want it as its own commit with its own convergence reasoning.
+
+After restoring `ceil`, **exactly one** test was red: T1.4 — which §2d.6 already
+schedules for rewrite in C6c. So the 9 failures decompose cleanly into 8 pure
+rounding-boundary effects plus 1 piece of planned work. That is the proof the plan's
+stop condition asks for.
+
+---
+
+## 2. `GPUsPerReplica` is not on `VariantCapacity` (plan §2 #5 (i), L394-397)
+
+The plan says the factor "lives on the same `VariantCapacity`" and calls
+`gpusPerReplica(vc)`. Both are false. It lives on **`VariantReplicaState`**, and the
+only accessor is `gpusPerReplicaFromState(stateMap, variantName)`. The decided
+option-(a) signature therefore cannot reach the factor at all.
+
+I extended the signature instead: `claimGPUs`/`fairShareValue` now also take
+`variants []domain.VariantCapacity, stateMap map[string]domain.VariantReplicaState`.
+Same shape as the decision, one more parameter than it anticipated.
+
+---
+
+## 3. Site (v)'s `combineVotes` formula double-divides by PRC and violates invariant 11
+
+§2's site (v) says to build the fallback from `combineVotes`. Two problems:
+`votesFromPickerState` already divides by PRC to produce replica-space votes, so
+converting its output to GPUs divides by PRC a second time; and `combineVotes` is
+**score-weighted**, which would put a ranking weight back into the number that
+becomes the model's spend — exactly what invariant 11 forbids.
+
+The plan states the rule two ways in two places. I implemented the other,
+consistent one: a plain **unweighted `max_i`**. Flagging so the inconsistent
+statement gets struck rather than surviving as apparent authority.
+
+---
+
+## 4. §6's `ceil(` grep is case-sensitive and finds nothing
+
+`grep -rn "ceil(" internal/engines/pipeline/` returns **zero hits** — Go spells it
+`math.Ceil(`. Run case-insensitively it finds three, which classify cleanly:
+
+- `greedy_score_optimizer.go:619` — `replicasToCover`, the fair-share cap. **The
+  deferred item 1.**
+- `analyzer_helpers.go:520` and `rescale.go:585` — converting a combined demand vote
+  into a replica count. Both are the "a demand needs this many replicas" case the
+  plan says must **stay**. They stay.
+
+Suggest `grep -rni "ceil("`.
+
+---
+
+## Also worth recording
+
+- **Two of the five coder-inventoried checklist entries do not meet the criterion.**
+  `cost_aware_optimizer.go:160/163/172` and `rescale.go:380` are both about the
+  **scale-down score-weighted PRC tie-break**, which is an *ordering* key, not the
+  fair-share metric — invariant 11 permits a ranking weight there. They are not
+  false after C6c. But they now *read* as contradicting C6c's new "score takes no
+  part in fair share" prose, which I think is why the inventory caught them, so I
+  added one clarifying clause at the canonical definition site
+  (`sortVariantsForScaleDown`) and at the dev-guide's copy, and left `rescale.go:380`
+  alone rather than duplicating the explanation at every call site.
+
+- **An unassigned PR-level ship gate.** §4 L1440-1449's invariant-7 check — a
+  *direct* test that a one-analyzer `[sat]` ballot leaves the anchor equal to the
+  saturation entry field-for-field before/during/after allocation, **plus** a
+  not-invoked assertion on the per-variant sizing refresh — is not assigned to any
+  commit in §4. It is currently nobody's. I can take it in C9 if you want it there.
+
+- **C11 has no §6 grep bullet.** Noted for when I get there; I will raise it
+  separately on arrival rather than invent the criterion myself.

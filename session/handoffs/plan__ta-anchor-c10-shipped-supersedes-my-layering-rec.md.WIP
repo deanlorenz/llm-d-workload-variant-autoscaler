@@ -1,0 +1,61 @@
+# plan__ta-anchor-c10-shipped-supersedes-my-layering-rec
+
+from: **designer** — Type-1 owner, `planning/combined-analyzer-optimizer-design.md` (FINAL, frozen @ `8c2a9b04`)
+to:   **planner** — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md` (@ `1a116e7a`)
+cc:   **review** — PR-2 internal code reviewer (Finding 48 author)
+not-for: **sync** — no CURRENT.md update requested. Do not consume as `sync__`.
+session: C10 shipped — retract my §4 layering recommendation
+date: 2026-08-08
+ask: **fold-in** (retraction + what to transcribe instead)
+
+**Time-sensitive: you are holding two of my handoffs `.WIP`, and one of them is now wrong.**
+
+`plan__ta-anchor-ceil-divergence-and-handoff-reconciliation.md` §4 recommends resolving `k_sat` at the
+engine boundary (Finding 48's option 3) as "the only option without lateral analyzer↔analyzer
+coupling." **Retract it.** C10 landed as `1a50b418` while that handoff was in your queue, and the coder
+took a fifth shape that gets the layering property without option 3's cost. Verified read-only at tip:
+
+- `resolveKSat(cfg domain.AnalyzerConfig)` (`throughput/analyzer.go:217-223`) asserts a narrow
+  self-declared interface `interface{ KSat() float64 }` against **TA's own injected config parameter** —
+  the one TA already receives and previously ignored.
+- `KSat()` was added **inside** `internal/config` (`saturation_scaling.go:243`), so the assertion binds
+  to a real type rather than silently falling back forever. I checked for that specifically: a
+  non-binding assertion here would have reproduced the F1 `saturation:{enabled:false}` silent-no-op
+  shape.
+- **Production `throughput` does not import `internal/config`** — only its test files do. Both test
+  binaries stay acyclic: config's in-package test → throughput (production, which imports no config);
+  throughput's in-package test → config (which imports no throughput in production).
+- The 0.80 duplication carries its own drift guard: `k_sat_test.go:24-27`
+  `TestFallbackKSatMatchesConfigDefault` pins `fallbackKSat == config.DefaultKvCacheThreshold` with a
+  drift-named failure message — **symmetric with `config.go:338-341`'s guard in the other direction**,
+  which is the precedent Finding 48 itself cited. Negative cases are table-driven at `:45-49` (empty
+  config, negative threshold, nil config, and a config exposing no k_sat → all fall back).
+
+So **Finding 48's blocker is resolved in code, option 4 was not taken, and the drift guard is intact
+plus a new one added.** Nothing about the option menu needs deciding.
+
+**What still needs your edit, with different content than either handoff proposes.** §2e.2 L1169-1170's
+clearance is still wrong as written — "*verified no cycle (`internal/config` imports no
+`internal/engines` package)*" — because that is not why the shipped code is safe. The correct
+transcription is: *production `throughput` never imports `internal/config`; the accessor is a
+self-declared single-method interface on the config TA already receives; the duplicated 0.80 literal is
+guarded against drift from both sides.* Finding 48's diagnosis of the false parenthetical stands and
+deserves the credit — it just no longer gates the coder.
+
+**Standing correction to my own §4:** the layering question I raised (may an analyzer read another
+analyzer's config section?) is still an unanswered Type-1 gap worth closing, but it is no longer
+C10-blocking and the shipped code is now the reference answer for it. Keep it in the amendment queue as
+a documentation item, not a decision.
+
+Nothing in `plan__ta-anchor-ceil-divergence-and-handoff-reconciliation.md` §1-§3 is affected — the
+`ceil`/`floor` divergence, the §4a recount, and the Finding-33-already-closed item all still stand.
+
+## Evidence
+
+Read-only at worktree `ta-anchor-dynamic-refresh` @ `1a50b418`:
+`internal/engines/analyzers/throughput/analyzer.go:217-223`, `constants.go:52,:68`,
+`k_sat_test.go:1-49`; `internal/config/saturation_scaling.go:243`, `config_test.go:1-22`;
+import grep across `internal/engines/analyzers/throughput/`.
+
+No file outside this handoff was written. No Type-1, Type-3, CURRENT.md, or code edit; nothing
+committed; nothing pushed.

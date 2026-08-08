@@ -1,0 +1,75 @@
+from: review agent (design-review continuation)
+to: planner
+session: ta-anchor-refactor-v2 — Review Round 2 fold-in for final coder prep
+
+## Context
+
+Review Round 2 is appended to `planning/ta-anchor-refactor-review.md` (Status still DRAFT),
+reconciled against the plan tip `2e83c7fe` (your 2026-08-05 cost/PRC redesign — sentinel removed,
+§7b PRC-only, §2 fallback enablement-gated). **Net verdict unchanged: APPROVE.** The redesign
+resolved the earlier correctness concern; four findings remain, **all documentation fixes to the
+plan** (`planning/ta-anchor-refactor-v2-plan.md`) — no mechanism change, no code-correctness defect.
+Dean asked me to hand these to you for **final coder preparation** (readying the plan doc for the
+coder). Two should-fix, two minor.
+
+## Plan-doc fixes (for you to fold into `ta-anchor-refactor-v2-plan.md`)
+
+**V9 — should-fix BEFORE coding (executability; this is Dean's own verify-item).**
+The load-bearing per-variant (b)-fallback rule is stated two contradictory ways:
+- §2 (L195–211) gates it on enablement (under `[TA]`-only → PRC=0, not sat's (b)).
+- §6 step 3 (L409–412), the section the coder implements from, states it **unconditionally**:
+  "…with the per-variant fallback to sat's own (b) when binding lacks that variant."
+A literal §6 build always falls back to sat's (b), contradicting §2. Test 2 (L218–220) is a red-test
+backstop, but §6 should be self-consistent with §2 up front. Fix: §6 step 3 → "fallback to sat's (b)
+**only when saturation is enabled** (per the §2 table); under `[TA]`-only a variant the binding
+analyzer omits (with no persisted TA PRC) gets **PRC = 0**, not sat's (b)." The getter already has
+`satNR.Enabled` in scope, so the gate is cleanly expressible.
+
+**V8 — should-fix (doc accuracy).**
+§7c heading (L729), §7c body (L731–734), and §3 (L262–263) attribute `[sat,TA]` scale-from-zero to
+§7b. But in `[sat,TA]` binding = sat, so the anchor's (b) — which drives picker *selectability* —
+comes from **sat's own** zero-replica emission (`aggregateByVariant` stored-capacity/compatible-sibling
+estimate), not §7b's TA PRC. §7b's `[sat,TA]` role is only feeding the *combine demand* side. §7b is
+the proactive *selectability* complement for **`[TA]`-only only**. (Your own V6 note L1129–1131 already
+states "in default and `[sat,TA]`, binding = sat, so (b) already comes from sat.") Fix: scope the
+"covered via §7b" claim (heading L729; L732–734; §3 L262) to `[TA]`-only for the proactive-selectability
+statement, and describe §7b's `[sat,TA]` role precisely. Sub-note: "all-variants fallback" (L262) is
+stale pre-`2e83c7fe` wording — §7b emits only for previously-live-now-zero (L736–738); call it
+"previously-live PRC-only emission."
+
+**V11 — minor (doc completeness).**
+§12 (L999–1001) scopes the sat `Cost=0` blast radius to "`[saturation]`-only always, and now `[TA]`-only
+too" — omits `[sat,TA]`. `[sat,TA]` binds sat, so a returning zero-replica variant there also gets
+Cost=0 + PRC>0 → same mis-ranking. Add `[sat,TA]` to the L1001 enumeration (all three sat/TA configs).
+
+**V10 — minor (executability).**
+Test 7 (L710–716) and Test 10 (L717–723) don't name the concrete test harness/layer. Test 10 =
+optimizer-selection layer (pipeline cost picker, `cost_aware_optimizer`); Test 7 = analyzer layer
+(`throughput` emission). Name the harness per test for coder orientation (the plan is otherwise exact
+about file paths).
+
+## Confirmations (no action — recorded for your confidence)
+
+Sentinel removal is correctness-safe; never-seen→emit-nothing is the honest no-hardcoding choice; the
+§7c known-limitation (flap / stuck-suboptimal, both tracing to the sat Cost=0 bug) analysis is sound
+and "document-don't-gate" is right; §12 deletion/deferral discipline is good. Details in Review Round 2.
+
+## Not for the plan (Dean's explicit calls, 2026-08-05 — do NOT fold these in)
+
+- **My reviewer checklist** (the 9-item plan-vs-diff list from the §0–§7 walkthrough) — Dean: "record
+  in your own docs, not this review." Recorded in my memory; **not** to enter the plan or the review doc.
+- **The three §1 cleanup notes** (uniform per-analyzer loop / collapse `applyUniversalThreshold` /
+  single liveness-step owner) — Dean: "don't think they require plan changes at this point." Leave out;
+  they remain as discussion only (in the session transcript). Flag to Dean if you want them preserved.
+
+## Forward note (PR-2, not PR-1)
+
+Under `[sat,TA]`, §7b's persisted TA PRC enters the combine but is not the picker-selectability source
+(anchor binds sat). Using TA's (b) directly when sat is present = per-analyzer dynamic re-binding =
+`ta-anchor-dynamic-refresh` (PR-2). Continuity only; nothing for PR-1.
+
+## Open (Dean's call, not mine to action)
+
+- Mark `ta-anchor-refactor-review.md` **FINAL** — review-agent/Dean's call once Dean reads Round 2.
+- Whether to commit the review doc + these handoffs to the `plans` branch — deferred to Dean (no commit
+  made without his say-so).

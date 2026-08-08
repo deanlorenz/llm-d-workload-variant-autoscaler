@@ -1,0 +1,97 @@
+from: review (internal reviewer, ta-anchor-dynamic-refresh PR-2)
+to: planner
+session: PR-2 C10 fixture tolerance — **WITHDRAWN, NO ACTION NEEDED** (already in plan §4 before I wrote this)
+
+# ⛔ WITHDRAWN 2026-08-07 05:00 — please skip; nothing to do
+
+**I raised a gap that did not exist.** Plan **§4** (ship gate) has carried this requirement since tip
+`62c37c46` (committed 03:15), and I wrote the request below at 04:42 — 87 minutes later. §4 already says:
+
+> *"That fixture needs a tight tolerance, ~1%, and must not copy the neighbours' `muSat*0.10` idiom —
+> on the shipped fixture model `μ(0.5) = (0.5·1024000/4600)/(0.073·0.5+0.006) = 111.30/0.0425 = 2618.9`,
+> only 5.8% below the k=0.85 value of 2780.56, so at ±10% it passes either way and asserts nothing."*
+
+That is the ask below, in full: the expected value, the ~1% bound, the explicit warning against the
+`muSat*0.10` idiom, and the reason. **No plan edit is needed and no decision is required from you.**
+
+**Why I missed it, since it is a repeatable failure mode.** I checked §1.1's C10 row and §2e.3 and never
+opened §4 — where ship-gate *test* requirements actually live. Contributing factor: the plan's TOC range
+for §4 (`L781:845`) points at §3, so a TOC-driven fetch lands in the wrong section (that is the separate
+`plan__ta-anchor-pr2-plan-toc-stale.md` handoff, which is still worth actioning). It explains the miss
+but doesn't excuse it — the fix was to read the section that owns test requirements before asserting the
+plan omitted one.
+
+**Residual precision note, explicitly not an ask.** §4 gives the gap as 5.8% (`161.66/2780.56`, relative
+to the k=0.85 value). Expressed the way a Gomega tolerance is actually written — absolute `tol` against
+`expected = 2618.93` — the same bound is `161.63/2618.93` = 6.17%. Both are correct about different
+denominators, and since §4 prescribes ~1% the distinction never bites. Flagging only so the two figures
+across these docs aren't read as contradicting each other. **No change requested.**
+
+Corrected in my review doc as an inline correction under the C10 pre-emptive section
+(`planning/ta-anchor-dynamic-refresh-review.md`); I still hold the verification step for when C10 lands
+(assert 2618.93, tolerance materially under the bound, verified by flipping the resolver back to 0.85 on
+a scratch extract and watching it go red).
+
+**Routing: no CURRENT.md request, do not route to sync. No action of any kind — this file exists only so
+the original text isn't silently rewritten out of the record.**
+
+---
+
+*Original text below, superseded, retained for the record only.*
+
+---
+
+**Short, one item.** Follow-up to `plan__ta-anchor-pr2-c10-ksat-effect-arithmetic.md` (`.DONE` — thank
+you, the §2e.3 correction in plan tip `62c37c46` is accurate; I re-derived it independently and get
+`r = 0.006/0.073 = 0.082192`, `(0.80/0.85)·(0.932192/0.882192) = 0.994521` ⇒ **−0.548%**, matching your
+table exactly, including `N_sat`/`ITL_sat`/`μ_sat` at both k values).
+
+**Why this needs to be in the plan and not just my review:** the coder reads Type 3 plan docs for
+scope, not review docs. If the bound lives only in `ta-anchor-dynamic-refresh-review.md` I catch the
+problem after C10 is written, which costs a fixture rewrite. Same reasoning that made the §2e.3
+correction worth raising before the commit existed.
+
+## The gap
+
+Plan §1.1's C10 row asks for a "`KvCacheThreshold: 0.5` fixture asserting PRC tracks config (red:
+pinned at 0.85), **tight tolerance**", and §2e.3 restates the red-before-green intent. Neither states
+what "tight" means numerically — and the conventional tolerance in the target file is on the wrong side
+of the bound.
+
+Numbers, with `A=0.073 B=0.006 KV_max=1024000 KVreq=4600` (the shipped fixture, `analyzer_test.go:259-274`):
+
+| k | `N_sat` | `ITL_sat` | `μ_sat` |
+|---|---|---|---|
+| 0.85 (today) | 189.2174 | 0.06805 | 2780.56 |
+| 0.80 (post-C10 default) | 178.0870 | 0.06440 | 2765.33 |
+| **0.50 (the new fixture)** | 111.3043 | 0.04250 | **2618.93** |
+
+The gap the fixture must resolve is `2780.56 / 2618.93 = 1.06172` — **6.17%**. So
+`BeNumerically("~", 2618.93, tol)` stays **green at k=0.85** for any relative `tol ≥ 6.17%`.
+
+`analyzer_test.go` uses `BeNumerically("~", muSat, muSat*0.10)` — **±10%** — at all three existing
+`TotalSupply` sites (`:367`, `:405`, `:425`). So the single most likely way to write the new fixture,
+copying the neighbouring assertion's shape, yields a test that passes before *and* after C10 and pins
+nothing. The commit message would claim red-before-green truthfully as intent and falsely as fact, and
+neither a green suite nor a diff read would surface it.
+
+## Ask
+
+Add the bound to the §1.1 C10 row and/or §2e.3: expected value **2618.93**, relative tolerance
+**< 6.17%**, **±1% recommended** (band `[2592.7, 2645.1]`, excludes 2780.56 with room). One clause is
+enough — "tolerance ≤1% relative; ±10% (the idiom elsewhere in this file) leaves the fixture green at
+0.85 and must not be copied."
+
+## One thing that is *not* a risk, for calibration
+
+At `k=0.5` the numerator-only error (the 0.9412-class mistake §2e.3 now warns about) would give
+`2782.0 × (0.5/0.85) = 1636.5` against a correct 2618.93 — a 60% miss that any sane tolerance catches.
+So this fixture is self-protecting against that error and vulnerable only to a loose tolerance. The
+`k=0.80` default-config expectations are the exact reverse: immune to looseness (they move 0.55%, far
+inside ±10%) and fully exposed to the numerator-only error. Two different traps, one per fixture —
+§2e.3 already covers the second; this handoff is only about the first.
+
+## Routing
+
+No CURRENT.md request — **do not route to sync.** Nothing here asks the coder for anything directly;
+if the plan gains the clause, ring the coder's bell in the usual way.

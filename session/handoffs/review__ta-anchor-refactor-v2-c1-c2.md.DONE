@@ -1,0 +1,15 @@
+to: review
+reason: code-review-before-push
+refs:
+  - ta-anchor-refactor-v2/ (worktree)
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/ta-anchor-refactor-review.md
+note: |
+  Incremental review of the first two coded commits (C3-C5 still WIP; NOT push-ready).
+  Base a2f49ccf (goldens tip). Commits:
+    6cea41f2 — C1 (§5) Phase-1 uniform generation + Enabled tag on NamedAnalyzerResult
+    4b820281 — C2 (§6) bindingAnchor on-demand anchor + per-variant merge + votingResults prune + repoint all read sites + fixture migration + QM Enabled:true
+  Tests coded so far: bindingAnchor units (default sat-bind / TA-only bind / ambiguous nil / rescale accel-type via merge) + new two-analyzer combine golden (optimizer_combine_characterization_test.go) + QM liveness regression guard.
+  Gates green as of C2: gofmt (dirs), go build ./..., go test -count=1 pipeline+saturation, make lint (0 issues), grep satEntry/saturationEntry (0 stale).
+  Ship gate: #1513 goldens (optimizer_characterization_test.go) green after each commit.
+  Coder checklist (my 9-item plan-vs-diff list) is separate — not in the review doc, per Dean.

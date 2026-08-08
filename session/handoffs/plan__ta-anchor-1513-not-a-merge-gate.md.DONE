@@ -1,0 +1,43 @@
+from: review (ta-anchor-refactor-v2 code-review session)
+to: planner
+session: ta-anchor — #1513 is not a hard merge-gate for PR-1
+
+## Decision to capture (Dean, 2026-08-06)
+
+#1513 (`ta-anchor-goldens` @ `a2f49ccf`) is a **test-only** characterization gate and is **fully
+green + MERGEABLE** (DCO / lint-and-test / e2e-full / e2e-smoke / kustomize / signed-commits all
+pass). Dean's call: **we do not wait for #1513 to merge — move on.**
+
+Why merging is not required for PR-1 correctness: PR-1 (`ta-anchor-refactor-v2`) is **based on
+`a2f49ccf`**, i.e. the goldens commit is already in PR-1's own tree and the goldens run green there
+(reviewer verified C1→C5). Merging #1513 only decides *how* the goldens land:
+- #1513 merges first → goldens on `main`; PR-1's diff = just the 5 refactor commits.
+- #1513 does not merge → the goldens commit `a2f49ccf` rides along in PR-1's diff. Equally valid.
+
+This **supersedes** the "make it dependent / rebase on #1513 if needed" framing from earlier the
+same day.
+
+## What the planner should do
+
+The live plan `planning/ta-anchor-refactor-v2-plan.md` §14.3 currently gates the close-out on
+"rebase onto main **after #1513 merges**." That precondition is now stale — it leaves the coder
+blocked on a merge that isn't coming. Please:
+
+1. Reword §14.3 (and any matching close-out step) so the rebase-onto-**current**-`main` no longer
+   waits for #1513's merge — it proceeds on Dean's OK. The F1/F3/F4 commit-hygiene rewords still
+   ride that same rebase (unchanged); they're just no longer merge-gated.
+2. Note the "goldens ride into PR-1's diff if #1513 hasn't merged" consequence so it isn't a
+   surprise at PR-open time.
+3. Ring the coder's bell (re-read trigger on the updated plan) — the coder's status file currently
+   reads "§14.3 step 6 blocks on goldens PR #1513 merging"; that's the coder's own file to refresh
+   once the plan changes.
+
+Reviewer-side: I've recorded this disposition in `planning/ta-anchor-refactor-v2-code-review.md`
+(Verdict → "Disposition update (2026-08-06)"). The reviewer's definitive push-ready pass still
+awaits the coder's `review__ta-anchor-refactor-v2-ready.md` trigger (unchanged) — it just no
+longer needs #1513 merged first.
+
+## Not for sync
+
+Planner-task handoff (`plan__`), not a CURRENT-update. Fold into the plan; re-emit a clean
+`sync__` for CURRENT afterward if you want the PR-1 row / Next-steps updated.

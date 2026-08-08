@@ -1,0 +1,238 @@
+from: review (internal code reviewer, PR-1 `ta-anchor-refactor-v2`)
+to: planner
+session: pr1-merged-verified — PR-2 rebase surface and record corrections
+
+## Who this is from, and what I checked
+
+I am the **internal code reviewer for PR-1** (`ta-anchor-refactor-v2` / PR #1516). This is not a
+PR-2 review and not a planner task report. My job here was a **post-merge verification**: PR-1 is
+merged, so I checked what PR-1 *actually landed in `main`* against what PR-1 was reviewed and
+planned to land, and then measured how the merged result lands on PR-2's branch.
+
+Everything below is read-only findings. **I made no code changes, no plan edits, and no CURRENT.md
+edits** — those are yours (or the coder's) to make. This handoff is the deliverable.
+
+Verification was done against `upstream/main@d5d58640`, PR-1 head `a38d7b73`, PR-1 squash
+`57f3fe64`, PR-1 old tip `075a208e`, and PR-2 at its **actual** tip (see below).
+
+---
+
+## Part 1 — PR-1 verdict: it landed faithfully
+
+**The squash is complete and nothing was lost.** `57f3fe64` equals PR head `a38d7b73` plus the 79
+test lines #1511 had already put in `main`. I diffed both directions: `git diff a38d7b73 57f3fe64`
+is *exactly* #1511's contribution (`throughput/analyzer_test.go` +75, `itl_model_test.go` +4) and
+nothing else. No hunks dropped by the squash, nothing extra introduced.
+
+**The designed mechanism is present in `main`**, per `internal/engines/pipeline/optimizer_interfaces.go`:
+
+- **No stored `Anchor` field** on `ModelScalingRequest` — only `AnalyzerResults []NamedAnalyzerResult`.
+  The Aug-5 redesign away from the stored-field mechanism survived the merge.
+- `NamedAnalyzerResult` carries both `Live` and `Enabled`.
+- `bindingAnchor` derives the anchor per call.
+
+**Merged `main@d5d58640` builds clean (`go build ./...`) and all `internal/engines/...` tests pass**
+(`go test ./internal/engines/...`, exit 0). This is the post-merge state including #1522, i.e. after
+the PR-1 merge-ref that CI validated.
+
+So: PR-1 needs no follow-up correction from a landing-integrity standpoint. The rest of this handoff
+is about consequences for PR-2.
+
+---
+
+## Part 2 — Two records are wrong, and you own the correction
+
+### 2.1 PR-2's tip is `eb12089a`, not `d9f3b97e`
+
+CURRENT.md and `planning/ta-anchor-dynamic-refresh-plan.md` both record PR-2 at `d9f3b97e` (landed
+through C6b) with **"C6c has zero edits"**. That is stale by **eight commits**. The branch now holds
+17 commits past PR-1's tip:
+
+```
+eb12089a pipeline: drop the mis-routed role label from a shipped comment
+a46c7eea pipeline: pin the fair-share shared balance, not just the per-role clamp
+4fb49ac6 pipeline: drop plans-branch paths from shipped comments; fix the mean claim
+537b0153 pipeline: pin the claim-pricing distortion as a dormant spec
+a679f2ad pipeline: abstain is not exempt -- make W4 a tested property (C6f)
+784c2b5c pipeline: one fair-share entitlement per model, drawn in sequence (C6e)
+330fcd26 pipeline: re-check the role veto per variant; shed by coverage/GPU (C6d)
+34b18bc5 pipeline: convert the fair-share claim to GPUs before comparing models   <- C6c, HAS edits
+d9f3b97e pipeline: let a configured analyzer score weigh its vote (C6b)           <- what the docs record as tip
+```
+
+C6c through C6f have **all landed**. `34b18bc5` is C6c and it is not empty — the GPU-space currency
+pivot is implemented. Any statement of the form "C6c has zero edits, scoped read-only, held on
+Dean's call" is now historical.
+
+**What you need to do:** correct the tip and the C6c status in the plan doc, and emit a `sync__`
+handoff for CURRENT.md (both the § Recent activity abstract and the PR Status row). I am deliberately
+**not** writing that `sync__` myself — this is a `plan__` handoff and per CONVENTIONS the mixed case
+stays `plan__` with the planner re-emitting a clean `sync__` after folding.
+
+Also worth re-checking while you are in there: the plan's `## §2f` and §2/§2d line references are all
+labelled "as of `d9f3b97e`". The plan self-warns about this, but the drift is now real, not
+prospective — C6c–C6f landed in exactly those files.
+
+### 2.2 The local `ta-anchor-refactor-v2` branch does not contain what merged
+
+Local `ta-anchor-refactor-v2` is still at `075a208e`. Only `origin/ta-anchor-refactor-v2` carries
+`a38d7b73`. So **the local PR-1 worktree is pre-fix code** — anyone (planner, coder, or a future
+reviewer) who reads the local branch to answer "what did PR-1 do?" will get the wrong answer, and
+will not see the four fixes described below. Flag this wherever the plan or CURRENT.md points at the
+PR-1 worktree as a reference.
+
+---
+
+## Part 3 — `a38d7b73` is not in PR-2's base, and this is the delta that matters
+
+ev-shindin pushed one commit onto PR-1 before merging — `a38d7b73` *"fix(pipeline): correct role
+handling and hold reporting in the anchor refactor"* (13 files, +405/−40). It is **not** an ancestor
+of PR-2 (verified). PR-2 is stacked on `075a208e`, which predates it.
+
+Its four substantive fixes, all in the newly opt-in TA path:
+
+1. **Scale-from-zero emitted `VariantCapacity` with `Role` unset.** `distributeDemandByRole` and
+   `aggregateRoleCapacities` consume that slice *before* any anchor merge and both canonicalize a
+   blank role to `RoleBoth` — manufacturing a phantom "both" bucket. On a P/D model that left the
+   paired allocator with a role no anchor variant could satisfy, and since an unsatisfiable pick
+   clears `allPicked` and breaks the loop, **a P/D model with any variant at zero replicas produced
+   no scale-up decisions at all.** Fix: emit the persisted role.
+2. **QM refusal reported `OptimizationReady=True` with no event** — a cluster that had stopped
+   autoscaling looked healthy. Fix: `refused` flag threaded into `applySaturationDecisions`, new
+   `OptimizationRefused` reason + Warning event raised ahead of the status loop.
+3. **A held variant with a resolved accelerator but no prior replica count published
+   `wva_desired_replicas=0`** — KEDA reads that as scale-to-zero for a variant serving traffic.
+   Pre-existing, but the refusal makes it routine. Fix: consult the scale target whenever either
+   value is missing.
+4. **`Role` carried on the parked QM analyzer's capacities** — same blank-role defect; relevant
+   whenever **F10** re-enables that path.
+
+Plus hardening: pinned the config→`Enabled` wiring across the three documented analyzer
+configurations (nothing asserted the tag the engine derives), a log line when an explicit analyzer
+list omits saturation (silently removing its scale-down veto), `buildCapacityMap` reused in
+`bindingAnchor`, and a nil guard on the one unguarded `bindingAnchor` call site.
+
+---
+
+## Part 4 — The rebase surface, measured
+
+### 4.1 The rebase must be `--onto`; a plain rebase or merge is the wrong operation
+
+PR-2's merge-base with `main` is **`aadaa596`** (#1509) — *before* PR-1 existed. Because PR-1 landed
+as a **squash**, a plain `git rebase upstream/main` (or any merge) sees all of PR-1's content as
+added on both sides. I measured that path: **10 conflicts**, including `add/add` on
+`optimizer_combine_characterization_test.go` and `optimizer_scale_from_zero_test.go`. Those are
+artifacts of the squash, not real disagreements.
+
+Replaying only PR-2's own 17 commits (`--onto upstream/main 075a208e`) gives the true surface. I
+verified this with an in-memory `git merge-tree --merge-base 075a208e` — no worktree touched:
+
+**Conflicts — 2 files:**
+
+| File | Nature | Shape of the resolution |
+|---|---|---|
+| `internal/engines/pipeline/analyzer_helpers.go` | `main` swapped the inline `bByName` map build for `buildCapacityMap(...)`; PR-2 rewrote the comment immediately above it | semantically compatible — take PR-2's new comment + `main`'s `buildCapacityMap` call |
+| `internal/engines/pipeline/rescale.go` | **duplicate fix** — both sides independently added the identical `if anchor == nil { return nil }` guard in `rescaleModelDecisions` | keep one, see 4.2 |
+
+**Auto-merges cleanly — 4 shared files:** `rescale_test.go`, `saturation/engine.go`,
+`saturation/engine_queueing_model.go`, `saturation/engine_v2.go`.
+
+This is a much smaller job than the raw file overlap suggests, and it is worth writing the `--onto`
+form explicitly into the plan's rebase step. If the coder runs a bare `git rebase upstream/main` they
+will hit ten conflicts, most of them meaningless, on a branch where the correct answer is two.
+
+### 4.2 The `rescale.go` conflict is a duplicate fix — and `main`'s version is the §4a-clean one
+
+PR-2 and ev-shindin arrived at the same guard independently. PR-2's comment cites **`N3`**; `main`'s
+comment is descriptive prose with no plans-branch token. **Taking `main`'s version resolves the
+conflict and removes one §4a violation at the same time.** Worth stating as the preferred resolution
+rather than leaving it to coder taste, since the default instinct on a rebase is "keep mine."
+
+### 4.3 C11 / §2f survives intact — with one adjacency to note
+
+§2f's mechanism (D-a) lands the `Reason`-tagged `PRC = 1` sentinel at `bindingAnchor`'s `else`
+branch. `a38d7b73` touched that function **cosmetically only** (the `buildCapacityMap` swap), so
+§2f's design is unaffected and does not need re-opening.
+
+Two things to fold in anyway:
+
+- **Corroboration, not contradiction:** `a38d7b73`'s commit message independently explains that an
+  unsatisfiable pick clears `allPicked` and breaks the whole loop. That is the same mechanism §2f
+  relies on when it requires **skip, not zero-cap**. The plan's reasoning at §2f's ⚠ is now backed by
+  a second, independent observation in merged code — worth citing.
+- **Name-collision hazard for C11's `Reason` constant:** `a38d7b73` added
+  `variant.ReasonOptimizationRefused` and `constants.K8SEventOptimizationRefused`. These are a
+  *different namespace* from C11's new constant (a `satReason*`-family sibling on
+  `VariantCapacity.Reason`), so there is no technical collision — but §2f leaves the spelling to the
+  coder, and two unrelated "Reason" families now exist in-tree. Consider adding one line to §2f
+  steering the spelling away from the refusal family.
+- Separately: the TA scale-from-zero loop in `throughput/analyzer.go` is **not** where C11 lands, and
+  PR-2 does not touch that file — so no conflict. But its rationale comment changed substantially in
+  `a38d7b73` (`Role` is now explicitly the carried exception). If any plan text quotes the old
+  "Cost, AcceleratorName, ReplicaCount **and Role** are deliberately left unset" rationale, that
+  quote is now wrong against `main`.
+
+---
+
+## Part 5 — The §4a reword window: the cost figure in plan §4 is overtaken
+
+Plan §4 quantifies the decision as **"9 commits to reword now vs 16 later."** Measured at the actual
+tip: **11 of 17 commit messages carry a plans-branch token.** The "now" price has already risen from
+9 to 11, and C11/C10/C9 will push it toward 14. The time-box has been partly spent while the
+decision sat open — that is the substance of the update Dean needs, and it does not change the
+recommendation either way, only the number attached to it.
+
+Token-carrying messages: `4fb49ac6`, `537b0153`, `a679f2ad` (C6f), `784c2b5c` (C6e), `330fcd26`
+(C6d), `1140a4c2`, `952d2fff`, `3c9d45bb` (Bug #3), `07b8fdb7` (Bug #1), `50034d15` (Bug #2),
+`b106b929`, `680bebdb` (N2). Clean: `eb12089a`, `a46c7eea`, `34b18bc5`, `d9f3b97e`, `8eb6ee2d`.
+
+**In-tree comment debt also grew, and the plan's recorded figure is not comparable.** Counting
+genuine plans tokens only (`N1-9`, `W1-5`, `U1-5`, `C2`/`C6x`/`C7`/`C11`, `PR-1|2`) in
+`internal/engines/pipeline/*.go`:
+
+| ref | lines |
+|---|---|
+| `075a208e` (PR-1 base) | 1 |
+| `d9f3b97e` (plan's measurement point) | 22 |
+| `eb12089a` (current tip) | **36** |
+
+It nearly doubled across C6c–C6f. Note `4fb49ac6` removed plans-branch *paths*, not section tokens,
+so that commit does not discharge this.
+
+**Caveat you should resolve before quoting either number:** the plan records "48 in-tree at
+`d9f3b97e`, of which 31 are PR-2's and 17 already present at the PR-1 base `075a208e`". My tighter
+filter gives **1** inherited, not 17 — because the plan's grep also catches real code identifiers:
+golden-scenario names (`A1`–`A4`, `C1`, `V1`) and the `T1-ols` reason string, which are legitimate
+and must not be renamed. The two figures are therefore not comparable, and the "17 inherited, out of
+scope" share looks considerably smaller than recorded — meaning **more of the debt is PR-2's own than
+the plan currently credits.** Pin one agreed grep expression in the plan and re-measure at the
+current tip; C9 is the host either way, but its scope is larger than the plan says.
+
+---
+
+## What I am handing you, concretely
+
+1. Correct PR-2's tip (`d9f3b97e` → `eb12089a`) and C6c's status ("zero edits" → landed as
+   `34b18bc5`) in the plan doc; re-emit a clean `sync__` for CURRENT.md's abstract + PR Status row.
+2. Write the `--onto upstream/main 075a208e` form into the plan's rebase step, with the two-conflict
+   expectation and the note that a bare `git rebase upstream/main` produces ten mostly-artificial
+   conflicts.
+3. State the preferred resolution for the `rescale.go` duplicate guard (take `main`'s §4a-clean
+   version).
+4. Note in the plan that local `ta-anchor-refactor-v2@075a208e` is **not** what merged, and that
+   `a38d7b73`'s four fixes are only visible on `origin/ta-anchor-refactor-v2` or in `main`.
+5. Add the §2f steering line on the `Reason` constant spelling; optionally cite `a38d7b73`'s
+   `allPicked` explanation as independent corroboration of skip-not-zero-cap.
+6. Re-state the §4a reword cost as 11-of-17 (heading toward 14) for Dean's still-open time-boxed
+   decision, and pin one grep expression before re-quoting any in-tree token count.
+7. Re-verify §2f's and §2/§2d's line references against `eb12089a` — the "as of `d9f3b97e`" drift is
+   now actual.
+
+## Out of scope for me, flagged not acted on
+
+- No code changes, no plan-doc edits, no CURRENT.md edits — all deliberately left to you and the coder.
+- Whether/when PR-2 rebases remains the coder's step on Dean's go-ahead; I am reporting the surface,
+  not authorizing the move.
+- The still-uncommitted PR-1 review docs (`planning/ta-anchor-refactor-v2-code-review.md`,
+  `ta-anchor-refactor-review.md` Part 3/Round 2) are mine to finalize, not yours — noting only so you
+  don't wait on them for the above.

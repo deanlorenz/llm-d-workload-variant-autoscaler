@@ -1,0 +1,63 @@
+from: review (internal reviewer, ta-anchor-dynamic-refresh PR-2)
+to: planner
+session: PR-2 plan TOC line ranges are stale by +35..+100 — one toc-refresh.sh run; §2d.5/§2d.6 are the sections in flight
+
+**One item, mechanical fix, but worth doing now rather than at close-out.** Full write-up is Finding 14
+in `planning/ta-anchor-dynamic-refresh-review.md` (commit `0ea021c4`).
+
+## What I hit
+
+I went to read §4 (ship gate) at its TOC-listed `L781:845` and got the tail of §2e.3 plus all of §3.
+Checked every entry in `ta-anchor-dynamic-refresh-plan.md` (tip `62c37c46`): exact through §2, then
+drifting progressively.
+
+| Section | TOC says | Actually | Fetching the TOC range returns |
+|---|---|---|---|
+| §2d.5 Fair share (Bug #5) — currency | L534:556 | **L569:626** | §2d.4 (a)/(b)/(c) |
+| §2d.6 T1.4 — the existing Score test | L557:583 | **L627:653** | §2d.4's (c) + footer |
+| §3 Per-iteration dynamic refresh | L746:780 | L816:850 | §2e.3 |
+| §4 Ship gate & tests | L781:845 | **L851:922** | §2e.3 tail + §3 |
+| §5 Dev-guide sections (per commit) | L846:914 | **L923:1005** | §4 ship gate |
+| §6 Semantic-pivot grep steps | L915:973 | **L1006:1073** | §5 dev-guide prose |
+| §7 Out of scope / deferred | L974:1024 | L1074:1124 | §6 greps |
+
+The TOC's last entry ends at L1024; the file is 1124 lines, so the final 100 lines aren't addressable
+from the TOC at all. Drift starts at §2b (L258 → L293).
+
+## Why now rather than at close-out
+
+A stale range doesn't error — it returns a **different, plausible-looking section**, and the plan's own
+Reading Protocol is what sends agents to those ranges. Three of the misaddressed sections are the ones
+about to be read:
+
+- **§2d.5 and §2d.6 are the spec for the commit in flight.** C6c is exactly `fairShareValue` currency
+  (§2d.5) + the T1.4 rewrite (§2d.6). Fetching §2d.5 by TOC lands in §2d.4 — which *contains* finding (b),
+  about `fairShareValue`, so it reads like the right material while omitting the currency spec and the
+  T1.4 instructions entirely. Wrong section, right topic, no error: the hardest kind to notice.
+- **§6 is the semantic-pivot greps**, mandatory per CODER-CONVENTIONS §3. Its TOC range returns dev-guide
+  prose with no greps in it. A careful coder concludes the plan omitted the grep step and writes a
+  gap handoff (wasted cycle); a less careful one skips the grep.
+- **§5 is the per-commit dev-guide map.** Its range returns §4's test requirements.
+
+## Ask
+
+Run the prescribed refresh — CONVENTIONS: *"Before handing any plan doc to a coder, run
+`bash plans/scripts/toc-refresh.sh <plan-file.md>` … Idempotent."* The C10 fold-ins through `62c37c46`
+added content without one. Ideally before the coder next fetches §2d.5/§2d.6/§4/§5/§6.
+
+I did **not** run it myself: the plan is a Type 3 doc and planner-owned, so it goes back to you under the
+pre-action gate even though it's a single idempotent script and I can see exactly what it would do.
+
+## One thing I checked so you don't have to
+
+My own Findings 9–12 cite §2d.4/§2d.5/§2d.6, so I re-read §2d.4 at its **actual** L534:568 to make sure
+I hadn't quoted a drifted region. Finding 11's quote of (c) is verbatim-correct, and §2d.4's closing rule
+— *"key present and `<= 0` ⇒ veto"* — is exactly what `needsScaleDownForRole` already implements
+PRC-independently, which is Finding 11's substance. **No prior finding of mine needs correcting.**
+
+## Routing
+
+No CURRENT.md request — **do not route to sync.** Not a code defect, nothing blocking a commit, and I
+have not rung the coder's bell. Fourth open handoff from me (`c6d-finding-c-unreachable`,
+`c10-fixture-tolerance-bound`, `4a-reword-before-pr-opens` are the others); independent topics, no
+ordering between them, though this one is the cheapest to action.

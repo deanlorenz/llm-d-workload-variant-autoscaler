@@ -1,0 +1,189 @@
+# C6e landed — one coupled defect fixed inside it, two adjacent ones left alone
+
+to: planner (ta-anchor-dynamic-refresh / PR-2)
+from: coder, branch `ta-anchor-dynamic-refresh`
+re: C6e (`W1`, one fair-share entitlement per model) — committed; three items need your call
+
+C6e is code-complete and committed. `gofmt`, `go build`, `go vet`, `make lint`
+(0 issues), the full `./internal/...` suite and `-race` on `./internal/engines/...`
+are all green, and **no golden moved** — for a reason that is itself worth reading
+(item 0). Both §6 greps are answered; details at the end.
+
+Three items, in descending order of how much they matter.
+
+---
+
+## 0. Why no golden moved, and why that is not evidence the fix is inert
+
+The golden rule at plan L1630 says C6e's goldens are *expected* to move. None did.
+That needed an explanation before I would sign the commit, so I proved one rather
+than assuming it.
+
+`fairShareValue` for a model is `Σ_role claim_role`, and `allocateForModel`'s budget
+is `target = w.remaining − allocationMean`. `fairShareScaleUp` sets
+`allocationMean = 0` whenever `len(active) == 1`. So **a single-model fixture gets
+`target == claim`**: the entitlement is exactly the model's whole claim and can
+never bind, no matter how the roles draw against it. Every existing golden is
+single-model-per-pass and demand-bound with a generous pool. That is precisely why
+the double-spend was invisible in them — not because the fix does nothing.
+
+I demonstrated the delta empirically instead. `git show HEAD:...greedy_score_optimizer.go`
+into `/tmp`, swapped the pre-C6e file in, ran the new Context, restored. On the old
+code the new fixture gives `prefill-v = 7` (6 GPUs) **and** `decode-v = 4` (6 GPUs)
+= **12 GPUs out of a 7-GPU pool**, driving `available` to −5. On the new code it is
+`2` and `4` = exactly **7 GPUs**. Both W1 specs fail on old code and pass on new;
+the determinism spec passes on both. The counterfactual is recorded in the test
+comment so the next reader does not have to redo it.
+
+Two consequences for you:
+
+- **The plan's "the pool was enforced, the fair share was not" is only half true in
+  the paired path.** The pool check does bound the single-role path, but in
+  `allocateForModelPaired` the old code drove the pool *negative*, so it was not
+  enforced there either. That is item 2 below. I wrote the dev-guide paragraph to
+  say the doubled draw "surfaced as a fair-share violation rather than as a
+  failure" and did not claim the pool was airtight.
+- If you want a golden to move for C6e, it needs a **two-model** fixture, since the
+  entitlement only binds under contention. I did not add one — the three new specs
+  in the `Fair Share — One Entitlement per Model` Context already construct
+  contention via a second "mean-setter" model, and they are unit specs rather than
+  goldens. Say the word if you want the same scenario promoted to a golden.
+
+---
+
+## 1. `debitCommittedDemand` — a coupled defect C6e exposes, which I judged to be inside C6e
+
+Not in the plan. I added it, ~40 lines plus a long doc comment, and I want you to
+confirm the call rather than discover it in the diff.
+
+`initRoleState` seeds a per-role entry from `RoleCapacities[role].RequiredCapacity`,
+and **nothing ever decrements that field**: the allocation loop decrements only the
+caller's working `RolePairedState` (rebuilt on the next call), and `applyAllocation`
+refreshes only the model-level scalar that the per-role branch of `initRoleState`
+does not read. So re-seeding restores the demand the model started the cycle with,
+however much of it has already been served.
+
+That was harmless *before* W1, because each role got the whole entitlement and the
+loop therefore ran a model's demand to exhaustion inside one call — no second call
+had anything to re-serve. Once the entitlement is one shared balance, the loop stops
+mid-model whenever the balance runs out, and the next call would serve the same
+demand a second time. Two suite failures (`:1020` decode 5-vs-4, `:1253` decode
+4-vs-3) root-caused to exactly this, **not** to W1 itself.
+
+The debit reads the authoritative record of what was given — target replicas against
+observed current, per variant, priced at each entry's **own** PRC for that variant,
+which is the same quantity the allocation loop subtracts when it commits (Bug #1).
+Entries seeded from the model-level scalar are skipped, since `applyAllocation`
+already debits that scalar and debiting again would charge the same replicas twice.
+
+**Why I did not treat it as a design fork:** the function's own pre-existing comment
+already claimed to give the loop "the correct post-allocation demand", which was
+simply false for the P/D seed. There is no design freedom in its intent — W1 is
+incorrect without it — so re-deciding it was not on the table. It is named
+explicitly in the commit message. If you disagree that it belongs in C6e, it is a
+clean self-contained function and can be split out.
+
+---
+
+## 2. `w.remaining` is recomputed from the **budget-clamped** picker state (LEFT ALONE)
+
+`greedy_score_optimizer.go:520-529`. After the clamp, the P/D branch recomputes
+`w.remaining = fairShareValue(..., ps, ...)` from the *same clamped* `ps`. The
+comment there says the capped `ps` "correctly reaches 0 when both roles served",
+and after W1 that sentence is no longer true in general: `ps` reaching 0 now means
+**the entitlement is spent**, not that the demand is served.
+
+Two behaviors follow, depending on where the loop stops:
+
+- Balance exhausted with demand still in `ps` → `remaining` stays positive, the model
+  survives `filterActive` (`remaining > 0`) and gets another turn. This is the case
+  the new fixture exercises; it is a defer, and correct.
+- Balance spends `ps` down to ≈0 → the model **under-reports its outstanding claim
+  as ≈0**, sorts last, and on its next turn `target = remaining − allocationMean`
+  is ≤ 0, so `allocateForModel` returns false and `fairShareScaleUp` sets
+  `remaining = -1`. The model is finished for the rest of the pass with real demand
+  outstanding.
+
+The second case is **pre-existing** — the clamp could already cap `ps` below true
+demand whenever `target < claim` — but W1 makes it reachable far more often, because
+later roles now draw against a shrunken balance. Nothing is permanently lost: the
+next reconcile cycle re-seeds from `RoleCapacities` and `debitCommittedDemand`
+restores the true outstanding demand. The cost is a distorted fair-share **ordering
+position** within a pass, which is a ranking question and therefore looks like it
+belongs next to C11 rather than inside C6e.
+
+I left the code alone and did not silently "improve" the stale comment's claim
+either — flagging it here instead. **Your call:** fix in PR-2 (recompute `remaining`
+from a fresh, debited seed rather than from the clamped working copy), or defer with
+a named reason.
+
+---
+
+## 3. `allocateForModelPaired` prices every role against the same un-decremented pool (LEFT ALONE)
+
+`analyzer_helpers.go:846-857`. The pick loop calls `pick(role, ..., available, targets)`
+once per role, and `available[acc]` is not decremented until the **commit** loop at
+:903. So with a P/D model each role is sized against the *full* remaining pool, and
+the joint commit can over-draw it. This is the mechanism that let the old code drive
+a 7-GPU pool to −5 in item 0's counterfactual.
+
+This is pre-existing and **independent of W1** — it is a pool-accounting defect, not
+an entitlement one. In the new fixture it is no longer *reachable*, because the W1
+double-spend was what drove the roles far enough to over-draw; the fair-share
+entitlement now stops them first. So it is latent rather than live, and only for as
+long as the entitlement happens to be the tighter of the two bounds. A model whose
+entitlement exceeds the pool would still over-draw.
+
+I did not fix it: it is outside C6e's stated scope, and the fix has a design choice
+in it (decrement `available` speculatively during the pick and roll back on a failed
+`allPicked`, versus pass a shrinking copy to the pick and reconcile at commit) that
+is yours, not mine.
+
+---
+
+## §6 grep results (both C6e greps, answered)
+
+**`grep -rn "for .*range roles\|_ = roles\|rolesFor\|RoleCapacities\[" internal/engines/pipeline/`**
+— 19 hits. `_ = roles` is **gone** from `fairShareRolePick`; the parameter is now
+read. Per-hit answer to "does this loop give each role a fresh copy of a model-level
+budget?":
+
+- `rescale.go:369,376` + `distributeGPUsByWeight:659-684` — **no.** A genuine *split*:
+  floors reserved up front, then weighted apportionment of the remainder, leftovers
+  apportioned once. `Σ_role share == total` by construction. (Worth noting for the
+  record that this *is* the static split the frozen prescription rejects for
+  `fairShareRolePick` — different path, different contract, and it is not `W1`.)
+- `cost_aware_optimizer.go:342` — **no.** Reads `RoleCapacities[role]` to populate
+  the decision's reporting fields. Not a budget.
+- `cost_aware_optimizer.go:467` — **no.** Scale-down; each role sheds its own
+  variants, bounded per role by `safeRemovalReplicasForRole`. No budget exists here.
+- `greedy_score_optimizer.go:85` (`claimGPUs`) — **no**, and it is the inverse: the
+  cross-role **sum** is what establishes the single pool in the first place.
+- `greedy_score_optimizer.go:667` — the holdback loop *inside* the fix.
+- `analyzer_helpers.go:462` (`initRoleState`) — **no.** Seeds a demand, not a budget.
+- `analyzer_helpers.go:610` (`anyRoleNeedsScaleUp`) — **no.** A predicate.
+- `analyzer_helpers.go:846,862,875,886,903` (`allocateForModelPaired`) — **the one
+  real hit besides the fix**, and it is not the model-level entitlement: every role
+  is priced against the same un-decremented `available`. That is item 3 above. I am
+  reporting it as a grep hit rather than filing it as a second `W1` site, because the
+  budget it copies is the *cluster* pool, not the model's entitlement.
+
+**`grep -rni "replica" analyzer_helpers.go greedy_score_optimizer.go`** — every
+comment hit is a legitimate replica count. Nothing describes the *budget*, the
+*mean*, or the *target* as a replica count. `allocateForModel`'s doc comment already
+says `target` is "priority-scaled GPUs, not a replica count and not any analyzer's
+metric", and the dev guide's `### Fair-share iteration` now says the same. Clean.
+
+---
+
+## Dev guide
+
+`docs/developer-guide/multi-analyzer-pipeline.md`, per §5 L1748-1753. Three edits:
+the `fairShareRolePick` bullet (it no longer says it "caps `capN` to the fair-share
+target"), step 3 of the iteration list ("or until `target` is spent — whichever comes
+first"), and four new paragraphs at the end of `### Fair-share iteration`: the shared
+balance with the two-full-draws consequence named concretely, why the draw is
+sequenced rather than split, the two floors and why only one of them is rationed,
+`debitCommittedDemand`, and the masking paragraph.
+
+Next: C6f, then C11, C10, C9, in the plan's §0 git order. Nothing here blocks that.

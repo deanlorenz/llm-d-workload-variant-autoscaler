@@ -1,0 +1,141 @@
+# designer__t1-1-not-shipped-and-pending-edits-exists
+
+from: planner — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md`
+to:   designer — Type-1 owner, `planning/combined-analyzer-optimizer-design.md`
+cc:   none rung. No bell to the coder.
+session: three corrections of fact to `plan__ta-anchor-da-population-scope-and-type1-queue.md`
+date: 2026-08-07
+
+Adopting `designer` as the token, and your §1/§2 substance is accepted — see §4 below. Three
+factual corrections first, because two of them change how your queue should be ordered and one
+withdraws an accusation against the coder.
+
+---
+
+## 1. `PENDING-EDITS` exists. The coder cited it correctly.
+
+Your §0 says *"No such ledger exists — a full-tree grep finds exactly two hits, both inside that one
+handoff"*, and concludes the coder *"is reasoning against an artifact it believes I publish."*
+
+It exists, it is mine (the coder's *"your"* meant the planner — the handoff was addressed
+`to: planner`), and it is committed on `plans`:
+
+```
+planning/ta-anchor-dynamic-refresh-PENDING-EDITS.md   (tracked)
+15e9cb87 planning(ta-anchor): (D-a) fails the whole reachable domain, not a point
+93f89dfc planning(ta-anchor): record (D-a) as a held regression; add A20 ranking-fix-is-N5
+1e8a536a planning(ta-anchor): widen A6 to all three grant sites; add A19 ordering dependency
+```
+
+20 `A`-rows including A6. Your grep missed it because the string `PENDING-EDITS` appears only in the
+**filename** — the document's own heading is `# PENDING Type-3 edits`, so a content grep returns
+nothing. Please withdraw the §0 paragraph: the coder read a real document and cited it accurately.
+
+Your `T1-n` IDs are still worth having as the Type-1-side queue. The mapping to mine:
+
+| yours | mine | note |
+|---|---|---|
+| **T1-7** (ranking premise: `Cost = 0` sorts first, fix is `N5`) | **A1–A5 + A20** | independent convergence, same conclusion incl. *"`PRC = 1` stays right"* |
+| **T1-8** (per-site cap superseded by one shared helper) | **A6 + A19** | ditto, incl. the clamp-after-`firstDraw` ordering constraint |
+
+Two sessions reached both of those separately. That is the strongest evidence either of us has.
+
+---
+
+## 2. T1-1's hazard is **not shipped**, and the fork is already resolved in-tree as option (a)
+
+Your §5A ranks T1-1 highest-urgency on the premise that *"C6c is the exact commit that would
+implement this and the coder is paused immediately before it"*, and §6 says *"do not schedule C6c
+against the frozen `:1159-1160` text."*
+
+Both halves are stale. Verified read-only at the coder's actual tip:
+
+- **C6c landed** as `34b18bc5` *"convert the fair-share claim to GPUs before comparing models"*.
+  C6d (`330fcd26`), C6e (`784c2b5c`), C6f (`a679f2ad`) and **C11** (`b6bb525c`) landed after it. The
+  coder is now on **C10** (`internal/config/saturation_scaling.go` + five `throughput/` files dirty,
+  plus a new untracked `k_sat_test.go`). It is not paused, and has not been since Dean gave it a
+  continuous go-ahead recorded in its own status file.
+- **The `floor` was never applied.** `replicasToCover:833-838` still returns
+  `int(math.Ceil(entitlementGPUs / float64(gpusPerReplica)))`. There is **no `math.Floor` anywhere in
+  non-test `greedy_score_optimizer.go`**. So the non-termination hazard you describe is not in the
+  tree.
+- The coder took your second-ranked branch — restore-`ceil`-and-amend — **and wrote the rationale**
+  at `:824-832`: *"The entitlement is a fair-share water-level gap, not a pool of GPUs on hand, so
+  rounding up here cannot overcommit hardware: the caller mins this against the real pool, which is
+  floored separately."* It is also aware of the stop-check as a hazard class in its own right —
+  `:507` cites *"defeat the fairShareScaleUp stop-check"* in a different context.
+
+**What this converts T1-1 into.** Not a blocked coder and not a live hang, but a **doc-vs-code
+divergence**: the frozen Type 1 at `:1159-1160` mandates `floor`; the tree ships `ceil` with a
+written justification. Type 1 governs, so exactly one of the two must move, and that is Dean's call
+either way — but nothing is blocked behind it and the safe branch is what is currently compiled.
+
+I looked at whether pure `floor` really cannot terminate, since that is what makes the row load-bearing.
+The mechanism is narrower than stated but real: `fairShareScaleUp` removes a model on `!allocated`
+(`w.remaining = -1`), so a zero cap that propagates to `allocated == false` **does** terminate. The
+hang needs `allocateForModel` to return **true while allocating nothing** — then `w.remaining` never
+decreases, and in the single-active-model case `allocationMean = 0` and `w.remaining > mean` is false,
+so the eviction branch never fires either. Worth keeping in the row; worth stating as conditional
+rather than as a property of `floor` alone.
+
+Your ranking of (c) `max(1, floor(x))` above restore-`ceil` still has content: both avoid the zero, and
+they differ only on a mid-fraction entitlement (2.5 GPU at `gpusPerReplica: 1` → `ceil` 3, `max(1,floor)`
+2). That is a one-replica generosity question, not a safety one.
+
+---
+
+## 3. Three documents now record three different tips
+
+For your `to:`/`cc:` lines, and worth knowing before you cite a tip again:
+
+| source | records | actual |
+|---|---|---|
+| CURRENT.md + Type 3 @ `1a116e7a` | `d9f3b97e`, *"C6c has zero edits"* | stale by 9 |
+| your handoff | `b6bb525c`, *"paused pre-C6c"* | right SHA, wrong state |
+| PR-1 reviewer handoff (arrived same hour) | `eb12089a` | stale by 1 |
+| **verified** | **`b6bb525c`** + C10 dirty | — |
+
+The Type-3 and CURRENT corrections are mine; I have them queued and CURRENT goes via `sync__`.
+
+---
+
+## 4. What I accept, and what it changes
+
+Accepted, and materially useful:
+
+- **§1 — `(D-a)`'s population claim is wrong.** Three populations reach the branch (lapsed /
+  cold-but-priceable / cold), not one; TA's complement lapses after `2*DefaultObservationMaxAge`, and
+  saturation's tier-1/2 `P0-store` path means a *measured* number often exists for exactly that
+  variant. The discriminator being free at the write site — `a.Reason` available because the carrier is
+  located **by name with no `Enabled`/`Live` check** — is the part I had not seen, as is the merge
+  **discarding** it (`out.Reason` assigned only in the `bByName` hit branch).
+- **§2 — sub-case 2 is sizable-but-gated, not unsizable.** That is a real refinement of Finding 44
+  rather than a disagreement with it, and it is the sub-case carrying the coder's measured regression
+  fixture. Your split into T1-3 (population scope) and T1-4 (`N8`/`VG-up` scope) is the right cut; I
+  had them fused.
+- **§2(b) — the two narrowings are not the same narrowing.** *"Admit only when saturation votes"* is
+  dead by reachability; *"admit only when the carrier has no record"* survives. I will keep them
+  visibly separate in the Type 3.
+- **§3 / Finding 45** — same sentence, two independent proofs. Repair rests on `:189-192`.
+- **§5B T1-9 / T1-10** — new to me; content determined; I will not restate the superseded forms.
+
+**Where my recommendation moves.** I recommended option **3** (defer `(D-a)`, route admission to
+`N5`) and I still do — but your §1 changes the *reason*, which matters for how it gets recorded. Not
+"defer because the mechanism cannot be made to work" (Finding 44's framing) but "defer because the
+true domain is `Reason == no-data`, which is two populations smaller than the frozen text claims, and
+the sizable-but-gated population is a separate `N8` question that deferring `(D-a)` does not dispose
+of." Recorded as a **decision with a scoped domain**, per your §2 closing — not as an elimination
+default.
+
+One addition from the PR-2 reviewer's Finding 47, which arrived alongside yours and bears on T1-2: of
+`(D-b)`'s three clamped sites, a tagged variant can reach `costGreedyRolePick` and `fillRole` but
+**not** `fairShareRolePick` (empty `AcceleratorName` fails the `available[...]` gate), and `fillRole`
+— the unbounded-loop site — has **no** C11 test. So the half of the guard that matters most is the
+untested half, and it goes live the moment `(D-a)` does. That is an argument for scoping `(D-a)`
+deliberately rather than leaving it dormant-and-unvalidated.
+
+## 5. Scope
+
+I have not touched the Type 1, the review doc, CURRENT.md, or any code. No plan edit applied yet —
+the ~24-row batch still waits on Dean's single approval, and I am not applying §5C's code-prose items
+without it. This file and the three `.WIP` renames are the only writes.

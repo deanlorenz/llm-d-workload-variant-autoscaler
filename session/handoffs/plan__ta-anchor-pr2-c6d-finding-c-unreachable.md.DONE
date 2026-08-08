@@ -1,0 +1,138 @@
+from: review (internal reviewer, ta-anchor-dynamic-refresh PR-2)
+to: planner
+session: PR-2 C6d spec — plan §2d.4 finding (c) is unreachable through the gate
+
+**Time-sensitive:** this changes what C6d should be, or whether it should exist. C6c has not landed
+yet (branch tip `d9f3b97e` = C6b), so C6d is at least one commit away — but the coder will reach it
+without further planner input unless the plan changes.
+
+Sibling handoff note: `plan__ta-anchor-pr2-c6c-fsv-currency-gaps.md` is `.WIP` with another planner,
+so this is a new file per the handoff convention rather than an edit to that one. The two are
+independent — that one is about fsv currency (C6c), this one is about the scale-down veto (C6d).
+
+Full write-up with code quotes and line refs: `planning/ta-anchor-dynamic-refresh-review.md`
+§ "Pre-emptive — C6d not yet written" (Findings 11, 12, and a status downgrade for Finding 4).
+
+---
+
+## Item 1 (Finding 11) — finding (c)'s scenario is already prevented one frame up the call stack
+
+Plan §2d.4 (c) states the bug as: a **live** analyzer reporting `RoleSpare[role] = 0` but carrying no
+per-variant PRC "is dropped from the `min`; the other analyzers' spare wins and replicas come off
+**over its objection**." Fix as specified: such an analyzer "blocks removal for every variant of that
+role, whether or not it sizes the variant."
+
+That outcome cannot occur. `safeRemovalReplicasForRole` has exactly **one** non-test caller, and it
+sits inside a loop guarded by the veto (`cost_aware_optimizer.go:437-450`):
+
+```go
+for _, role := range roles {
+    if !needsScaleDownForRole(s, role) {
+        continue                     // whole role skipped
+    }
+    ...
+    return safeRemovalReplicasForRole(s, vc.VariantName, role)   // only past the gate
+}
+```
+
+and the gate vetoes on a present, non-positive spare **without consulting PRC**
+(`analyzer_helpers.go:683-703`):
+
+```go
+spare, ok := e.RoleSpare[role]
+if !ok { continue }              // abstain (N7, landed C7)
+if spare <= 0 { return false }   // veto — PRC never enters this decision
+```
+
+So for (c)'s exact stipulation the gate returns `false`, the role is skipped in full, and the
+magnitude helper is never called for any variant of it. The objection is already honoured, at a
+*coarser* granularity than the proposed fix would achieve. The abstain branch cannot smuggle (c)
+past either: (c) stipulates the key is present, and `initRoleState` never seeds `RoleSpare` for an
+entry with `Result == nil`, so the `Result == nil || RoleSpare == nil` skip does not apply.
+
+Verified by `git grep` at HEAD: one non-test caller of each function, veto at `:439`, magnitude at
+`:449`, in that nesting.
+
+**Two consequences to head off:**
+
+1. **C6d risks landing dead code** — a new branch in `votesFromRoleSpare` for an input that does not
+   reach it.
+2. **Its natural test will pass for the wrong reason.** Every existing unit test in this area calls
+   `safeRemovalReplicasForRole` directly. A fixture built that way goes red before the change and
+   green after — demonstrating the branch works, proving nothing about production, because the gate
+   short-circuits the same input one frame up. If C6d proceeds in any form I will hold it to at least
+   one fixture that drives `scaleDownRoleIterated` (or the optimizer entry point) end-to-end.
+
+**Ask:** re-derive (c) against the gate. Either it is already satisfied — in which case C6d is
+usefully re-scoped to a **test-only** commit pinning the existing behaviour, which is worth having —
+or there is a path I did not find, in which case please name the caller that reaches the magnitude
+without the gate, because I could not find one.
+
+**Wording point that falls out of this.** The plan calls (c)'s desired outcome a **veto**. Inside
+`votesFromRoleSpare` a veto can only be expressed as a `0`-vote, and after C6b a `0`-vote is no
+longer absolute — the dominance correction pulls `v*` above the extremum whenever a participant has a
+strictly higher score (Finding 8's mechanism). At `score: 1.0` everywhere (all shipped configs) the
+two coincide, so this is latent, not live. But if an explicit role-level "no spare" is meant to be
+*hard*, it belongs in the gate, where it is score-independent — which is where it already is.
+
+## Item 2 (Finding 12) — PR-1 code defect, needs a home, not a PR-2 fix
+
+The throughput analyzer builds `VariantCapacity` at two sites that disagree on `Role`:
+`throughput/analyzer.go:372-382` sets `Role: state.role`; the scale-from-zero complement at
+`:409-413` sets `VariantName`, `PerReplicaCapacity`, `Reason` and **no `Role`**.
+
+`AggregateByRole` maps an empty role onto `domain.RoleBoth` (`aggregation.go:75-78`). So on a
+**disaggregated** model with at least one zero-replica variant, the analyzer's `byRole` becomes
+`{decode: …, both: …}` → `len == 2` → clears `aggregateRoleCapacities`'s non-disaggregated early
+return (`len(byRole) == 1 && hasBoth`) → `RoleCapacities` holds a real per-role entry **and** a
+`both` entry. `both` is the synthetic stand-in for non-disaggregated models; the surrounding code
+treats the two as mutually exclusive, and that function's own comment says so ("Non-disaggregated:
+only a 'both' bucket (or nothing)").
+
+`initRoleState` then seeds the bogus role into `roles`, `pickerState[i][both]` and
+`RoleSpare[both]`, all-zero (the `:409` literal sets no `ReplicaCount`, no `TotalDemand`).
+
+Impact as far as I traced and no further: `RoleSpare[both] == 0` makes `needsScaleDownForRole` veto
+that role (harmless — no live replica sits in it); a zero-RC `both` role in the scale-up loop
+allocates nothing. **I did not find a case where it produces a wrong replica count.** Recording it as
+a data-shape defect with no demonstrated numeric consequence — but it is the only mechanism I found
+that can desync an analyzer's role-key set from its PRC-key set.
+
+**Ask:** this is PR-1 code (the scale-from-zero complement, PR-1 C4). PR-2 should not fix it. It
+wants a GitHub issue, or a one-line `Role: vs.Role` folded into whichever PR next touches that block.
+Flagging it to you rather than acting on it.
+
+## Item 3 — Finding 4 downgraded (no ask, just so the plan does not overstate it)
+
+Finding 4 (recorded under C7) observed `votesFromRoleSpare` reads a missing `RoleSpare[role]` as
+`0.0` and votes to hold removal at zero, where `needsScaleDownForRole` abstains (N7). The code
+comment at HEAD confirms the asymmetry is deliberate and open.
+
+Reachability now traced: firing it needs an analyzer lacking the role key **but** holding a positive
+PRC for a variant of that role. Both producers derive their role set from the same variant slice that
+supplies the PRCs (saturation `analyzer.go:136`; throughput via `aggregateRoleCapacities` over its own
+`variantCapacities`), so the key sets are normally in lock-step and the case cannot arise. The one
+divergence path is Item 2's role-less entry, which exists only for variants with **no live replicas**,
+where returning `0` removes nothing that was going to be removed.
+
+So: real in the code, admitted in its own comment, but I cannot produce a production input where it
+changes a replica count. My recommendation stands in substance and softens in urgency — C6d should
+adopt the two-value lookup (`v, ok := e.RoleSpare[role]`) because it is two lines, makes the ballot
+agree with the gate it sits behind, and retires a documented open question. It should **not** be
+described as fixing a live bug. If C6d does convert the key-miss to an abstain, it also needs a
+`liveCount > 0`-equivalent floor on the ballot, so "every voter abstained" cannot collapse into an
+unbounded removal.
+
+## What checks out (so this reads as a spec correction, not a code complaint)
+
+- `votesFromRoleSpare` at HEAD is Live-gated at the top; `Result == nil || RoleSpare == nil` abstains;
+  its doc comment is honest about the one case it deliberately leaves alone.
+- `needsScaleDownForRole` implements N7 correctly with the two-value lookup and carries a safety floor
+  (`liveCount > 0`), so "nobody has an opinion on this role" does not authorise removal.
+- The two functions' divergent participation rules are documented at both ends rather than implicit.
+
+## Routing
+
+No CURRENT.md request — **do not route to sync.** Items 1 and 3 are C6d spec decisions; Item 2 is an
+issue-filing decision for Dean. Nothing here asks the coder for anything directly; if the plan
+changes, ring the coder's bell in the usual way.

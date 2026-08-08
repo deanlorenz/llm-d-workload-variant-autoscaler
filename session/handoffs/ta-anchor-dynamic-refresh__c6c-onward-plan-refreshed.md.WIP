@@ -1,0 +1,6 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md — read the doc's own TOC block for current line ranges (regenerated this commit). Every range quoted in the seven earlier `ta-anchor-dynamic-refresh__*` triggers is superseded; those seven are retired (`.DONE`) and this file replaces them.
+  - planning/ta-anchor-dynamic-refresh-plan.md §0 (revision marker + grounding), §1.1 (commit map — now C1–C11), §2 (items #1/#2/#5), §2d.5 (per-site unit table), §2f (new), §4, §5, §6, §7, §7.1
+note: plans commit `1a116e7a` — C6c onward: the four remaining commits became seven, bug #5's currency is GPU space rather than replica space, and §7.1's five design questions are answered with the commit each one lands in. Branch state unchanged (tip `d9f3b97e`, C6c still zero edits).

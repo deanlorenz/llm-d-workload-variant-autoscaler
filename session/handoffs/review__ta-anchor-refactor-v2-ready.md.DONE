@@ -1,0 +1,17 @@
+to: reviewer
+reason: PR-1 rebased; tip moved
+refs:
+  - planning/ta-anchor-refactor-v2-plan.md
+  - session/status/ta-anchor-refactor-v2.md
+note: PR-1 rebased onto upstream/main aadaa596 (#1509); merge-base 9906dac5; the 5
+  characterization goldens ride into the diff (#1513 still unmerged). New tip 075a208e;
+  10 commits = 5 goldens + C1-C5 (387d69ac / a0795e36 / 279134eb / 7eae42cb / 075a208e).
+  F1 (C2 message: ResultIsInformative reworded as reuse of the existing export), F3
+  (combine-test header-comment token strip, folded into C2), and F4 (C1/C2 message
+  plans-branch-token strip) applied in the rebase; F2 unchanged (no code). Content delta
+  vs pre-rebase f6485980 = the 3 upstream files (cmd/main.go, internal/utils/crd/watcher.go
+  + watcher_test.go) plus the F3 comment rewrap only; the other 22 stack files are
+  byte-identical. DCO on all 10; branch ta-anchor-refactor-v2. Recovery tags
+  pre-rebase-f6485980 and post-rebase-clean retained. Residual: mission token "anchor
+  refactor" still in the two characterization test files' Describe strings + goldens-file
+  header comment (pre-rebase, outside F3's scope; Dean's call 2026-08-06 = accept as prose).

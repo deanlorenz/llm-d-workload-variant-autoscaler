@@ -1,0 +1,119 @@
+# plan__ta-anchor-pd-fix-is-one-line-already-on-main
+
+from: designer — Type-1 owner, `planning/combined-analyzer-optimizer-design.md`
+to:   planner — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md`
+cc:   review (PR-2 internal code reviewer) — bears on your Finding 46/47 severity, not on `(D-b)`
+cc:   coder — one line, in your worktree, your call whether it rides C10 or waits for the rebase
+session: the P/D half of the `(D-a)` question; a live pre-existing break found while answering it
+date: 2026-08-07
+ask: decide — route (§4), and whether §3 becomes a Type-1 finding
+re: sibling to `plan__ta-anchor-da-sentinel-belongs-on-the-ballot.md` (`.WIP`, so not edited) and
+    its errata `plan__ta-anchor-da-sentinel-errata-two-line-refs.md` (also `.WIP`). Everything
+    below is verified read-only at the coder's HEAD **`2ae440e3`** via `git show HEAD:`, never
+    the dirty tree. (Your §3 table is now stale by one: HEAD moved `b6bb525c` → `2ae440e3`,
+    *"docs: write from-zero admission as deferred and fix four false premises"*. Same pattern
+    you flagged; I am not exempt from it either — see the errata sibling.)
+
+Dean asked whether the sentinel breaks partial scale-from-zero on a **P/D** model. Answering it
+turned up something more useful than a P/D-specific sentinel guard: **a P/D break that is already
+live on this branch, needs no sentinel, and whose fix is one line that already exists on `main`.**
+
+---
+
+## 1. The live break — no sentinel involved
+
+Trigger: **a disaggregated model where any variant TA has previously measured is currently at zero
+replicas.** That is it. `(D-a)` deferred or landed makes no difference.
+
+Chain, each step verified at `2ae440e3`:
+
+| # | site | what happens |
+|---|---|---|
+| 1 | `throughput/analyzer.go:434-439` | the scale-from-zero complement builds `domain.VariantCapacity{VariantName, PerReplicaCapacity, Reason}` — **no `Role`** |
+| 2 | `throughput/analyzer.go:478,483,507` | that same slice feeds `distributeDemandByRole` **and** `aggregateRoleCapacities`, *before any anchor merge* |
+| 3 | `analyzer.go:918-933` + `aggregation/aggregation.go:72-86` | **both canonicalize blank `Role` → `domain.RoleBoth`** |
+| 4 | `analyzer.go:953-958` | on a P/D model `byRole` = {prefill, decode, **both**}; `len == 3`, so the only-`both` nil-return guard does not fire → TA's `RoleCapacities` ships a phantom `"both"` key |
+| 5 | `analyzer_helpers.go:369-398` | `initRoleState` unions `RoleCapacities` keys **across every voting entry** → `roles = [both, decode, prefill]` |
+| 6 | `analyzer_helpers.go:947-960` | `pick("both")` → `variantsForRole(anchor.VariantCapacities, "both")` is **empty** (anchor roles come from the saturation (a)-carrier, which sets real roles) → `costGreedyRolePick` returns `("", 0)` → `allPicked = false` → `break` |
+
+Step 6 fires on the **first** iteration, before anything is allocated. Result: **zero scale-up
+decisions for the whole model** while any variant sits at zero. Not a degraded step — nothing.
+
+Note TA does not need to *bind* for this. Step 5 unions over the voting set, so TA merely being
+enabled + live is enough; saturation can hold the anchor throughout.
+
+## 2. The fix is one line, and it is already written
+
+`Role: vs.Role` at that construction. That is exactly what `a38d7b73` adds
+(hunk `@@ -408,6 +415,7 @@`), and ev-shindin's commit message derives §1 independently and
+almost verbatim — *"left the paired allocator with a role no anchor variant could satisfy — and
+since an unsatisfiable pick clears allPicked and breaks the whole loop, a P/D model with any
+variant at zero replicas produced no scale-up decisions at all."*
+
+`git merge-base --is-ancestor a38d7b73 HEAD` → **ABSENT.** PR-2 is stacked on PR-1's pre-merge
+tip, so none of `a38d7b73` is here: not this line, not the `OptimizationRefused` reason + Warning
+event, not the `wva_desired_replicas=0`/KEDA-scale-to-zero rescue.
+
+Two shapes, both fine, your call:
+
+1. **Rebase onto `main@57f3fe64`+.** The line arrives free with the other three fixes. The rebase
+   is due anyway now PR-1 has merged, and CURRENT.md already records that as PR-2's target.
+2. **One line on the branch now.** Identical text to `main`, so it is a clean no-op at rebase
+   time. This is the "quick and dirty" Dean asked for, and it is genuinely one line.
+
+Shape 2 does **not** substitute for the rebase — the other three fixes in `a38d7b73` are real and
+two of them are operator-visible.
+
+## 3. The general shape behind it — a Type-1 question, not a code item
+
+Step 5 is the load-bearing one, and the blank-`Role` bug is only one way to trip it. Read
+`initRoleState`'s `else` branch (`:390-397`): an entry with `RoleCapacities == nil` synthesizes
+`domain.RoleBoth` and adds it to the same `roleSet`. So the invariant is broader than the sfz bug:
+
+> On a disaggregated model, **any** voting entry that does not report per-role `RoleCapacities`
+> injects `"both"` into `roles`, and the first `pick("both")` breaks the entire model's allocation.
+
+`roles` is derived from the **ballot**; satisfiability is decided against the **anchor**. Nothing
+reconciles the two. That is the same ballot-vs-anchor split as the `(D-a)` sentinel defect — my
+error there was writing a value into one and reading it from the other; here it is a *key set*.
+
+This is my `N7` in the dataflow map, which I had recorded only in the scale-**down** direction
+("one role never scales down"). The scale-up direction is strictly worse: not a skipped role, a
+dead model.
+
+I am **not** proposing "make an unsatisfiable pick skip the role instead of breaking" — the
+`break` is load-bearing for the joint-commit invariant (you cannot grant one role and not its
+partner). The repair belongs at the derivation, and it is a design question I own. Flagging it
+here only so it is not re-derived a third time; I will queue it as a Type-1 finding rather than
+ask you to carry it.
+
+## 4. What this changes about the sentinel recommendation
+
+Nothing, and that is the point worth having: **with `Role` set correctly, the ballot-side sentinel
+needs no P/D-specific mechanism.** The joint-commit math already does it.
+
+The from-zero variant is picked for its real role — say decode — capped at one replica by C11:
+
+- decode: `n = min(roleBottleneckReplicas, capByRole) = min(·, 1) = 1`; the binder now prices it,
+  so `demand > 0` and `util_decode = 1·prc/demand_decode`
+- `deltaUtil = min` over roles takes that value
+- per role, `k = max(floor(deltaUtil·demand_role/prc_role), min(1, n))`, which is `≥ 1` for every
+  role with `n ≥ 1`
+- → a matched **1P + 1D** step; next iteration decode's headroom is exhausted, `costGreedyRolePick`
+  skips it per the `:104-108` comment, and real variants scale normally
+
+So the one-replica ceiling **propagates proportionally to the partner role** through `deltaUtil`.
+That is the joint-commit invariant working as designed, not a coincidence — and it is a fourth
+argument for putting the sentinel on the ballot rather than the anchor.
+
+Because under the **anchor-only** shape the frozen Type 1 currently specifies, P/D is *worse* than
+the unmatched-step failure I flagged in the sibling handoff. Every ballot entry abstains
+(`votesFromPickerState:522-535` reads `e.Result`, not the anchor) → `n = 0` for decode → `k = 0`
+→ **decode's `remaining` never decrements**, while prefill keeps drawing against zero decode
+replicas until `!anyPositive` finally breaks. The roles decouple completely. Correct that to
+"anchor-only decouples P/D" wherever the single-unmatched-step framing was recorded.
+
+## 5. Scope
+
+No Type-1, Type-3, review-doc, CURRENT.md, or code edit. This file is the only write. §1/§2 are
+yours (or the coder's) to route; §3 is mine and I am not asking you to carry it.

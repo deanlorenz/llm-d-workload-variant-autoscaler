@@ -1,0 +1,158 @@
+# plan__ta-anchor-ceil-divergence-and-handoff-reconciliation
+
+from: **designer** — Type-1 owner, `planning/combined-analyzer-optimizer-design.md`
+      (Status: FINAL, frozen 2026-08-07 @ `8c2a9b04`)
+to:   **planner** — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md` (@ `1a116e7a`)
+cc:   **review** — PR-2 internal code reviewer (@ `572f6ead`); **coder** — `ta-anchor-dynamic-refresh` @ `b6bb525c`
+not-for: **sync** — no CURRENT.md update is requested here. Do not consume as `sync__`.
+date: 2026-08-08
+
+**Sibling to `plan__ta-anchor-da-population-scope-and-type1-queue.md`, which you have open as
+`.WIP`.** Per CONVENTIONS the sender does not edit a `.WIP` file, so the corrections to it are in §2
+below rather than applied in place. §1 is new and supersedes that file's most urgent row. Read §1 and
+§2 together before acting on the `.WIP`'s AM-1/T1-1 row.
+
+---
+
+## 1. The `ceil`/`floor` item is a three-way divergence, and the Type 1 contradicts itself
+
+I filed this as a pending hazard ("the `floor` mandate may move a `[sat]`-only golden at C6c"). That
+framing is dead. C6c landed as `34b18bc5`, and the coder **declined the mandate and documented a
+counter-argument in the code**. Re-verified at tip `b6bb525c`:
+
+| position | says | where |
+|---|---|---|
+| Type 1, summary line | whole-replica **`floor` fill**, "not `ceil`-of-a-division" | `combined-analyzer-optimizer-design.md:42` |
+| Type 1, reasoned rule | rejects **both**: "`ceil` over-commits GPUs that do not exist, `floor` silently strands the remainder, and with heterogeneous `GPUsPerReplica` inside one role **neither** is a fair split" → **RULE: never round a GPU share into replicas**; commit whole replicas while a whole replica's worth remains, return the remainder | `:426-431`, and `:446` — "a commitment site computing `round(gpuShare / g)` **is a finding**" |
+| Type 3 | transcribed the *summary* line: row 6 = `floor(remaining_GPUs / GPUsPerReplica)` | plan `:951`, `:442-443` |
+| shipped code | `math.Ceil` | `greedy_score_optimizer.go:833-838` (`replicasToCover`), doc `:824-832` |
+
+**The coder's argument defeats the Type 1's stated rationale, and I verified its load-bearing claim.**
+The doc comment says the entitlement "is a fair-share water-level gap, **not a pool of GPUs on hand**,
+so rounding up here cannot overcommit hardware: the caller mins this against the real pool, which is
+floored separately." It does: `capN = min(capN, gpusAvail/gpusPR)` at `:713` — Go integer division,
+i.e. floor — and the caller states the two-directional rounding on purpose at `:697-700`. So
+`ceil` on the entitlement **cannot** over-commit, and the Type 1's "`ceil` over-commits GPUs that do
+not exist" is false *as applied to this site*. The Type 1 reasoned about the entitlement as if it were
+the pool.
+
+What the coder's argument does **not** reach: the RULE at `:430`, and `:427`'s heterogeneous-
+`GPUsPerReplica` fairness point. Note that in the homogeneous single-role case `floor(remaining/g)` **is**
+the fill loop's closed form, so `:42` and the RULE agree there — the whole disagreement is the
+direction of the **entitlement** term.
+
+**Reduced to one design question, which is why it is mine to raise and Dean's to decide:** may a model
+owed a fraction of a replica take the indivisible unit, or does the remainder go back to the pool? The
+RULE says back to the pool. The shipped comment says take it, "and the caller's water-level check then
+stops it from taking a second." Both costs are real and both are now evidenced:
+
+- **Cost of `ceil` — coder-acknowledged and deferred.** `greedy_score_optimizer_test.go:1428-1430`:
+  "*`replicasToCover` rounds nothing up: without that, **Σ_role spend exceeds target by the round-up**,
+  which is the **deferred `replicasToCover` item** and not this one.*" The C6e fixture is built from
+  whole multiples specifically to avoid triggering it. So `ceil` ships with a known
+  Σ-exceeds-fair-share-target consequence recorded **only in a test comment, deferred, with no plan
+  home and no §4b classification**. That is the part I would not leave implicit.
+- **Cost of `floor` — mechanism, not measured.** Composed with the shipped
+  `firstDraw && capN < 1 → capN = 1` guard (`:702-711`), `floor` grants the fractional unit on the
+  first draw only, so any model whose per-role entitlements are fractional gets a first-role-wins
+  asymmetry. Worth a fixture before anyone commits to `floor`; I am not asserting it as measured.
+
+**My recommendation, as Type-1 owner, for Dean's decision** — and I withdraw the option (c)
+`max(1, floor(...))` I floated in the `.WIP` file; what shipped is cleaner and needs no sentinel:
+
+1. Amend the Type 1 to say explicitly that the **entitlement** and the **pool** round in opposite
+   directions, and that the RULE at `:430` governs the pool term only. Today `:42` and `:426-431`
+   cannot both be followed, and `:446` makes the shipped code "a finding" by construction.
+2. Decide the fractional-entitlement question on the merits above, not by which rounding is already in
+   the tree.
+3. Either way, **the Type-3 verification gate at plan `:2035`** — `grep -rn "ceil(" internal/engines/pipeline/`,
+   "`fairShareCap`'s must be **gone**" — is a gate the tree **fails by design**, and `fairShareCap` no
+   longer exists under that name (it is `replicasToCover`). That gate needs re-expressing against the
+   new name whichever way the decision goes, or C9 will trip on it.
+
+---
+
+## 2. Corrections to the `.WIP` handoff (apply these when you read it)
+
+- **Row IDs: rename `T1-n` → `AM-n`.** `T1` collides with TA's `T1-ols`/`T2-default` model tiers — the
+  PR-1 reviewer just flagged `T1-ols` as a §4a grep false positive — and with the Type-N doc taxonomy.
+- **Row AM-1/T1-1 is superseded by §1 above.** It reads as a pending pre-C6c hazard; it is a landed
+  code-vs-frozen-Type-1 divergence with the Type 1 internally inconsistent.
+- **Its `cc:` line and §6 are stale.** They say the coder is "paused pre-C6c" and that "C6c is where it
+  would land". C6c–C6f **and** C11 have all landed; tip is `b6bb525c` (C11, 2026-08-07 23:35:39),
+  18 commits on base `075a208e`.
+
+## 3. Cross-handoff reconciliation (you are holding four of these at once)
+
+- **Review Finding 33 is CLOSED — do not route it.** It cites two plans-branch paths and a `784c2b5c`
+  SHA in test comments, measured at `537b0153`. `4fb49ac6` — *"drop plans-branch paths from shipped
+  comments; fix the mean claim"*, four commits later — removed all three. My grep for
+  `(plan__|review__|sync__)*.md` across `internal/` at tip returns nothing.
+- **§4a subject count — both circulating numbers are wrong.** Mine ("12 of 18") over-counted; the
+  reviewer's "`34b18bc5` still the only clean one" is stale. Enumerated at tip: **18 commits, 10
+  token-bearing subjects** strictly (11 if you count `1140a4c2`'s "(a)/(b) notation", which is the
+  reviewer's convention and reconciles its 10-of-14 exactly), so **7–8 clean**. The four newest
+  pre-C11 commits are *all* clean and one of them is itself a §4a cleanup — the coder started
+  self-correcting. Reword cost is ~10–11 subjects, not 13, and the in-tree prose burden is
+  **shrinking**, not linear in commits as projected.
+- **Option (d) — we converged independently, but the reviewer's neutrality claim is too strong.** It
+  says `min(gpusPR / PRC)` "degenerates to today's value whenever a role's variants share
+  `GPUsPerReplica`, which is every existing fixture." Sharing `gpusPR` is necessary, not sufficient:
+  option (d) changes the **reference-selection key**, and at equal `gpusPR` it reduces to `max(PRC)`
+  while today's key is `min(Cost / PRC)`. They coincide only when PRC is *also* uniform across the
+  role. Golden-neutrality needs a per-fixture check, not an argument.
+- **Not a disagreement:** the reviewer's `referenceVariantForRole` doc citation `:829-838` and my
+  `:840-849` are the same text — C11 inserted ~11 lines above it.
+- **Finding 32 stands as the reviewer's re-derivation.** Nothing from me; I have not re-run it.
+
+## 4. The C10 import cycle is partly a design question, not only a build one
+
+Finding 48's option space is framed on build mechanics — which path dodges the cycle most cheaply.
+The layering question underneath it is in my domain and is currently unanswered anywhere:
+
+**Options 1 and 2 both leave the throughput analyzer reading *saturation's* config surface** (option 1
+type-erases it behind `interface{ KvCacheThresholdValue() float64 }`, but the dependency survives —
+TA still asks a saturation config object for its threshold). That is a lateral analyzer↔analyzer
+coupling the Type 1's combine model does not sanction: the engine is the only component that
+legitimately knows about every analyzer. **Option 3** — resolve `k_sat` at the engine boundary and
+pass a `float64` into TA — is the only option without that coupling, and it is the only one
+forward-compatible with the **EPP system-wide `k_sat` unification** already on CURRENT's Issues-to-Open
+list, where the resolution point is by definition above any single analyzer. The reviewer calls it
+"a bigger change than needed"; on the layering axis it is the smaller one, and TA already *receives*
+`input.Config` and simply never reads it.
+
+I am not deciding this — the Type 1 is frozen and says nothing about it, which by Dean's own principle
+(*a design choice the Type 1 declines to make is a defect in the Type 1, not coder latitude*) makes it
+a Type-1 gap. Amendment is Dean's call. I do endorse the reviewer's request that the plan **rule out
+option 4 explicitly**: deleting the drift guard is a §4b-classifiable deletion that presents as a
+build fix, which is exactly the class that gets removed without classification.
+
+## 5. Type-1 amendment queue (for Dean)
+
+Carried unchanged from the `.WIP` handoff — `(D-a)` mechanism fork, `(D-a)` population scope,
+`N8`/`VG-up` scope revisit, claim-pricing disposition (decide with review Finding 27's `:1530-1533`).
+Determined-content corrections also unchanged: `(D-b)` ranking premise, `(D-b)` per-site cap table,
+`referenceVariantForRole` rationale, row-7's narrower strike.
+
+**Two new entries from this handoff:**
+
+- **`units-integral` self-contradiction + the entitlement/pool rounding asymmetry** (§1) — highest
+  priority in the queue now, because the Type 1 governs the Type 3 on disagreement and currently
+  mandates, in one line, something its own reasoned rule calls a finding.
+- **Analyzer config layering — may an analyzer read another analyzer's config section?** (§4) — the
+  C10 decision needs it, and no doc states it.
+
+## Evidence
+
+Read-only. Worktree `ta-anchor-dynamic-refresh` @ `b6bb525c`:
+`internal/engines/pipeline/greedy_score_optimizer.go:697-713,:810-849`;
+`greedy_score_optimizer_test.go:1424-1434,:1556-1564`; `git log 075a208e..HEAD` (18 subjects);
+`git show 4fb49ac6`; token grep across `internal/`. Plans branch:
+`planning/combined-analyzer-optimizer-design.md:42,:277,:334,:418-449,:609-620,:982-995,:1135-1147`;
+`planning/ta-anchor-dynamic-refresh-plan.md:282,:317-327,:433-443,:951,:1741,:2035`.
+Handoffs read: `plan__ta-anchor-claim-pricing-verdict-and-c6e-gap.md.WIP`,
+`plan__ta-anchor-c10-import-cycle-blocker.md`, `plan__ta-anchor-c11-fillrole-clamp-untested.md.WIP`,
+`plan__ta-anchor-pr1-merged-verified-pr2-rebase-surface.md.WIP`.
+
+No file outside this handoff was written. No Type-1, Type-3, CURRENT.md, or code edit; nothing
+committed; nothing pushed.

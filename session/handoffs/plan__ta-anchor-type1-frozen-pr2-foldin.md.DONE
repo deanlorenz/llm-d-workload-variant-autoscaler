@@ -1,0 +1,88 @@
+from: plan-review session (anchor-refactor Type-1 owner)
+to: planner
+session: type-1 frozen — ownership released, PR-2 fold-in list
+
+## The Type 1 is FINAL and ownership is released back to you
+
+`planning/combined-analyzer-optimizer-design.md` is **Status: FINAL (frozen 2026-08-07)** at
+commit **`8c2a9b04`** on the `plans` branch (content commit `52bfb59f`, status marking
+`8c2a9b04`). Pin that SHA — the doc was uncommitted while the queue was being drained, so
+anything read before it is partial state.
+
+The `§ open` decision queue is **EMPTY**: all five `W` questions answered, the `N8` rationale
+closed, and the last item to open (`FZ-admission`, from Dean's own follow-up) both answered and
+**decided** — mechanism *and* cap, per Dean's *"don't leave design decsions to coder."* Per the
+doc's own intro, a design choice the Type 1 declines to make is now treated as a defect in the
+Type 1, not latitude for the task plan.
+
+The Type-3 refresh is unblocked. Where the two disagree, the Type 1 governs and the Type 3 is
+refreshed from it, not the reverse. Post-freeze changes to the Type 1 go through Dean.
+
+## Refresh pick-up list — the delta the Type 3 does not yet reflect
+
+The authoritative list is in the doc's ownership/freeze paragraph (line ~21, items 1–8) — read it
+there rather than from this handoff. In brief: bug #5's currency pivot targets **GPU space, not
+replica space**; emitted series **rename nothing, add nothing now**; `W1` = one fair-share
+entitlement per **model** spent jointly across roles (both current spend sites are defects, not
+just mis-united); `W2` = priority orders but never scales an entitlement (**deferred**, see below);
+`W3` needs **documentation only**, no API change; `W4` = no conversion factor ⇒ no spend (a voter
+that cannot price a variant abstains, it is not budget-exempt); `W5` = the per-site unit table,
+with `fairShareCap` becoming a whole-replica **`floor` fill**; `FZ-admission` folds into PR-2 with
+the mechanism and cap decided in the doc.
+
+**Items 3 and 4 are behavior changes** and must not ride inside the status-quo-preserving currency
+conversion commit.
+
+## Everything-folds-into-PR-2 — and what does not
+
+Dean's *"everything folds into PR-2"* (2026-08-07) is rolled up in a table at
+`combined-analyzer-optimizer-design.md:2064`. It sweeps in: the currency pivot / `W5`, `W1`, `W4`,
+`FZ-admission`, `VG-up`, and the four arithmetic bugs plus per-iteration re-binding.
+
+**Explicitly not in PR-2** (same table): `W2` with `U4`, `U5`'s new metric series, `N9` (the
+reactive `scalefromzero` residual), `AnalyzerName` validation, and the saturation `Cost = 0`
+zero-replica bug (`N5`).
+
+⚠ **One scope reading worth Dean's confirmation, not yours to resolve:** I read *"everything folds
+into PR-2"* as **not** sweeping in `W2`/`U4`, on the strength of his own criticality test — *"U4 --
+is this critical for TA integration. If not then it becomes a future TODO."* `W2`/`U4` are
+TA-neutral, so they failed that test and are deferred. If he meant the sweep literally, `W2`/`U4`
+come back into PR-2 and the doc needs a post-freeze correction through him. Flagging so the
+question reaches him rather than getting settled silently inside a plan refresh.
+
+## `FZ-admission` — the two decisions are already made
+
+Both live in the decision block under the `§ findings` `FZ-admission` row. Do not re-open them in
+the Type 3; transcribe them.
+
+- **(D-a) Mechanism** — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`
+  constant (a pipeline-side sibling of the `satReason*` family; the exact spelling is the coder's,
+  the *existence of the tag* is not). A separate eligibility predicate was **rejected**: it would
+  need threading through six independent gate sites and would split eligibility from ranking across
+  two fields that must then agree. No new metric series. Safe to key the cap on `Reason` because
+  `Reason` and `PerReplicaCapacity` are copied as a **set** at both write sites, so the tag cannot
+  outlive the sentinel.
+- **(D-b) Cap** — a **one-replica ceiling on the variant's target** (not per-iteration), bound at
+  the three sites that can actually grant replicas: `costGreedyRolePick`, `fairShareRolePick`,
+  `fillRole`. All three already carry the `MaxReplicas`-headroom mechanism, so the ceiling folds
+  into it. The doc names the per-site line numbers and, critically, the **skip-not-zero-cap**
+  requirement: a picker returning `cap = 0` sets `n = 0` → `utilByRole = 0` → `deltaUtil = 0` →
+  `break`, killing the whole model's allocation loop instead of moving to the next variant.
+  Five other consumers are shown harmless with a reason each.
+
+Line numbers in that block are as of `ta-anchor-dynamic-refresh@d9f3b97e`; re-verify against your
+own tip.
+
+## Two things not to carry forward
+
+- Review finding **V6**'s claim about the (b)-fallback's domain is **inverted** — superseded by the
+  doc's `N1`. Do not transcribe V6.
+- An earlier pass of mine listed `applyAllocation` as a sentinel sizing hazard. That was **wrong**
+  and is corrected in the doc: `applyAllocation` reads the **ballot**, never the anchor, so the
+  sentinel cannot reach it. The real unbounded grant is `fillRole`.
+
+## Not a CURRENT.md request
+
+This is a planner task, not shared-state sync. The Type 1 itself is the durable record; this
+handoff is the notification that it froze and ownership moved. If CURRENT.md should reflect the
+freeze, that is a separate `sync__` from whoever owns the mission row — I am not writing one.

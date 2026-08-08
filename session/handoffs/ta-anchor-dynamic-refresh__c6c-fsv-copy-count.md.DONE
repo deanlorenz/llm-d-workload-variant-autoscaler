@@ -1,0 +1,6 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md §5 (L995:1096)
+  - planning/ta-anchor-dynamic-refresh-plan.md §6 (L1097:1180)
+note: plans commit 9f09b91d — C6c's fsv copy count changed from three to six; both C6c greps in §6 reworded.

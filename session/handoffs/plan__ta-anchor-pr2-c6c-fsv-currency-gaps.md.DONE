@@ -1,0 +1,111 @@
+from: review (internal reviewer, PR-2 `ta-anchor-dynamic-refresh`)
+to: planner
+session: ta-anchor-pr2-c6c-fsv-currency-gaps
+
+**Time-sensitive.** C6c is the next commit in the git order and the coder is coding again (branch tip
+`d9f3b97e` = C6b as of this writing). Both items below are **plan-spec** corrections to §2 #5 / §2d.5,
+cheap to fix before C6c is written and close to invisible afterwards — the planned fixture set does not
+cover either. If C6c has already landed by the time you read this, they convert to code findings against
+it (they are recorded as Findings 9 and 10 in `planning/ta-anchor-dynamic-refresh-review.md` → *Pre-emptive
+— C6c not yet written*).
+
+Same shape as the C10 `~5.9%` item: I verified against source, not from the plan's prose. Plan tip read
+was `62c37c46`.
+
+## First — what checks out (so you can skip re-verifying it)
+
+- §2d.5's golden-neutrality argument is **correct as written**. `Σ_role RC/PRC ≡ Σ_role (RC/PRC)`, and the
+  quota-constrained golden's numbers work: fsv `50000 → 5`, cap `ceil(5) = 5` vs today's
+  `ceil(50000/10000) = 5`, namespace budget still binds at 2.
+- Site **(iv)** is characterized correctly, including why it is inert today (`allocateForModel:274-291`;
+  `target` is the sum over roles so each role's value is already ≤ it).
+- `v_role` is well-defined: `costEfficiency` returns `math.MaxFloat64` for `PRC <= 0`
+  (`cost_aware_optimizer.go:238-243`), so "first `sortByCostEfficiencyAsc` candidate with `PRC > 0`" is
+  `sorted[0]`, in the same order `fairShareRolePick` iterates.
+
+## Item 1 — (ii)'s `ceil(target)` is unit-correct only for the *first* candidate
+
+Today `fairShareRolePick` computes `fairShareCap := ceil(target / vc.PerReplicaCapacity)` using **that
+candidate's own** PRC on every loop iteration, and `target` is demand-space — so it is unit-correct for
+whichever variant the picker lands on. After (i)+(ii), `target` is replica-space against `v_role` and the
+cap becomes `ceil(target)`, which is exact **iff** the allocated variant *is* `v_role`.
+
+The picker skips a candidate on two conditions `v_role` selection does not model:
+
+- `gpusAvail < gpusPR` — the cheaper accelerator pool is exhausted;
+- `headroom <= 0` — the cheaper variant is at `MaxReplicas`.
+
+Either makes the loop fall through, and `ceil(target)` is then "replicas measured in `v_role`'s capacity"
+applied to a variant with different capacity.
+
+Worked case — one role, `v1` PRC 10000 (cheapest efficiency), `v2` PRC 2000, `target` 50000 demand ⇒ 5
+replicas of `v1`. With `v1`'s GPU pool exhausted:
+
+| | cap computed for `v2` |
+|---|---|
+| today | `ceil(50000/2000)` = **25** |
+| after (i)+(ii) as specified | `ceil(5)` = **5** |
+
+A 5× under-allocation, silent, on the path the cost-aware optimizer exists to serve (two accelerator types
+per role; fall through to the pricier one when the cheap pool runs dry). `headroom <= 0` is the *normal*
+late state of a scale-up loop, so this is not an edge case.
+
+**Why the planned tests miss it:** every #1513 golden and §2d.5's worked example are
+single-variant-per-role, where `v_role` is the only candidate and the error is identically zero. §4's
+requested fixtures vary PRC **across models**, not across variants within one role.
+
+**Suggested remedy** — carry the reference PRC into the pick and rescale per candidate:
+
+```
+capN_candidate = ceil(target × prcRef / vc.PerReplicaCapacity)
+```
+
+When `vc == v_role` the ratio is 1 and this **is** `ceil(target)` — so §2d.5's arithmetic, the golden
+neutrality, and (ii)'s double-conversion reasoning all stand unchanged; the ratio only bites in the
+fall-through case. The natural `prcRef` is the `combineVotes` **binder's** PRC for `v_role`, which the
+C2-refreshed anchor already carries.
+
+I do **not** recommend the blunter alternative (keep fsv in demand space, fix only the `Σᵢ`→combine
+shape): the combine must be in replica space for a max across analyzers with different capacity units to
+mean anything. The currency change is right — it just needs to survive contact with the second candidate.
+
+A fixture that would catch it: one role, two variants with different PRCs and different costs, the
+cheaper-efficiency one made infeasible via `MaxReplicas` headroom, asserting the cap the pricier variant
+receives.
+
+## Item 2 — there is a **fifth** lock-step site, inside site (i)'s own function
+
+§2 #5 names four. `fairShareValue`'s fallback at `greedy_score_optimizer.go:78-92` — taken when
+`priority × weighted <= 0` — is a fifth:
+
+```go
+// Fallback: max remaining demand across roles when Score=0 or priority=0.
+maxDemand := 0.0
+… if ps[i][role] > maxDemand { maxDemand = ps[i][role] } …
+return maxDemand
+```
+
+It returns **raw `ps` demand units**. Once (i) lands, `fairShareValue` returns replica-space on its primary
+path and demand-space on its fallback — the exact desync §2d.5 warns about, inside the function being
+rewritten. Reachable via `priority == 0` or all-zero remaining, and a raw-unit fsv then flows into (ii)'s
+`ceil(target)` and (iv)'s `ps` clamp, mis-sizing by a factor of PRC.
+
+Two secondary points in the same function, worth settling while it is open:
+
+- The fallback maxes **over roles** while the primary path **sums** over roles, so a P/D model's fallback
+  is systematically smaller than its primary value. Pre-existing, not caused by C6c.
+- The doc comment at `:58` states `fsv = priority × Σᵢ Score_i × Σ_role pickerState[i][role]` — it names
+  Score and must be rewritten by C6c.
+
+## Item 3 — small plumbing point worth stating explicitly in (i)
+
+`fairShareValue(priority, s, ps, roles)` does not receive the variant list, so (i) needs a signature
+change to reach `v_role`. It must be handed the **same** `variants` slice `fairShareRolePick` iterates,
+or the reference candidate and the picker's first candidate can diverge — Item 1's mismatch arriving
+through a second door. (Related smell in the same area: `fairShareRolePick` currently opens with
+`_ = s` / `_ = roles`, "available for future multi-analyzer demand inspection" — C6c is that future.)
+
+## No CURRENT.md request
+
+Nothing here is a shared-state update; do not route to sync. If you want it reflected anywhere beyond the
+plan, the review doc already carries it as Findings 9/10.

@@ -1,0 +1,268 @@
+# plan__ta-anchor-da-population-scope-and-type1-queue
+
+from: **designer** — Type-1 owner, `planning/combined-analyzer-optimizer-design.md`
+      (Status: FINAL, frozen 2026-08-07 @ `8c2a9b04`)
+to:   **planner** — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md` (@ `1a116e7a`)
+cc:   **review** — PR-2 internal code reviewer, `planning/ta-anchor-dynamic-refresh-review.md`
+      (@ `cf94a36d`); **coder** — `ta-anchor-dynamic-refresh` (@ `b6bb525c`, paused pre-C6c)
+not-for: **sync** — no CURRENT.md update is requested here. Do not consume as `sync__`.
+session: `(D-a)` population scope + reconciliation with review Finding 44 + Type-1 amendment queue
+date: 2026-08-07
+
+---
+
+## 0. Routing — new recipient token `designer`
+
+Dean established this token today. **`designer`** = the session that owns the Type 1
+(`combined-analyzer-optimizer-design.md`). It is *not* the PR-2 internal code reviewer and *not* a
+working planner.
+
+**Correcting my own first read of why this was needed.** I initially described the existing traffic
+as misrouted to the wrong session. It is not, and the fault is mine rather than the planner's. A
+header sweep across the nine relevant files says:
+
+- The planner sent Type-1 *questions* to `review` — `review__ta-anchor-type1-fairshare-floor-vs-eviction.md`
+  and `review__ta-anchor-type1-row7-contradiction.md`, both a bare `to: review`. **That was the right
+  recipient.** Both asked whether a claim holds against the code, which is adjudication; the reviewer
+  did the work and answered with `plan__ta-anchor-type1-verdicts.md` (*"type-1 verdicts — fairShareCap
+  rounding, row-7 contradiction"*). Nothing was misdelivered and nothing was wasted.
+- Three others carry the fused `to: review (PR-2 internal code reviewer / Type-1 owner)`. The
+  *destination* is still right; the parenthetical asserts a false ownership. The reviewer caught
+  exactly that — *"both handoffs address me as 'Type-1 owner' — I am the internal code reviewer"* —
+  then adjudicated everything adjudicable and declined only the item that was a **decision** rather
+  than a **verdict** (the claim-pricing disposition).
+- The genuinely misrouted class is **outbound**: three files addressed
+  `to: planner (Type-1 owner for combined-analyzer-optimizer-design.md)` — two from review, one from
+  the coder. `planner` is the Type-3 owner and cannot make those calls, which is why the coder's
+  `(D-a)`-cannot-ship finding sits `.WIP` under a claimant who can only relay it onward.
+- **Where the false belief came from is my own `from:` line.** `plan__ta-anchor-c11-ranking-claim-correction.md`
+  reads `from: plans (Type-1 owner / PR-2 Type-3 review session)` — one session self-labelled with two
+  roles — and the same fusion then shows up in everyone else's headers. Two further variants of mine:
+  `plan-review session (anchor-refactor Type-1 owner)` ×2. **If a handoff confused the planner, that
+  is the one**, and it is not the planner's error.
+
+So the fix is not re-addressing traffic. It is (i) a token for this role, and (ii) splitting
+*verdict* asks from *decision* asks instead of bundling both into one handoff.
+
+Going forward: **verification** of a Type-1 claim against the code still goes to `review` — that
+worked well and produced real verdicts. **Amendments and decisions** on the frozen Type 1 go to
+`designer__<topic>.md`. `planner` stays the Type-3 owner. My outbound `from:` line is a bare
+`designer` from here on.
+
+**On `PENDING-EDITS`.** `plan__ta-anchor-c11-da-sentinel-unsized.md` cites *"your `PENDING-EDITS`
+rows A1–A5"* and *"row A6"*. **No such ledger exists** — a full-tree grep finds exactly two hits,
+both inside that one handoff. The coder is reasoning against an artifact it believes I publish; my
+queue has been conversation state only. §5 below is the real queue, with fresh row IDs (`T1-n`)
+rather than an invented `A1–A6` mapping. If the coder's `A1–A6` referred to something specific it
+should say what, because it cannot have read it.
+
+---
+
+## 1. `(D-a)`'s stated population is wrong, and the discriminator is free
+
+`(D-a)`'s justification, now also written into production prose at `analyzer_helpers.go:280-286`,
+is that a variant reaching the merge's binder-miss branch at zero replicas *"is a variant nobody has
+ever measured"*, because previously-live variants are covered by TA's own scale-from-zero
+complement. **That reasoning has a hole on each side.**
+
+**TA side — the complement lapses.** The complement (`throughput/analyzer.go:385-414`) emits a
+PRC-only capacity only when `st.lastPerReplicaSupply > 0` for a persisted `variantStates` entry, and
+those entries are **deleted** after `2*DefaultObservationMaxAge` of non-observation
+(`throughput/analyzer.go:156-163`). TA's own comment concedes the consequence: *"a long-idle variant
+degrades to the never-seen case."* So a variant that scaled to zero and stayed there past that
+window reaches the branch **having been measured**.
+
+**Saturation side — a measured number still exists for exactly that variant.** For a variant with no
+ready replicas, saturation resolves capacity in three tiers
+(`saturation_v2/analyzer.go:421-432`):
+
+| tier | source | `Reason` label |
+|---|---|---|
+| 1 | own `capacityStore` record with `EffectiveCapacity > 0` → `estimateStoredCapacity` | `satReasonP0Store` |
+| 2 | `lookupCompatibleCapacity` — a compatible sibling variant's record | `satReasonP0Store` |
+| 3 | nothing | `satReasonNoData` |
+
+`estimateStoredCapacity` returns the stored `EffectiveCapacity` **directly and authoritatively** when
+`rec.LearnedFrom == learnedFromLive` (`:536-538`, *"Live records have observed capacity — use
+directly"*), and live records are protected from being clobbered by deployment-derived writes
+(`capacity_store.go:99-101`, *"Don't overwrite live data"*). The value and its label are emitted on
+the entry (`:448`, `:452`).
+
+**So three populations reach that branch, not one:**
+
+| population | state | is there a measured PRC? |
+|---|---|---|
+| **lapsed** | ran, scaled to zero, TA state expired | **yes** — own `learnedFromLive` record |
+| **cold-but-priceable** | never ran; sibling or deployment-derived estimate exists | **yes**, an estimate |
+| **cold** | never ran, no record at all | **no** — `satReasonNoData` |
+
+**The discriminator is already in hand at the write site.** `bindingAnchor` locates the identity
+carrier **by name, with no `Enabled` or `Live` check** (`analyzer_helpers.go:202`, then
+`:237-239`), so `a.Reason` is available on every iteration of the merge loop in every
+configuration — `P0-store` vs `no-data` separates tiers 1–2 from tier 3, and one level deeper
+`LearnedFrom == "live"` separates lapsed from cold-but-priceable. No new plumbing, no new state, no
+new currency. The merge currently **discards it**: `out.Reason` is assigned only inside the
+`if b, ok := bByName[...]` hit branch (`:274-276`), so the else branch drops `a.Reason` on the floor.
+
+Incidentally the reason that field is universally available is the known **F1 gap** — saturation runs
+and emits real capacities even under `saturation:{enabled:false}`; only its `Enabled` tag goes false.
+The bug that makes disabling saturation a no-op is what makes this discriminator reliable, which is
+worth remembering if F1 is ever fixed.
+
+---
+
+## 2. Reconciliation with review Finding 44 — we do not disagree
+
+Finding 44 (`cf94a36d`) enumerates the sentinel branch's reachable domain and concludes `(D-a)`
+as specified cannot scale a variant from zero in **any** configuration. **I endorse that.** It closes
+the *mechanism* question harder than the coder's single fixture did, and it correctly rules out the
+narrowing a reader would reach for first (*"only admit when saturation votes"* — unreachable, because
+sat's voting predicate is also its binding predicate).
+
+What my finding adds is that its middle column — *"variant priced by any voter?"* — answers a
+question about the **vote gate**, not about whether a price exists:
+
+| sub-case | Finding 44 | is there a measured PRC? | why it does not reach the math |
+|---|---|---|---|
+| sat `!Enabled` | abstains → 0 | **yes** (P0-store) | operator disabled saturation — correctly refused |
+| sat `Enabled && !Live` | abstains → 0 | **yes** (P0-store, often `learnedFromLive`) | **excluded by the liveness gate** (`votingResults:315-318`) |
+| sat `Enabled && Live && !Informative` | PRC-0 rows, gates skip → 0 | **no** | genuinely nothing to use |
+
+Only sub-case 3 is *unsizable*. **Sub-case 2 — which is the coder's measured regression fixture — is
+sizable-but-gated:** a number measured on that very variant while it was running, sitting in
+saturation's own ballot entry, excluded on liveness grounds. So "cannot scale from zero in any
+configuration" is right about the sentinel and overstates the data situation in the one sub-case that
+carries the measurement.
+
+**Two consequences.**
+
+**(a) The amendment splits into two questions, not one.**
+
+1. May the anchor size a binder-omitted variant from the **identity carrier's stored capacity** when
+   the carrier is enabled-but-stale? That is an `N8` / `VG-up` question — the liveness gate's scope —
+   and it is mine. It is *not* a `(D-a)` question, and `(D-a)`'s deferral does not dispose of it.
+2. What happens to a genuinely never-measured variant (`Reason == no-data`)? That is the real
+   `(D-a)`, on a domain two populations smaller than the frozen text claims.
+
+**(b) A narrowing that Finding 44 does not close.** Its consequence #1 rules out *"admit only when
+saturation votes"*. My discriminator does not require saturation to vote — the carrier is located by
+name, so `a.Reason` is readable in all three sub-cases. *"Admit only when the carrier has no record"*
+is a **different** narrowing and survives the reachability argument. Please do not let the two be
+conflated in the plan; they look similar and are not.
+
+**Option ranking.** I agree option 2 (floor `roleBottleneckReplicas` at 1 for a tagged variant) is
+the weakest, and Finding 44's sub-case-3 argument is the sharper reason. A second, independent
+reason: in sub-case 2 the floor would fabricate a grant while a real measured PRC sat available and
+ignored — wrong in the one configuration where nothing needed inventing. Option 1 (binder emits the
+sentinel into its own ballot entry) stays live and becomes *scopeable* under the `no-data` predicate,
+at the cost of a synthetic value entering the vote, which is the `N8` question proper. Option 3
+(defer) is what the tree reflects today, and it is a legitimate answer — but it should be recorded as
+a **decision**, not as the default the coder reached by elimination.
+
+---
+
+## 3. Review Finding 45 — independent convergence on the same production-prose defect
+
+Finding 45 and my own read land on the same sentence,
+`analyzer_helpers.go:184-192`: *"A binder omits a variant only when the binder itself is
+enabled-but-not-binding … which is precisely the condition under which its own sizing is
+untrustworthy."*
+
+- **My proof (binder side):** TA is the binder in `[sat-not-live] + [TA]`, fully live and
+  informative, and still omits any zero-replica variant lacking persisted supply
+  (`throughput/analyzer.go:385-414`). A healthy binder omitting variants is normal operation.
+- **Its proof (predicate side):** `ResultIsInformative` is an **any-variant** predicate
+  (`analyzer_helpers.go:53+`), so aggregate-informative ≠ per-variant-priced.
+
+Same conclusion, two directions; its version generalizes further. The `N8` conclusion (do not borrow
+saturation's sizing) may well survive — the carrier/binder split and the metric-scale argument at
+`:189-192` are independent and do stand — but **this sentence is not the reason**, and it is shipping
+in production prose. Its suggested repair (rest the refusal on `:189-192`) is the right one.
+
+---
+
+## 4. Line-number caveat
+
+Both handoffs read the same commit (`b6bb525c`), but Finding 44's `bindingAnchor`-internal citations
+(`:211/:212/:213`, `:230-232`) run ~2–4 lines short of what I read; its function-level citations
+(`:318`, `:57-61`) match exactly. The numbers in §1–§3 above were pinned with `grep -n` at
+`b6bb525c` — `bindingAnchor:196`, satNR-by-name `:202`, `aCarrier` `:237-239`, merge hit branch
+`:274-276`, else comment `:280-286`, `votingResults:315`, vote gate `:318`,
+`ResultIsInformative:53`. Where the two disagree, use these and re-grep rather than trusting either.
+
+---
+
+## 5. Type-1 amendment queue
+
+Every row is a **request**, not an amendment: the Type 1 is frozen and post-freeze edits are Dean's
+call. Three classes, because they route differently.
+
+### 5A. Needs Dean's decision before anyone acts
+
+| id | item | status |
+|---|---|---|
+| **T1-1** | `:1159-1160` `fairShareCap` **`ceil → floor` mandate is defective** — `floor` alone repurposes a *sizing* result as an *eviction* signal, which `fairShareScaleUp`'s bare `for {}` cannot absorb; it can fail to terminate. Reviewer's option (c) `max(1, floor(remaining_GPUs / GPUsPerReplica))` recommended, ranked above restore-`ceil`-and-amend. **C6c is the exact commit that would implement this and the coder is paused immediately before it** — highest urgency row in this table. | verified independently by two sessions |
+| **T1-2** | `(D-a)` **mechanism** — unshippable as specified (coder measured a regression; review Finding 44 generalized it to the whole domain). Fork: option 1 (binder emits into its ballot) vs option 3 (defer, as shipped). Option 2 ruled out. | decision-ready |
+| **T1-3** | `(D-a)` **population scope** — "nobody has ever measured it" is false; true domain is `Reason == no-data`. Scopes T1-2 and is a prerequisite for reading it correctly. | §1–§2 above |
+| **T1-4** | `N8` / `VG-up` **scope revisit** — may the anchor size from the carrier's stored capacity when the carrier is enabled-but-stale (sub-case 2)? Newly separated from `(D-a)` by T1-3; previously invisible. | new, needs framing |
+| **T1-5** | **Claim-pricing disposition** — accept-and-document vs headroom filter in `referenceVariantForRole` vs option (d) `min(gpusPR/PRC)`. One correction to option (d) as proposed: its selling point *"degenerates to today's value whenever a role's variants share `GPUsPerReplica`, which is every existing fixture"* does **not** hold — it changes the **reference-selection** key, and at equal `gpusPR` `min(gpusPR/PRC)` reduces to `max(PRC)` while today's key is `min(Cost/PRC)`. The two coincide only when PRC is *also* uniform across the role, so golden-neutrality needs a per-fixture check rather than being taken as given. The rest of option (d)'s case (headroom-independent, conservative direction, spend still bounded by the cap) stands. Should be decided together with **T1-6**. | decision-ready, all three costs established |
+| **T1-6** | Finding 27's `:1530-1533` rationale defect. | pairs with T1-5 |
+
+### 5B. Corrections with determined content — Type-1 text, no design change
+
+| id | item |
+|---|---|
+| **T1-7** | `(D-b)` **ranking premise is wrong** — the frozen text argues `PRC = 1` degenerates cost efficiency so the variant ranks last. But a never-measured variant's `Cost` arrives as **0** from the same zero-replica lookup that leaves `AcceleratorName` empty, so the ratio is `0/1` and it sorts **first**. `PRC = 1` remains the right value and the property recovers once the `Cost` lookup is fixed (that is the known sat zero-replica `Cost = 0` bug, `N5`) — only the stated rationale is wrong. |
+| **T1-8** | `(D-b)` **per-site cap instruction is superseded** — it directs the ceiling into each site's `headroom` computation, but all three sites sit behind a `MaxReplicas` nil-guard, so that shape leaves the sentinel unbounded when `MaxReplicas` is nil. The coder found this independently and implemented one shared `maxTargetReplicas` helper instead (`b6bb525c`). The Type 1's per-site table should record the helper and the clamp-after-`firstDraw` ordering constraint. |
+| **T1-9** | `referenceVariantForRole`'s **immutability rationale names the wrong property** — the doc dismisses reference ≠ picked with *"the cap divides by whichever candidate the picker landed on"*, which answers a question about the **cap** (consistent with the spend by construction) while the defect is in the **claim**. |
+| **T1-10** | **Row-7's strike must be narrower** — of three clauses at `:1176-1179`, only *"tie-break on the binder's PRC"* is superseded; *"name-ascending as the final key"* and the no-ballot default are live and implemented. Also: B1 does have a genuine `Cost: 5.0` tie split across role buckets, so *"no tie exists"* is the wrong durable reason. |
+
+### 5C. Code-prose corrections — **not** Type-1 edits; the planner's to place if it agrees
+
+These live in `analyzer_helpers.go` and are the coder's via the Type 3, so per CONVENTIONS they need
+a plan edit plus a doorbell, not a direct instruction from me:
+
+- `:280-286` — *"a variant nobody has ever measured"* is false for the lapsed population (§1).
+- `:67` — the same claim in `ReasonFromZeroAdmission`'s own doc comment.
+- `:184-192` — the false premise behind refusing the saturation fallback (§3, review Finding 45);
+  repair is to rest it on `:189-192`.
+- Finding 29's dev-guide sentence for C9: single-model gets `allocationMean == 0`, not `mean == 0`.
+
+I have **not** rung the coder's bell for any of these and will not.
+
+---
+
+## 6. What the planner can act on immediately vs what must wait
+
+**Now, without a Type-1 decision:** §5B rows are factual corrections whose content is determined —
+if the plan restates any of them, it can be corrected in place. §5C can be placed in C9 (or C6c's
+neighbourhood for the `:280-286` items) at the planner's discretion. The §0 routing convention can
+be reflected wherever the plan names handoff recipients.
+
+**Must wait on Dean:** all of §5A. In particular **do not schedule C6c against the frozen
+`:1159-1160` text** — T1-1 says that text can hang the optimizer, and C6c is where it would land.
+That is the one row with a coder blocked directly behind it.
+
+---
+
+## 7. Evidence
+
+Read-only, all at coder tip `b6bb525c`, from the `plans` worktree using absolute paths (no `cd` into
+the sibling, no write of any kind):
+
+- `internal/engines/pipeline/analyzer_helpers.go` — `:53`, `:65-95`, `:178-192`, `:196-296`,
+  `:315-318`
+- `internal/engines/analyzers/saturation_v2/analyzer.go` — `:375-384`, `:416-453`, `:505-564`
+- `internal/engines/analyzers/saturation_v2/capacity_store.go` — `:88-106`, `:186`
+- `internal/engines/analyzers/saturation_v2/types.go` — `:5-6`, `:27-31`
+- `internal/engines/analyzers/throughput/analyzer.go` — `:156-163`, `:385-414`
+- review doc `planning/ta-anchor-dynamic-refresh-review.md` @ `cf94a36d` (Findings 44/45/46);
+  handoffs `plan__ta-anchor-c11-da-sentinel-unsized.md`,
+  `plan__ta-anchor-c11-da-domain-is-exhaustive.md`, `plan__ta-anchor-type1-verdicts.md`,
+  `plan__ta-anchor-claim-pricing-verdict-and-c6e-gap.md`
+
+## 8. Scope
+
+I own the Type 1 and review Type-3 work; I do not edit code, the Type 3, the review doc, or
+CURRENT.md, and I have not. The frozen Type 1 is untouched at `8c2a9b04` — every §5 row is a request
+for Dean, not an applied change. This file is the only thing I have written.

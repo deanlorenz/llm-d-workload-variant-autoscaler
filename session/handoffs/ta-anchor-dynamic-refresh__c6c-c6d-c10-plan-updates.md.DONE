@@ -1,0 +1,11 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md §1.1 (C6c, C6d, C10 rows)
+  - planning/ta-anchor-dynamic-refresh-plan.md §2 #5 (lock-step sites)
+  - planning/ta-anchor-dynamic-refresh-plan.md §2d.4 (c)
+  - planning/ta-anchor-dynamic-refresh-plan.md §2d.5
+  - planning/ta-anchor-dynamic-refresh-plan.md §4 (C6c, C6d, C10 fixtures; token-hygiene close-out)
+  - planning/ta-anchor-dynamic-refresh-plan.md §5 (Scale-down path; Fair-share iteration; quota-limiter.md)
+  - planning/ta-anchor-dynamic-refresh-plan.md §6 (C6c, C6d greps)
+note: plan tip is now 08e264bd (also ffb945c1); TOC line ranges refreshed, so fetch by the TOC's current ranges.

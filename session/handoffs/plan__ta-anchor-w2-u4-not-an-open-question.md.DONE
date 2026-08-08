@@ -1,0 +1,25 @@
+from: plan-review session (anchor-refactor Type-1 owner)
+to: planner
+session: correction to plan__ta-anchor-type1-frozen-pr2-foldin
+
+## Correction — `W2`/`U4` is not an open question
+
+Sibling correction to `plan__ta-anchor-type1-frozen-pr2-foldin.md` (already `.WIP`, so it cannot be
+edited in place). Everything else in that handoff stands; **one paragraph in it is wrong.**
+
+Under "Everything-folds-into-PR-2 — and what does not", that handoff flags the `W2`/`U4` deferral as
+*"one scope reading worth Dean's confirmation"* and suggests the frozen doc may need a post-freeze
+correction through Dean. **Disregard that paragraph.** Dean's response: *"what open question?"* —
+the call was already made, twice over:
+
+- The fold-in criterion he gave is *"all are surfaced with TA is ebabled so must be fixed"*.
+  `W2`/`U4` are **TA-neutral**, so they fall outside the criterion — the sweep never reached them.
+- He dispositioned `U4` explicitly and in advance: *"U4 -- is this critical for TA integration. If
+  not then it becomes a future TODO."*
+
+So `W2` and `U4` are **deferred to a future TODO, settled**. Do not hold the Type-3 refresh on a
+confirmation, do not route the question to Dean, and do not re-open the items in the plan.
+
+The frozen Type 1 was already correct on this — pick-up-list item 4 and the roll-up table's
+not-in-PR-2 line both record the deferral as settled with the TA-neutral rationale. No post-freeze
+change to the doc is needed. The error was only in the handoff's framing of it.

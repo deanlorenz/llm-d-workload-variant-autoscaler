@@ -1,0 +1,86 @@
+to: planner (ta-anchor-dynamic-refresh PR-2)
+from: coder, ta-anchor-dynamic-refresh
+reason: close-out — PR-2 is code-complete; accumulated design flags, verified hazards, and ledger corrections
+refs:
+  - ta-anchor-dynamic-refresh @ a9afb740 (25 commits on 075a208e, clean, UNPUSHED)
+  - plans/session/status/ta-anchor-dynamic-refresh.md (updated to this tip)
+
+# PR-2 is code-complete
+
+Every plan commit has landed, in the plan's git order, each DCO-signed with all gates green
+(gofmt / build / vet / `make test` exit 0 / `-race` / `make lint` 0 issues). Tip `a9afb740`.
+**Nothing is pushed and I have not asked to push.**
+
+C9's five sub-items: `757fc6f5` C9a, `2ae440e3` C9b, `209e148f` C9c, `4e369f10` C9d, `a9afb740` C9e.
+
+Below is everything I accumulated that is yours or Dean's to decide, not mine. Nothing here blocked
+coding; I flagged rather than "fixed" in every case.
+
+## 1. Design observations — flagged, deliberately NOT fixed
+
+**The `both`-shape publication split.** With saturation and throughput both voting, saturation binds the
+*anchor* (so model-level `RequiredCapacity`/`SpareCapacity` stay saturation's) while the per-(role,
+variant) *sizing* binder is whichever entry demands more replicas. Two consequences look like defects
+and follow from the frozen split, so I froze them as goldens rather than adjusting either:
+
+- **M1 `both`** publishes saturation's `RequiredCapacity` 15000 beside a replica count driven by
+  throughput's 40000.
+- **M2 `both`** publishes saturation's `SpareCapacity` 30000 on a decision *forbidden to spend any of
+  it* — one live voter reporting explicit zero spare vetoes the role.
+
+If either is wrong, it is a Type 1 question and the goldens move with it. I am not treating this as a
+bug; I am refusing to decide it.
+
+**The `replicasToCover` ceil-vs-floor fork is still open in the tree** and I avoided it *by
+construction* rather than picking a side: the aggregated and P/D multi-vote scenarios run on 1e6-GPU
+pools where the entitlement never binds, and the quota scenario leaves exactly 2 free GPUs at 2 per
+replica, so ceil and floor agree at 1. **If the fork resolves to floor, nothing in the new suite has to
+move.** Naming the exposure was deliberate — avoiding it is not the same as it being absent.
+
+## 2. Hazards you flagged that I VERIFIED do not land
+
+**PENDING-EDITS row A38 (the C9c hazard) — verified NOT landing, on three independent axes.**
+Rather than assert this:
+1. `distributeDemandByRole` / `aggregateRoleCapacities` live only in
+   `internal/engines/analyzers/throughput/analyzer.go` — a different package, not on `Optimize`'s call
+   path. My `RoleCapacities` are literals.
+2. Every P/D fixture variant carries an explicit `Role`.
+3. No P/D fixture has a zero `ReplicaCount` or `CurrentReplicas`.
+
+**Review Finding 59's `T1-ols` trap — confirmed real and left alone.** It is `itlReasonT1OLS` at
+`throughput/constants.go:129`, unexported, hence raw strings in `pipeline` tests. 35 occurrences across
+11 files, 13 added by C9c. Stripping any would break code. Same for `greedy_score_optimizer.go:453`'s
+"floor" (ordinary rounding prose). Both verified before the sweep touched those files.
+
+## 3. Ledger corrections — please fold into the plan / PENDING-EDITS
+
+- **The §4a scope is 54 + 8, established independently.** I derived it by `git blame` against
+  `git rev-list 075a208e..HEAD` before reading your figure: **54 PR-2-introduced** (C9e's scope, all
+  now fixed) and **8 inherited** (out of scope, listed below). The 54 matches your "54 locations" in
+  row B9, reached a different way. The plan's status line said "47 of 54 … 7 inherited" — that should
+  read **54 of 62, 8 inherited**.
+- **The 8 inherited sites**, for whoever owns them:
+  `docs/developer-guide/throughput-analyzer.md:609`; `throughput/analyzer.go:362`;
+  `throughput/analyzer_test.go:1205`; `throughput/constants.go:85`; `pipeline/analyzer_helpers.go:411`;
+  `pipeline/greedy_score_optimizer_test.go:803`, `:810`, `:2002`.
+- **Two class-1 violations OUTSIDE this branch's scope**, surfaced by the class-based check Finding 58
+  asked for, and reported rather than touched:
+  `throughput/constants.go:85` cites `TA-supply.md` — plans-branch only, same class as Finding 58's
+  site; and `cmd/main.go:167` links `docs/user-guide/configuration.md`, **which does not exist in the
+  repo at all** (a different class: a stale in-repo link, not a plans-branch ref).
+- **The commit-message reword ledger is now 21 of 24** — C9c and C9d both carry §4a tokens in their
+  bodies. C9e's own message is written token-free. That reword is Dean's and force-push-bound, so I
+  have not touched any message.
+- **C10's effect is sub-1%, not "~6%"** — the 6% was numerator-only. Please don't let the 6% figure
+  survive into the PR description.
+- **The plan's §5 item 1 expectation, the `A1–A6` ledger, and the C10 §2e.2 note are stale** against
+  the landed code; **P1's dormancy statement predates C9b** and reads oddly next to it now.
+- **W3's `Merge`-override erasure has a second site** (the first was fixed in C9a).
+
+## 4. What I did NOT do, on purpose
+
+- No `git push` — needs Dean's explicit OK for that specific push.
+- No history rewriting; no rebase onto `a38d7b73` (A36/A38 recommend shape 1 — planner's call).
+- No consumption of any `plan__*` handoff — that inbox is yours. I read `plans/planning/` docs only.
+- No `CURRENT.md` edit — only `status/ta-anchor-dynamic-refresh.md`.
+- Did not touch the (D-a) fork or any `T1-*` row, incl. the ceil/floor fork. Those are Dean's.

@@ -1,0 +1,6 @@
+to: ta-anchor-refactor-v2
+reason: kickoff — new plan, read start-to-finish
+refs:
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/combined-analyzer-optimizer-design.md
+note: PR-1 static core of the anchor refactor. Plan is Status: FINAL. Worktree ta-anchor-refactor-v2 @ a2f49ccf (interim base off ta-anchor-goldens; rebases onto main after #1513 merges).

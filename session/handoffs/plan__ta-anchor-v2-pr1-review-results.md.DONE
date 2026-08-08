@@ -1,0 +1,74 @@
+from: review (ta-anchor-refactor-v2 internal code-review session)
+to: planner
+session: ta-anchor-v2 PR-1 code-review results (C1–C5)
+
+## What this is
+
+Full results of the incremental, per-commit code review of `ta-anchor-refactor-v2` PR-1 — **all
+five coded commits C1–C5** — for the planner's awareness and coordination. The verdict and every
+detail live in the review doc I own, `planning/ta-anchor-refactor-v2-code-review.md`
+(**Status: DRAFT** — Dean marks it FINAL at his discretion). This handoff is a pointer + summary,
+**not** a request to edit the review doc (reviewer-owned) or the plan.
+
+All inspection was read-only (`git -C <worktree> show/diff`) against the coder's active tree at tip
+`f6485980`, base `a2f49ccf`.
+
+## Verdict — APPROVE against the FINAL plan, no correctness defects (C1–C5)
+
+- **C1 `6cea41f2`** §5 Phase-1 `Enabled` tag — confirmed
+- **C2 `4b820281`** §6 `bindingAnchor` + per-variant merge + `votingResults` prune — confirmed (**F1**)
+- **C3 `63a01e27`** §7a QM-as-error refusal + liveness/do-nothing — confirmed (**F2**)
+- **C4 `4d892cbb`** §7b TA-side PRC-only scale-from-zero — confirmed, no findings
+- **C5 `f6485980`** §8 dev-guide reframing + 2 stale engine code-comment fixes (docs+comments only,
+  zero behavior change) — confirmed, no findings; §9 semantic-pivot grep independently clean
+  (0 `saturationEntry` hits); factual claims all verified (60-min self-expiry, three nil-anchor
+  cases, `Reason:"T-sfz"`, `Cost=0` known-limitation); `(a)/(b)` notation glossed inline so no §4a leak.
+
+## Findings — neither blocking
+
+- **F1 (C2) — SHOULD-FIX, commit-hygiene only.** C2's message lists `ResultIsInformative` as a
+  new/exported helper; it **pre-exists at base** (`analyzer_helpers.go:53`, already exported, already
+  called at `engine_v2.go:215`). `bindingAnchor` merely reuses it. Coder rewords before push; **no
+  code change**. Violates the CONVENTIONS "commit message reflects the diff" rule (prose-only, minor).
+- **F2 (C3) — NTH, test-coverage.** Plan Test 4's *"assert replicas unchanged + metric emitted"*
+  clause is asserted by neither Test 4B (no-decision+no-panic) nor Test 5 (logged-refusal + empty
+  QueryCallCounts). The cheap `NumReplicas`-unchanged half is directly addressable in Test 5; the
+  metric half was flagged fragile by the coder (package-private gauge). Weigh at push-ready.
+
+## Benign deviations (recorded, not findings)
+
+- C3 `refuseQueueingModel` is void vs the plan's returns-empty signature — identical hold behavior,
+  `unparam`-clean, plan §7a L576-578 grants the latitude.
+- C2 (b)-fallback gates `Enabled` only (matches plan §2), not Dean's reopened `Enabled && Live`
+  intent — this **is** D1 (below), a design question, not a code defect.
+
+## Design questions already with you (separate, earlier handoff)
+
+**D1 + D2** — whether the per-variant (b)-fallback and `votingResults` should gate on
+`Enabled && Live` rather than `Enabled` alone — were handed over in
+`session/handoffs/plan__ta-anchor-voting-liveness-gate.md`, with Dean's north-star principle verbatim.
+Key correction captured there: scale-**down** veto is *already* Live-gated at point-of-use (safe
+today); only scale-**up** relies on the unenforced "dead→RC=0" invariant. **Not code defects** — the
+code matches current plan §2/§6. If adopted they change plan §2/§6, the merge line, `votingResults`,
+and Test 2.
+
+## Still WIP — not part of this review
+
+The coder's C5 handoff states PR-1 is **code-complete C1–C5 but NOT push-ready** — still owes the
+final full gate battery across all five commits, the plan §13 checklist, and the push-ready sync
+handoff (carrying the DEFERRED/DEPRECATED classifications — QM path DEFERRED §12). The **full
+push-ready review** (definitive isolated #1513 + Test 9 green-after-every-commit run, §13 walk) awaits
+the coder's `review__ta-anchor-refactor-v2-ready.md` trigger. I remain idle until then.
+
+## Suggested CURRENT.md reflection (route via sync per the single-writer model — not you directly)
+
+The anchor-refactor abstract + the `ta-anchor-refactor-v2` PR Status row are stale (they read
+"Commit 1/5 landed, Commit 2/3 uncommitted"). They should note: **C1–C5 code-complete** (tip
+`f6485980`, local-only/unpushed), **incrementally reviewed APPROVE (no correctness defects)**, F1/F2
+residual (non-blocking), D1/D2 with a planner, **not yet push-ready**. I can emit a clean `sync__`
+handoff for this if you'd prefer sync apply it, or you can fold it when you next re-emit sync state.
+
+## Refs
+- `planning/ta-anchor-refactor-v2-code-review.md` — verdict + all detail (DRAFT, reviewer-owned)
+- `session/handoffs/plan__ta-anchor-voting-liveness-gate.md` — D1/D2 design questions
+- `planning/ta-anchor-refactor-v2-plan.md` (FINAL) — §2 merge/fallback, §6 votingResults, §13 checklist

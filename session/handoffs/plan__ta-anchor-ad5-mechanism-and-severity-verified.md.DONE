@@ -1,0 +1,114 @@
+# plan__ta-anchor-ad5-mechanism-and-severity-verified
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   designer (Type-1 owner) — `AD5`'s mechanism and `AD3`'s amended rationale both move here
+session: AD5 verification at PR-2 HEAD
+date: 2026-08-08
+
+Verified `AD5` independently against the tree at PR-2 HEAD `a9afb740` (read-only; no code, Type-1 or
+Type-3 edit). **Your conclusion, the designer's conclusion and the coder's staleness catch all hold.**
+Two things do not, and both bear on the scope call you have queued for Dean rather than on the diagnosis.
+
+Full detail with quoted line ranges: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 66,
+committed on `plans` as `26a229dd`. The short version is below.
+
+## 1. All three proposed fix placements would produce a predicate that never fires
+
+The decisive fact is one none of the three documents uses: **`bindingAnchor` is called with
+`req.AnalyzerResults` — the raw, unpruned list — at all ten sites**, while `votingResults(...)` is a
+separate call producing the ballot. And `bindingAnchor` locates saturation **by name, not by vote**
+(`analyzer_helpers.go:208-217`, whose comment says exactly that). This is deliberate: a stale saturation
+keeps carrying `AcceleratorName`, `Cost`, `Role`, `ReplicaCount`, so topology survives an outage while the
+stale entry is barred from voting. `VG-up` prunes the ballot without disturbing it.
+
+That kills each proposed site in turn:
+
+- **Your §2 chain (`bestVariant == ""`, returning 0 before the combine) does not fire.**
+  `AcceleratorName` survives on the merged variants, so `variantsOnType` is non-empty and the reference
+  loop at `rescale.go:582-592` finds a candidate. It *would* fire with saturation absent from the results
+  entirely — TA sets no `AcceleratorName` — but not with saturation merely stale.
+- **The `PerReplicaCapacity`-is-zero premise is false for a live prefill variant.** TA's per-variant loop
+  skips only on missing shape, no ITL model, non-positive `itlSat`, and `supply == 0`; nothing role-gates
+  `perReplicaSupply`, and the `RolePrefill` guard at `analyzer.go:364` scopes only the decode ITL/OL
+  averaging. A running prefill variant reaches `:398-408` with a positive PRC and the merge's sizing
+  lookup hits. The `:292-302` "binder omits this variant" comment describes a variant the binder *cannot*
+  price — i.e. one at zero replicas.
+- **The coder's abstain branch does not fire either**: TA's `RoleCapacities` *does* carry a `prefill`
+  key (`Role: state.role` → `AggregateByRole` → `aggregateRoleCapacities`).
+
+**The operative state is a real vote honestly valued zero, with `binder >= 0`** — the zero authored
+upstream at `distributeDemandByRole:928`, deliberately and documented, because both demand terms are
+decode-denominated. It survives `combineVotes` as *exactly* 0 (the single vote's own `excess` is 0, so the
+correction is 0), so `int(math.Ceil(value))` has no epsilon to lift.
+
+So a predicate keyed on `binder < 0`, on an empty vote set, or on `bestVariant == ""` misses `AD5`'s own
+scenario. **Your §4 question is therefore not a refinement to make later — it is the precondition for the
+predicate existing at all.** The distinguishable states are "an analyzer that models this role priced it
+zero" (`AD5`) versus "nobody priced it" (the zero-replica corner, where `Role` is unset and
+`aggregateRoleCapacities` can return nil). Those need different predicates.
+
+Separately: the invisibility half is a **second site**. `cost_aware_optimizer.go:350-367` still reads
+`anchor.RoleCapacities[role]` wholesale for `decision.RequiredCapacity`. Bug #3 moved sizing onto the
+ballot and left observability on the anchor — so a sizing-only fix leaves the prefill gauge at 0.
+
+## 2. The severity is understated, and it changes what deferring costs
+
+Your §2 says the scale-down gate does not protect the role because `scaleDownVariantSet` consults neither
+role gate. `scaleDownVariantSet` is a helper parameterised by a `maxRemovable` callback, and its two
+callers differ exactly there:
+
+- **`scaleDownRoleIterated` (`cost_aware_optimizer.go:474-505`) does consult both** — the gate at `:488`
+  and `safeRemovalReplicasForRole` at `:498`. Under `AD5`'s preconditions they pass rather than protect:
+  TA's prefill `SpareCapacity` is `TotalSupply − 0/scaleDown` = the full prefill supply, so
+  `roleSpareVetoed` is false, `liveCount == 1` returns true, and the min-combine yields ≈ the entire
+  prefill fleet. Reached in steady state (`!anyRoleNeedsScaleUp`) — **no opt-in, no contention needed.**
+  This one is **inherited**: base `075a208e`'s `safeRemovalReplicasForRole` at `:390` had the same
+  `!e.Live` skips, so ballot pruning never governed it. `VG-up` widens the window rather than opening it.
+- **`reclaimRole` (`rescale.go:404-427`) consults neither** — `maxRemovable` is a pure GPU delta. With
+  `demByRole[prefill] = 0`, `distributeGPUsByWeight` gives prefill only its floor
+  (`minReplicas × GPUsPerReplica`, **0 when unset**), so `rt < rc` and the role's whole allocation is
+  reclaimed. Narrower reachability (rescale enabled for the scope + contended group), but this half **is**
+  newly unmasked by `VG-up`: pre-`VG-up` the stale saturation's prefill demand kept `demByRole > 0`.
+
+**So the symptom is not "a model that quietly stops scaling half of itself" — it is a model that sheds
+prefill to ~1 replica while decode scales normally, with the prefill `wva_required_capacity` series
+reading 0 throughout.** A missed scale-up is a lost opportunity; this is an active drain on a role
+serving traffic. That is the input I would want weighed against "the window is narrow and PR-2 is
+finished" — the narrowness is unchanged, the consequence is not.
+
+This also corrects your §1: the `PerReplicaCapacity <= 0` skip being *"the only thing declining the
+prefill reclaim"* holds for a **zero-replica** prefill variant, not a live one. TA already prices live
+prefill variants, so that skip is already not firing there — meaning `(D-a)`'s deferral is not what
+protects a running prefill role. Nothing does. The coupling is still worth recording for the from-zero
+case; it just is not load-bearing for `AD5` as scoped.
+
+## 3. Evidence status — read, not run
+
+**PLAUSIBLE by reading, not CONFIRMED by execution.** I do not build or test in the coder's worktree, so
+every link above is a source read. Each is quoted in Finding 66, but the composition is what a fixture
+settles and eyeballs do not.
+
+The test I would want, cheap and belonging with `VG-up`: P/D model, `[sat,TA]`, saturation
+`Enabled: true, Live: false`, TA live and binding, prefill and decode each at ≥ 2 replicas, no
+`MinReplicas`; assert prefill's steady-state target is not reduced. Same fixture with rescale enabled and
+the group contended covers the second path. Both should be red today if this reading is right — and if
+either is green I would want to know which link is wrong.
+
+## 4. Not mine to decide
+
+Scope, placement and whether any of this rides PR-2 are yours and Dean's. I am not asking for a change of
+recommendation — deferring remains defensible on your stated grounds, and the §4 sub-decision genuinely
+does not exist yet. I am asking that the record show the mechanism that actually fires and the severity
+that actually follows, so that whichever way Dean rules, the deferred item is the real one.
+
+Your discoverability ask is already reflected on my side: Finding 66 records the design authority for this
+review as the frozen parent **together with** Addendum 1, the latter governing on overlap. The Type-3 and
+CURRENT.md pointers remain yours and sync's.
+
+The designer's unverified tier-2 row is closed and does **not** widen the residual — the prepopulate loop
+iterates VA specs (which exist for a scaled-to-zero variant), its skip catches a *missing* scale target
+rather than a zeroed one, and `capacity_store.go:126-128` exists for exactly this case per its own
+comment. Verified independently rather than relayed. One sharpening for the designer: on a freshly
+constructed record `EffectiveCapacity` is always 0, so that condition reduces to
+`EffectiveMaxBatchedTokens > 0` alone.

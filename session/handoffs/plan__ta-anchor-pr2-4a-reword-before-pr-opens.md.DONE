@@ -1,0 +1,69 @@
+from: review (internal reviewer, ta-anchor-dynamic-refresh PR-2)
+to: planner
+session: PR-2 §4a — all 9 commit messages leak plan tokens; the cheap window to fix it closes when the PR opens
+
+**One item, and it is the only time-sensitive thing I have.** Everything else I've raised can wait for
+the commit it concerns. This one gets more expensive on a schedule that isn't mine to control.
+
+Full inventory is Finding 13 in `planning/ta-anchor-dynamic-refresh-review.md` (commit `64242fb1`).
+Summary below; the ask is at the bottom and is a decision, not work.
+
+## What the full-branch sweep found
+
+I had been counting §4a leaks per commit and carrying a running total of 22. I re-ran the grep across
+the whole branch instead, and it is **32 code/doc locations plus all nine commit messages**.
+
+Two things make this worth your attention rather than just mine:
+
+**1. Every one of the nine commits carries a token.** 6 of 9 subject lines (`(N2)`, `(Bug #2)`,
+`(Bug #1)`, `(Bug #3)`, `(C6a)`, `(C6b)`) and 8 of 9 bodies. **A sweep commit cannot fix these.** My
+earlier standing advice — "one sweep commit near the end" — is correct for the 32 code locations and
+simply wrong for the messages: a tenth commit cannot clean the nine subjects that `git log --oneline`
+and the GitHub commit list show permanently. They are reachable only by `rebase -i` + reword ×9.
+
+**2. Zero of the 32 are inherited.** The same grep at the base (`075a208e`) returns nothing — PR-1's
+own §4a strip was complete. So this is entirely PR-2's, and PR-1 already set the precedent that it gets
+cleaned before push (its F1/F3/F4 token strips rode the rebase it needed anyway).
+
+Also worth knowing, because it changes how bad the code half is:
+
+- **2 of the 32 are in `docs/developer-guide/multi-analyzer-pipeline.md`** (lines 338, 472 — `N7`, `N8`).
+  A shipped Type 4 doc is the most reader-visible surface on the branch.
+- **`analyzer_helpers.go:550` cites `combined-analyzer-optimizer-design.md`**, which is not in the repo.
+  A dangling pointer, not just an opaque label. The surrounding prose is self-sufficient — delete the
+  citation rather than repointing it.
+- **The `Bug #n` form is worse than the `N7` form.** `N7` is merely opaque; `Bug #2` looks like a
+  tracker reference, so a reader follows it to an unrelated issue #2 and is actively misled. It also
+  collides in shape with the one form I confirmed as legitimate — `#1513` in the golden's comment is a
+  real GitHub PR number and should stay. Both now sit in the same package, indistinguishable by form.
+
+## Why the timing is the whole point
+
+`origin/ta-anchor-dynamic-refresh@f6485980` is **already orphaned** by PR-1's reword, so this branch
+needs a force-push regardless of whether anyone touches the messages. Folding a reword into that
+unavoidable force-push costs nothing extra.
+
+Once a GitHub PR is opened and reviewers start commenting, the identical reword becomes a history
+rewrite on a live PR branch — which the project's own "no rebase of live PR branches" rule exists to
+prevent. So the cost goes from ~zero to "disruptive, and discouraged by convention" at the instant the
+PR opens, and nothing about the code changes in between.
+
+## Ask (a decision, not work)
+
+Two calls, both yours/Dean's — I am not asking the coder for anything and have not rung its bell:
+
+1. **Does the reword ride the pre-PR force-push?** If yes, it wants Dean's explicit go-ahead like any
+   force-push, and it should happen before the PR is opened rather than after.
+2. **If the answer is "not worth it"** — that is a legitimate call and I'll record it as accepted rather
+   than outstanding. But it should be a decision, not a default that happens because the PR got opened
+   first. That is the only outcome I'd flag as avoidable.
+
+The 32 code locations are lower-stakes and fine as one sweep commit — C9 already touches the dev-guide,
+so it's the natural host. No rush there.
+
+## Routing
+
+No CURRENT.md request — **do not route to sync.** Neither half is a correctness defect and neither
+should block a commit; I have not marked anything blocking on this. Third open handoff from me
+(`c6d-finding-c-unreachable`, `c10-fixture-tolerance-bound` are the others) — independent topics, no
+ordering between them.

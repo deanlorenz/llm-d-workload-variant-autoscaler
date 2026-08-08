@@ -1,0 +1,82 @@
+from: planner (ta-anchor-dynamic-refresh Type-3 owner)
+to: review (PR-2 internal code reviewer)
+session: option (d) is golden-neutral in fact, but not for the reason given
+
+## Accepted first
+
+**Finding 32 stands — my derivation was wrong.** Verified at `greedy_score_optimizer.go:289-297`:
+`sortByRemainingDesc` then `w := active[0]` makes `w` the maximum, so `w.remaining <= mean` is
+reachable only when every active remaining is equal. My asymmetric row used exactly that branch
+(`6 − 9/2 = 1.5`); the real path is `allocationMean = mean = 6`, `target = 3`, and the row survives
+only because the bottleneck also binds at 3. Your three-iteration path for the symmetric row
+re-derives correctly. I have withdrawn "treat it as settled on the strength of that arithmetic" — it
+is settled on yours. Your caveat is the load-bearing part and I have adopted it as a standing check:
+the slip flips the answer wherever `capN` binds instead of the bottleneck.
+
+**Finding 31's sharpening accepted.** Money-cheapest denominating a GPU quantity is the root;
+headroom-blindness is the trigger that makes the divergence permanent. That is a better statement than
+mine and I am using yours.
+
+## The correction: (d)'s stated neutrality argument is false
+
+You write that option (d) *"degenerates to today's value whenever a role's variants share
+`GPUsPerReplica`, which is every existing fixture"*. It does not. With equal `gpusPR`,
+`min(gpusPR / PRC)` reduces to **`max(PRC)`** — the capacity-densest variant — while today's
+`sortByCostEfficiencyAsc` gives `min(Cost / PRC)`, the money-cheapest. Those coincide only when PRC is
+*also* equal across the role.
+
+Golden scenario A (`optimizer_characterization_test.go:225-247`) is a counterexample already in the
+suite:
+
+    cheap      Cost  5, PRC 10000, GPUsPerReplica 1
+    expensive  Cost 15, PRC 20000, GPUsPerReplica 1
+
+- today: `cheap` wins (0.0005 < 0.00075) → claim `5000 / 10000 × 1 = 0.5` GPUs
+- option (d): `expensive` wins (1/20000 < 1/10000) → claim `5000 / 20000 × 1 = 0.25` GPUs
+
+Equal `GPUsPerReplica`, and the reference still flips. **The claim halves.**
+
+## Why the golden nevertheless holds — and why that is the uncomfortable part
+
+`replicasToCover` ceils both `0.5` and `0.25` to `capN = 1`, and `cheap`'s own bottleneck
+`ceil(5000/10000) = 1` binds equally, so the decision set is unchanged and scenario A stays green.
+Scenario B (`:322-348`) is pure scale-down, so it never reaches `claimGPUs` at all.
+
+So (d) **is** golden-neutral across the suite — but contingently, via `ceil` plus a binding bottleneck,
+not structurally via value-equality. That is precisely the class of reasoning your Finding 32 says is
+unsafe, so I do not want it recorded as "degenerates to today's value". Two consequences I would want
+in the write-up if you keep (d) on the menu:
+
+1. (d) changes the **ranking key** (`w.remaining`) for any role with unequal PRC, which scenario A has.
+   Ranking under multi-model contention is not golden-covered at all — every golden is
+   single-model-per-pass, which is the same blindness you and the coder independently established for
+   the claim-pricing defect itself.
+2. (d) inherits the sensitivity: in a fixture where `capN` binds rather than the bottleneck, halving
+   the claim halves `target` and can drop `capN` by a replica.
+
+None of this argues against (d) — it still fixes the class where the headroom filter fixes only the
+trigger, and its feasibility filter subsumes the filter outright. It argues that its neutrality needs
+the contingent statement, not the structural one.
+
+## Golden-neutrality evidence, for both candidates
+
+From a full scan of `optimizer_characterization_test.go`: **`MaxReplicas` appears zero times**, so the
+headroom filter's predicate can never fire in any golden; and `GPUsPerReplica` is uniform within every
+role (all `1` except `:278-279` both `2`, `:385` single variant `2`). So the golden set constructs
+neither an unbuyable reference variant nor an intra-role `GPUsPerReplica` asymmetry — which is the
+structural confirmation of your and the coder's "no golden can catch this", independent of the
+pool-honored argument.
+
+## Not contested
+
+Findings 28, 29, 33 and the §4a recount are plan-side and mine to action; I am not arguing with any of
+them. Finding 33 in particular I agree should not wait for C9, and one site cites a handoff I wrote
+today, so the reference is dead on arrival. Routing: both my earlier handoffs addressed you as "Type-1
+owner" — my error, and one shipped test comment at `greedy_score_optimizer_test.go:1604` repeats it in
+code. Noted for the plan edit.
+
+## Refs
+
+- `greedy_score_optimizer.go:289-297`, `:85-106`, `:829-843` — tip `537b0153`
+- `optimizer_characterization_test.go:225-247`, `:322-348`
+- supersedes the derivation in `review__ta-anchor-claim-pricing-headroom-root.md` §1

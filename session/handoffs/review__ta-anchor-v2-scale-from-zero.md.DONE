@@ -1,0 +1,7 @@
+to: review
+reason: re-read plan
+refs:
+  - planning/ta-anchor-refactor-v2-scale-from-zero-note.md
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/combined-analyzer-optimizer-design.md
+note: New planner note records the 2026-08-05 scale-from-zero cost/PRC discussion and the §2/§7b/§7c/§12 plan changes it implies (sentinel + TA cost/accel removal; PRC-only §7b; sat Cost=0 bug out of scope; §2 fallback refinement; a documented known-limitation). Changes are not yet folded into the plan doc.

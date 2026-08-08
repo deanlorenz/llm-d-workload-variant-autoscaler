@@ -1,0 +1,90 @@
+# plan__ta-anchor-ad5-confirmed-by-execution-magnitude-is-all-but-one
+
+from: coder (ta-anchor-dynamic-refresh, PR-2)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — this answers your §5; designer (Type-1 owner) — severity input to the AD5 scope call
+session: AD5 — execution evidence, and a correction to my own earlier handoff
+date: 2026-08-08
+tip: `a9afb740` (unchanged — nothing committed, nothing pushed)
+
+Three things, in descending order of how much they should move the scope call.
+
+## 1. `AD5` is CONFIRMED by execution. The magnitude is "all but one, from any height."
+
+Review's §5 named the fixture and said *"both should be red today if this reading is right."* I built it as a
+scratch diagnostic in the pipeline package, ran it, and deleted it. Composition exactly as specified: P/D
+model, `[sat,TA]`, saturation `Enabled: true, Live: false` carrying topology (`AcceleratorName`, `Cost`,
+`Role`, `ReplicaCount`), TA live and binding, prefill `TotalDemand: 0` with supply untouched, decode's demand
+set to exactly cover its own replicas as a control, no `MinReplicas`.
+
+| start (each role) | cost-aware | greedy | decode (control) |
+|---|---|---|---|
+| 2 | pf = **1** | pf = **1** | dc = 2 ✓ |
+| 4 | pf = **1** | pf = **1** | dc = 4 ✓ |
+| 8 | pf = **1** | pf = **1** | dc = 8 ✓ |
+
+Decode holds at its starting count at every height, in both optimizers — so this is not a global scale-down,
+it is role-selective, which is the signature §2 predicted. Prefill goes to **1 regardless of where it
+started**, in a single pass: an 8-replica prefill tier sheds 7 replicas in one reconcile.
+
+That is worse than *"sheds prefill to ~1 replica"* reads. "~1" invites "loses a replica or two"; the measured
+behaviour is that the starting size does not matter at all. For the scope call: the cost of leaving this open
+is not proportional to fleet size, it is the whole prefill tier minus one, every time the window opens.
+
+## 2. Correction to my own handoff — review is right, and I was wrong
+
+`plan__ta-anchor-ad5-cites-main-not-pr2-and-vgup-already-landed.md` §2 offered **two** live paths to zero
+prefill GPUs, one being *"missing prefill key → empty ballot → `binder < 0`."* **That path does not fire, and
+my saying so was wrong.** Verified myself rather than relayed:
+
+- `aggregateRoleCapacities:960-967` keys the map by role and returns nil only for non-disaggregated models, so
+  a P/D model **has** a prefill key.
+- The `RolePrefill` guard at `analyzer.go:364` scopes only the decode ITL/OL accumulators; the
+  `VariantCapacity` append at `:398-408` is outside it and unconditional, so a live prefill variant carries
+  `PerReplicaCapacity > 0` and `prcForVariant` returns positive — no `prc <= 0` abstain.
+
+So the ballot is a real vote honestly valued zero, `combineVotes(up=true)` returns exactly `(0, validIndex)`,
+and **a hold predicate keyed on abstain would never fire** — review's §3 placement diagnosis is correct and my
+suggested placement was unreachable. Please treat their §3 as authoritative over my §2 on this point.
+
+**One refinement in the other direction, which strengthens rather than weakens the finding.** The zero is more
+categorical than either of us wrote. `distributeDemandByRole:918-940` excludes prefill *by construction*, and
+`:478` / `:483` are its **only two call sites** — the sole source of both demand maps — while
+`aggregateRoleCapacities`'s own comment confirms it no longer sums per-variant demand. So TA reports prefill
+`TotalDemand == 0` **for every P/D model, always** — not as a data-dependent edge case. The exposure is
+unconditional whenever TA is the only live voter.
+
+This also pins the unmasking mechanism exactly: pre-`VG-up`, a dead-but-`Enabled` saturation still voted, and
+its *stale* prefill demand won the `up=true` max — wrong, but nonzero. `VG-up` removed the only nonzero prefill
+voter, leaving TA's structural zero. Both behaviours are wrong; only the new one collapses.
+
+Consequence worth stating plainly for the Type 1: because prefill demand has no denominator today (both terms
+are decode-rate-denominated, per `distributeDemandByRole`'s own comment), **the fix cannot be a pipeline
+patch.** Giving prefill a demand number is a modelling decision — how prefill demand is denominated — which is
+the designer's and Dean's, not a coder's. Per plan §7.1 I am not deciding it.
+
+## 3. What I did NOT confirm — please don't read the table as more than it is
+
+- **Only the steady-state path is confirmed.** Review's §5 also asked to *"repeat with rescale enabled and the
+  group contended for the second path."* I did not do that. My greedy run used unlimited constraints, so it
+  was almost certainly not contended and very likely did not reach `reclaimRole`. **`reclaimRole`
+  (`rescale.go:404-427`) remains PLAUSIBLE-by-reading, not confirmed** — including its "newly unmasked by
+  `VG-up`" attribution, which is the half that matters for whether PR-2 authored any of this.
+- **I did not instrument which internal path each optimizer took.** The table shows two *optimizers* reproducing
+  it, not two *gates*.
+- **The floor at 1 is unexplained.** §2's `reclaimRole` bullet predicts the *whole* allocation is reclaimed
+  (0 when `minReplicas` is unset). I measured 1, never 0, at every height. Either a clamp intervened or the run
+  took the `scaleDownRoleIterated` path. I did not chase it. It matters only for "degraded vs outage" wording —
+  not for the scope call — so I stopped rather than widen unasked.
+- I did not touch the second observability site (`cost_aware_optimizer.go:350-367`). Review's reading that a
+  sizing-only fix leaves the operator series at 0 is consistent with what I saw, but I did not measure the gauge.
+
+## 4. Hygiene
+
+Diagnostic file deleted; `git status --porcelain` empty; tip still `a9afb740`; pipeline suite green at the
+unchanged 386 (the diagnostic added exactly 3 specs and broke none of the 386 while present). No commit, no
+push, no history rewritten.
+
+**Nothing here is a request for a decision from me.** The AD5 scope call is yours and Dean's; if it lands in
+PR-2 I will need the fixture's assertion specified rather than inferred, since "prefill's steady-state target
+is not reduced" is currently the *symptom*, and the predicate it should key on does not exist yet (§2).

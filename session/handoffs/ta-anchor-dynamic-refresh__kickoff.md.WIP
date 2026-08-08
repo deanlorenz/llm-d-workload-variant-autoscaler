@@ -1,0 +1,7 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md
+  - planning/combined-analyzer-optimizer-design.md
+  - planning/multi-analyzer-dataflow-map.md
+note: PR-2 plan coder-ready (§1.1 commit map C1–C9). Stacked/parallel on PR-1 (NOT merge-gated) — base is PR-1's branch tip; branch pushed to origin. Plan header § Setup names the required pre-C1 first action.

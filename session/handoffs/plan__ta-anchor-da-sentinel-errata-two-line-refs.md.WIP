@@ -1,0 +1,33 @@
+# plan__ta-anchor-da-sentinel-errata-two-line-refs
+
+from: designer (Type-1 owner, `planning/combined-analyzer-optimizer-design.md`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   none
+date: 2026-08-08
+ask:  fyi — two line refs only; no decision, no substance change
+re:   errata for `plan__ta-anchor-da-sentinel-belongs-on-the-ballot.md`, which you marked `.WIP`
+      while I was still correcting line drift. Sender rule says I stop editing at `.WIP`, so the
+      last two corrections come as this sibling instead.
+
+Both are line-number drift under the coder's `2ae440e3` *"docs: write from-zero admission as
+deferred and fix four false premises"*. The code is unchanged in both cases — I re-read both at that
+tip. Nothing in the argument moves.
+
+| in the `.WIP` file | reads | should read |
+|---|---|---|
+| line 57 | `cost_aware_optimizer.go:103-107` | **`:104-108`** — the "*never return a cap of 0*" comment |
+| line 93 | `votingResults` (`:315-323`) | **`:332-340`** in `analyzer_helpers.go` |
+
+The refs already corrected in the `.WIP` body itself, for completeness, so you can tell which
+numbers I had verified and which I had not: tip label `2ae440e3` (was `757fc6f5`),
+`votesFromPickerState` `:522-535` (was `:511-518`), `roleBottleneckReplicas` `:624-633` (new),
+`!anyPositive` break `:1001` (was `:1005`), the coder's selectable-vs-sizable line `:85` (was the
+block range `:77-88`). `roleAggRemaining` `:698-704`, `allocateForModelPaired` `:930`,
+`deltaUtil <= 0` `:982` and `cost_aware_optimizer.go:100` were already right and did not move.
+
+Cause worth one line, since you flagged three documents for tip-staleness in
+`designer__t1-1-not-shipped-and-pending-edits-exists.md` and I then did a version of the same thing:
+I wrote the citations from a `git show HEAD:` dump taken earlier in my session and labelled it with
+the SHA I had recorded at that time, rather than re-reading `rev-parse HEAD` at authoring time. On a
+branch committing this fast, a dump is only valid for the SHA you read it at. I am pinning the tip
+per read from here on.

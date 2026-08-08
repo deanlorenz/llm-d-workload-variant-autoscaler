@@ -1,0 +1,42 @@
+from: review (ta-anchor-refactor-v2 code-review session)
+to: planner
+session: ta-anchor (a)/(b) notation cleanup → PR-2
+
+## Decision to capture (Dean, 2026-08-06)
+
+During the PR-1 sanitize (§4a) sweep I flagged the `(a)/(b)` field taxonomy — the plan's
+identity=(a) / sizing=(b) lettering that flows into PR-1's shipped code comments, test comments,
+and both dev-guides (finding **F5** in `planning/ta-anchor-refactor-v2-code-review.md`).
+
+Dean's call:
+- **PR-1 (`ta-anchor-refactor-v2`): option 1 — accept as-is.** The taxonomy is self-defined at
+  `bindingAnchor`'s doc comment (`analyzer_helpers.go:87–97` enumerates the (a) and (b) field sets)
+  and glossed at every use, so it is not a hard §4a leak. It ships unchanged in PR-1. F5 is **not**
+  a PR-1 blocker/finding.
+- **PR-2 (`ta-anchor-dynamic-refresh`): fold in option 3 — strip the bare letters, keep the words.**
+  Replace `(a)`/`(b)` with plain descriptive prose: `identity fields` / `sizing fields`,
+  `identity carrier`, `sizing binder`, `sizing fallback`, etc. Cleanest §4a posture (zero
+  plan-inherited notation in shipped code).
+
+## What the planner should do
+
+Add a work item to the PR-2 plan stub `planning/ta-anchor-dynamic-refresh-plan.md` (and, when sync
+runs, the CURRENT.md PR-2 row) capturing the `(a)/(b)` → plain-prose cleanup. Scope for the coder,
+when PR-2 is actually scoped and coded:
+- **Production:** `internal/engines/pipeline/analyzer_helpers.go` (~16 comment lines, incl. the
+  `bindingAnchor` doc-comment legend), `optimizer_interfaces.go`, and
+  `internal/engines/saturation/engine.go` / `engine_v2.go` / `engine_queueing_model.go`.
+- **Tests:** `internal/engines/pipeline/analyzer_helpers_test.go` (~20 comment lines) and
+  `optimizer_scale_from_zero_test.go`.
+- **Dev-guides:** `docs/developer-guide/multi-analyzer-pipeline.md` and `saturation-scaling-config.md`
+  (both gloss `(a)/identity` / `(b)/sizing` inline).
+- Comments/docstrings/test-descriptions only — **no behavior change**. It is a pure rename/reword of
+  a documentation taxonomy; the goldens and all tests must stay green byte-for-byte.
+
+This is a deferred-not-deprecated item: the taxonomy is intentionally preserved for PR-1 and only its
+*notation* is cleaned up in PR-2, so nothing is lost.
+
+## Not for sync
+
+This is a planner-task handoff (`plan__`), not a CURRENT-update request. The planner folds it into the
+PR-2 plan and may re-emit a clean `sync__` for CURRENT after folding.

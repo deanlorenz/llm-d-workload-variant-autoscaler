@@ -1,0 +1,95 @@
+from: review (ta-anchor-refactor-v2 internal code-review session)
+to: planner
+session: ta-anchor-v2 voting/liveness gating design decision
+
+## What this is
+
+Two related **plan-level design questions** on `ta-anchor-refactor-v2` (PR-1) that Dean asked be
+moved to a planner session. They are **not code defects** — the code faithfully matches the current
+FINAL plan `planning/ta-anchor-refactor-v2-plan.md` §2. They are decisions about whether the plan's
+gating is what Dean wants. If adopted, they change **plan §2** (merge/fallback rule + the
+`votingResults` spec in §6), **Test 2** in the analyzer_helpers test, and possibly the design doc
+`planning/combined-analyzer-optimizer-design.md`.
+
+Verified against C2 tip `4b820281` and base `a2f49ccf` (read-only). Reviewer will **not** edit the
+plan; the coder must **not** infer this from my review doc — it needs to land in the plan by a
+planner before the coder touches the merge/tests.
+
+## Dean's stated principle (the north star for both questions)
+
+> "voting math should only be live+enabled. live was added to prevent veto of a dead analyzer —
+> this is important! ... normal binding anchor is picked only from live+enabled. fallback using
+> something else when no live analyzer exist is fine."
+>
+> "For scale-up/down voting the analyzer must be alive — it should always be a no-op if non-live.
+> If not alive, do not veto scale up/down, do not force scale up. The force case is empty (dead
+> analyzers don't create RC), but the veto case is critical."
+>
+> "There should always be fallback (b) values, preferably to/from all analyzers. Values — fallback
+> or real — should be used by the optimizer only if enabled AND live. There should not be a fallback
+> to a live-but-non-enabled sat if TA is alive."
+
+## D2 — should `votingResults` gate `Enabled && Live` (not `Enabled` alone)?
+
+**Corrected picture** (my first framing was half-wrong — the veto path is already safe):
+
+- `votingResults(s)` (NEW in C2, `internal/engines/pipeline/analyzer_helpers.go:234`) filters the
+  combine (RC/SC) input on `e.Enabled` **only, not `e.Live`**. Base passed the **full ballot**
+  (`req.AnalyzerResults`, no filter) into `initRoleState`; the refactor **added an `Enabled` filter
+  but no `Live` filter**. (`bindingAnchor` deliberately still reads the FULL ballot — correct, keep
+  it; it needs sat's (a)/topology when sat is non-voting.)
+- **Scale-DOWN veto/removal is ALREADY Live-gated** — `needsScaleDownForRole` (base:301) and
+  `safeRemovalReplicasForRole` (base:246) both `if !e.Live { continue }` at point of use, and **C2
+  left them untouched**. So a dead-but-enabled analyzer **already cannot veto a scale-down**, and if
+  no live analyzer remains → no scale-down (safety floor). **Dean's "critical" concern is already
+  structurally met here.** ✅
+- **Scale-UP is NOT Live-gated** — `initRoleState` → `pickerState[i][role] = Result.RequiredCapacity`,
+  and `anyRoleNeedsScaleUp` / `roleBottleneckReplicas` / `roleAggRemaining` (all pre-existing) act on
+  every voting entry with no `.Live` check. A dead-but-enabled entry whose retained `Result` carries
+  RC>0 **would force a scale-up**. Safety here rests entirely on the external invariant
+  *"dead analyzer → RC=0"* — a ballot-construction property tied to the C3 liveness/do-nothing work,
+  **not enforced in the combine**. (Dean invoked exactly this: "force case is empty, dead analyzers
+  don't create RC.")
+
+**So the principle is only half-enforced today:** veto (down) enforced at point-of-use; force (up)
+relies on an unenforced invariant. **Clean fix candidate:** gate `votingResults` on
+`Enabled && Live`. This centralizes the invariant for BOTH directions, makes scale-up robust
+independent of "dead→RC=0", and demotes the scattered point-of-use `!e.Live` gates to
+belt-and-suspenders. **Caveats the planner must handle:**
+1. Keep `bindingAnchor` on the FULL ballot (do not feed it `votingResults`'s output).
+2. Handle the empty-voting case (no live+enabled analyzer) explicitly as "do nothing" — confirm the
+   optimizers degrade gracefully on an empty voting slice with a non-nil anchor (a new combination).
+3. Goldens #1513 are sat-only-with-sat-Live, so they're unaffected — but this is a voting-semantics
+   change in *multi-analyzer* configs, which #1513 does not cover. Consider a characterization test
+   for the stale-enabled-analyzer scale-up case.
+
+## D1 — should the per-variant (b)-fallback gate on `Enabled && Live` (not `Enabled` alone)?
+
+- `bindingAnchor`'s omitted-variant fallback gates on `satEnabled := satNR != nil && satNR.Enabled`
+  (`analyzer_helpers.go`), **Enabled only, not Live**.
+- The **only** divergent case vs Dean's model: a **non-sat** analyzer (TA) binds and omits a variant
+  that sat's (a) list contains, and sat is **Enabled-but-stale (not Live)** → current code falls back
+  to sat's **stale (b)**. Dean wants values used only from an **enabled AND live** source → PRC=0 there.
+- Other cases already match Dean's intent (confirmed by him): sat **Live-but-not-Enabled** → no
+  fallback → PRC=0 ✅; sat **not-Enabled** (`[TA]`-only, Test 2b) → PRC=0 ✅ ("cannot use sat PRC with
+  TA demand").
+- **Impact if adopted:** flip the gate to `satNR.Enabled && satNR.Live`; rewrites **Test 2** (v2
+  becomes PRC=0 instead of 110) + plan §2 wording.
+
+D1 and D2 are the same underlying principle ("used by the optimizer only if enabled AND live") applied
+at two sites (the fallback source, and the voting subset). Deciding them together is cleanest.
+
+## Broader option Dean floated (bigger than a gate tweak)
+
+> "There should always be fallback (b) values, preferably to/from all analyzers."
+
+That is upstream of the merge — how each analyzer populates a result for *every* variant — and
+interacts with the C4 TA-PRC-only work. If pursued it belongs in a design-doc/plan revision, not a
+one-line gate change in PR-1. Flagging so the planner can scope it separately if Dean wants it.
+
+## Refs
+- `planning/ta-anchor-refactor-v2-plan.md` (FINAL) — §2 merge/fallback, §6 votingResults spec.
+- `planning/ta-anchor-refactor-v2-code-review.md` — my review doc, sections **D1** and **D2** (full
+  verified detail, same content as above).
+- `planning/combined-analyzer-optimizer-design.md` — design authority (touch only if the broader
+  option is pursued).

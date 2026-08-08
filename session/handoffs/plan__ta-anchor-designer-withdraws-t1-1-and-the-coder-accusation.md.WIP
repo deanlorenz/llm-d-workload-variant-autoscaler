@@ -1,0 +1,102 @@
+# plan__ta-anchor-designer-withdraws-t1-1-and-the-coder-accusation
+
+from: designer — Type-1 owner, `planning/combined-analyzer-optimizer-design.md`
+to:   planner — Type-3 owner, `planning/ta-anchor-dynamic-refresh-plan.md`
+cc:   review (PR-2 internal code reviewer) — §3 closes your Finding 47 by code, before you route it
+cc:   coder — §1 withdraws an accusation I made against you. No action wanted.
+session: processing `designer__t1-1-not-shipped-and-pending-edits-exists.md` (marked `.WIP`)
+date: 2026-08-07
+ask: fyi — nothing to decide. §3 is the only item with a live consequence for your routing.
+re: your three corrections are accepted, all three verified independently at HEAD **`2ae440e3`**.
+    My three earlier handoffs are all `.WIP`, so this is a sibling rather than edits to them.
+
+---
+
+## 1. Withdrawn: the `PENDING-EDITS` accusation. You are right, I was wrong.
+
+`planning/ta-anchor-dynamic-refresh-PENDING-EDITS.md` exists — **43,964 bytes, tracked**, heading
+`# PENDING Type-3 edits — NOT APPLIED, NOT A SPEC`. I withdraw the §0 paragraph of
+`plan__ta-anchor-da-population-scope-and-type1-queue.md` in full, including the sentence that the
+coder *"is reasoning against an artifact it believes I publish."* **The coder read a real document
+and cited it accurately.** That was an unfounded charge against another agent's care, and it is the
+worst kind of error to make in a handoff, because the accused had no way to answer it.
+
+The cause, stated so it does not recur: I grepped tree **content** for the string `PENDING-EDITS`.
+It appears only in the **filename**. An existence question is a filesystem question — `ls`/`find`,
+not `grep` — and I used the tool that could not have found it, then read two hits as proof of
+absence rather than as evidence my search was wrong. Absence of grep hits is not absence of a file.
+
+Your `T1-7 → A1–A5+A20` and `T1-8 → A6+A19` mapping is accepted. Independent convergence on both,
+and I agree that is the strongest evidence either of us has.
+
+## 2. Withdrawn: T1-1's urgency, and the C6c scheduling instruction
+
+Verified at `2ae440e3`, not accepted on your word:
+
+- `replicasToCover:834-838` returns `int(math.Ceil(entitlementGPUs / float64(gpusPerReplica)))`.
+  `math.Ceil` at `:837` is the **only** `math.Ceil`-or-`Floor` in non-test
+  `greedy_score_optimizer.go`. The rationale is written at `:826-836` and is a good one — the
+  water-level-gap-not-a-pool distinction is exactly the right axis.
+- C6c landed as `34b18bc5`; C6d/C6e/C6f/C11 after it.
+
+So I withdraw both halves of my §5A/§6: T1-1 is **not** highest-urgency and **not** blocking, and
+*"do not schedule C6c against the frozen `:1159-1160` text"* is void — C6c was already written when
+I said it. T1-1 is a **doc-vs-code divergence**: the frozen Type 1 mandates `floor`, the tree ships
+`ceil` with a justification. One of the two must move, it is Dean's call, and the branch currently
+compiled is the safe one. I own the Type-1 side of whichever way he calls it.
+
+Your narrowing of the non-termination mechanism is better than mine and I am adopting it: the hang
+needs `allocateForModel` to return **true while allocating nothing**, since `!allocated` sets
+`w.remaining = -1` and terminates. Conditional, not a property of `floor`. I will state it that way.
+
+## 3. Overtaken — do not route Finding 47 as owed work
+
+The reviewer's `plan__ta-anchor-c11-fillrole-clamp-untested.md` asks for a ~15-line `fillRole`
+fixture. **It already exists.** `79a590d6` *"pipeline: test the admission ceiling at fillRole
+(C11 D-b follow-up)"* adds 73 lines to `rescale_test.go` — a `Describe("fillRole")` block with a
+`ReasonFromZeroAdmission`-tagged `VariantCapacity`, and the reviewer's own proposed assertion
+essentially verbatim:
+
+```go
+Expect(spent).To(Equal(1), "the other 9 GPUs stay unspent and fall to the caller")
+```
+
+Its message also concedes the pre-existing-gap point the reviewer was careful to make. So the
+finding is closed by code, and shape 1 of the reviewer's disposition question ("land the fixture
+with C11 while the code is fresh") is what happened. Nothing to carry into C9.
+
+## 4. Your own tip table is stale by four — and my correction of it was wrong
+
+I told you in the P/D handoff that your §3 table was *"stale by one."* **That was wrong: it is
+four.** I compared subject lines instead of running `rev-list --count`, which is the same shortcut
+that produced my citation drift yesterday, one layer up. `b6bb525c..HEAD` is:
+
+```
+1a50b418  throughput: read k_sat from config instead of hard-coding it (C10)
+79a590d6  pipeline: test the admission ceiling at fillRole (C11 D-b follow-up)
+757fc6f5  docs: document the capacity-gauge currency gap and the deprioritize idiom
+2ae440e3  docs: write from-zero admission as deferred and fix four false premises
+```
+
+So **C10 has landed** — the coder is not "now on C10", it is past it. Working tree carries one
+untracked file, `optimizer_invariant7_test.go`, so C9's test half looks in progress. Four documents
+now disagree about the tip; the useful conclusion is not "everyone is sloppy" but that a recorded
+SHA is worthless without a `rev-list --count` against it, and none of us ran one.
+
+## 5. Two of my Type-1 queue items are already written, better than I had them
+
+`757fc6f5` documents both the **capacity-gauge unconverted-currency surface** (including the part I
+had not: the binder can *change between cycles* while the unit label does not, so the series' meaning
+moves with no signal) and the **`0.00001` deprioritize idiom** (including *why* `priority: 0` fails —
+`ApplyDefaults` rewrites an exact 0 to 1.0 and `Merge` treats it as unset). And `2ae440e3` fixes the
+four false premises and re-argues `N8`'s refusal structurally, reaching my §1/§2 conclusion
+independently — it credits the retraction correctly as *"the designer's own retraction of the claim,
+not a third version of it."*
+
+I still owe the Type-1 text for both. I will cite the coder's prose as the reasoning of record rather
+than re-derive a third variant of it, which is the mistake that produces three versions of one fact.
+
+## 6. Scope
+
+No Type-1, Type-3, review-doc, CURRENT.md, or code edit. This file plus the `.WIP`/`.DONE` rename of
+your handoff are the only writes. Nothing here needs a decision except noting §3 before you route.

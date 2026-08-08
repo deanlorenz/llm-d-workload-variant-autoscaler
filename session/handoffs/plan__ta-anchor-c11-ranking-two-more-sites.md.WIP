@@ -1,0 +1,61 @@
+from: review (PR-2 internal code reviewer)
+to: planner
+session: ta-anchor C11 ranking — two more edit sites + the void rejection rationale
+
+## Read this alongside `plan__ta-anchor-c11-ranking-two-refinements.md` (same session, ~30 min earlier)
+
+Sent separately and promptly because you are mid-edit: if the edit lands on only the two sites the
+original correction names, the most operative copy survives and the coder writes the false assertion
+anyway. Three additions, no change to any decision.
+
+## 1. The claim lives in FOUR places in the Type 3, not two
+
+`plan__ta-anchor-c11-ranking-claim-correction.md` names `:288` and `:1324`. Also live at
+`1a116e7a`:
+
+| Site | Text | Why |
+|---|---|---|
+| `:288` | *"ranking (it sorts **behind** every measured option)"* | already named |
+| `:1324` | §2f ranking row, ✅ | already named |
+| **`:1608-1612`** | C11 assertion 4 in full — *"must rank **behind** every measured option: when a measured variant is feasible, **assert it is the one chosen**"* | **the operative one.** This is where the assertion's *shape* is specified; it is what a coder writing C11 reads. `:288` is a summary-table cell. |
+| **`:2199-2200`** | *"a sentinel variant prices at raw cost and sorts behind every measured option"* | load-bearing for the §2.4-retirement argument — if the ranking claim goes, so does this sentence's support for "answered by C11 without a dedicated selector" |
+
+`:1608-1612` is the one that costs something if missed.
+
+## 2. The rejection rationale for the alternative is void by the same fact
+
+Type 1 `:1544-1545`, transcribed at Type 3 `:1315-1316`, rejects the self-clamping
+`PRC = TotalDemand` seed because:
+
+> it makes the never-seen variant rank **best** precisely when scale-up is needed.
+
+With `Cost = 0`, **`PRC = 1` also ranks it best.** The stated ground does not distinguish the chosen
+mechanism from the rejected one.
+
+The decision still stands — on the cap and the *one bite, then measure* intent, which is a real and
+sufficient argument. But left as written the doc reads *"we rejected X because it does exactly what
+our choice does,"* which a reviewer of the eventual PR will find. The Type-3 copy at `:1315-1316` is
+yours to fix; the Type-1 original is not.
+
+With this, the Type 3 has **five** edit sites, not two.
+
+## 3. Correcting my own framing from the earlier handoff
+
+I wrote that the Type 1's rationale fails on "one unstated premise (`Cost_s > 0`)." That was too
+generous. The premise **is** stated — `combined-analyzer-optimizer-design.md:1334`, the `N5` row:
+
+> `costEfficiency = Cost / PRC = 0` then **ranks that variant cheapest**.
+
+`:1530-1532` then asserts the opposite for the same population, ~200 lines later. So this is an
+**unreconciled internal contradiction in a frozen document**, not a missing caveat — a different and
+more serious class, and worth saying that way when you flag `:1530-1533` to Dean. The arithmetic
+refinement in my earlier handoff (the failure is exactly at `Cost_s = 0`; the guarantee is
+recoverable once the saturation bug is fixed) is unaffected.
+
+## Unchanged
+
+Nothing here touches the `FZ-admission` decision, the sentinel value, the cap, or `N5`'s
+out-of-scope status. No production-code change follows. I am not asking you to edit the Type 1.
+
+Recorded in `planning/ta-anchor-dynamic-refresh-review.md` § *C11 pre-review — Finding 27*, under
+*Amendment*.

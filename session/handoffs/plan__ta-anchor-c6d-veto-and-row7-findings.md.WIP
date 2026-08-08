@@ -1,0 +1,162 @@
+# C6d landed — four things the plan should absorb
+
+to: planner (ta-anchor-dynamic-refresh-plan.md)
+from: coder, branch `ta-anchor-dynamic-refresh`
+date: 2026-08-07
+
+C6d is **code-complete and committed** (finding (c)'s per-variant veto + bug #5 site (iii) row 7 +
+`U2`'s negative test). All gates green, `make lint` 0 issues, **every golden unchanged** — C6d
+satisfies its "a moving golden is a bug" listing (plan L1624). No push.
+
+Four items below. **#1 and #3 need a planner decision; #2 and #4 are FYI-and-record.**
+
+---
+
+## 1. Site (iii): three plan statements still say "the binder's PRC". They should be struck.
+
+The plan carries **two incompatible specifications of row 7 in the same document**, and one of them
+is inside the same bullet as the other:
+
+| where | says | status |
+|---|---|---|
+| **L482** | "drop the Score factor and tie-break on the **binding** analyzer's PRC (`combineVotes` binder, `up=false`), then name ascending" | **stale** |
+| **L484-487** (same bullet, added by the 2026-08-07 refresh) | "Row 7's unit is *dimensionless coverage per GPU freed*, and the operator is `max_i`, never `Σ_i`" | **authority** |
+| **L1721-1722** (§5 dev-guide bullet) | "**C6c** (iii) (`sortVariantsForScaleDown` tie-break: Score dropped, uses the binder's PRC)" | **stale, twice** — wrong mechanism *and* wrong commit label (site (iii) moved to C6d per L479 and the §0 row at L283) |
+| **L1013** (§2d.6 `[sat]`-only table, row (iii)) | "exactly identical … the replacement reads the `combineVotes(up=false)` binder's PRC, which with one vote **is** `PRC_sat[v]`" | **stale mechanism**, and the conclusion is now **conditionally** false — see below |
+
+**These are not two wordings of one rule; they select different analyzers.** For `up=false`
+`combineVotes`' binder is the entry with the **minimum** `spare/prc` — it coincides with the
+maximum-PRC entry only when every voter's spare happens to be equal. And the Type 1's row 7 adds a
+**`GPUsPerReplica` division** that the "binder's PRC" formulation never mentions at all.
+
+I resolved this by the plan's own tie-break rule (§2d.5 L943-954: *"the Type 1's `W5` is the
+authority; if this table and it ever disagree, the Type 1 governs"*) and implemented
+**`maxᵢ PRC_i[v] ÷ GPUsPerReplica[v]`, ascending**, Score absent, name-ascending as the final tie.
+Requesting that L482, L1721 and L1013's justification be **struck** rather than left standing as
+apparent authority — same treatment §2 #5 site (v) got in C6c.
+
+### 1b. L1013's "exactly identical" is now a qualified claim, not an unconditional one
+
+Row 7 with one analyzer:
+
+- old key: `Σ_i voteScore_i × PRC_i[v]` = `1.0 × PRC_sat[v]`
+- new key: `maxᵢ PRC_i[v] / GPUsPerReplica[v]` = `PRC_sat[v] / GPUsPerReplica[v]`
+
+Ascending order over these two keys **differs whenever a role's cost-tied variants do not share
+`GPUsPerReplica`** — which is exactly the case the division was introduced to fix. So the cell
+should read *"identical **only when the role's cost-tied variants share `GPUsPerReplica`**; a
+`[sat]`-only model with same-cost, differently-sized variants reorders — deliberately"*, not
+"exactly identical".
+
+This does **not** weaken the goldens signal: the tie-break only fires on an exact `Cost` tie, no
+#1513 golden has one, and none moved. But the table is read as the definition of what a moving
+golden would mean, so it should be true.
+
+---
+
+## 2. `applyDeallocationForRole` materialized map keys — a defect the plan does not name, and
+## C6d's veto turns it from inert into a wrong-answer bug
+
+Pre-C6d the function did a bare `s[i].RoleSpare[role] -= float64(n) * prc`. On a map with **no such
+key** that reads the zero value, subtracts, clamps to 0, and **writes** — i.e. it *creates* the key
+at `0`.
+
+Under N7 (`C7`) a **missing** key is an **abstain** and a **present `<= 0`** is a **veto**. So after
+the first removal in a role, an analyzer that never sized that role would hold an explicit `0` and
+C6d's PRC-blind, score-blind veto would block **every remaining variant in the loop** — the plan's
+own stated invariant ("key missing ⇒ abstain") would be false from the second iteration onward.
+
+Fixed with a key-presence guard:
+
+```go
+spare, ok := s[i].RoleSpare[role]
+if !ok {
+    continue // abstained on this role (N7): no reported balance to spend
+}
+```
+
+**Observationally inert before C6d** (`votesFromRoleSpare` reads an absent key and a present `0`
+identically), which is why the pre-existing form was harmless and is not any longer — and why it
+moves no golden. Recorded in the doc comment and in the dev guide's *"An absent key is a different
+statement from a present zero"* paragraph. Flagging it as an **implementation-required addition the
+plan did not name**, so §2d.4 (c) can pick it up as part of the finding rather than as an
+undocumented extra.
+
+---
+
+## 3. The collector-level N7 hole is still open, and its in-code deferral note now predates the
+## two commits that make it matter
+
+`votesFromRoleSpare` does **not** check key presence, so an analyzer that abstained on a role still
+**casts a `0` vote** in the ballot. Under the **uniform scores that actually ship**, `e = 0` binds
+and `combineVotes` returns `0` — removal is throttled to zero. That is an *effective* veto from an
+abstention, which is precisely what N7 says must not happen.
+
+C7 honored N7 at the **role-entry gate**; C6d honors it at the **per-variant veto**. Neither touches
+the ballot. The in-code comment defers this as *"a behavioral question, not part of hoisting the
+arithmetic into one place"* — but that note **predates both C6b (scores can now outvote a `0`) and
+C7 (which gave abstain-vs-veto a name)**, so it is deferring against a premise that has changed
+twice.
+
+**I did not change behavior** — out of C6d's scope and it is the kind of edit that should not ride
+along silently. What I did do: corrected `votesFromRoleSpare`' doc comment (the old text claimed a
+map-miss vote *"holds removal at zero"*, which post-C6b is false in general) and corrected the dev
+guide's collectors table, which falsely claimed all three collectors require "its own state for that
+role" — in fact `votesFromTotalDemand` drops an entry that doesn't decompose the role while the other
+two read the map-miss as `0`.
+
+**Safe today**: a spurious `0` can only **under**-remove. So this is a re-decision request, not a
+blocker. Candidate homes: fold into C6f (`W4` is the same shape — "no basis ⇒ no participation"), or
+its own commit.
+
+---
+
+## 4. `U2` was asserted as a consequence, not as a call counter — method note
+
+`refreshAnchorSizing` is a plain function with no injectable hook, and the scale-down path builds no
+`RolePairedState` through which one could be passed. A literal "zero-invocation" assertion would have
+required **adding a test-only seam to production code**, which I read as worse than the alternative.
+
+Instead the fixture asserts the **observable consequence**: the anchor entry's `VariantCapacities`
+field-for-field unchanged (`Expect(anchor).To(Equal(before))`) across a two-variant, two-iteration
+shed with `len(s) == 2` (past `refreshAnchorSizing`'s `len(s) <= 1` early-out), where the two voters
+disagree with the anchor on **all five** fields a refresh would overwrite
+(`PerReplicaCapacity`, `Reason`, `TotalDemand`, `Utilization`, `TotalCapacity`).
+
+Redness proven by injecting a refresh call into `scaleDownRoleIterated`: it broke the new fixture,
+**two pre-existing scale-down tests, and the `B2: role-scoped scale-down` golden** — so the property
+is load-bearing repo-wide, not just locally asserted. Diagnostic reverted.
+
+If the planner wants the literal call-count form instead, say so and I'll add the seam — but it
+would be production surface that exists only for the test.
+
+---
+
+## Fixture inventory (for §4's checklist)
+
+`cost_aware_optimizer_test.go`, new `Describe("the scale-down loop's role-level veto and shed
+ordering")`, +270 lines. All eight drive `scaleDownRoleIterated` end-to-end or call
+`sortVariantsForScaleDown` directly (never `safeRemovalReplicasForRole` in isolation — §4 L1532-1535's
+trap):
+
+1. PRC-absence objector holds the next variant
+2. **outscored** objector holds the next variant (the post-C6b case a vote cannot express)
+3. N7 control — same numbers as #2, role key **missing** ⇒ removal proceeds; asserts the key is
+   **still absent** afterwards (this is the A/B pair that pins (c) and N7 as distinct, and the
+   fixture for item #2's guard)
+4. `U2` — anchor sizing untouched across a multi-variant, multi-iteration shed
+5. site (iii) — coverage per GPU, not raw capacity
+6. site (iii) — `max` not `Σ`
+7. site (iii) — Score ignored (scores spread 0.1/10 so **both** a weighted max and a weighted sum
+   flip the order; an earlier 100/0.01 spread was non-discriminating and stayed green under the
+   summed key)
+8. site (iii) end-to-end through the shed loop
+
+Every one proven red by reverting the code it covers (veto disabled → 2 red; guard disabled → 1 red;
+summed key restored → 3 red; refresh injected → 5 red incl. a golden). All diagnostics reverted.
+
+---
+
+## Continuing
+
+Straight into **C6e** (`W1`) per the standing instruction. No push — that is Dean's call per push.

@@ -1,0 +1,32 @@
+from: review (ta-anchor-refactor-v2 code-review session)
+to: planner
+session: ta-anchor — D1/D2 voting-liveness gate → PR-2 (Dean's decision)
+
+## Decision (Dean, 2026-08-06)
+
+The two open design questions D1/D2 — whether `votingResults` and the per-variant **(b)-fallback**
+should gate on `Enabled && Live` rather than `Enabled` alone (i.e. close the **scale-up Live-flag
+gap**: a dead-but-enabled analyzer can currently still drive scale-up; the scale-DOWN veto is
+already Live-gated and safe) — are **deferred to PR-2** (`ta-anchor-dynamic-refresh`).
+
+This **answers** the open question raised in `plan__ta-anchor-voting-liveness-gate.md`: the answer
+is "not in PR-1 — schedule for PR-2."
+
+## What the planner should do
+
+1. **PR-1 (`ta-anchor-refactor-v2`): no change.** The code faithfully matches plan §2/§6
+   (`Enabled`-only gating). It is **not** a defect and must **not** be reworked for D1/D2 in PR-1.
+2. **PR-2 stub (`ta-anchor-dynamic-refresh-plan.md`): add a scoped work item** — change
+   `votingResults` and the (b)-fallback to gate `Enabled && Live`, closing the scale-up Live-flag
+   gap. Note the blast radius flagged in the reviewer's D1/D2 write-up: plan §2/§6 wording, the
+   merge/binder line, `votingResults`, and Test 2. Cross-reference `plan__ta-anchor-voting-liveness-gate.md`
+   and the `project_ta_anchor_live_flag_gap` note.
+3. You can now close out `plan__ta-anchor-voting-liveness-gate.md` as answered (defer → PR-2).
+
+This PR-2 item joins the already-queued PR-2 work: the `(a)/(b)` → plain-prose notation cleanup
+(`plan__ta-anchor-ab-notation-cleanup-pr2.md`).
+
+## Not for sync
+
+Planner-task handoff (`plan__`), not a CURRENT-update. Fold into the PR-2 stub; re-emit a clean
+`sync__` afterward if you want CURRENT's PR-1/PR-2 rows updated.

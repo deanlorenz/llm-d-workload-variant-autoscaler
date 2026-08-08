@@ -1,0 +1,57 @@
+from: anchor-refactor-planner
+to: planner
+session: ta-anchor-refactor-v2 — Live-flag combine scale-up gap (durable capture before shutdown)
+
+**Why this handoff exists.** Dean's partial code review flagged that "the voting math does not
+respect the `Live` flag." I confirmed the diagnosis against the coder branch (read-only) before
+shutdown. This preserves the finding + a proposed fix for a resuming planner to discuss with Dean
+and fold into the FINAL plan `ta-anchor-refactor-v2-plan.md`. **No plan/code/review edits made** —
+this is a design call for Dean (which fix option), and the plan is otherwise FINAL.
+
+## Dean's required `.Live` semantics (verbatim intent)
+- `Live` avoids **veto-on-scale-down** by an analyzer with *really stale data* OR *never configured
+  to produce any data* → **dead** → **no veto**.
+- Veto IS allowed for **fresh** OR **transient-cannot-get-data** → prefer not to scale down (safe).
+  Not-temporary = dead = must NOT veto.
+- `Live` is **never fallback data**.
+- **All analyzers dead → no scaling** (hold).
+- **Not enabled → never triggers scale-up or scale-down math** (that's `Enabled`, distinct from `Live`).
+- Live-filtering only matters when **multiple analyzers enabled and some dead**.
+
+## Diagnosis (confirmed, branch `ta-anchor-refactor-v2` post-C2 `4b820281`)
+File `internal/engines/pipeline/analyzer_helpers.go`:
+- **Scale-DOWN / veto side — CORRECT, no change needed.** `needsScaleDownForRole` (~L444) and
+  `safeRemovalReplicasForRole` (~L390) each `if !e.Live { continue }`; `needsScaleDownForRole`
+  returns false when no live analyzer remains (all-dead → hold). Matches Dean's semantics.
+- **Scale-UP seeding side — THE GAP.** `initRoleState` (L271) seeds
+  `pickerState[i][role] = rc.RequiredCapacity` (+ `RoleSpare`) for every entry with a non-nil
+  `Result` — **no `.Live` guard**. Fed by `votingResults(req.AnalyzerResults)`, and `votingResults`
+  (~L232) filters **`e.Enabled` only, NOT `.Live`**. ⇒ a **dead-but-enabled** analyzer's stale
+  `RequiredCapacity` is still seeded into the scale-up allocator. Dean's semantics require
+  enabled+dead to be **out of the math entirely**, not just barred from veto.
+
+## Proposed fix (Dean picks)
+- **Option A (recommended): `votingResults` filters `e.Enabled && e.Live`.** Uniform "dead = out of
+  the combine" on both paths; all-dead → empty voting set → no scale-up seed AND veto false → hold,
+  self-consistent. **Ship-gate safe**: #1513 goldens + Test 9 fixtures are all-live → Live-filter is
+  a no-op → stay green; "zero combine-arithmetic change" preserved for covered configs. Requires a
+  plan §6·2b wording update (currently documents `votingResults` as an `Enabled`-only prune) and a
+  small coder re-touch of `votingResults` (+ a new test: dead-but-enabled analyzer does NOT drive
+  scale-up; all-dead → hold).
+- **Option B:** add a `!Live` guard in `initRoleState`/the scale-up allocator mirroring the
+  down-path guards. More surgical; leaves `votingResults` semantics split across sites.
+
+## Remaining verification before finalizing
+Confirm the scale-up allocator `allocateForModelPaired` reads `pickerState` without its own `!Live`
+guard (expected — otherwise the gap self-heals). Read-only; ~one grep.
+
+## Time-sensitivity
+NOT a live race. Coder landed C2 (`votingResults`, `4b820281`) and is **paused for shutdown** at
+C4/C5 (status: `session/status/ta-anchor-refactor-v2.md`). This is a follow-up plan amendment + a
+small coder re-touch, not mid-build. Fold after Dean picks the option.
+
+Refs:
+  - planning/ta-anchor-refactor-v2-plan.md (§6·2b votingResults, §6·2d combine-site repoint)
+  - internal/engines/pipeline/analyzer_helpers.go (initRoleState L271; votingResults ~L232;
+    needsScaleDownForRole ~L444; safeRemovalReplicasForRole ~L390)
+  - memory: project-ta-anchor-live-flag-gap

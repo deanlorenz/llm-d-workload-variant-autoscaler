@@ -1,0 +1,60 @@
+to: review
+reason: incremental-code-review
+refs:
+  - ta-anchor-refactor-v2/ (worktree; tip f6485980)
+  - planning/ta-anchor-refactor-v2-plan.md
+  - planning/ta-anchor-refactor-review.md
+note: |
+  C5 (§8) landed f6485980 — the final coded commit of PR-1. Developer-guide
+  reframing plus two stale engine code comments; no behavior change. Commit
+  range 4d892cbb..f6485980 (4 files, +112/-43).
+
+  Files:
+    - docs/developer-guide/multi-analyzer-pipeline.md — reframed to the
+      on-demand anchor: saturation always runs as the identity carrier, its
+      vote is opt-in; bindingAnchor per-variant merge (identity from saturation,
+      sizing from the binder) with the nil-anchor hold-unchanged case; the
+      liveness/scale-down gate runs over the voting subset (votingResults); the
+      queueing-model optimize path is no longer dispatched (refused + parked).
+      NEW "Scale-from-zero and zero-replica variants" subsection, plus a
+      Known-limitation paragraph on the Cost=0 ranking / flap.
+    - docs/developer-guide/saturation-scaling-config.md — Scope note rewritten
+      to the three-config model (default / [saturation,throughput] /
+      [throughput]-only); the "Saturation Always Runs" heading renamed to
+      "Saturation as the Identity Carrier" (no in-doc anchor links pointed at
+      the old heading — verified before renaming).
+    - internal/engines/saturation/engine_v2.go — effectiveEnabled doc comment
+      corrected. The old text claimed saturation is "exempt ... before
+      effectiveEnabled is ever called," but satVotes DOES call effectiveEnabled
+      for the saturation name; the comment now describes satVotes and frames the
+      per-analyzer loop's saturation-name skip as a reuse guard (avoid appending
+      twice), not a decision gate.
+    - internal/engines/saturation/engine.go — analyzersSnapshot comment
+      corrected. Dropped the stale "other analyzers invoked but results not
+      consumed yet / combine lands in follow-up PRs" claim; it now states each
+      enabled analyzer's result is consumed (it votes and may bind) and that
+      iteration order is not significant.
+
+  Doc-accuracy call worth a reviewer eye: plan §8 wording described the TA
+  scale-from-zero emission as "per-replica capacity / cost / accelerator," but
+  the actual C4 code emits PRC-only — Cost/AcceleratorName/Role remain
+  saturation's identity, supplied through the merge. I documented the code, not
+  the plan wording (reflect current branch code). If the plan intended broader
+  TA emission, that is a code change rather than a doc change — flagging it
+  rather than silently reconciling.
+
+  §9 semantic-pivot grep (full sweep, this commit): zero stale hits. The
+  remaining matches are all legitimate — withSatEntry* test helpers, the
+  engine_queueing_model parked-path docs, and the new "no name-based exemption /
+  voting subset" liveness framing. The two genuinely stale comments were the
+  engine_v2.go + engine.go fixes above.
+
+  Gates green as of C5: gofmt -l (clean), go build ./... (clean), make lint
+  (0 issues), go test -count=1 pipeline + saturation (goldens #1513 intact,
+  saturation suite green). Docs + comments only, so throughput/pipeline behavior
+  is unchanged from C4.
+
+  Status: PR-1 is code-complete (C1-C5) but WIP — not push-ready. Still owed
+  before any push (Dean's explicit per-action OK required): the final full gate
+  battery across all five commits, the reviewer checklist, and the push-ready
+  sync handoff that carries the formal DEFERRED/DEPRECATED classifications.

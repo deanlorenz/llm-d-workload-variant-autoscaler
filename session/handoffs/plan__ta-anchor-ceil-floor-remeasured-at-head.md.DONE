@@ -1,0 +1,75 @@
+# plan__ta-anchor-ceil-floor-remeasured-at-head
+
+from: ta-anchor-dynamic-refresh (coder)
+to:   planner — Type-3 owner; for routing to Dean with the fork
+reason: the refreshed decision input review asked for. Measurement only — no verdict, no golden touched.
+refs:
+  - plans/session/handoffs/plan__ta-anchor-fork-priced-before-its-mitigation.md (the ask; not consumed by me)
+  - plans/session/handoffs/plan__ta-anchor-c6c-ceil-eviction-fork.md.DONE (the stale 9-failure measurement)
+  - internal/engines/pipeline/greedy_score_optimizer.go:837 (`replicasToCover`, the fork)
+
+## What I ran
+
+`math.Ceil` → `math.Floor` at `replicasToCover`, full engine suite at HEAD `a9afb740`, then reverted.
+**The mutation is not committed and the tree is clean at `a9afb740`; suite re-verified green after
+revert.** No golden was adjusted — this is a measurement, and the fork is Dean's.
+
+I verified review's three structural claims myself before running, and all three hold: `firstDraw` is
+absent at C6c `34b18bc5` and introduced by C6e `784c2b5c` (`git log -S`), the guard is
+`if firstDraw && capN < 1 { capN = 1 }`, and `:837` is the `math.Ceil`.
+
+## The number: 5 failures of 386, down from 9 of 334
+
+| | at C6c `34b18bc5` | at HEAD `a9afb740` |
+|---|---|---|
+| failures | 9 of 334 | **5 of 386** (381 passed, 1 pending) |
+| worst delta | **−4** (`bv` 6→2, *unconstrained* budget) | **−2** |
+| collapse-to-1 / eviction rows | **2** | **0** |
+
+All five failures are in `greedy_score_optimizer_test.go`, and every one is a plain shortfall:
+`2` vs `4` at `:175` and `:230`, `2` vs `3` at `:1405`, `:1592`, `:1613`. **Nothing returns 0 or 1.**
+The `w.remaining = -1` eviction signature I diagnosed at C6c does not appear anywhere in the output.
+
+## Why the count drop is not just bookkeeping — the part worth reading
+
+The two counts are over **different suites** (334 specs then, 386 now: C9c added 24, C9d removed the
+sat-only goldens), so 9 → 5 is not a like-for-like comparison and I am not presenting it as one. What
+*is* like-for-like is that **both of the worst C6c-era failures are on specs that still exist at HEAD
+and now pass under `floor`**:
+
+- `optimizer_equivalence_test.go:136-138` — the `bv` 6→2 row, the −4 under an unconstrained GPU
+  budget, which was my stated reason for refusing to touch a golden at C6c. Present at HEAD, green
+  under `floor`.
+- `greedy_score_optimizer_test.go:2154` — the `team-b` collapse-to-1 row. Present at HEAD, green
+  under `floor`.
+
+So the mechanism review reconstructed by reading is confirmed by behavior: the C6e first-draw guard
+neutralizes the eviction, and what remains under `floor` is a rounding shortfall rather than a
+termination. My C6c option (b) — "`capN == 0` must mean defer, not evict … more than a one-line
+commit" — is answered from the other side and is already in the branch.
+
+## One of the five is the fork itself, not a cost
+
+`:1405` *"rounds the entitlement up to a whole replica and the pool down"* asserts `capN == 3` for a
+5-GPU entitlement at 2 GPUs per replica, and its comment argues the round-up in prose. That spec **is
+a specification statement about the fork**. If the fork resolves to `floor`, its expectation and its
+comment both change by design — it is not collateral damage and should not be counted as a price.
+
+That leaves **four** specs carrying an actual behavioral cost: `:175` and `:230` (the pre-C6c
+design-doc walkthrough, where the starved model takes 2 instead of 4 and the priority-weighted split
+flattens) and `:1592`/`:1613` (C6e's one-entitlement-per-model specs). All four are one or two
+replicas short at a mid-replica boundary — which is the plan's own stop condition, the one that was
+*not* met at C6c.
+
+## What I am not saying
+
+I have not re-run the C6c-era suite under `floor`, so I cannot decompose the 9 → 5 drop between the
+guard and the suite churn. I am not recommending `floor`. Four other `ceil`/`floor` endorsement sites
+and the surrounding prose would still need to move together if the fork resolves — review's §6
+correction lists them (`analyzer_helpers.go:629`, `rescale.go:598`, `queueingmodel/analyzer.go:379`
+stay; `greedy_score_optimizer.go` has eight endorsement sites of which only `:837` is reachable by
+`git grep -i ceil`). That is the remaining work, not something this measurement closes.
+
+## State
+
+Tip **`a9afb740`** unchanged, 25 commits on `075a208e`, working tree clean, **nothing pushed**.
