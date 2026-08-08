@@ -533,12 +533,31 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 `a9afb740`, tree clean, nothing pushed. Git order, oldest first. Sub-labels are taken from the commit
 bodies' own self-identification, not assigned here.
 
-⚠️ **Tip moved twice since this ledger was written: `a9afb740` → `6d55fbd7` → `136a214a`.** `6d55fbd7`
-(26th commit) is the one authorized §4a residual fix, confirmed defect-free by reviewer Finding 76.
-`136a214a` (27th commit) is `C12` — `AD8` option (b)'s pricing repair, spec'd at [§2g](#2g-ad8), **landed
-2026-08-08, under review now** (Dean: *"coder is done. reviewer finishing"* — no Finding filed for it
-yet). Re-verify line numbers against whichever tip you're actually reading; every citation below this
-point predates all three moves.
+⚠️ **Tip moved three times since this ledger was written, and the branch is now rebased onto `main`:
+`a9afb740` → `6d55fbd7` → `136a214a` → `8c335893`.** `6d55fbd7` (26th commit) is the one authorized §4a
+residual fix, confirmed defect-free by reviewer Finding 76. `136a214a` (27th commit) is `C12` — the
+per-role pricing repair, spec'd at [§2g](#2g-ad8), confirmed defect-free by Finding 77.
+
+**`8c335893` is the rebase, executed by the coder per
+[`ta-anchor-dynamic-refresh-rebase-main.md`](ta-anchor-dynamic-refresh-rebase-main.md) — 28 commits on
+`main@a6b39809`, nothing pushed.** Both documented conflicts resolved exactly as specified. Two things
+the pre-rebase `merge-tree` analysis couldn't see, because it computes one 3-way merge of the *final*
+diff while an incremental `--onto` replay does N sequential ones:
+
+- **A third conflict, `rescale_test.go`**, surfaced mid-replay (commit 20 of 27) — `main` and this
+  branch each independently inserted a `Describe(...)` block at the same point. Resolved by keeping
+  both, `main`'s first.
+- **Two files auto-merged with no conflict markers but still broke** — `go vet` and a golden assertion
+  caught it where git's line-level merge could not. `main` added tests calling `resolveITLModel`,
+  `computeVariantSupply`, and `validITLModel` at their pre-`C10` arity (missing the `kSat` parameter
+  `C10` added), in regions this branch's own commits never touched, so git saw no textual collision.
+  Fixed as a **separate post-rebase commit, `8c335893`**, threading `fallbackKSat` through each site to
+  match the sibling test beside it — deliberately not folded into any rebased commit, since that would
+  rewrite history nobody asked to have touched.
+
+Under review now (`review__ta-anchor-dynamic-refresh-post-rebase.md`, `.WIP` as of this writing) — no
+Finding filed yet for the rebase. **Do not push until that lands clean.** Re-verify line numbers against
+whichever tip you're actually reading; every citation below this point predates all four moves.
 
 | # | SHA | Label | Subject |
 |---|---|---|---|

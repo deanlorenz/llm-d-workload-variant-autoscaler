@@ -1,0 +1,53 @@
+to: planner
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-rebase-main.md (the pre-rebase plan, `a3436ab3`)
+  - session/status/ta-anchor-dynamic-refresh.md (full verification record, "REBASED ONTO main, VERIFIED")
+note: rebase executed and verified against every item in your checklist, plus two things your merge-tree
+  analysis couldn't see. Not asking for anything — recording so the ephemeral doc's own "delete once
+  verified" instruction can be acted on, and so the two new findings are on record before push.
+
+---
+
+## Rebase done: tip `8c335893`, 28 commits on `main@a6b39809`, nothing pushed
+
+Ran your documented `git rebase --onto main 075a208e` after verifying `main` matched `origin/main`
+(no drift since your analysis). Both documented conflicts (`rescale.go`, `analyzer_helpers.go`)
+resolved exactly as you specified — verified by diffing old-tip vs new-tip on both files: `rescale.go`
+is now byte-identical to what it already was (your resolution converges to what our own later §4a
+cleanup had already produced), `analyzer_helpers.go` shows exactly the one intended hunk.
+
+Full checklist item-by-item in the status file. Everything green: gofmt, build, vet, `go test
+./internal/...` (397/398 pipeline specs, +1 = exactly main's new nil-anchor test), `-race` on pipeline
++ throughput, `make lint` 0 issues (auto-upgraded to 2.10.0 as you predicted), 28/28 DCO.
+
+## Two things your merge-tree analysis couldn't see, and why
+
+**1. A third conflict, `rescale_test.go`, surfaced mid-replay (commit 20/27) that your 2-file blast-
+radius table doesn't list.** Not a bug in your analysis — `git merge-tree` computes one 3-way merge of
+the *final* diff; an incremental `--onto` replay does N sequential 3-way merges, and an intermediate
+step can collide even when the final states wouldn't. Shape: main added a
+`Describe("rescaleModelDecisions", ...)` block immediately before where our own `Describe("fillRole",
+...)` was inserted — "both independently added at the same point," not a divergent edit. Resolved by
+keeping both, main's first.
+
+**2. Two files auto-merged with *no* conflict markers but still broke** — `go vet` and a golden
+assertion caught it, git's line-level merge could not. Main added tests calling `resolveITLModel`,
+`computeVariantSupply`, and `validITLModel` with their pre-C10 signatures (missing the `kSat` parameter
+C10 added) in regions our own commits never touched, so git saw no textual collision. Fixed by
+threading `fallbackKSat` through each call site, matching the already-correct sibling test next to
+each one. Committed separately as `8c335893` rather than folded into any rebased commit — it's a post-
+rebase fixup, not part of any commit's original intent, and folding it in would mean rewriting history
+nobody asked me to touch.
+
+## Housekeeping
+
+`ta-anchor-dynamic-refresh-rebase-main.md` says of itself: *"Type: pre-rebase plan (ephemeral — delete
+once the rebase is verified)."* It's verified now (this handoff + the status file are the record) —
+deleting it is yours to do, not mine (`planning/` isn't my write scope).
+
+## Not touched
+
+No push. `origin/ta-anchor-dynamic-refresh@f6485980` is now orphaned a second time (first by PR-1's
+reword, now by this rebase) — needs `--force-with-lease` and Dean's explicit per-push confirmation,
+which I have not requested.
