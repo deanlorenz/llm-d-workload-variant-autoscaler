@@ -89,6 +89,13 @@ inside `scaleDownVariantSet`, which regime (i) never enters.
 
 ## 5. Premises to stop carrying
 
+- **§ withdrawn item 6** — the drain as *"newly unmasked by `VG-up`"*. Wrong: base's binder gate was already
+  `Live`-gated and base's `roleDemandGPUs` read demand off the anchor (`075a208e:rescale.go:545`), so base
+  already bound TA and already read prefill `TotalDemand = 0`. Confirmed by execution at base, and the
+  reviewer has conceded it (Finding 67). **This is the specific stale premise inside the consumed
+  `plan__ta-anchor-ta-role-completeness-addendum.md`** — that file is `.DONE` and is not being edited, so the
+  correction lands here instead. Route (A) *is* HEAD-reachable when the pruned entry carries a positive `RC`
+  (arm-2 run), which is a narrower claim than the one withdrawn.
 - **§ withdrawn item 7** — "the cell is reachable by the most ordinary path there is (a cold start)". Wrong.
 - **§ withdrawn item 8** — "reachable by cold start or sustained metrics gap". Wrong; see §2 above.
 - **Review finding V6's (b)-fallback domain** — inverted; superseded by `N1`.
