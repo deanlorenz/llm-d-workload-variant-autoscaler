@@ -1,6 +1,6 @@
 last_update: 2026-08-08
 state: in-progress
-current_step: Addendum 1 approved and handed off; monitoring until PR-2 lands. One question open for Dean (placement).
+current_step: Addendum 1 at Rev 7 (43f20c65) — Finding 75 folded in, evidence-only. Monitoring until PR-2 lands. One question open for Dean (placement).
 blocked_on: —
 
 ## Role — read this first on a cold resume
@@ -47,25 +47,44 @@ All 11 inbound `designer__*` handoffs are `.DONE`.
 - **Sequencing:** *"we do not correct until coder lands. Only handoffs until then."* No corrective edits to
   anyone else's live docs while PR-2 is in flight.
 
-## Rev 6 — the substantive result, and why severity moved
+## Rev 6/7 — the substantive result, and why severity moved
 
 Rev 6 withdrew this author's Rev 5 claim that the `[sat, TA]`-with-saturation-non-live cell is reachable.
-It is **closed**. Two in-process memories, opposite time constants:
+It is **closed** — Dean approved Rev 6, and the reviewer's Finding 75 then independently confirmed the
+closure by counter-example search (four candidate single-fault stories, all four fail). **The closure
+stands, twice over.**
 
-| | warmed by | evicted after |
-|---|---|---|
-| saturation's capacity store | **scale-target objects, every cycle** — step 1 of `RunAnalysis` (`saturation/engine_v2.go:38-53`), before the ballot is built | **7 days** (`CapacityEvictionTimeout`) |
-| TA's `variantStates.lastPerReplicaSupply` | **observed live replica metrics only** (`throughput/analyzer.go:427-440` `continue`s without a prior observation) | **1 hour** (`2 × DefaultObservationMaxAge`) |
+**But Rev 6's argument was wrong, and Rev 7 (`43f20c65`) replaced it.** Rev 6 argued a **retention
+asymmetry** — saturation's capacity records kept 7 days, TA's persisted supply expiring in 1 hour. That
+table is now **withdrawn** (`§ withdrawn` item 9) — do not cite "7 days vs 1 hour" or "168×" again; the
+eviction code that would make those numbers matter (`EvictStale`, `EvictStaleHistory`) has **zero callers
+tree-wide**, so the constants describe dead code, not the actual mechanism.
 
-⇒ **TA warm implies saturation warm.** A cold start leaves both cold; a gap long enough to push saturation
-past the 90 s liveness window (`3 × interval`) has already emptied TA. Residual: a fresh process where
-**every** variant's scale-target fetch also fails (`saturation/engine.go:1500-1507`) — and TA is cold there
-too, so it cannot be the surviving voter.
+**The replacement needs no time constant at all — it's same-event, not retention.** Processing a usable
+replica-metric row is the only way TA ends up with a positive `lastPerReplicaSupply` for a variant — and
+processing that same row writes saturation a `learnedFromLive` capacity record keyed on the same
+`rm.VariantName`, in the same key space, on the same cycle (`saturation_v2/analyzer.go:198-207`), which
+`capacity_store.go:98-101` protects from being overwritten by a weaker source. ⇒ **TA warm ⟹ sat warm**,
+instantaneously, per variant — containment, not a race. Saturation is warm over a **strictly broader**
+set besides, because its store is *also* pre-populated from scale-target objects on step 1 of every cycle
+(`saturation/engine_v2.go:38-53`), reaching variants with no metric rows at all.
 
-**Unmoved by this:** `[TA]`-only (needs no saturation death at all — the guard's case, and the reachable
-configuration) · the two regimes measured at HEAD (fixtures build the ballot directly, bypassing both
-memories) · the arithmetic · Dean's decision to repair the pricing.
-**Moved:** severity drops, because Dean set it on Rev 5's premise.
+**Rev 6's own residual is retired too** ("a fresh process where every scale-target fetch fails") — two
+closures Rev 6 didn't cite kill it (`saturation/engine.go:1506` before `:1520`/`:1523`; `:1540-1545`
+before `:1547`): that state is **no model on the ballot**, not an all-`NoData` model with TA as the sole
+voter.
+
+**One new residual survives, recorded as a band, not a closure:** on the last cycle with rows,
+`min(k1, k2) ≤ 0` (`saturation_v2/analyzer.go:185-188`) for every variant while TA computed a positive
+`perReplicaSupply` from those same rows, and `lookupCompatibleCapacity` missed for all of them. A `k1`/`k2`
+arithmetic question, not a liveness one — needs a k1/k2 fixture if anyone ever probes it. **No ruling,
+severity, or disposition depends on which way it goes.**
+
+**Unmoved by any of this:** `[TA]`-only (needs no saturation death at all — the guard's case, and the
+reachable configuration) · the two regimes measured at HEAD (fixtures build the ballot directly, bypassing
+both memories) · the arithmetic · Dean's decision to repair the pricing.
+**Moved:** severity dropped once, at Rev 6 (because Dean set it on Rev 5's premise) — **Rev 7 moves
+nothing further**; it only repairs the evidence under an already-settled conclusion.
 
 **The seam survives but is latent, not live:** informativeness reads per-variant `Reason`, while the RC
 reaching the optimizer comes from `RoleCapacities`, and `applyUniversalThreshold`
