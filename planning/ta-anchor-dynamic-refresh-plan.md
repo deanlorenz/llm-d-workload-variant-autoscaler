@@ -84,47 +84,54 @@ here records the answers rather than pointing at open questions.
 
 ## TOC
 
-- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L129:351
-  - [Where the branch actually is](#where-the-branch-actually-is) L138:161
-  - [What is genuinely left](#what-is-genuinely-left) L162:190
-  - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L191:212
-  - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L213:321
-  - [Premises to stop carrying](#premises-to-stop-carrying) L322:338
-  - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L339:351
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L352:457
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L458:658
-  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L500:658
-    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L505:564
-    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L565:615
-    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L616:658
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L659:970
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L971:1057
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1058:1087
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1088:1484
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1095:1114
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1115:1162
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1163:1225
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1226:1299
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1300:1426
-    - [Sat-only invariance](#sat-only-invariance) L1365:1406
-    - [Goldens](#goldens) L1407:1426
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1427:1465
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1466:1484
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1485:1646
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1494:1529
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1530:1585
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1586:1646
-- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1647:1802
-  - [The gap](#the-gap) L1670:1692
-  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1693:1735
-  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1736:1778
-  - [Scope](#scope) L1779:1802
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1803:1837
-- [§4 Ship gate & tests](#4-ship-gate--tests) L1838:2127
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2128:2391
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2392:2625
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2626:2826
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2767:2826
+- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L136:376
+  - [Where the branch actually is](#where-the-branch-actually-is) L145:168
+  - [What is genuinely left](#what-is-genuinely-left) L169:211
+  - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L212:233
+  - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L234:346
+  - [Premises to stop carrying](#premises-to-stop-carrying) L347:363
+  - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L364:376
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L377:482
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L483:690
+  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L525:690
+    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L530:596
+    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L597:647
+    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L648:690
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L691:1002
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L1003:1089
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1090:1119
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1120:1516
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1127:1146
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1147:1194
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1195:1257
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1258:1331
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1332:1458
+    - [Sat-only invariance](#sat-only-invariance) L1397:1438
+    - [Goldens](#goldens) L1439:1458
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1459:1497
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1498:1516
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1517:1678
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1526:1561
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1562:1617
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1618:1678
+- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1679:1834
+  - [The gap](#the-gap) L1702:1724
+  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1725:1767
+  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1768:1810
+  - [Scope](#scope) L1811:1834
+- [§2g `AD8` option (b) — the per-role pricing repair — lands in C12](#2g-ad8-option-b--the-per-role-pricing-repair--lands-in-c12) L1835:1983
+  - [The gap, restated precisely](#the-gap-restated-precisely) L1843:1864
+  - [Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled](#mechanism--abstain-dont-vote-when-a-roles-demand-is-structurally-unmodeled) L1865:1919
+  - [What this closes, and what it does not — traced through `combineVotes`, not asserted](#what-this-closes-and-what-it-does-not--traced-through-combinevotes-not-asserted) L1920:1944
+  - [Tests](#tests) L1945:1964
+  - [Dev-guide](#dev-guide) L1965:1974
+  - [Deletion/behavior classification](#deletionbehavior-classification) L1975:1983
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1984:2018
+- [§4 Ship gate & tests](#4-ship-gate--tests) L2019:2308
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2309:2572
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2573:2806
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2807:3014
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2955:3014
 
 ## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
 
@@ -175,7 +182,7 @@ on it** — the C9 sweep moved every one.
 | `A28` | Two claimed §4a violations at `analyzer_helpers.go:88`, `:642` | ✅ **DONE**; no token at either line |
 | **§4a residual** | `docs/developer-guide/multi-analyzer-pipeline.md:858` — *"open with the **Type-1** owner"* | ✅ **DONE** — `6d55fbd7`, reworded to *"analyzer-design owner"*, no token |
 | `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** — still outstanding |
-| `AD8` (b) | Three-site per-role pricing repair | ⛔ **Dean places it** — see below |
+| `C12` (`AD8` (b)) | Three-site per-role pricing repair — **decided: in this PR** (Dean, 2026-08-08) | **In scope, spec written** — §2g, coder-ready |
 
 ⚠️ **The "rounding — `ceil` vs `floor`, Dean holds it" row above earlier revisions carried is RETRACTED
 (designer correction, 2026-08-08) — it mis-scoped two different quantities as one fork.** `capN =
@@ -226,12 +233,16 @@ make — what would be a defect is leaving it unnamed.
 
 ### `AD5`/`AD8` — the disposition the freeze carries
 
-Addendum 1 `AD8` is **DECIDED: repair the pricing** (Dean, 2026-08-08). The mechanism question is closed;
-only placement is open.
+Addendum 1 `AD8` is **DECIDED: repair the pricing, in this PR** (Dean, 2026-08-08 — placement is no
+longer open). Full mechanism, code sites, and tests: **[§2g](#2g-ad8), lands as `C12`.**
 
-- **Approved — option (b), the per-role pricing repair, three sites:** per-role sizing; `CapGPUs`/`Demand`
-  in `rescaleInputsForGroup:540-546` (fixing only the role split leaves the model hard-capped at its
-  understated demand); `cost_aware_optimizer.go:350-367` observability.
+- **Approved — option (b), the per-role pricing repair, three sites:** per-role sizing (`§2g`'s new
+  `RoleCapacity.Reason` abstain predicate, consumed at `votesFromPickerState` and `votesFromRoleSpare`);
+  `CapGPUs`/`Demand` in `rescaleInputsForGroup:540-546` via the same predicate at `votesFromTotalDemand`
+  (fixing only the role split leaves the model hard-capped at its understated demand — a residual `§2g`
+  names, not one it closes); `cost_aware_optimizer.go:350-367` observability. **Closes regime (ii) — the
+  drain — in the reachable cell. Does not close regime (i) — the freeze — which needs a real demand
+  number no mechanism in this PR can supply; see `§2g`'s traced-not-asserted section.**
 - **Rejected — option (a), a liveness-aware refusal.** Dean: *"PD not SAT — DONT."* The rule stays keyed
   on the **enabled** set; no second refusal predicate is wanted. Anything that reads as a liveness special
   case in the combine is in this family and is out.
@@ -521,6 +532,13 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 **This ledger is the fact; the intent table below it is the spec.** 25 commits on base `075a208e`, head
 `a9afb740`, tree clean, nothing pushed. Git order, oldest first. Sub-labels are taken from the commit
 bodies' own self-identification, not assigned here.
+
+⚠️ **Tip moved once since this ledger was written: `a9afb740` → `6d55fbd7` (26th commit — the one
+authorized §4a residual fix, "name the analyzer-design owner, not the Type-1 taxonomy label").
+Reviewer's Finding 76 confirms it (no defects) at that tip.** A **27th commit, `C12`, is now specified**
+([§2g](#2g-ad8)) and not yet landed — `AD8` option (b)'s three-site pricing repair, decided in this PR
+2026-08-08, after Finding 76's review. Re-verify line numbers against whichever tip you're actually
+reading; every citation below this point predates both moves.
 
 | # | SHA | Label | Subject |
 |---|---|---|---|
@@ -1813,6 +1831,155 @@ vocabulary** and name the spelling chosen, so the dev-guide and any future grep 
 
 ---
 
+<a id="2g-ad8"></a>
+## §2g `AD8` option (b) — the per-role pricing repair — lands in C12
+
+**Decided (Dean, 2026-08-08): in this PR.** Addendum 1's `AD8` disposition approves option (b) — repair
+the pricing, three sites — and placement was the one remaining open call; it is now closed. Mechanism
+below is a joint planner/designer design (verified line-by-line against `6d55fbd7` before being written
+here, not transcribed from a spec that already named it) — this section **is** the design ruling, per
+*"don't leave design decisions to coder."*
+
+### The gap, restated precisely
+
+`throughput/analyzer.go`'s `distributeDemandByRole` (`:928-937`) builds its role set with
+`if role != domain.RolePrefill` — prefill is **excluded before the split runs**, not computed and landing
+at zero. `aggregateRoleCapacities` (`:953-970`) then reads `arrivalDemandByRole["prefill"]` /
+`queueDemandByRole["prefill"]` on maps that never got that key; a Go map miss returns the zero value, so
+`TotalDemand(prefill) = 0 + 0 = 0` **by construction**, unconditionally, at every arrival rate, in every
+P/D configuration. This is genuinely unfixable within TA as it exists — closing it for real needs a
+TA-prefill analyzer (Dean: *"this will not be solved until we have TA-prefill added in"*), which is future
+work, not PR-2. **`C12` does not touch `distributeDemandByRole`, `aggregateRoleCapacities`'s demand terms,
+or the engine's threshold post-step.** It only changes what three ballot-construction functions do with a
+`TotalDemand = 0` / `RequiredCapacity = 0` / `SpareCapacity = TotalSupply` that is already, unavoidably,
+wrong for this one role.
+
+**Why this is safe to key on a role-level flag, not a per-cycle computation.** Decode's demand and
+prefill's demand are not computed from a shared pool that could leak into each other — prefill's zero
+comes from a map key that was **never written**, not from a value that was computed and happened to land
+on zero. Nothing about decode's path can cause prefill's reason to be set or unset as a side effect; they
+don't touch. Confirmed at `throughput/analyzer.go:928-937` and `:953-961`.
+
+[↑ TOC](#toc)
+
+### Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled
+
+The existing codebase already has the vocabulary for "why does this number look the way it does" —
+`Reason` fields on `VariantCapacity` (`ReasonNoData`, `ReasonFromZeroAdmission`). Extend the same idiom
+one level up, to `RoleCapacity`:
+
+```go
+// internal/domain/analyzer.go — RoleCapacity gains one field
+type RoleCapacity struct {
+	Role        string
+	TotalSupply float64
+	TotalDemand float64
+	TotalAnticipatedSupply float64
+	RequiredCapacity       float64
+	SpareCapacity          float64
+	// Reason explains a TotalDemand/RequiredCapacity/SpareCapacity that is
+	// structurally, not measurably, degenerate for this role — e.g. an
+	// analyzer with no demand model for the role at all. Ballot-construction
+	// functions abstain rather than vote on a Reason match; empty means the
+	// values are a real measurement. Set by the analyzer, read by the pipeline.
+	Reason string
+}
+```
+
+```go
+// internal/engines/pipeline/analyzer_helpers.go — new reason, pipeline-owned
+// (analyzers import pipeline for shared reason vocabulary, not the reverse —
+// see satReasonNoData = pipeline.ReasonNoData, saturation_v2/analyzer.go:31)
+const ReasonRoleUnmodeled = "role-unmodeled"
+```
+
+**Set at construction, TA-side, one line:** `aggregateRoleCapacities` (`throughput/analyzer.go:960-968`),
+inside the `for role, t := range byRole` loop — when `role == domain.RolePrefill`, set
+`Reason: pipeline.ReasonRoleUnmodeled` on that role's `RoleCapacity` literal. Every other role
+(`decode`/`both`) leaves `Reason` at its zero value. Saturation never sets it — it is role-complete for
+every role its variants declare, so nothing on that side changes.
+
+**Consumed at three ballot functions, symmetric with the existing `prc <= 0` abstain pattern already in
+two of them:**
+
+| Function | File | Regime | Change |
+|---|---|---|---|
+| `votesFromPickerState` | `analyzer_helpers.go` | (i) freeze — scale-up | Before pricing the vote: `if rc, ok := e.Result.RoleCapacities[role]; ok && rc.Reason == pipeline.ReasonRoleUnmodeled { continue }` |
+| `votesFromRoleSpare` | `analyzer_helpers.go` | (ii) drain — scale-down | Same guard, same shape, before the `prc <= 0` check |
+| `votesFromTotalDemand` | `analyzer_helpers.go` (feeds `roleDemandGPUs` → `modelDemandGPUs` → `rescaleInputsForGroup:540-546`, the addendum's site 2) | rescale water-fill | Same guard — this function already does `rc, ok := e.Result.RoleCapacities[role]`, so the check reads directly off the value already in hand |
+
+**Site 3 — observability, `cost_aware_optimizer.go:350-367`.** The decision's published
+`RequiredCapacity`/`SpareCapacity` (feeding `wva_required_capacity`/`wva_spare_capacity`) currently read
+`anchor.RoleCapacities[role]` wholesale with no Reason check. When the binding role capacity carries
+`ReasonRoleUnmodeled`, fall back to the anchor's **model-level** `RequiredCapacity`/`SpareCapacity` (the
+same fallback the code already performs when no per-role entry exists at all, one branch up) rather than
+publish a per-role figure that misrepresents a structural non-answer as a measurement.
+
+[↑ TOC](#toc)
+
+### What this closes, and what it does not — traced through `combineVotes`, not asserted
+
+- **Regime (ii), the drain: closes, in the reachable cell.** Today TA casts a real vote
+  (`RoleSpare[prefill]/prc ≈ TotalSupply/prc`, the whole fleet) into a MIN-combine it dominates alone when
+  saturation is non-live. Abstaining removes it from the ballot entirely —
+  `safeRemovalReplicasForRole`'s own doc comment: *"no live analyzer sizes v at all ⇒ no ballot to combine
+  ⇒ 0"*. Traced through the arithmetic: `combineVotes` on an empty ballot returns `(0, -1)`, `binder < 0`,
+  function returns 0 directly. `roleSpareVetoed` is unaffected either way — TA's positive spare never
+  vetoes today (a veto needs `spare <= 0`), and still won't. Drain stops.
+- **Regime (i), the freeze: does NOT close, and cannot with this mechanism.** One voter, vote 0 today:
+  `combineVotes` returns `(0, 0)`, `roleBottleneckReplicas` ceils to 0. Abstain instead:
+  `combineVotes` returns `(0, -1)`, same function still returns 0 on `binder < 0`. **Identical output
+  either path** — abstention only changes anything when a second voter exists to un-suppress, and the
+  reachable cell for regime (i) is exactly the one where there isn't one. This is not a gap in `C12`; it
+  is `AD1`'s own boundary (*"unfixable without a real demand number"*), confirmed rather than fought.
+  Regime (i) remains exactly as severe as today, documented, with `MinReplicas` as the only (manual,
+  operator-set, non-originating) floor.
+- **Site 2's residual, to name honestly rather than imply fixed:** even after `votesFromTotalDemand`
+  abstains, `modelDemandGPUs`'s per-model total still has no real prefill contribution to sum — nobody
+  can price it — so a model's rescale `CapGPUs` in cross-model contention stays capped at whatever decode
+  alone demands. `C12` stops TA's wrong number from actively harming the ballot; it does not manufacture
+  the missing one. Same boundary as regime (i), stated once rather than three times.
+
+[↑ TOC](#toc)
+
+### Tests
+
+- **Regime (ii) discriminator, the one that must go red on `6d55fbd7` and green after:** `[TA]`-only P/D
+  fixture, prefill at N > 1 replicas, decode `RC == 0` (drain arm) — assert prefill removal count is 0
+  post-`C12` where it was N−1 (drain to 1) before. Mirror with `[sat, TA]` + saturation forced non-live.
+- **Regime (i) non-regression, stated as a negative to prevent a future "fix" from silently changing it:**
+  same fixture shape, decode `RC > 0` (freeze arm) — assert prefill target is unchanged pre/post `C12`
+  (still frozen at current count). This spec's purpose is to catch a *future* change reintroducing the
+  conflation this section just drew a line under, not to exercise new behavior.
+- **`Reason` provenance:** a TA-only fixture asserting `RoleCapacities["prefill"].Reason ==
+  ReasonRoleUnmodeled` and every other role's `Reason == ""`; a saturation-only fixture asserting no role
+  ever carries it.
+- **Observability:** decision `RequiredCapacity`/`SpareCapacity` for a `ReasonRoleUnmodeled` role falls
+  back to model-level totals, not the per-role (structurally wrong) figures.
+- **`votesFromTotalDemand` abstention does not change a role saturation still prices** — a `[sat, TA]`
+  P/D fixture with saturation live: prefill's rescale demand still comes from saturation's
+  `estimateSchedulerQueueDemand`, unaffected by TA's abstention on the same role.
+
+[↑ TOC](#toc)
+
+### Dev-guide
+
+`multi-analyzer-pipeline.md`, new subsection under "Scale-from-zero and zero-replica variants" or its own
+"`AD8`: a structurally unmodeled role does not vote" — state the mechanism (abstain, not zero), what it
+closes (drain) and what it does not (freeze — needs a future TA-prefill analyzer), and the `Reason`
+constant's spelling for future grep. §4a: no plans-branch tokens — say "a structurally unmodeled role,"
+not "`AD8`" or "the addendum."
+
+[↑ TOC](#toc)
+
+### Deletion/behavior classification
+
+Adds behavior; deletes nothing. No DEPRECATED/DEFERRED entry due.
+
+[↑ TOC](#toc)
+
+---
+
 <a id="3-refresh"></a>
 ## §3 Per-iteration dynamic refresh — lands in C2
 
@@ -2750,30 +2917,37 @@ which is the one §4a residual this freeze already authorizes fixing (§0.0 tabl
   handoff, not answerable here. The **§2.4 partial from-zero picker** depends on it and is deferred with it
   (see the separable-PRs list above, where the 2026-08-07 retirement is reversed).
 
-**NOT in PR-2 unless Dean places it there — `AD8`, the P/D prefill collapse. TWO items, never one:**
+**⚠️ IN PR-2 as of 2026-08-08 — `AD8`, the P/D prefill collapse, lands as `C12`. Full spec: [§2g](#2g-ad8).**
+This backlog framing is preserved below for its two-regime analysis, which stays accurate — only the
+"not in PR-2" header is stale.
 
-Addendum 1 `AD8` is **DECIDED: repair the pricing** (Dean, 2026-08-08) — option (b), three sites; option
-(a) a liveness-aware refusal **rejected** (*"PD not SAT — DONT"*); option (c) documentation is additive;
-`MinReplicas` is not a fourth option. §0.0 carries the disposition, the severity history, and the
-withdrawn scoped exception. **Placement is Dean's open call** (Rev-6 ask 2: *"do not schedule it into PR-2
-on the strength of the old severity, and do not retire it either. Ask him."*).
+Addendum 1 `AD8` is **DECIDED: repair the pricing, in this PR** (Dean, 2026-08-08) — option (b), three
+sites, spec'd in `§2g`; option (a) a liveness-aware refusal **rejected** (*"PD not SAT — DONT"*); option
+(c) documentation is additive; `MinReplicas` is not a fourth option. §0.0 carries the disposition, the
+severity history, and the withdrawn scoped exception. Placement is no longer open.
 
 The one thing this plan fixes rather than leaves to judgment: **the two regimes are tracked as two
 items.** They share a cause but not a code path, so a fix verified on one says **nothing** about the
 other. Dispatch is a global OR over roles (`analyzer_helpers.go:709-718`) with mutually exclusive arms
-(`cost_aware_optimizer.go:62-67`), which is why one role captures the model.
+(`cost_aware_optimizer.go:62-67`), which is why one role captures the model. **`C12` closes one of the
+two, not both — see `§2g`'s traced-not-asserted section for why the other cannot close within PR-2.**
 
-- **`AD8`-i — the freeze.** Decode `RC > 0` ⇒ `anyRoleNeedsScaleUp` ⇒ the scale-**up** arm ⇒ prefill
-  **freezes at its current count, including 0**. **No floor of any kind reaches this regime** — in
-  particular `MinReplicas` can preserve a scale-up but cannot originate one
-  (`greedy_saturation_algorithm.go:52-63`, `:80-83`). Verification is a scale-up fixture; the scale-down
-  fixtures cannot see it.
-- **`AD8`-ii — the drain.** Decode `RC == 0` with spare ⇒ the scale-**down** arm ⇒ prefill **drains to
-  1**. Two routes reach it: (A) `scaleDownRoleIterated → scaleDownVariantSet` (both role gates apply) and
-  (B) `reclaimRole → scaleDownVariantSet` (neither gate; needs rescale plus a contended group).
-  Verification is a scale-down fixture, and route (B) needs the rescale path specifically.
-  **Precondition to travel with the `#1237` positional-rule tidy-up wherever that is tracked:** *if the
-  positional rule is ever tidied, **floor every variant in the role first**.* Tidy-first re-opens this at
+- **`AD8`-i — the freeze. `C12` does NOT close this.** Decode `RC > 0` ⇒ `anyRoleNeedsScaleUp` ⇒ the
+  scale-**up** arm ⇒ prefill **freezes at its current count, including 0**. **No floor of any kind
+  reaches this regime** — in particular `MinReplicas` can preserve a scale-up but cannot originate one
+  (`greedy_saturation_algorithm.go:52-63`, `:80-83`), and abstention (`C12`'s mechanism) produces an
+  identical outcome to voting 0 when there is only one voter, which is the reachable case. Verification
+  is a scale-up fixture; the scale-down fixtures cannot see it. Remains a documented, accepted gap —
+  closing it needs a real per-role demand model (a future TA-prefill analyzer), not a PR-2 mechanism.
+- **`AD8`-ii — the drain. `C12` closes this in the reachable cell.** Decode `RC == 0` with spare ⇒ the
+  scale-**down** arm ⇒ prefill **drains to 1** *before `C12`*. Two routes reach it: (A)
+  `scaleDownRoleIterated → scaleDownVariantSet` (both role gates apply) and (B) `reclaimRole →
+  scaleDownVariantSet` (neither gate; needs rescale plus a contended group). `C12`'s abstention at
+  `votesFromRoleSpare` empties the ballot for route (A); route (B)'s own ballot construction reads the
+  same abstention. Verification is a scale-down fixture, and route (B) needs the rescale path
+  specifically. **Precondition to travel with the `#1237` positional-rule tidy-up wherever that is
+  tracked:** *if the positional rule is ever tidied, **floor every variant in the role first**.*
+  Tidy-first re-opens this at
   every height on **both** scale-down routes (measured: prefill → 0). It governs **regime (ii) only** —
   everything it protects lives inside `scaleDownVariantSet`, which regime (i) never enters.
 
