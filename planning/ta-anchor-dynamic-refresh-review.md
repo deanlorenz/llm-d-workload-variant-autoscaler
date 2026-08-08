@@ -12,10 +12,13 @@ grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-0
 
 > **Open at the top level, for Dean, not for the coder:** the **T1-1 `ceil`/`floor` fork** — the frozen
 > Type 1 mandates `floor`, the tree ships `math.Ceil` with a written justification. See
-> [Finding 64](#finding-64--the-forks-price-was-measured-two-commits-before-the-mitigation-that-narrows-it):
-> the fork is priced on a C6c measurement taken **two commits before C6e shipped the mitigation** that
-> addresses that price. Refreshing the measurement is cheap and would make the decision current rather
-> than historical. I do not make the call and have not re-measured.
+> [Finding 64](#finding-64--the-forks-price-was-measured-two-commits-before-the-mitigation-that-narrows-it)
+> (the fork was priced on a C6c measurement taken **two commits before C6e shipped the mitigation**) and
+> **[Finding 65](#finding-65--the-refresh-landed-mechanism-confirmed-price-narrower-than-either-of-us-said)
+> — the refresh has since landed**: re-measured at HEAD, the price is **5 failures of 386 with zero
+> eviction rows and a worst delta of −2**, and on the split in Finding 65 that is **2 behavioral specs plus
+> 3 seam-expectation updates**, not 9-of-334-with-a-−4. The decision is current now, and it is still Dean's
+> — I do not make the call, and the failure counts are the coder's measurement, not mine.
 
 > ⚠️ **C6c was redesigned on 2026-08-07 (plan `1a116e7a`): replica space → GPU space, and `prcRef`
 > is gone entirely.** Everything in this review that reasons about `prcRef` is **historical**, and one
@@ -6546,6 +6549,94 @@ omit the same fact. The result is that **Dean is being asked to decide a fork pr
 subsequently shipped the mitigation which addresses that price.** The refresh is cheap — flip `math.Ceil`
 to `math.Floor` at `:837` and run the existing suite at HEAD — and it is the one input that would make the
 decision informed rather than historical.
+
+### Finding 65 — the refresh landed: mechanism confirmed, price narrower than either of us said
+
+**RESOLVES Finding 64.** The coder re-measured (`plan__ta-anchor-ceil-floor-remeasured-at-head.md`):
+`math.Ceil` → `math.Floor` at `:837`, full engine suite at HEAD `a9afb740`, then reverted — mutation
+uncommitted, tree clean at `a9afb740`, suite re-verified green after revert, no golden adjusted, **no
+verdict offered**. It also re-verified my three structural claims itself before running rather than
+accepting them, and states plainly that 334-vs-386 is not like-for-like. That is the right shape for a
+measurement handoff, and the discipline is worth recording separately from the number.
+
+|  | C6c `34b18bc5` | HEAD `a9afb740` |
+|---|---|---|
+| failures | 9 of 334 | **5 of 386** |
+| worst delta | −4 (`bv` 6→2, unconstrained budget) | **−2** |
+| collapse-to-1 / eviction rows | 2 | **0** |
+
+**Scored against the bound I set.** I claimed the *mechanism*, explicitly not a number, and named two
+residuals. The mechanism claim holds: both rows whose signature was eviction are green under `floor` at
+HEAD — `optimizer_equivalence_test.go` `bv` (the −4) and the `team-b` row — the `w.remaining = -1`
+signature is absent from the output, and all five survivors are plain shortfalls (`2` vs `4` at `:175`
+and `:230`; `2` vs `3` at `:1405`, `:1592`, `:1613`). Nothing returns 0 or 1.
+
+**Correcting my own residual, against myself: the guard does more than I credited it with.**
+`pick := fairShareRolePick(target, w.s, w.roles)` is constructed **inside `allocateForModel`** (`:490`),
+so `committed0` is snapshotted per **model-turn**, not per cycle, and `firstDraw := spentGPUs == 0` is
+therefore true at the opening draw of *every* turn. For a **single-role** model (`RoleBoth`) the opening
+draw is the only draw, so the guard fires on every turn and residual 1 ("draws after the first") **does
+not exist on that path at all**. It is a multi-role residual only, where role 2+ sees `spentGPUs > 0`.
+The measurement corroborates this behaviorally rather than only by reading: the `team-b` assertion
+(`:2185`, `dm["b"] > 2`) is single-role and recovers under `floor` at HEAD — which is what a per-turn
+guard predicts and a once-per-model guard does not. Residual 2 (a first draw with no priced or
+affordable candidate) is fork-independent and the run neither confirms nor refutes it.
+
+**The coder's carve-out is right in kind and under-applied — the surviving price is 2 specs, not 4.**
+It excludes `:1405` from the bill because that spec *is* a statement about the fork, and that is correct:
+the name at `:1386` is *"rounds the entitlement up to a whole replica and the pool down"* and the comment
+at `:1400-1402` argues the round-up in prose. But `:1592` and `:1613` are the **same class** — direct
+`fairShareRolePick` closure calls asserting `capN == 3` for a 5-GPU draw at 2 GPUs per replica, with the
+comment at `:1588-1589` saying *"5 GPUs at 2 per replica, rounded up."* Their *subject* is the
+shared-balance ledger, but the number that moves under `floor` is the rounding, and the property each
+spec exists to pin survives the flip untouched: prefill's `capN == 1` is 1 GPU at 1 GPU per replica
+either way, so "the remainder, not a second copy of the entitlement" and "does not hand back the whole
+entitlement next iteration" both still hold. So the honest split is **3 seam-expectation updates**
+(`:1405`, `:1592`, `:1613`) and **2 genuine behavioral costs** (`:175`, `:230`).
+
+**The 2 that remain are dearer than "one or two replicas short" reads.** Both are the Optimize()-level
+design-doc walkthroughs, and the mechanism is not a single boundary rounding: the first-draw guard grants
+exactly **one** replica where `ceil`'s cap covered the whole entitlement, and the loop then removes the
+model for still being above the mean (`:308-312`, with `filterActive` keeping only `remaining > 0` at
+`:742`) — so the recovery is bounded at one replica per turn rather than converging by re-picking. At
+`:175` that is `a-v1` 4 → 2 in a two-model fixture whose pool comment reads *"4 replicas worth"*; at
+`:230` the three-model priority-weighted split flattens. Whether the unspent headroom is Dean-relevant is
+his call, but it should be presented as *pool GPUs left unallocated*, not as a rounding artifact.
+
+**A general claim written into the file is refuted by this very run.** `:1387-1390` says: *"at Optimize()
+level an understated cap costs iterations rather than replicas, because the allocation total is bounded
+elsewhere and each iteration re-picks."* Under `floor` at Optimize() level it costs **replicas** —
+`:175`/`:230` are exactly that level — because `:308-312` denies the unbounded re-pick the sentence
+assumes. It is a `ceil`-world claim stated generally, and it is load-bearing prose for the fork's
+justification, so it moves with the fork rather than surviving it.
+
+**The endorsement footprint is larger than the 8 I counted.** My §6 correction counted 8 sites in
+non-test `greedy_score_optimizer.go`, only `:837` reachable by `git grep -i ceil`. The test file adds at
+least five more that must move together: `:1386` (the spec name, which must invert), `:1387-1390`,
+`:1400-1402`, `:1560` (*"the round-up in `replicasToCover`"*), and `:1588-1589`. **None of the five
+contains the token either**, so the grep-reachability figure stays 1 while the denominator grows to ≥13.
+Keep this list distinct from the coder's "four other endorsement sites": three of those
+(`analyzer_helpers.go:629`, `rescale.go:598`, `queueingmodel/analyzer.go:379`) are unrelated code that
+**stays put**. One list is "must all move," the other is "must not be touched"; merging them is how a
+mechanical pass damages the wrong sites.
+
+**Scoping a sentence of my own that the run would otherwise falsify.** My note below on C9's goldens says
+*"if the fork resolves to floor, nothing in the new suite has to move."* The measurement is the check on
+it and it holds — **for C9's golden material specifically**: all five failures are in
+`greedy_score_optimizer_test.go`, none in `optimizer_invariant7_test.go` or the C9c goldens. Read more
+broadly than C9 it is now false, since two C6e specs are among the five. Scoped, it stands.
+
+**Two small ones.** `:2154` is the `rB` fixture declaration; the assertion that actually fails is
+`:2185` — harmless here, but citing the fixture instead of the failing line is the same
+verify-the-pointer imprecision that made the competing tip-SHA claims expensive to check. And the
+handoff's own framing *"all four are one or two replicas short at a mid-replica boundary — which is the
+plan's own stop condition"* reads as if the plan's condition is met; on the split above, the two specs
+that carry real cost are short by two, not one, and by a mechanism the plan did not anticipate.
+
+**Net.** The fork is now priced on the shipped code rather than on a shape that no longer exists: no
+eviction, worst delta −2, two behavioral specs plus three seam-expectation updates. That is a materially
+smaller bill than 9-of-334-with-a-−4. The call remains Dean's and I am not making it; what changed is
+that it is now informed.
 
 Routed to the planner, which owns the fork's disposition ask and consumed the C6c handoff at its original
 content. Re-measuring is a coder action and I am not directing it; the fork itself is Dean's call and I am
