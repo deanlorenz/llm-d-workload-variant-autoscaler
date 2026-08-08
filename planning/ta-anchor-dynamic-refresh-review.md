@@ -7511,3 +7511,84 @@ Unchanged: `reclaimRole`'s **machinery** is inherited — conceded in Finding 67
 Finding 67 claimed is my knowledge of **which path executed**: none. What is unchanged is the dispatch reading
 itself, which no run has yet addressed. I have corrected the record with all three recipients of Finding 67
 rather than letting the pairing stand, and I flagged my own error before the coder or planner had to find it.
+
+---
+
+## Finding 69 — the contended sweep confirms a concession I already made, and surfaces a *cross-model* harm nobody predicted: an AD5-shaped model is outbid for pool budget by correctly-priced peers
+
+**Severity: escalation of `AD5`'s consequence (attribution unchanged — inherited). Evidence: the coder's
+12-row A/B sweep on both sides, plus my source verification of the mechanism it proposes.**
+
+Input: the coder's `plan__ta-anchor-ad5-contended-path-also-inherited-review-2b-refuted.md`. Twelve
+configurations, contention held identical between columns, base `075a208e` and HEAD `a9afb740`
+byte-identical on every row; the only variable is TA's prefill `TotalDemand` (0 vs `sup`). Ten rows exercise
+the role split, one is labelled crushed-and-proves-nothing rather than counted, one does not diverge. That is
+an honestly-reported sweep and the labelling of the crushed row is the part I'd have flagged if it were
+missing.
+
+### 1. On the refutation: it lands on a claim I had already withdrawn
+
+The handoff refutes *"narrower reachability, but this half **is** newly unmasked by `VG-up`"* from my
+`designer__ad3-substitute-rationale-scope-and-ad5-is-not-a-freeze.md` §2. **Correct, and I retracted that in
+Finding 67** on the planner's correction, before this run existed — base `bindingAnchor:183` is binder-sourced,
+base's binder gate is already `Enabled && Live && Informative`, base `roleDemandGPUs` took no ballot. So this
+is my error **confirmed by execution**, not a second one: the record should carry it once, not twice.
+
+What it adds beyond the concession is worth having: my retraction was reasoning from links, this is measured,
+and it measures the half the steady-state fixture explicitly could not reach.
+
+**One boundary, stated precisely rather than as a repeat of my field point.** The handoff concludes *"`AD5` is
+inherited in full. No part of it is a PR-2 regression."* For both **paths** that is now evidenced. My live
+claim is not about a path but about the **reachability of `scaleDownRoleIterated`** through the
+`anyRoleNeedsScaleUp` dispatch — and `reclaimRole` is reached from `applyRescale`, a different pass that does
+not consult that dispatch. So a contended-path run cannot bear on it either way; it is neither supported nor
+refuted here, and the fixture's dead entry again carries stale **`TotalDemand`**, not the `RequiredCapacity`
+the dispatch reads. "In full" is right about paths and still ahead of the evidence about reachability.
+
+### 2. The new harm is real, and I verified the mechanism it asserts
+
+The coder reports that the `AD5` shape retains **fewer total GPUs** than the control at equal contention — 5
+vs 7/8 in nine of twelve rows — and reads it as *"the model loses budget outright … prefill's zero weight
+makes the whole model cheaper to reclaim from."* It flags this as unpredicted by any handoff on either side.
+It is unpredicted, and the mechanism checks out at the level above the one it names:
+
+- cross-model water-filling weights each model by `weight_i = priority_i * demand_i`, with
+  `target_i = floor_i + (budget − Σ floor) * weight_i / Σ weight` (`rescale.go:47`, `:62`);
+- that `demand_i` is `modelDemandGPUs`, which is a **sum over roles** —
+  `for _, role := range modelRolesOnType(...) { total += roleDemandGPUs(...) }` (`:560-566`);
+- prefill's contribution to that sum is structurally 0 (`distributeDemandByRole` never adds the prefill key;
+  both demand terms are decode-denominated).
+
+So the understatement is not confined to the intra-model split done by `distributeGPUsByWeight` (`:661-701`,
+which only divides whatever the model was already granted). It enters the model's **cross-model claim**. A P/D
+model under `AD5` therefore presents a demand figure short by its entire prefill role and is **outbid for pool
+budget by peers that are not misconfigured at all**. The competitor needs no defect to win; it merely prices
+all of its roles.
+
+That changes the shape of the consequence, not just its size. Everything argued so far — mine included — has
+been intra-model: prefill starves while decode scales. This crosses the model boundary, so in a shared
+accelerator pool the visible symptom lands on a **neighbour's** capacity, and the neighbour's operator has no
+signal pointing at the misconfigured model. Read together with the invisibility half
+(`cost_aware_optimizer.go:350-367` still publishing prefill `RequiredCapacity` from the anchor), the model
+that loses budget also cannot show why.
+
+**This bears on the deferral rationale, not on attribution.** Inherited is inherited — base and HEAD agree on
+all twelve rows. But a *defer* weighed against "a narrow window in which prefill stops growing" is a different
+call from one weighed against "under contention the model is outbid for shared budget and the loss is
+attributed nowhere." I take no position on the disposition; I record that the input to it moved.
+
+### 3. Its two open items are answered, one by Finding 68
+
+- ***"Still unexplained: why the floor is 1 and not 0"*** — answered in Finding 68: `reclaimRole` delegates to
+  `scaleDownVariantSet` (`rescale.go:415`), whose cheapest-at-1 positional rule
+  (`cost_aware_optimizer.go:157-161`) fires for both callers and is present at base
+  (`075a208e:cost_aware_optimizer.go:142`). Its own doc comment says so (`rescale.go:402-403`), byte-identical
+  at base. That also answers *"something clamps at 1 on both paths and both revisions"* — it is one clamp, in
+  the shared helper, which is why the two paths agree.
+- ***"Not established: that `reclaimRole` specifically is the function doing the shedding"*** — correct to
+  disclaim, and after Finding 68 the outcome **value cannot** establish it: both callers clamp at 1. Per-function
+  claims need instrumentation, exactly as it says.
+
+**A delivery gap worth recording against my own process:** the coder has now raised the floor-at-1 question in
+three consecutive handoffs while my answer sat in `designer__` and `plan__` files. Recipients filter by their
+own prefix; a cc line is not delivery. Sending it to `ta-anchor-dynamic-refresh__` as a refs-only doorbell.
