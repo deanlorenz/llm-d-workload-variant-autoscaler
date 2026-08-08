@@ -7592,3 +7592,128 @@ attributed nowhere." I take no position on the disposition; I record that the in
 **A delivery gap worth recording against my own process:** the coder has now raised the floor-at-1 question in
 three consecutive handoffs while my answer sat in `designer__` and `plan__` files. Recipients filter by their
 own prefix; a cc line is not delivery. Sending it to `ta-anchor-dynamic-refresh__` as a refs-only doorbell.
+
+---
+
+## Finding 70 — the discriminating experiment ran and the dispatch reading is CONFIRMED. The regime it makes decisive is production-reachable, but not by the mechanism claimed — there is no carry-forward, and the real route is narrower and load-bearing for how `AD5` gets worded and tested
+
+**Source:** coder handoff `plan__ta-anchor-ad5-finding68-experiment-run-vg-up-does-open-reachability.md`, against my
+Finding 68 §3. Verified at HEAD `a9afb740` and base `075a208e`. Reviewer read; no build or test run by me — every
+execution number below is the coder's.
+
+### 1. Verdict: accepted, both attached conditions honored
+
+The experiment I specified was run, and it went **against** the coder's own filed conclusion — its previous
+handoff had closed with *"`AD5` is inherited in full. No part of it is a PR-2 regression"*, and it opens this one
+by retracting the second sentence. That is the second time it has reported a result that costs it a conclusion.
+
+Both conditions I attached were met:
+
+- **`TotalDemand` untouched, `RequiredCapacity` varied** — the field the dispatch actually reads.
+- **Path instrumented.** Not by counter but **by construction**: rescale is off in the steady rows, so
+  `applyRescale` cannot run and `reclaimRole` is unreachable. That is stronger than a counter, not weaker — it
+  removes the path rather than observing it.
+
+Result, base `075a208e` vs HEAD `a9afb740`, n ∈ {2,4,8}, both optimizers:
+
+| regime | base | HEAD |
+|---|---|---|
+| `deadRC = 0` | pf=1 | pf=1 |
+| `deadRC > 0` | pf=**n** (preserved) | pf=**1** (drained) |
+
+**My dispatch reading holds.** The chain is as Finding 67 read it: `votingResults` → `initRoleState` seeds
+`pickerState` from `rc.RequiredCapacity` (`analyzer_helpers.go:385`) → `anyRoleNeedsScaleUp` ORs across every
+entry and every role (`:709-718`), so one positive value anywhere diverts to the scale-up branch and
+`scaleDownRoleIterated` is never reached. Base prunes on `Enabled` alone and keeps the dead entry on the ballot;
+`VG-up` (`952d2fff`) prunes on `Enabled && Live` and removes it.
+
+**Attribution is therefore regime-split, not path-split:**
+
+- **`deadRC = 0` — inherited.** Base ≡ HEAD, both paths, all heights, twelve contended configurations.
+- **`deadRC > 0` — HEAD-only reachability.** `VG-up` opens the drain in that regime.
+
+I record without comment that this is the branch of my own prediction I had offered to retract, and that the
+coder's earlier "in full" was the thing ahead of the evidence. The disposition consequence is the coder's §3,
+which I endorse in full: **base is not correct here, it is differently wrong** — it preserves prefill by scaling
+the model up on a dead analyzer's figures, which is exactly what `VG-up` exists to stop. This is not an argument
+to revert `VG-up` and I am not making one.
+
+### 2. The realism claim: right conclusion, wrong mechanism — and correcting it narrows the regime
+
+§2 justifies `deadRC > 0` as *"the realistic case, not the corner — an analyzer entry that has just gone stale
+carries its last computed values."* **That mechanism does not exist.** Nothing carries a previous cycle's
+`RoleCapacities` forward:
+
+- `updateLivenessAndSetLive` (`saturation/engine_v2.go:209-251`) sets `nr.Live` **in place** from
+  `lastGoodAnalysis`; `Live` is derived from *history*, while the entry's `Result` is *this cycle's* output.
+  There is no copy-forward anywhere in the pass.
+- Every production analyzer stamps the current time — `saturation_v2/analyzer.go:130`,
+  `throughput/analyzer.go:501`, `queueingmodel/analyzer.go:142`, `saturationv1/analyzer.go:44,56`. The loop
+  refreshes `perAnalyzer[nr.Name]` *before* reading it (`:237-247`), so informative-this-cycle ⇒ `lastGood = now`
+  ⇒ **`Live = true`**.
+
+Contrapositive, and this is the load-bearing step: **in production, `Live = false` implies this cycle's result is
+non-informative.** Both sub-cases collapse into it — never-informative (`ok == false`) and stale-informative.
+So the only production route to `deadRC > 0` is a **non-informative result that nonetheless carries positive
+per-role `RequiredCapacity`.**
+
+That route is real, because the two properties are keyed on different fields:
+
+- `ResultIsInformative` looks **only** at `VariantCapacities[].Reason` (`analyzer_helpers.go:53-63`);
+- per-role `RC` comes from `applyUniversalThreshold` off role `TotalDemand` — applied to saturation's own result
+  too (`engine_v2.go:123`, body `:476-513`);
+- `TotalDemand` is metric-derived and **independent** of the capacity-record lookup that produces `NoData`
+  (`saturation_v2/analyzer.go:421-431`: no live replicas **and** no own store record **and** no compatible
+  cross-variant record).
+
+Concretely: every variant loses its live replicas with a cold or unmatched capacity store while demand is still
+positive, sustained past `analyzerLivenessStaleCycles × interval` — a serving outage with traffic still arriving,
+or a controller restart against an empty store.
+
+**Two consequences, both about wording and testing rather than attribution:**
+
+1. The regime is **production-reachable**, so the HEAD-only attribution stands. But "realistic, not the corner"
+   cannot be justified by generic staleness; it has to be justified by that specific state. The Type 1 should
+   describe the reachable state, not "an entry that has gone stale."
+2. **A regression test that sets a stale timestamp will not reproduce this through the production path** —
+   it would land in `deadRC = 0`, the inherited regime. Only a hand-built ballot reaches it, which is exactly
+   what the experiment did. Legitimate as a discriminating probe; it does mean the fixture carries no
+   information about frequency, and the frequency question is still open.
+
+### 3. §4 floor-at-1: accepted, and the obvious repair is inverted
+
+Verified in source: both callers hand `scaleDownVariantSet` a **role-filtered** set — `scaleDownRoleIterated` at
+`cost_aware_optimizer.go:491` and `reclaimRole` at `rescale.go:414`, both via `variantsForRole(variants, role)`.
+On a P/D model with one variant per role that set is a singleton, so `i == len(sortedVariants)-1` always holds and
+`sortedVariants[:i]` is always empty ⇒ `anyHasReplicas` is false ⇒ the clause at `:159-161` always fires. The
+mutation result (prefill → **0** on both paths, six rows) is the expected consequence, and 4 further specs failing
+under the mutation shows the clause is load-bearing beyond this fixture. So `AD5`'s true severity absent that
+clause is **teardown of the prefill role to zero**, and the single surviving replica is a by-product.
+
+**The inversion the handoff does not draw, and it matters for whoever sizes a fix.** The natural repair of a
+"model-level guard misapplied per-role" is to hand it the model's variant set and restore #1237's intent. **That
+would enable prefill → 0 and make `AD5` strictly worse.** The accident is the only brake, so it must be either
+preserved deliberately or replaced by an explicit per-role floor — it must not be tidied up. Note also that the
+comment at `:157-158` already describes a *set-relative* rule ("the last (cheapest) variant … when no more
+expensive variant still holds replicas"), so the defect is in the **set handed to it**, not in the rule.
+
+Recording alongside: the clause is documented in-code **twice** — `cost_aware_optimizer.go:120-123` ("minReplicas
+floor and cheapest-at-1 protection are enforced here") and `rescale.go:402-403`. Two independent statements of the
+fact I asserted the negation of in Finding 67, which is why Finding 68 was catchable by reading rather than by
+running.
+
+### 4. The contended row: not a disagreement, and not evidence
+
+§2 notes the contended row is regime-sensitive *"which review did not expect."* Its own caveat resolves it: base's
+contended numbers equal its steady numbers, so the value came from the sizing pass — and the sizing pass **is** the
+dispatch. My claim was narrower, about `reclaimRole`'s attribution specifically (`applyRescale` never consults
+`anyRoleNeedsScaleUp`), and it is untouched by a composite outcome whose regime-sensitivity enters through sizing.
+`reclaimRole` remains un-discriminated in both directions. The handoff already says to treat that line as
+unresolved rather than as evidence; agreed, and nothing here needs litigating.
+
+### 5. Disposition
+
+Unchanged and still not mine: severity **not** softened, *defer* still defensible, scope is the planner's and
+Dean's. One input has moved, as the coder says: for `deadRC > 0` the deferral can no longer rest on "not PR-2's
+bug," because in that regime the reachability is PR-2's. What I add is §2's narrowing — the regime is reachable
+but by a specific describable state — and §3's trap, which is the part most likely to be mis-scoped.
