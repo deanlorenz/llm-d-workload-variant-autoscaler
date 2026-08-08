@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-08-07
+**Last updated:** 2026-08-08
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -11,8 +11,10 @@
 **Active (full abstracts) — live WIP only:**
 
 - **2026-08-07 — Anchor-refactor mission (PR-1 `ta-anchor-refactor-v2` = **PR #1516 MERGED**; goldens
-  PR #1513 now a **no-op needing a close call**; PR-2 `ta-anchor-dynamic-refresh` **CODING IN FLIGHT
-  @ C6b**, gate steps 1–2 CLEARED — now waiting only on Dean's resume-coding go-ahead).** Reshaping the
+  PR #1513 now a **no-op needing a close call**; PR-2 `ta-anchor-dynamic-refresh` — this entry's
+  "CODING IN FLIGHT @ C6b, paused" framing is **⚠️ contradicted by the coder's own status file, see
+  the flag inside the PR-2 paragraph below** — it reports CODE-COMPLETE, tip `a9afb740`, handed to
+  review; not yet folded in pending a proper handoff).** Reshaping the
   multi-analyzer engine so it builds the anchor (topology carrier) and passes the enabled-analyzer list as
   the ballot — "no special voting code" (Dean's corrected model). **PR-1 LANDED:
   [#1516](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1516) MERGED 2026-08-07
@@ -100,8 +102,10 @@
   `ta-anchor-dynamic-refresh__kickoff` is `.WIP` — consumed back when coding started, so don't look for
   a held kickoff — and no *new* one is being armed);
   the coder's **C10-first offer is declined**. The coder has confirmed it read the planner's
-  spec-complete clearance as **FYI, not permission** ("do not code yet") — branch unchanged at
-  `d9f3b97e`, tree clean, nothing pushed. **Bug #5's currency is GPU space, not replica space** —
+  spec-complete clearance as **FYI, not permission** ("do not code yet") — branch was at
+  `d9f3b97e`, tree clean, nothing pushed, when that read was taken. **⚠️ Now stale — see the flag
+  at the end of this bullet: the coder's own status file records the branch as CODE-COMPLETE, far
+  past this point.** **Bug #5's currency is GPU space, not replica space** —
   `toGPUs(metric, PRC, GPUsPerReplica)`, nine-row per-site unit table in plan §2d.5. Two consequences:
   (1) the **landed C3 `roleAggRemaining` stays in replica space** and needs no re-denomination; (2)
   `fairShareCap` becomes a whole-replica **`floor`** fill (was `ceil`) — a **one-replica behavior
@@ -122,9 +126,10 @@
   on the shipped fixture (`A=0.073 B=0.006`) — justification is **correctness + configurability**, not
   a systematic correction. Also absorbs the four arithmetic bugs (**#5 is five lock-step sites, not
   three**), per-iteration dynamic re-binding, the combine-liveness hardening (VG-up `Enabled&&Live`,
-  N8 drop-the-(b)-fallback, N2/N7 tie-break/abstain), and §2c notation cleanup. Branch local tip
-  `d9f3b97e`; `origin/ta-anchor-dynamic-refresh@f6485980` orphaned by PR-1's reword (force-push
-  pending Dean's OK). **Fold-in scope** (Dean: *"everything folds into PR-2"*; roll-up table at
+  N8 drop-the-(b)-fallback, N2/N7 tie-break/abstain), and §2c notation cleanup. Branch local tip was
+  `d9f3b97e` as of this framing; `origin/ta-anchor-dynamic-refresh@f6485980` orphaned by PR-1's
+  reword (force-push pending Dean's OK — see the flag below on how far the tip has since moved).
+  **Fold-in scope** (Dean: *"everything folds into PR-2"*; roll-up table at
   `combined-analyzer-optimizer-design.md:2064`) — **in:** currency pivot/`W5`, `W1`, `W4`,
   `FZ-admission`, `VG-up`, the 4 arithmetic bugs + re-binding; **out:** `W2` with `U4`, `U5`'s new
   metric series, `N9` (reactive `scalefromzero` residual), `AnalyzerName` validation, sat `Cost = 0`
@@ -142,6 +147,37 @@
   [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) (SUPERSEDED) /
   [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) (tip
   **`1a116e7a`** — refreshed against the frozen Type 1).
+  **A Type-1 addendum now governs the `AD8` prefill defect**:
+  `planning/combined-analyzer-optimizer-design-addendum-1.md` (**Rev 6, `423eb2a8`, approved by Dean
+  2026-08-08**). The parent Type 1 stays **FINAL, frozen @ `8c2a9b04`, and is not edited** — this is
+  the amendment channel. **Dean's rulings, final:** a **guard** (disaggregated model, TA, no
+  saturation → do nothing, it *enforces* `AD2`); option (a) liveness-aware refusal **REJECTED**
+  (*"PD not SAT — DONT"*); option **(b)** per-role pricing repair **APPROVED** (three sites: per-role
+  sizing, `CapGPUs`/`Demand` in `rescaleInputsForGroup:540-546`, `cost_aware_optimizer.go:350-367`
+  observability); option (c) interim documentation additive, not alternative. `MinReplicas` is **not**
+  a fourth option (unset by default; any `minReplicas > 0` makes `applyScaleToZeroEnforcement` skip
+  the enforcer model-wide). `AD8` is **two regimes from one cause, must reach the Type 3 as TWO
+  items**: (i) **freeze** — decode `RC > 0` ⇒ prefill freezes at its current count including 0, no
+  floor; (ii) **drain** — decode `RC == 0` ⇒ prefill drains to 1. Rev 6 **withdrew** the Rev 5 claim
+  that `[sat, TA]`-with-saturation-non-live is reachable (same-process warm/cold coupling means TA
+  warm ⟹ saturation warm) — lowers severity but does not touch the arithmetic or the repair decision.
+  **⚠️ Open — Dean's call, the only open ask from this thread: whether the pricing repair belongs in
+  PR-2**, now that severity is lower; record as open, not settled either way.
+  **⚠️ Large discrepancy found while correcting this entry's tip (2026-08-08, sync session) — not
+  yet delivered via any `sync__` handoff, so not folded into the framing above.** The "PAUSED
+  awaiting Dean's resume-coding go-ahead" state this bullet has carried since 2026-08-07 is
+  contradicted by the coder's own status file (`session/status/ta-anchor-dynamic-refresh.md`,
+  `last_update: 2026-08-08T09:20:00Z`): it records PR-2 as **CODE-COMPLETE — every plan commit
+  including all of C9 has landed**, 25 commits on `075a208e`, tip **`a9afb740`**, **handed to
+  review** (a `review__ta-anchor-dynamic-refresh-pr2-ready.md.WIP` trigger is open, dated 07:18
+  today), tree clean, **nothing pushed**. There are also ~19 open `.WIP` `plan__ta-anchor-*` handoffs
+  from the last ~36 hours (ceil/floor fork, C11 ranking, C6d/C6e/C6f findings, claim-pricing verdict,
+  and more) that this sync session has not read in full. Reconstructing the whole completion
+  narrative from primary sources is out of scope for sync (per single-writer convention, sync folds
+  in `sync__` handoffs, not raw status files) and risks getting the nuance wrong — **the coder or the
+  reviewer should submit a `sync__` handoff summarizing the code-complete/review-ready state**, and
+  this bullet should be rewritten from that rather than from this flag. Flagging now so the "paused"
+  framing above is not mistaken for current fact.
 - **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own branch + worktree,
   near path is our own runs.** Four-command chain `fetch_run.sh` → `extract_real_trace.py` →
   `render_real_trace.py` → `publish_result.sh` (≈2 k lines of Python + a `README.md`; `publish_result.sh`
@@ -181,11 +217,57 @@
   migration so completeness verification stayed clean). Plan + cold-resume entry point is
   `autoscaling-viz/real-trace-viz-plan.md` **in its own worktree** — do *not* link the `plans`-relative
   `scratch/` path, which is dead by design (`git rm -r scratch/autoscaling-viz` landed as `9ccd5e23`,
-  145 files / −21702; the 227 MB `.venv`/leftover reclaim item is therefore moot). Pushed:
-  `origin/autoscaling-viz` @ `a40dae11`, local tip **`40b28ee9`** (1 commit ahead — the plan-doc
-  reconciliation that already fixed the "§14.4/§14.6/§15 + README still say viz-tools" staleness).
+  145 files / −21702; the 227 MB `.venv`/leftover reclaim item is therefore moot).
   `viz-results` retired (tag `archive/viz-results`). No PR Status row — no code branch, no PR, not headed
   upstream.
+- **2026-08-08 — autoscaling-viz: a simulation driven *from* a real benchmark run; calibration gate
+  PASSES on both arms.** Dean's task: *"drive a simulation from the benchmark results — the benchmark
+  defines the demand shape and the supply capacities. We compare actual behavior (the scale decisions
+  used in the benchmark) to the various algorithm."* Type 3 plan
+  `autoscaling-viz/planning/sim-from-benchmark-plan.md` — 12 sections, TOC-refreshed, on the code branch
+  by the earlier deliberate decision, **not** under `plans/planning/`.
+  **C1 `run_inputs.py`** → `real-trace/ladder-20260807/run_inputs.json` (1.1 MB): 22,200 real arrival
+  timestamps, 8-stage segmentation, replica desired/ready series, the engine ITL line, and the 87 WVA
+  decision cycles. **The WVA decision rule verified 87/87.** Saturation never binds on this run
+  (`rc == 0` all 87 cycles, util peak 0.811). **C2 `sim_from_run.py`** + `C2-GATE-REPORT.md` →
+  **the gate PASSES on both arms, exit 0**. Two arms: **A0r** (observed *ready* steps, no boot model —
+  isolates the queueing + service model) and **A0d** (observed *desired*, paying the 110 s `setup` lag —
+  the reference the future control arms compare against). A0r: per-stage p50 within 8.0%, p95 within
+  12.5%, pooled decode throughput within 2.3%, 2462/2462 replica-trajectory samples within 1 replica,
+  queueing immaterial in both. **Nothing was tuned** — the one number fit from data is the ITL line
+  (`itl = 0.1847·run + 9.265 ms`, r² = 0.942, n = 411), fit once before any comparison.
+  **The fourth gate criterion was changed after it had been observed to fail — Dean's call, on the
+  record.** As originally written, `queue_onset` demanded sim and run show queueing in the *same set of
+  stages*; unpassable by construction (the real 0.266%-of-request-seconds signal comes from vLLM's
+  per-step token budget plus mid-transition routing, neither of which `sim.py` models). Dean resolved
+  it 2026-08-08 in favor of `queue_material` (queued request-seconds < 1% of in-system request-seconds
+  in both, and max per-pod concurrency below the admission ceiling in both) — scale-free, still bites on
+  future arms that genuinely queue. `queue_onset` is retained and still evaluated every run under
+  `superseded_checks` so its FAIL never disappears. **Still Dean's, still open:** the 15%/15%/1-replica
+  tolerances and the 1% queue share — all proposed by the coder, not derived; he resolved the
+  *criterion*, not the numbers. **Next, Dean's stated priority:** call the viz tools as the last step of
+  a benchmark run, writing reports/graphs/HTML into the benchmark's own experiment dir (plan §7.1,
+  `viz_experiment.sh` — explicit `--run`/`--controller-log`/`--out`, no path discovery, one invocation
+  per run id). Needs Dean's approval first: `report.py` and `run.py` both hardcode `OUT = "out"` and
+  must take an output directory instead (substantial single-file edits to pre-existing files).
+  Pushed: `origin/autoscaling-viz` @ `4b263d73`, local tip **`5a0c607f`** (six commits ahead — push
+  needs Dean's explicit OK). Status: `session/status/autoscaling-viz.md`.
+- **2026-08-08 — Pokprod TA benchmark: dwell run EXECUTED — the system does not dwell, it
+  limit-cycles.** Dwell run `dean-20260808-051912-230` (Dean-approved) ran to completion. It did
+  **not** produce the intended dwell in kv 0.3–0.85 — the system **limit-cycles** with a ~9 min
+  period (replica target `1→4→7→10→…→1→2→6→9→10→…→2→9`, two full cycles then floor). Mechanism
+  identified from the controller's own 33-tick decision trace: per-replica capacity `prc` is read
+  from a rolling-average history **keyed on a discretized output-length bucket**, and both
+  excursions to `maxReplicas` are `prc` collapsing 10–13× rather than real demand — at the second
+  peak `util` rose 3.1× while demand was *falling*. Also found: dispatch rate missing for **100%**
+  of ticks (label mismatch), demand is backlog-shaped not rate-shaped (2 rps offered → 9 replicas
+  provisioned), the two analyzers contradicting each other outright, and capacity history
+  **contaminated across runs** (controller up 6 h, never invalidated). Full findings + 5 prioritized
+  asks sent to the planner as `plan__benchmark-dwell-run-findings.md`; **supersedes** the
+  rate-invariance hypothesis in the earlier `plan__benchmark-dwell-operating-point.md`. GPUs released
+  after the run per Dean's standing rule. **Nothing pushed** — `benchmark` 11 ahead of
+  `origin/benchmark`, fork `wva-ta-benchmark` 1 ahead, both awaiting Dean's per-push confirmation.
+  Cold-resume: `benchmark/session-notes/status/benchmark.md` §18 (§17.12 now historical).
 - **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap); Dean spawning a separate planner.**
   Root-caused (not a regression): `saturation/engine_v2.go` unconditionally prepends the saturation result
   and `effectiveEnabled` skips it by name, so `saturation:{enabled:false}` is a silent no-op — traced to
@@ -197,6 +279,24 @@
   experiment** coder is holding, blocked on separate planner deliverables (two-phase calibration+trigger
   workload + a "faster" methodology) plus an open feasibility question (does TA raise RC ahead of
   `k_sat=0.85`, or key off the same threshold?) — independent thread, do not conflate.
+- **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan; the
+  mid-band dwell turns out to be a controller-configuration decision, not a workload one.**
+  `planning/ta-pokprod-testing-plan.md` → 1457 lines, four new sections. Dean's **guards-only fork
+  split** is now contractual (§2b: harness fork = guards; tools/Makefile/`hack/` = WVA; 2 of the
+  fork's 4 commits violate it and migrate out, leaving 2 commits / 3 files). The `.env` contract is
+  **fail-closed and kube-context-keyed** with a `WVA_ENV_*` assertion triple, arm-derived
+  refs, a wizard + on-branch skill, and preflight spread from **one** call site to six (§2c) — Dean's
+  constraint: *"safely running in a shared cluster is the most important thing."* Doc surface
+  collapses to **one runbook** (§5.5 item 4). The **KEDA arm is present but unrunnable** — three
+  verified blockers, a prerequisite rather than a task (§5.7). **§7.6 is the substantive finding:**
+  steady-state KV under a tracking controller is a *controlled* variable, so §7.4.1's dwell cannot be
+  reached by raising the offered rate — the 08-07 ladder's kv 0.67 and arm B's kv 0.99 are facts about
+  configuration (TA provisioning ahead of saturation; a 2-replica cap), not rate. **Dean owes one
+  decision:** (a) saturation-alone-uncapped *(recommended by coder and planner)* vs (b) a deliberate
+  replica cap — or defer both behind the already-staged quantization-sawtooth run (20 + 26 RPS ×
+  360 s, 20 RPS retained as a control, informative either way). Nothing launched, no cluster contact,
+  nothing pushed. Cold resume: **§7.6.1** (staged status, four preconditions, ordered next steps) and
+  **§9.1** (T1–T11 with owners).
 - **2026-07-15 — optimizer-pd-role-ceiling: code+tests complete; dev-guide edits UNCOMMITTED; clean-design discussion in progress.** All 10 planned tests landed (6 commits, tip `0c33a3eb`, all gates green). **⚠️ Uncommitted state:** the planner (authorized by Dean; coder done) edited the Type 4 dev-guide directly in the worktree — saturation single-source note + worked example + edge-case→test table + why-coupled paragraph — **`M multi-analyzer-pipeline.md`, NOT committed** (pending Dean's review). Separately, Dean opened a design discussion on making the optimizer's data-flow/algorithm doc *clean* (analyzers→utilization desired/achieved; optimizer coordinates AND/OR; constraints); captured in new Type 1 doc [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) — **Phase 1 (discussion) done, Phase 2 (clean design) drafted & awaiting Dean's review of 2 framing questions, Phase 3 (verify code vs. clean model) not started.** Suspected real bug surfaced: anticipated supply is in the denominator, not counted toward achieved (see design doc § Open issues #2 — needs a trace). **Resume 2026-07-16:** answer the 2 Phase-2 questions, lock clean design, do Phase 3, then restructure dev-guide. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 
 **Recently landed (1-liners; fuller entries in [`session/history.md`](history.md) → *Activity log*):**
@@ -220,7 +320,7 @@ rows stay here.
 | wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack; needs F1 "pre-analysis extraction" to solve `VariantCapacities` sourcing; unscoped). Dean spawning a **separate planner** to scope the real sat_v2-disable fix; awaiting his call: carve Half-A-only vs scope Half-B/F1 vs hold. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 | ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN but now a NO-OP — needs only a close call (Dean's; GitHub write).** Characterization "golden" gate (test-only, +409/−0, 1 file: `internal/engines/pipeline/optimizer_characterization_test.go`) freezing the saturation-only optimizer decision SET keyed by VariantName; was the land-first ship gate for the anchor refactor. **Its content is already in `main`:** PR-1 #1516 was rebased onto this branch's tip before opening, and #1516's **squash** merge (`57f3fe64`, 2026-08-07 17:48:05Z) therefore landed the file — `git diff 57f3fe64 a2f49ccf -- <that file>` is **empty**, so the PR has nothing left to contribute and its purpose was served. No code action; the coder must still **NOT** rewrite the goldens commits. Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note, carried into PR-1 and landed there). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
 | ta-anchor-refactor | — | **SUPERSEDED (2026-08-05) by `ta-anchor-refactor-v2`** — see that row. Stored-`ModelScalingRequest.Anchor` design (Aug-4 review fold-in `68bda1a1`/`192ae06b`) found unnecessarily complex; superseded by a no-stored-field two-phase redesign. Plan doc header marked `Status: SUPERSEDED` (commit `9721b587`); kept for history (Part 1 subject of `planning/ta-anchor-refactor-review.md`). Branch commit `34055d77` left unpushed; Dean to `git boidem` at his convenience. Plan: [`planning/ta-anchor-refactor-plan.md`](../planning/ta-anchor-refactor-plan.md) (superseded). | `34055d77` (unpushed, superseded) |
-| ta-anchor-dynamic-refresh | — | **CODING IN FLIGHT — PAUSED awaiting Dean's resume-coding go-ahead (gate steps 1–2 CLEARED); stacked/parallel on PR-1 (NOT merge-gated).** ONE indivisible PR-2: multi-vote combine (§1) + 4 arithmetic bug fixes #1/#2/#3/#5 (§2 — **#5 is five lock-step sites, not three**) + per-iteration dynamic re-binding (§3) + combine-liveness hardening (§2b: VG-up `Enabled&&Live`, N8, N2/N7) + (a)/(b) notation cleanup (§2c) + **C10 `k_sat` fold-in (§2e)** + **C11 `FZ-admission` (§2f)**. Commit map **C1–C11** — the four remaining commits became **seven**: **C6c** (bug #5 currency pivot) · **C6d** (finding (c) + bug #5 site (iii)) · **C6e** (new — `W1` fair-share double-spend) · **C6f** (new — `W4` abstain-when-unpriced) · **C11** (new — `FZ-admission`) · **C10** (`k_sat`) · **C9** (dev-guide + goldens). **git order ≠ labels**: `C1–C5 → C7 → C8 → C6a–C6b → C6c → C6d → C6e → C6f → C11 → C10 → C9` — C6c-first is **load-bearing** (only behavior-preserving one of the four ⇒ per-commit golden re-runs stay attributable). Landed C1–C5 + C7 + C8 + C6a (`8eb6ee2d`) + C6b (`d9f3b97e`), DCO-signed, all gates green, **no golden moved — of the landed commits only; do not read forward onto C6c**, where `ceil → floor` may legitimately move a `[sat]`-only #1513 golden. **C6c zero edits** (held on Dean's call; its six questions all answered inside the refresh, coder-confirmed against `1a116e7a` — Q3 → row 8, Q4 → row 5 (`priority` is a rank, never spent), **Q5 = a reversal** (site (iii) moved C6c→C6d), so `plan__ta-anchor-c6c-fairshare-currency.md` is now `.DONE`; it is a historical record, **not a spec**: its site-(ii) `ceil(target)` shape is ruled out by the GPU-space unit table (rows 4 and 6 — one `floor` conversion at `fairShareCap`, **no per-role reference PRC**; the `prcRef` machinery is retired, so any text citing it as a coder requirement is stale)). **Bug #5's currency is GPU space, not replica space** — `toGPUs(metric, PRC, GPUsPerReplica)`, nine-row unit table §2d.5 ⇒ landed **C3 `roleAggRemaining` stays replica space** (no re-denomination), and `fairShareCap` becomes a whole-replica **`floor`** fill (was `ceil`) = a one-replica behavior change to flag in C6c's message. **Three-step gate:** (1) Type-1 freeze ✅ **CLEARED** (`combined-analyzer-optimizer-design.md` FINAL/frozen @ `8c2a9b04`, queue EMPTY, `FZ-admission` = `Reason`-tagged `PRC = 1` sentinel + one-replica target ceiling at the 3 granting sites); (2) Type-3 refresh ✅ **CLEARED** (`1a116e7a`, 2283 lines, TOC regenerated, 15 sections, no code changed, still coder-ready); (3) **resume coding — Dean's explicit go-ahead only.** He starts the coder; the planner is not arming a *new* kickoff (`review__…-checklist` stays `.HOLD`; the coder's `__kickoff` is `.WIP` from the original start of coding). Coder **and** code reviewer still holding; C10-first offer **declined**. C10: `resolveKSat` resolver + 4 threaded call sites, `DefaultKSat` **deleted** (DEPRECATED), fallback `DefaultKvCacheThreshold` 0.80 — effect is **sub-1%** (`kSat` enters PRC twice; band 0.4–2.5%, **−0.548%** on the shipped fixture), justified by correctness + configurability, **not** "~6%". Fold-in dispositions now **landed in the plan**: `W1`→C6e, `W4`→C6f, `W5`→C6c, `FZ-admission`→C11+§2f, `W3`+`U5`→C9 **docs only**; **out:** `W2`+`U4` (**deferred *and settled* — not an open question**), `U5` metrics, `N9`, `AnalyzerName` validation, sat `Cost = 0` (`N5`). **§2.4 partial scale-from-zero picker RETIRED** as a separate scope item (C11 subsumes it). Local tip `d9f3b97e`; `origin/ta-anchor-dynamic-refresh@f6485980` orphaned by PR-1's reword (force-push pending Dean's OK). Handoff hygiene done by the planner: the **seven** stale coder triggers (read by the coder 2026-08-07 ~11:10, content superseded by the freeze) are now `.DONE`, replaced by one refs-only trigger — `ta-anchor-dynamic-refresh__c6c-onward-plan-refreshed.md` (the handoff named it `__type1-frozen-plan-refreshed`; it was renamed + rewritten at 19:25 and the coder has already marked it `.WIP`); four `plan__` handoffs consumed by the refresh are `.DONE`. Plan: [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) (tip **`1a116e7a`**; Type 1 governs on disagreement). | `d9f3b97e` (local; origin @ `f6485980`) |
+| ta-anchor-dynamic-refresh | — | **⚠️ This row's "PAUSED" framing is contradicted by the coder's status file (2026-08-08T09:20Z): CODE-COMPLETE, tip `a9afb740`, handed to review — see the flag in the Recent-activity PR-2 paragraph. Not rewritten here pending a `sync__` handoff.** ONE indivisible PR-2: multi-vote combine (§1) + 4 arithmetic bug fixes #1/#2/#3/#5 (§2 — **#5 is five lock-step sites, not three**) + per-iteration dynamic re-binding (§3) + combine-liveness hardening (§2b: VG-up `Enabled&&Live`, N8, N2/N7) + (a)/(b) notation cleanup (§2c) + **C10 `k_sat` fold-in (§2e)** + **C11 `FZ-admission` (§2f)**. Commit map **C1–C11** — the four remaining commits became **seven**: **C6c** (bug #5 currency pivot) · **C6d** (finding (c) + bug #5 site (iii)) · **C6e** (new — `W1` fair-share double-spend) · **C6f** (new — `W4` abstain-when-unpriced) · **C11** (new — `FZ-admission`) · **C10** (`k_sat`) · **C9** (dev-guide + goldens). **git order ≠ labels**: `C1–C5 → C7 → C8 → C6a–C6b → C6c → C6d → C6e → C6f → C11 → C10 → C9` — C6c-first is **load-bearing** (only behavior-preserving one of the four ⇒ per-commit golden re-runs stay attributable). Landed C1–C5 + C7 + C8 + C6a (`8eb6ee2d`) + C6b (`d9f3b97e`), DCO-signed, all gates green, **no golden moved — of the landed commits only; do not read forward onto C6c**, where `ceil → floor` may legitimately move a `[sat]`-only #1513 golden. **C6c zero edits** (held on Dean's call; its six questions all answered inside the refresh, coder-confirmed against `1a116e7a` — Q3 → row 8, Q4 → row 5 (`priority` is a rank, never spent), **Q5 = a reversal** (site (iii) moved C6c→C6d), so `plan__ta-anchor-c6c-fairshare-currency.md` is now `.DONE`; it is a historical record, **not a spec**: its site-(ii) `ceil(target)` shape is ruled out by the GPU-space unit table (rows 4 and 6 — one `floor` conversion at `fairShareCap`, **no per-role reference PRC**; the `prcRef` machinery is retired, so any text citing it as a coder requirement is stale)). **Bug #5's currency is GPU space, not replica space** — `toGPUs(metric, PRC, GPUsPerReplica)`, nine-row unit table §2d.5 ⇒ landed **C3 `roleAggRemaining` stays replica space** (no re-denomination), and `fairShareCap` becomes a whole-replica **`floor`** fill (was `ceil`) = a one-replica behavior change to flag in C6c's message. **Three-step gate:** (1) Type-1 freeze ✅ **CLEARED** (`combined-analyzer-optimizer-design.md` FINAL/frozen @ `8c2a9b04`, queue EMPTY, `FZ-admission` = `Reason`-tagged `PRC = 1` sentinel + one-replica target ceiling at the 3 granting sites); (2) Type-3 refresh ✅ **CLEARED** (`1a116e7a`, 2283 lines, TOC regenerated, 15 sections, no code changed, still coder-ready); (3) **resume coding — Dean's explicit go-ahead only.** He starts the coder; the planner is not arming a *new* kickoff (`review__…-checklist` stays `.HOLD`; the coder's `__kickoff` is `.WIP` from the original start of coding). Coder **and** code reviewer still holding; C10-first offer **declined**. C10: `resolveKSat` resolver + 4 threaded call sites, `DefaultKSat` **deleted** (DEPRECATED), fallback `DefaultKvCacheThreshold` 0.80 — effect is **sub-1%** (`kSat` enters PRC twice; band 0.4–2.5%, **−0.548%** on the shipped fixture), justified by correctness + configurability, **not** "~6%". Fold-in dispositions now **landed in the plan**: `W1`→C6e, `W4`→C6f, `W5`→C6c, `FZ-admission`→C11+§2f, `W3`+`U5`→C9 **docs only**; **out:** `W2`+`U4` (**deferred *and settled* — not an open question**), `U5` metrics, `N9`, `AnalyzerName` validation, sat `Cost = 0` (`N5`). **§2.4 partial scale-from-zero picker RETIRED** as a separate scope item (C11 subsumes it). Local tip `d9f3b97e`; `origin/ta-anchor-dynamic-refresh@f6485980` orphaned by PR-1's reword (force-push pending Dean's OK). Handoff hygiene done by the planner: the **seven** stale coder triggers (read by the coder 2026-08-07 ~11:10, content superseded by the freeze) are now `.DONE`, replaced by one refs-only trigger — `ta-anchor-dynamic-refresh__c6c-onward-plan-refreshed.md` (the handoff named it `__type1-frozen-plan-refreshed`; it was renamed + rewritten at 19:25 and the coder has already marked it `.WIP`); four `plan__` handoffs consumed by the refresh are `.DONE`. Plan: [`planning/ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) (tip **`1a116e7a`**; Type 1 governs on disagreement). | `d9f3b97e` (local; origin @ `f6485980`) |
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | (upstream) rate-anchored k2 | #1501 | **Reviewed 2026-07-30 — COMMENTED posted** (deanlorenz, 15:54:47Z) — rate-anchored `k2` estimator for saturation-v2 (fixes #1500 shed-to-one on prefill-heavy traffic). 2 non-blocking asks: (1) gate `RegisterRateCapacityQueries` on `EnableRateAnchoredK2` (unconditional registration adds per-cycle Prometheus load in the default TA-off config — load-only, no correctness impact); (2) rebase onto current `main` (#1486 touches the same `NewEngine`). Estimator/tests sound, no blockers. Incoming PR — no worktree. Review FINAL: [`planning/PR1501-review.md`](../planning/PR1501-review.md). | (incoming) |
 | ta-testing (integration) | — | **REFRESHED 2026-07-30 → tip `6bfb73e1`** (§4.1 trigger EXECUTED). Repointed to `upstream/main` directly (`git checkout -B`, pointer move, no hand-merge) now C/D/E/F all merged. New signed tag `ta-0.9-test-20260730` **pushed to origin** (does not replace the historical `ta-0.9-test-20260728` on `db530eed`). All gates green (`make test`/lint/build; `pkg/` gone → drop from the 3-dir gofmt invocation past this tip). Image `quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9` **pushed to quay** (local ID `sha256:3d438b65c8…`, registry digest `sha256:80dec0e9728f…`, linux/amd64). **Integration role now vestigial** — a plain `main@6bfb73e1` checkout already has everything C/D/E/F contributed; branch value is just a stable Dean-owned tag/image pipeline name. Cleanup deferred (old tag + stale `origin/ta-testing`@`db530eed` + local `ta-model-level-demand` worktree — non-urgent, at Dean's direction). Status: `session/status/ta-testing.md`. | `6bfb73e1` |
@@ -233,6 +333,10 @@ rows stay here.
   (Phase-4 Step 0). All prep is done (dry-run, hazard analysis, fork patches, Phase-3 namespace setup);
   also awaiting Dean's OK on 3 fork-only pushes (`6505de62`, the 3 presence-gate patches) and the
   upstream-patch-proposal decision. See § Benchmark + `session/status/benchmark.md`.
+- **The staged pokprod dwell run** is blocked on, in order: Dean's §7.6 (a)/(b) answer (or an
+  explicit deferral), Dean applying the gateway access-log follower (§9.1 **T9** — the coder's
+  permission classifier blocks the `kubectl apply`, and without it every per-request trace is a bet
+  against log rotation), the coder's four preconditions (§7.6.1), and finally Dean's run approval.
 
 ## Next steps
 
@@ -283,6 +387,10 @@ rows stay here.
   version-keyed (`bin/golangci-lint-$(GOLANGCI_LINT_VERSION)` + `ln -sf`), so `make lint` fetches 2.10.0 and
   re-points the symlink on its own. Local `go` is **already 1.26.0**, so there is no toolchain gap to close.
   Landing after the v0.9.0 tag point is consistent with the freeze still accepting fixes.
+- **Pokprod benchmark tooling — two Dean-owned items (§9.1 of `ta-pokprod-testing-plan.md`).**
+  **T9**: apply the gateway access-log follower (Dean personally — the coder's permission classifier
+  blocks the `kubectl apply`). **T10**: file upstream llm-d-benchmark issues for the two guards-only-fork
+  violators (later, after §2b's migration isolates them).
 - **Rescale Beta PRs — re-check against RC-2/RC-4 when they land.** PR #1452 (rescale Alpha) merged
   2026-07-28. Tracking issue [#1447](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1447)
   covers RC-1 (damping bypass) and RC-3 (#1003-deferred partition) but its text does **not** mention
@@ -345,11 +453,15 @@ rows stay here.
   `plan__ta-anchor-dataflow-map-pr1-delta.md` remains an open planner-task (optional §9 addition to
   `multi-analyzer-dataflow-map.md`, deferred by Dean — not sync's to consume), now partly overtaken: the
   map's §9 findings live in the Type 1's § findings, so any delta work is about the map's own currency.
-  **PR-2 `ta-anchor-dynamic-refresh` — coding IN FLIGHT (C1–C5+C7+C8+C6a+C6b landed, tip `d9f3b97e`),
-  PAUSED at step 3 of the three-step gate:** Type-1 freeze ✅ → Type-3 refresh ✅ (`1a116e7a`) →
-  **resume coding, which needs Dean's explicit go-ahead** (he starts the coder; the planner is not arming a
-  *new* kickoff — `review__ta-anchor-dynamic-refresh-checklist` is `.HOLD`, while the coder's own
-  `ta-anchor-dynamic-refresh__kickoff` is `.WIP`, consumed back when coding started). **Base consequence of
+  **PR-2 `ta-anchor-dynamic-refresh` — ⚠️ this "PAUSED at step 3" framing is stale; see the flag in
+  the Recent-activity PR-2 paragraph for what the coder's own status file now says (CODE-COMPLETE,
+  tip `a9afb740`, handed to review). Left as-is here pending a proper `sync__` handoff.** Recorded
+  framing at the time this row was last written: coding IN FLIGHT (C1–C5+C7+C8+C6a+C6b landed, tip
+  `d9f3b97e`), paused at step 3 of the three-step gate: Type-1 freeze ✅ → Type-3 refresh ✅
+  (`1a116e7a`) → **resume coding, which needs Dean's explicit go-ahead** (he starts the coder; the
+  planner is not arming a *new* kickoff — `review__ta-anchor-dynamic-refresh-checklist` is `.HOLD`,
+  while the coder's own `ta-anchor-dynamic-refresh__kickoff` is `.WIP`, consumed back when coding
+  started). **Base consequence of
   PR-1's merge:** PR-2 was described as *stacked/parallel on PR-1, not merge-gated* — with PR-1 now in
   `main`, PR-2's eventual rebase target is plain `main@57f3fe64`+, and its diff will no longer carry PR-1's
   commits. Whether/when to rebase is the coder's step per its plan, on Dean's go-ahead.
@@ -413,6 +525,9 @@ Phase 3 EXECUTED (`dhl-wva-209` created); hazard analysis resolved (live steps `
 3 fork-patch presence-gates applied, uncommitted). Blocked-on-Dean items in § Blocked on; 4 coder
 review points in the status file. Full detail: [`planning/ta-pokprod-testing-plan.md`](../planning/ta-pokprod-testing-plan.md)
 + [`session/status/benchmark.md`](status/benchmark.md) (state: `blocked`).
+**The Type 3 now also carries a tooling track** (§9.1, T1–T11 with owners — T9/T10 are Dean's, see
+§ Next steps) and a cold-resume block for the dwell-run redesign (§7.6.1); the methodology-pivot text
+above stays accurate.
 
 **TA-lead experiment — "does ThroughputAnalyzer trigger scale-up faster than saturation?" (setup
 check → planner, 2026-08-03).** Dean's next benchmark: run combined **TA+SAT** and test whether a
@@ -473,6 +588,7 @@ Infra / misc (no design-doc home; file as separate issues):
 - ~~**E2E throughput wiring test is a no-op under the opt-in gate**~~ — `b2f1d7ef` converted to fake-metrics/saturation-driven; coverage honesty comment added. Gap acknowledged; TA-isolated scale-up signal has no e2e coverage (by design — covered by unit tests). See forward plan I-14 (e2e robustness) and I-11 (test rot).
 - **`runRegisteredAnalyzers` deletion** — dead-code in `engine_v2.go`; not removed in #1266. Standalone cleanup PR. Plan: [`planning/multi-analyzer-addendum-plan.md`](../planning/multi-analyzer-addendum-plan.md) § Item 4.
 - **Optimizer `max`-shadowing cleanup** — `analyzer_helpers.go`: `roleBottleneckReplicas` (~L132) and `roleAggRemaining` (~L151) declare local `max` shadowing the Go builtin; flagged by ev-shindin in #1246 review. Minor cleanup; file post-merge.
+- **Align the informativeness predicate with the RC that reaches the optimizer (Type-1 design question, later round — not PR-2)** — `ResultIsInformative` scans only per-variant `Reason`, while the `RequiredCapacity` the optimizer consumes comes from `RoleCapacities` via `applyUniversalThreshold` (`saturation/engine_v2.go:476-513`), which never mentions `VariantCapacities` — so a saturation result can be non-informative while carrying a positive role RC. **Latent, not live** (Type-1 Addendum-1 Rev 6: the capacity store keeps saturation informative in every reachable configuration), which is why it is a design question rather than a bug to schedule. Closing it means either having informativeness consider role demand, or having the scheduler-queue term mark the variants it speaks for. Not a revival of the rejected liveness-aware-refusal option (different site — the liveness computation, not a second refusal predicate in the optimizer). File at Dean's direction.
 
 ---
 
