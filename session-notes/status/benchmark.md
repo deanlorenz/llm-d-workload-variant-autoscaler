@@ -1846,9 +1846,87 @@ Doable without a decision, not yet done:
 9. Suppress step_09's local report regeneration (§15.17); add controller-log capture to the
    harvest path; fix `reset_run.py`'s existence-check defect; §11 design-C Makefile change; the
    `variant.VariantAutoscaling` event-recorder issue.
+10. Fix `verify_decision_rule.py`'s last-wins overwrite of same-second analyzer payloads
+    (§17.9). Latent — it does not change this run's 65/0/22 — but it is the defect I just fixed
+    in `analyzer_presence.py`, and the next run may not be as lucky about arrival order.
 
 Open questions the data cannot settle:
 
-10. Which of scrape lag / rate-window width / sampling noise makes the optimiser blind 1.8 s
+11. Which of scrape lag / rate-window width / sampling noise makes the optimiser blind 1.8 s
     after a load step (§17.4). This is the one that decides whether the 62 s WVA share of the
     171 s lag is reducible at all.
+
+### 17.9 Were BOTH analyzers enabled and actually deciding? Yes — and here is the census
+
+Dean asked this directly, and it is worth more than a yes: every conclusion in §15–§17 rests on
+the run being a genuine two-analyzer run. Two separate things have to hold, and they are
+answered by two different pieces of evidence.
+
+**(a) Configured and registered.** The controller log carries the startup gate's positive
+branch verbatim:
+
+```
+20:20:34.826  INFO setup cmd/main.go:535  ThroughputAnalyzer registered (enabled in saturation config)
+```
+
+`cmd/main.go:throughputAnalyzerEnabled` gates registration on a saturation-config entry naming
+`throughput` with `enabled != false`, and the negative branch logs a *distinct* message
+("ThroughputAnalyzer NOT registered — no saturation config entry enables 'throughput'"). That
+string appears **0 times** in the log, so this is a positive identification, not an absence of
+evidence. Saturation needs no such line: it is intrinsic to `saturation.NewEngine` and exempt
+from the gate (`engine_v2.go:196`), so a running engine *is* a running saturation analyzer.
+
+I initially reported there was no registration line. That was a grep error on my part —
+I searched for `analyzers`, and the line says `ThroughputAnalyzer`. The line was there all
+along, on line 34 of the log.
+
+**(b) Actually deciding, per cycle.** Registration is necessary but not sufficient: the engine
+also applies a per-cycle `effectiveEnabled` opt-in per namespace/model, and separately an
+analyzer can emit a payload it cannot act on. `session-notes/scratch/analyzer_presence.py`
+censuses this from the controller log. **"Logged a payload" is weaker than "was
+decision-capable"** — a payload with `variants: []` carries no `prc`, so it cannot produce a
+replica claim and cannot influence the max-over-analyzers combine, even while plainly enabled:
+
+```
+95 cycles
+
+window payload from             prc from                  dec    n  first -> last
+idle   -                        -                          no    5  20:23:34 -> 21:45:42
+idle   saturation+throughput    saturation                yes   22  20:20:34 -> 20:41:36
+idle   saturation+throughput    saturation+throughput     yes   24  21:23:41 -> 21:46:43
+load   -                        -                          no    3  20:44:36 -> 21:15:39
+load   saturation+throughput    saturation+throughput     yes   41  20:42:36 -> 21:22:40
+
+  saturation   payloads   87   with prc   87   of those in load window   41
+  throughput   payloads   87   with prc   65   of those in load window   41
+  BOTH         decision-capable in the same cycle   65
+```
+
+The load window is the gateway trace's own first→last arrival (20:41:44 → 21:22:46), not the
+run log's 20:42:36 — see §17.2. Reading:
+
+- **In the load window both analyzers were decision-capable in 41 of 41 payload-bearing
+  cycles.** No cycle under load had only one analyzer able to claim replicas.
+- TA's 22 `prc`-less cycles are **all** in the cold prelude, 20:20:34 → 20:41:36, i.e. before
+  the first request at 20:41:44.330. That is the known idle-TA shape: with no traffic there is
+  no throughput observation to build a `prc` from. It is the same cold-`prc` effect as the ~18%
+  latency finding, seen from the config side.
+- 65 both-capable cycles = 41 load + 24 idle tail, which reconciles exactly with
+  `verify_decision_rule.py`'s **65 matched / 0 mismatched / 22 skipped** (it skips a cycle
+  unless *both* analyzers have a `prc`). So the verified decision rule was validated on the
+  both-capable set specifically, and the 22 skips are accounted for rather than unexplained.
+- 8 cycles (5 idle, 3 load) carry only an empty-`decisions` payload — no analyzer output at all.
+  Not investigated; they are not gaps in the two-analyzer claim, since no decision was made.
+
+**A defect in my own census, found and fixed.** The raw log has 108 `"analyzer": "throughput"`
+payloads but only 87 cycle slots. Keying by `(timestamp, analyzer)` and assigning therefore
+silently kept whichever payload arrived *last* — an analyzer can emit more than one payload
+inside the same one-second timestamp, and TA does so in **21** cycles (all in the post-load
+idle tail 21:26:41 → 21:46:43, each a `variants: 0` payload beside a `variants: 1` one). The
+first answer I computed was correct only by ordering luck; a `variants: []` payload arriving
+second would have masked a real one and *understated* TA's participation. The tool now retains
+every payload for audit and prefers the decision-capable one explicitly.
+
+`verify_decision_rule.py` has the identical last-wins overwrite. It is unaffected here — the
+duplicates all sit in the idle tail where the real payload happens to arrive second — but it is
+the same latent defect and wants the same three-line fix. Carried as an open item.
