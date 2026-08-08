@@ -320,10 +320,22 @@ pods are live:
 And "15 leader flips in 27 transitions" at ~6.5 % median imbalance is what *well-balanced* pods look
 like — the leader label is noise, not oscillation.
 
-**Not applied.** The bug fix (exclude non-live pods from the dispersion series) would silently ride
-a semantic decision — what "oscillating" should mean, and whether `flips >= 3` belongs in the
-predicate at all. Those belong to Dean. Until then, **nothing from this bundle should be shown as
-evidence about the router.**
+**Applied 2026-08-08** (Dean's decision), as two separate changes rather than one patch:
+
+- **boot samples excluded** — a pod counts from its first scrape with `run > 0`. Re-extracting this
+  run from source gives `disp_p95` **0.1429**, `disp_p50` 0.0625, `n` 26, 3 boot samples dropped:
+  the predicted number, confirmed against the data rather than asserted.
+- **`oscillation_flag` removed rather than fixed.** The extractor now publishes imbalance numbers
+  and no verdict, because §11.1 shows a *real* routing oscillation that this statistic cannot see at
+  any threshold. A per-request-trace detector is deferred as lower priority.
+
+**The `bundle.json` in this directory predates the fix** and still carries `disp_p95: 1.0` and
+`oscillation_flag: true`. Read the numbers above instead, or re-extract from
+`benchmark/dean-20260807-210058-612/results/inference-perf-1786125698-ptufog_1`.
+
+Either way the conclusion is unchanged: **nothing from this bundle is evidence about the router** —
+before the fix because the statistic was an artifact, after it because a clean imbalance reading
+cannot rule out an oscillation the instrument is blind to.
 
 > **Do not read this as exonerating the router.** It says the *gauge-derived flag on this bundle* is
 > an artifact. The 08-07 ladder run, which has per-request pod attribution, shows a real per-pod

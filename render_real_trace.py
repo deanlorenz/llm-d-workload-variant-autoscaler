@@ -501,9 +501,13 @@ def render(bundle, path, title=None, coverage=None):
             d.plot(xn, yn, color=C_WAIT, lw=2.4, alpha=0.9, zorder=2.8,
                    label='total requests in system (overlay)')
         r = der.get('router') or {}
-        d.set_title(f"router: {r.get('leader_flips', '?')} leader flips, "
-                    f"dispersion p95={r.get('disp_p95') and round(r['disp_p95'], 2)}"
-                    f"{' — OSCILLATING' if r.get('oscillation_flag') else ''}",
+        # Descriptive only — a ~15 s scrape cadence cannot resolve routing oscillation
+        # at its measured 6–11 s period, so no verdict is annotated here (plan §4.5).
+        p95 = r.get('disp_p95')
+        d.set_title(f"router imbalance p95="
+                    f"{'?' if p95 is None else round(p95, 2)}, "
+                    f"{r.get('leader_flips', '?')} leader flips / {r.get('n', '?')} "
+                    f"samples (not an oscillation test)",
                     fontsize=8, loc='right', color='#6b7280')
     else:
         empty(d, 'no metrics/raw/ scrapes — per-pod view unavailable')

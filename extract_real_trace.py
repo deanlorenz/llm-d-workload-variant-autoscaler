@@ -820,26 +820,49 @@ def tput_knee(ivs):
 
 
 def router_stats(pods, epp_series):
-    """Dispersion of concurrency across pods, and sign flips of the leader.
+    """Concurrency imbalance across pods, and how often the busiest pod changes.
 
-    `oscillation_flag` is KNOWN UNSOUND in both directions. Left as-is on purpose: the
-    fix needs a design decision, not just a patch (plan sections 4.5 and 12.2 item 6).
+    Descriptive numbers only. There is deliberately no `oscillation_flag`: neither
+    statistic here can carry that verdict at this sampling rate (plan sections 4.5 and
+    12.2 item 6).
 
-      - False positive. Dispersion includes samples where a pod is still booting
-        (run = 0 => dispersion 1.0). Live-pods-only, p95 went 1.000 -> 0.143 with
-        p50 = 0.065, and at ~6% imbalance the leader label is noise, so counting its
-        flips measures nothing.
-      - False negative, and not fixable here. Real routing oscillation runs at about
-        one request sojourn time (6-11 s measured) against a ~15 s scrape cadence, so
-        Nyquist aliases it away before this function sees it. Anti-phase pods also
-        cancel under pooling. Only a per-request trace carrying the serving pod can
-        detect it.
+      - Real routing oscillation runs at about one request sojourn time -- 6-11 s on
+        measured runs -- against a ~15 s scrape cadence, so Nyquist aliases it away
+        before this function sees it, and anti-phase pods cancel under pooling on top
+        of that. Only a per-request trace carrying the serving pod can resolve it, so a
+        clean reading here is not evidence of a balanced router.
+      - `leader_flips` argues in neither direction. At the ~6% median imbalance measured
+        so far the leader label is noise, so its flips count coin tosses.
+
+    Boot samples are excluded, which is the one unambiguous fix. A pod that has not
+    served anything yet reports run = 0, and that reads as total imbalance; on the arm-B
+    run it was the entire signal (p95 1.000 -> 0.143, p50 0.065 either way). Samples
+    where every live pod is idle are dropped from `leader` for the same reason -- `max`
+    over all-zero counts returns whichever pod was inserted first.
+
+    Drain is the mirror case and is NOT handled: a pod emptying under a scale-down will
+    still inflate dispersion. No run in the pool scales down yet, and suppressing a tail
+    of zeros would also suppress a genuinely starved pod, so that one wants a decision
+    rather than a default.
     """
-    by_t = {}
+    first_serve, never = {}, []
     for pod, samples in pods.items():
+        served = [s['t'] for s in samples if (s['g'].get('run') or 0) > 0]
+        if served:
+            first_serve[pod] = min(served)
+        else:
+            never.append(pod)
+    by_t, n_boot = {}, 0
+    for pod, samples in pods.items():
+        if pod in never:
+            continue
         for s in samples:
-            if s['g'].get('run') is not None:
-                by_t.setdefault(round(s['t']), {})[pod] = s['g']['run']
+            if s['g'].get('run') is None:
+                continue
+            if s['t'] < first_serve[pod]:
+                n_boot += 1
+                continue
+            by_t.setdefault(round(s['t']), {})[pod] = s['g']['run']
     disp, leader = [], []
     for t in sorted(by_t):
         vals = by_t[t]
@@ -849,12 +872,11 @@ def router_stats(pods, epp_series):
         tot = sum(vals.values())
         if tot > 0:
             disp.append((hi - lo) / tot)
-        leader.append(max(vals, key=vals.get))
+            leader.append(max(vals, key=vals.get))
     flips = sum(1 for a, b in zip(leader, leader[1:]) if a != b)
     return {'disp_p50': pct(disp, 0.5), 'disp_p95': pct(disp, 0.95),
             'leader_flips': flips, 'n': len(disp),
-            'oscillation_flag': bool(disp and (pct(disp, 0.95) or 0) > 0.5
-                                     and flips >= 3)}
+            'n_boot_excluded': n_boot, 'pods_never_served': len(never)}
 
 
 def queues(replicas, pods, epp_series, requests):
@@ -951,10 +973,12 @@ def coverage(ivs, fit, sat, knee, lag, cap, router, qseries, pods, requests, sha
             else (f"p95={pct(qflow, 0.95)}" if qflow else 'no demand trace')),
         row('Queue (c) material', bool(qeng) and max(qeng) > 1,
             f"max={max(qeng) if qeng else None}"),
-        row('Router oscillation observable', len(pods) >= 2,
-            f"pods={len(pods)} flips={router.get('leader_flips')} "
-            f"disp_p95={router.get('disp_p95')} "
-            f"oscillating={router.get('oscillation_flag')}"),
+        # Deliberately NOT 'oscillation observable' -- scrapes cannot resolve the
+        # sojourn-time period (plan section 4.5). This row is about imbalance only.
+        row('Router imbalance measurable', len(pods) >= 2,
+            f"pods={len(pods)} disp_p95={router.get('disp_p95')} "
+            f"flips={router.get('leader_flips')} n={router.get('n')} "
+            f"(boot samples excluded: {router.get('n_boot_excluded')})"),
         row('rho model valid at top', (sat.get('preempt_s') or 0) < 0.05,
             f"preempt/s={sat.get('preempt_s')}"),
         row('Capacity model checkable',

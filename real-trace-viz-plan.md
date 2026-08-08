@@ -354,9 +354,29 @@ this is detected rather than silently averaged away on runs where it does happen
 > So the detector needs three things, not one: the non-live-pod fix; a design decision on what
 > "oscillating" should *mean* and whether `flips >= 3` survives; and an honest statement that
 > **scrape-derived per-pod gauges cannot detect routing oscillation at this period at all** — only a
-> per-request trace with pod attribution can. Fix proposed, **not applied**: the bug fix would
-> silently ride the semantic change, and that fork is Dean's. Evidence:
+> per-request trace with pod attribution can. Evidence:
 > `real-trace/staircase-20260807-armB/FINDINGS.md` §7 (the false positive) and §11.1 (the real wave).
+>
+> ✅ **Resolved 2026-08-08 (Dean).** The first two are applied; the third is deferred.
+>
+> 1. **Boot samples excluded** — a pod is counted from its first scrape with `run > 0`. Re-extracting
+>    arm B from source reproduces the predicted number exactly: `disp_p95` **1.000 → 0.1429**
+>    (p50 0.066 → 0.0625, `n` 28 → 26, 3 boot samples dropped). Samples where every live pod is idle
+>    are also dropped from the leader series, where `max` over all-zero counts was returning
+>    whichever pod happened to be inserted first.
+> 2. **`oscillation_flag` removed, not fixed.** `router_stats` now emits descriptive numbers only —
+>    `disp_p50`, `disp_p95`, `leader_flips`, `n`, `n_boot_excluded`, `pods_never_served` — and the
+>    panel-3 annotation reads `router imbalance p95=…, N leader flips / M samples (not an
+>    oscillation test)`. The coverage row is renamed `Router imbalance measurable`, because that is
+>    what it checks. `flips` is retained as a number and load-bears nothing: at ~6% imbalance it is
+>    still counting coin tosses, and it no longer feeds a predicate.
+> 3. **A per-request-trace detector is deferred** (lower priority). Until one exists, a clean reading
+>    here is *not* evidence of a balanced router — §4.5(b) is why.
+>
+> **Still unhandled, deliberately: drain.** A pod emptying under a scale-down inflates dispersion the
+> same way a booting one did. No run in the pool scales down yet, and suppressing a tail of zeros
+> would also suppress a genuinely starved pod, so that case wants a decision rather than a default.
+> Recorded in the `router_stats` docstring.
 
 ---
 
@@ -602,7 +622,8 @@ derived:  {sat_band:{threshold:0.85, n, run_mean, run_max, itl_ms, gen_tok_s, re
                      regime:"memory-bound"|"compute-bound"},
            tput_knee:{run, gen_tok_s, confident:bool},
            lags:{decision_s, boot_s, drain_s},
-           router:{disp_p50, disp_p95, oscillation_flag},
+           router:{disp_p50, disp_p95, leader_flips, n, n_boot_excluded,
+                   pods_never_served},   // descriptive; no verdict — §4.5
            preempt_total, scaledown_observed, inflation_factor}
 ```
 
@@ -887,21 +908,41 @@ the `y > 0` ITL knee.
 5. ~~**Ring the benchmark coder** with §9.2 (item 3 above)~~ — **DONE 2026-08-08.** Two handoffs had
    already arrived from that thread in the other direction, and a reply carrying §9.2 plus the ladder
    cross-check went back as
-   `autoscaling-viz/session-notes/handoffs/benchmark__viz-cross-check-and-next-capture.md`.
-   **Convention gap found while sending it:** worktree isolation refuses writes to the shared
-   `plans/session/handoffs/`, so neither side can put a handoff there — which is why the benchmark
-   session left mine in *its* worktree and why mine sits in ours. The three-state `.md`/`.WIP`/`.DONE`
-   machine also cannot be operated across worktrees: each side can only flip files it can write.
-   Raise with Dean; the protocol assumes a shared writable directory that isolated sessions lack.
+   `plans/session/handoffs/benchmark__viz-cross-check-and-next-capture.md`, with the drafting copy
+   kept at `session-notes/handoffs/`.
+
+   > ⚠️ **The "convention gap" recorded here first was my error, not a gap.** I had written that
+   > worktree isolation refuses all writes to the shared `plans/session/handoffs/`, so neither side
+   > could use it and the `.md`/`.WIP`/`.DONE` machine was inoperable across worktrees. Dean said that
+   > could not be right. It is not. The **file tools** are blocked there and **Bash is not**:
+   >
+   > | operation on `plans/session/handoffs/` from an isolated worktree | result |
+   > |---|---|
+   > | `Write` (new file) | blocked by the isolation guard |
+   > | `Edit` (existing file) | blocked by the same guard — *even though* `~/.claude/settings.json` allowlists `Edit()` on exactly this path, so the guard preempts the permission |
+   > | Bash `cp <worktree-file> <shared-dir>/` | **works** |
+   > | Bash `mv <shared-dir>/x.md <shared-dir>/x.md.DONE` | **works** |
+   >
+   > So the recipe is: draft in the worktree, `cp` in, `cp` again to revise, `mv` to flip state. Both
+   > incoming handoffs were in fact in the shared directory all along, at `.WIP`, and are now `.DONE`.
+   > **Generalizable lesson:** one refusal from one tool is not a fact about the filesystem. I inferred
+   > a protocol-level defect from a single failed `Write` and then propagated it into a handoff, a plan
+   > section and a report to Dean before testing the other three operations — which took one command
+   > each. The allowlist entry that contradicted me was sitting in `settings.json` the whole time.
+   >
+   > One thing worth raising anyway: the `Edit()` allowlist entry for this path is **inert** under
+   > worktree isolation. Either the guard should honor it or the entry should go, because as it stands
+   > it documents a capability that does not exist.
 
 **New, from the 2026-08-08 ladder cross-check** — all four are *semantic* forks sitting on top of
 work that is otherwise finished, which is why none of them is being applied unilaterally:
 
-6. **`router_stats` semantics** (§4.5). Excluding non-live pods is an unambiguous bug fix, but it
-   rides two questions that are not: what should `oscillation_flag` *mean*, and does `flips >= 3`
-   survive once the leader label is known to be noise at ~6% imbalance? And given §4.5(b), the
-   sharper question — should the scrape-derived flag be **removed** rather than fixed, in favor of a
-   per-request-trace detector that can actually resolve the period?
+6. ~~**`router_stats` semantics** (§4.5).~~ **RESOLVED 2026-08-08.** Boot exclusion applied;
+   `oscillation_flag` **removed** rather than fixed, so the extractor publishes imbalance numbers and
+   leaves the verdict to the reader; the per-request-trace detector is **deferred** as lower
+   priority. Full record in the §4.5 resolution box. One case stays open by choice — a pod draining
+   under a scale-down inflates dispersion exactly as a booting one did, and no run in the pool
+   scales down yet.
 7. **What `tput_knee` should report as a capacity** (§5.3). It takes a `max`, so on a run with an
    oscillating batch it structurally selects the prefill-quietest instant: **4994 tok/s against a
    saturated-band mean of 3943 — a +27% upper envelope.** `max` is the right answer to "what did this
