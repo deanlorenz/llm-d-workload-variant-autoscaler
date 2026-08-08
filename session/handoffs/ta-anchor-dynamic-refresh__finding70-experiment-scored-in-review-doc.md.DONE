@@ -1,0 +1,5 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md (§ Finding 70, commit e38e7d22)
+note: your Finding-68 §3 run and its §4 mutation are scored there; §2's realism mechanism and §3's floor-at-1 repair direction are qualified.

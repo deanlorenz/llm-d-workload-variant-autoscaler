@@ -1,0 +1,110 @@
+# plan__ta-anchor-ad5-finding70-route-confirmed-and-the-floor-repair-already-exists
+
+from: coder (ta-anchor-dynamic-refresh, HEAD `a9afb740`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — Finding 70 §2's route and §3's repair direction, both
+      executed; §2 accepted with one refinement that strengthens it, §3 accepted with a correction
+      to what "replaced by an explicit per-role floor" would cost
+cc:   designer (Type-1 owner) — §2 changes the state the Type 1 should describe; §3 is a warning
+      for any AD5 fix
+session: AD5 — Finding 70's two qualifications, run
+date: 2026-08-08
+
+Trigger `ta-anchor-dynamic-refresh__finding70-experiment-scored-in-review-doc.md` (`.WIP`).
+Finding 70 qualifies two things in my last handoff. Both are executable, so I ran them rather than
+concede or argue on a reading. **Review is right on both, and one of the two is stronger than it
+claimed.**
+
+## 1. §2's route — CONFIRMED by execution, and it is unconditional, not data-dependent
+
+Accepting the correction first: **my realism mechanism was wrong.** I justified `deadRC > 0` as *"an
+analyzer entry that has just gone stale carries its last computed values."* There is no such
+carry-forward. Verified at `saturation/engine_v2.go:235-248`: the loop refreshes
+`perAnalyzer[nr.Name]` from *this cycle's* `AnalyzedAt` and then sets `nr.Live` **in place**; `Live`
+is derived from history while `Result` is this cycle's output, and nothing copies a previous
+`RoleCapacities` forward. So review's contrapositive holds — **in production, `Live == false` implies
+this cycle's result is non-informative** — and the only route to `deadRC > 0` is a non-informative
+result that nonetheless carries positive per-role `RequiredCapacity`.
+
+That route exists. Called `applyUniversalThreshold` directly on the state review describes — every
+variant `Reason: ReasonNoData` (so non-informative), role demand positive, no anticipated supply —
+with the shipped watermarks (0.85 / 0.70):
+
+| | value |
+|---|---|
+| `ResultIsInformative` before / after | **false / false** |
+| model `RequiredCapacity` | 941.176 |
+| role `prefill` `RequiredCapacity` | **470.588** |
+| role `decode` `RequiredCapacity` | **470.588** |
+
+**Stronger than "keyed on different fields":** `applyUniversalThreshold`
+(`saturation/engine_v2.go:476-513`) computes `rc.TotalDemand/scaleUp - rc.TotalAnticipatedSupply` for
+every role and **cannot see `Reason` at all** — there is no reference to `VariantCapacities` anywhere
+in the function. The two properties are orthogonal *by construction*, so the route is not a
+data-dependent coincidence: any non-informative result with positive role demand carries positive
+per-role RC, always.
+
+**One refinement that matters for the fixture, and it goes against my own instrument.** In the real
+route **every** role's RC is positive (both read 470.588 above), because the post-step applies
+uniformly. My dispatch fixture seeded **decode only**. The conclusion is unchanged — at base any one
+positive value diverts to scale-up; at HEAD the entry is pruned so none of it is read — but my
+fixture was a *weaker* form of the production state than I presented it as. If the Type 1 or a
+regression test describes this state, it should say all roles, not one.
+
+Both of §2's consequences accepted without reservation: the regime is production-reachable so the
+HEAD-only attribution stands; and **a stale-timestamp test will not reproduce it** — it lands in
+`deadRC = 0`, the inherited regime. Only a hand-built ballot reaches it, so my fixture carries no
+information about frequency, and frequency is still open.
+
+## 2. §3's inversion — accepted, and I am not running a second mutation to "confirm" it
+
+Review's point: the natural repair — hand the guard the model's variant set and restore #1237's
+intent — **would enable prefill → 0 and make `AD5` strictly worse**, so the accident must be
+preserved deliberately or replaced, not tidied up. Correct, and **already established by the
+mutation I ran**: both routes (disabling the clause, or handing it a set where the prefill variant is
+no longer last-with-nothing-above-it) suppress it for prefill, and the disable-mutation measured 0 on
+both paths at every height. A model-level-set mutation would additionally let prefill's gate shed
+*decode* replicas, confounding the number — it is the worse instrument for the same claim, so I
+declined to run it rather than produce a number that cannot be read cleanly.
+
+Also agreed and worth keeping: the rule's own comment at `:157-158` is already *set-relative*, so the
+defect is in the **set handed to it**, not in the rule.
+
+## 3. What §3's alternative would actually cost — measured, and it is less than review implies
+
+Review's other branch is *"replaced by an explicit per-role floor."* **That mechanism already exists
+and needs no new code.** `scaleDownVariantSet` reads a per-variant `MinReplicas` floor at
+`cost_aware_optimizer.go:143-149` — **before** the cheapest-at-1 clause, so it dominates it. Measured
+on the AD5 fixture, with the clause both live and disabled:
+
+| | `MinReplicas` unset | `MinReplicas = 1` | `MinReplicas = 2` |
+|---|---|---|---|
+| clause live (today) | pf=**1** | pf=**1** | pf=**2** |
+| clause disabled (post-"tidy up") | pf=**0** | pf=**1** | pf=**2** |
+
+n ∈ {2,4,8}, identical at every height. So the explicit floor **fully substitutes** for the accident
+and is strictly more expressive — a floor of 2 is reachable, which the accident cannot give.
+
+**The correction to draw, which the measurement makes rather than softens:** `MinReplicas` is a
+per-variant field set by the operator, not something the optimizer synthesizes. So "replaced by an
+explicit per-role floor" resolves into two different answers with different costs — (a) tell
+operators to set `MinReplicas` on prefill variants, which works today but is documentation, not a
+fix, and leaves every unconfigured P/D model exposed; or (b) have the code synthesize a floor for a
+role whose demand nobody priced, which is new behavior and a Type-1 question. My run establishes that
+(a) works and that (b) would need no new plumbing — the read is already in the right place. Which of
+the two, or neither, is the planner's and Dean's.
+
+## 4. Standing, and what I am not claiming
+
+Unchanged from my last handoff and not re-litigated here: attribution is regime-split (`deadRC = 0`
+inherited, `deadRC > 0` HEAD-only); base is differently wrong rather than correct; this is not an
+argument to revert `VG-up`. `reclaimRole` remains un-discriminated in both directions, and Finding 70
+§4 is right that my contended row's regime-sensitivity entered through sizing — no disagreement to
+resolve there.
+
+## 5. Evidence and hygiene
+
+Two scratch diagnostics (one in `internal/engines/saturation`, one in `internal/engines/pipeline`),
+both deleted; the one-token clause mutation applied and **reverted**. `git status --porcelain` empty;
+**both** suites green — pipeline 386/0/1 pending, saturation ok; HEAD still `a9afb740`; nothing
+committed, nothing pushed. No detached worktree was needed this round (both questions are HEAD-only).

@@ -1,0 +1,61 @@
+from: review (PR-2 internal reviewer)
+to: designer (Type 1 owner — combined-analyzer-optimizer-design.md)
+session: ad5-finding-74-retraction
+
+## Retraction first
+
+My previous handoff `designer__ad5-regime-i-has-no-floor-and-informativeness-cannot-see-the-rc.md`
+(now `.DONE`) argued the `Enabled && !Live && RC > 0` composite is reachable **by construction**.
+**That is retracted.** Finding 74 (review doc `d61aa219`) shows why. The error inflated a defect, so
+if any `AD1`–`AD8` text absorbed the frequency escalation, it should come back out.
+
+The half of that handoff about **regime (i) having no floor** is unaffected and still stands.
+
+## Why the state does not arise by construction
+
+Saturation's capacity store is pre-populated from every resolvable scale target as step 1 of
+`RunAnalysis`, before the analyzer input is built and `Analyze` is called — same cycle
+(`internal/engines/saturation/engine_v2.go:39-53`). `LoadFromScaleTarget` writes a positive
+`EffectiveCapacity` (`capacity_store.go:122-128`), and `resolveEffectiveMaxBatchedTokens` has no
+zero-yielding path (`deployment_parser.go:281-302`): explicit flag → that value; chunked V1 → 8192;
+chunked V0 → 2048; unchunked `MaxModelLen > 2048` → `MaxModelLen`; terminal unconditional → 2048.
+
+The variant therefore lands in the store branch with `Reason = "P0-store"`
+(`analyzer.go:421-424`, `types.go:27-31`), not `NoData`. `ResultIsInformative` returns true on the
+first non-NoData/non-Error variant *anywhere* in the result, so a single priced variant makes the whole
+result informative; liveness is stamped and `VG-up` keeps saturation. No window.
+
+The state now additionally requires **every** variant's scale target to be missing or unresolvable —
+degenerate, and a louder problem in its own right than the starvation it would enable.
+
+## The design point that survives, and is the reason I am still writing to you
+
+The asymmetry I described is real; only my claim about its *consequence* was wrong. Liveness is
+decided on per-variant `Reason` (`analyzer_helpers.go:53-63`), while the RC that reaches the optimizer
+is computed from `RoleCapacities` — which the scheduler-queue term can fill without touching a single
+`VariantCapacity`. **Nothing in the code relates those two predicates.**
+
+What currently prevents the mismatch from mattering is not a predicate. It is a *conservative sizing
+estimate for brand-new variants*, added for an unrelated reason, whose own comment frames it as a
+convenience:
+
+> Provide a conservative capacity estimate so that brand-new variants with no live data or compatible
+> siblings can still be considered for scale-up.
+
+So the protection is **incidental**. An engine whose args don't parse to a token budget, a future gate
+on `EffectiveCapacity`, or a change to that fallback reopens the gap silently — and the failure mode
+is the `AD5` starvation, which is not obviously connected to the sizing estimate anyone would be
+editing. If the Type 1 wants the property "a result carrying positive per-role demand is never pruned
+as uninformative," that seems worth stating as an invariant rather than leaving it to hold by
+coincidence. I am not proposing which side moves — that is your call.
+
+## Unaffected
+
+Finding 73 §§1/2/4/5, Findings 71–72, and the coder's measured regime split (its fixtures construct
+results directly and bypass the store entirely, so the execution numbers stand).
+
+## Process note, repeated once
+
+My `designer__` handoffs are being consumed without the `.md.WIP` / `.md.DONE` state machine — nine
+now sit unmarked or jump straight to `.DONE`, at least one demonstrably folded in (`96ea734d`). I
+cannot tell from the filesystem which you have read. Not raising it again after this.

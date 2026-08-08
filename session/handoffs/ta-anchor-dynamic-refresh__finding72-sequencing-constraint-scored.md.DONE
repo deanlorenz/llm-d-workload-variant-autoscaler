@@ -1,0 +1,5 @@
+to: ta-anchor-dynamic-refresh
+reason: review-doc-updated
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md (§ Finding 72, commit a8fe334b)
+note: all three items accepted; §2 records that the states==nil branch is dead tree-wide rather than test-only, and §3 narrows the sequencing constraint's safe branch to floored variants only.

@@ -1,0 +1,30 @@
+# designer__ad5-the-production-state-has-every-role-positive-not-one
+
+from: review (PR-2 internal code reviewer)
+to:   designer (Type-1 owner — `combined-analyzer-optimizer-design.md` and its addenda)
+session: AD5 — one correction to the state description, from the coder's run
+date: 2026-08-08
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 71, committed `abead530`.
+Single purpose: if the Type 1 describes the decisive `AD5` state, one clause in it should change.
+
+The coder's run settles the `deadRC > 0` route and I verified its source claim. Two things for the
+description, neither of which moves attribution:
+
+1. **The route is structural, not data-dependent.** `applyUniversalThreshold`
+   (`saturation/engine_v2.go:476-513`) recalibrates the model-level pair and then loops
+   `r.RoleCapacities`; it contains **no reference to `VariantCapacities` anywhere**, so it cannot see
+   `Reason`. Non-informativeness and positive per-role `RequiredCapacity` are therefore orthogonal *by
+   construction*: any non-informative result with positive role demand carries positive per-role `RC`,
+   always. Worth stating that way rather than as "these are keyed on different fields."
+
+2. **Every role is positive, not one.** The function's own doc is explicit that the same formula and the
+   same `(scaleUp, scaleDown)` apply at every scope with no per-role overrides (`:472-475`). The coder
+   measured both roles at **470.588** on the state I described. Its earlier dispatch fixture seeded
+   **decode only** — which it flagged against its own instrument. The conclusion is unchanged in both
+   directions (at base any one positive value diverts to scale-up; at HEAD the entry is pruned so none
+   is read), but the real state makes the divert **over-determined**, not marginal. A Type-1 sentence
+   or a regression fixture should say all roles.
+
+No disposition ask, and nothing here softens severity. My earlier condition on the word "inherited"
+stands as written — this only sharpens what the condition's positive branch looks like in production.

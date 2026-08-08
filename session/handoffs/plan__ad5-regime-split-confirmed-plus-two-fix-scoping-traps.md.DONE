@@ -1,0 +1,64 @@
+# plan__ad5-regime-split-confirmed-plus-two-fix-scoping-traps
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+session: AD5 — the run settles attribution; two traps for whoever sizes the follow-up
+date: 2026-08-08
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 70, committed `e38e7d22`. Sent to your own prefix
+rather than cc'd, per the delivery point in Finding 69.
+
+## 1. Attribution: settled, and your basis needs a carve-out
+
+The coder ran Finding 68 §3's experiment with both conditions honored. Base `075a208e` vs HEAD `a9afb740`:
+dead-entry per-role `RC` **all zero → inherited** (base ≡ HEAD); dead-entry per-role `RC` **positive → HEAD-only**
+(base preserves prefill, HEAD drains to 1). Regime split, not path split — please retire my earlier path-based
+framing along with the "in full" in the coder's previous handoff.
+
+Your counterfactual dismissal — a protection that *"never existed in any shipped state"* — holds for the
+`deadRC = 0` regime and for the demand-weight route. **It does not hold for `deadRC > 0`**, where the masking did
+ship, via the dispatch. That is bug-masking-bug (base scales up on stale figures), so it is not an argument to
+revert `VG-up`, and neither the coder nor I is making one. It does mean the deferral rationale needs the carve-out
+stated rather than the unconditional form.
+
+Also closed from your side: my previous handoff corrected your §2 "reclaim to 0" prediction. The coder has since
+confirmed the floor at 1 by mutation — see §3 below, which makes that correction load-bearing rather than
+pedantic.
+
+## 2. Trap one — a stale-timestamp regression test will not reproduce this
+
+If the follow-up is recorded with a test, note that the obvious construction misses. In production, `Live = false`
+**implies** this cycle's result is non-informative: `Live` is history-derived from `lastGoodAnalysis`
+(`saturation/engine_v2.go:209-251`), every production analyzer stamps the current time
+(`saturation_v2/analyzer.go:130`, `throughput/analyzer.go:501`, `queueingmodel/analyzer.go:142`), and the loop
+refreshes `perAnalyzer` before reading it (`:237-247`) — so an informative result this cycle forces `Live = true`.
+
+Consequence: **a test that ages a timestamp lands in `deadRC = 0`, the inherited regime, and will pass on base
+and HEAD alike.** The reachable route to `deadRC > 0` is a *non-informative* result that still carries positive
+per-role `RC` — possible because `ResultIsInformative` keys only on `VariantCapacities[].Reason`
+(`analyzer_helpers.go:53-63`) while role `RC` derives from role `TotalDemand` via `applyUniversalThreshold`
+(`engine_v2.go:123`, `:476-513`), and demand is metric-derived, independent of the lookup that yields `NoData`
+(`saturation_v2/analyzer.go:421-431`). Real state: all variants lose live replicas against a cold/unmatched
+capacity store with demand still positive, sustained past `analyzerLivenessStaleCycles × interval`.
+
+Corollary for the record's wording: the coder's "realistic, not the corner" is right in conclusion but was
+argued from a carry-forward mechanism that does not exist. The regime is reachable; the **frequency** question is
+open, and the hand-built fixture carries no information about it.
+
+## 3. Trap two — the obvious floor-at-1 repair makes `AD5` worse
+
+The coder verified by mutation that disabling `cost_aware_optimizer.go:159-161` takes prefill to **0** on both
+paths (six rows; 4 further specs also fail, so the clause is load-bearing). I verified the mechanism: both callers
+pass a **role-filtered** set — `:491` and `rescale.go:414`, via `variantsForRole` — so on a P/D model with one
+variant per role, `i == len(sorted)-1` always holds and `sorted[:i]` is always empty, and the clause always fires.
+
+So the one brake on `AD5` is a **model-level scale-to-zero guard handed a per-role singleton**. The natural
+"cleanup" — give it the model's variant set, restoring #1237's intent — **enables prefill → 0**. It must be
+preserved deliberately or replaced with an explicit per-role floor, and whatever gets recorded should say so,
+because "the guard is misapplied" invites exactly the wrong repair. (The comment at `:157-158` already describes a
+set-relative rule, so the defect is in the set handed to it, not the rule.)
+
+## 4. Standing
+
+Still no disposition ask, and I am not arguing scope. Combined with Finding 69's point that the second harm is
+**cross-model** rather than intra-model, the record now needs three things right: regime-scoped attribution, the
+cross-model demand understatement, and the two traps above. Severity unchanged; *defer* remains defensible.

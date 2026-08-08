@@ -1,0 +1,73 @@
+# plan__ad5-the-floor-repair-covers-regime-ii-only-and-regime-i-has-nothing
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+session: AD5 — Finding 73: the fix-option pricing changes, and it cuts against my own last two findings
+
+Scored the coder's frequency handoff as **Finding 73**
+(`planning/ta-anchor-dynamic-refresh-review.md`, commit `8d4e96e0`). Every load-bearing claim in it
+verified at `a9afb740`; the measurements are the coder's, I ran nothing. Two results below change what
+the repair options are worth — one of them is a correction to my own Findings 71 and 72, not to the
+coder's work.
+
+## 1. The floor repair reaches regime (ii) only — including everything I proved
+
+`anyRoleNeedsScaleUp` is a **global OR** across roles (`analyzer_helpers.go:709-718`), so one role's
+positive RC sends the whole model down the scale-up branch (`cost_aware_optimizer.go:61-66`) and
+`scaleDownRoleIterated` is never entered. Everything Findings 71 and 72 established — the `MinReplicas`
+domination proof, its reach across both shed callers, the sequencing constraint and its coverage
+precondition — lives inside `scaleDownVariantSet`, which that branch does not call.
+
+So the whole option (a)/(b) discussion governs **regime (ii)** (decode RC == 0 with spare; prefill drains
+to 1). It does not touch **regime (i)** (decode RC > 0; prefill frozen at current, including 0) — which is
+the cold-start regime, and by §3 of the finding the one reachable by construction.
+
+## 2. And regime (i) has no repair on the table at all
+
+I swept every `MinReplicas` read in `internal/engines/pipeline`. Four sites, each downstream of a decision
+a frozen variant never triggers:
+
+- `cost_aware_optimizer.go:145-146` — the shed floor; regime (ii) only.
+- `rescale.go:527-528` and `:647-648` — `floorGPUs` / per-role GPU totals; budget accounting, not a target
+  raise.
+- `greedy_saturation_algorithm.go:114-115` — *"MinReplicas is a hard floor"*, raises `TargetReplicas`
+  outside any shed path. This one looked like the rescue. It is not, twice over: `Allocate` reaches it only
+  via `filterScaleUpCandidates`, which keeps a decision only `if d.TargetReplicas > d.CurrentReplicas`
+  (`:52-63`), and `allocateForDecision` opens `replicasNeeded := d.TargetReplicas - d.CurrentReplicas; if
+  replicasNeeded <= 0 { return }` (`:80-83`). A prefill at target == current == 0 is filtered out before
+  the floor and early-returns before it regardless.
+
+**Consequence for pricing the options:** `MinReplicas >= 1` does not raise a frozen-at-zero prefill. Every
+floor in the pipeline guards against *shedding* below a floor; none establishes a floor for a variant that
+is never granted anything. So option (a) (tell operators to set `MinReplicas`) and option (b) (synthesize
+a floor) are both regime-(ii) repairs as currently framed. Whatever covers regime (i) has to **grant**, not
+merely refuse to shed — a different mechanism, and a larger question than the one Findings 71–72 were
+pricing. I am flagging the gap, not proposing the mechanism.
+
+The enforcer is not a backstop for either regime: its minimum-replica preservation fires only when the
+model's *total* is zero (`enforcer.go:138-147`), and the fallback that then runs selects by `Cost` with a
+`VariantName` tie-break and references `Role` **nowhere** (`:150-174`) — it is role-blind, so it cannot
+rescue a per-role zero even in principle.
+
+## 3. Frequency is answered, and it raises severity
+
+The coder's route is verified end to end (details in the finding). The part worth carrying: the state is
+reachable **by construction**, not by an unlucky input. `ResultIsInformative`
+(`analyzer_helpers.go:53-63`) iterates only `Result.VariantCapacities[].Reason` and never reads
+`RoleCapacities`; `perAnalyzer[nr.Name]` is written only from an informative result
+(`saturation/engine_v2.go:240-247`); and the positive per-role RC is computed from
+`RoleCapacities.TotalDemand`, which `estimateSchedulerQueueDemand` fed without touching a single
+`VariantCapacity`. Any input that puts demand only in the queue term produces `Enabled && !Live && RC > 0`.
+So the frequency question becomes "how often does a P/D model start with upstream queue depth and nothing
+priceable" — routine startup, not a rare state — and no production data can retire the state; only
+aligning the two predicates would.
+
+One item stays the coder's flagged **inference, not measurement**: base adding +1 to prefill every cycle
+while the analyzer is dead. It does not affect attribution either way.
+
+## 4. What I am not saying
+
+Not proposing a mechanism for regime (i), not proposing the predicate alignment in §3, and not softening
+the `VG-up` attribution — the `deadRC > 0` half stays HEAD-only via PR-2's own `952d2fff`. Disposition is
+yours and Dean's. No code read outside `a9afb740`; nothing built or tested by me, so no gate result here is
+mine.

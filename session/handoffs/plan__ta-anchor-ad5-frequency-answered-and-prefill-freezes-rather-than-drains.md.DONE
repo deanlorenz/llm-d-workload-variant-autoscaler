@@ -1,0 +1,121 @@
+# plan__ta-anchor-ad5-frequency-answered-and-prefill-freezes-rather-than-drains
+
+from: coder (ta-anchor-dynamic-refresh, HEAD `a9afb740`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — Finding 72 accepted in full (§1); the frequency item
+      both of us have carried as open is now **answered**, and the answer changes AD5's severity
+cc:   designer (Type-1 owner) — §2 says the Type 1's "prefill's target collapses to 1" describes
+      only one of AD5's two regimes, and understates the other
+session: AD5 — frequency of the `deadRC > 0` state, answered by source + measurement
+date: 2026-08-08
+
+Trigger `ta-anchor-dynamic-refresh__finding72-sequencing-constraint-scored.md` (`.WIP`). Finding 72
+names no work for me and closes the proof chain, but its §4 re-states **frequency of the `deadRC > 0`
+state** as still open — the one AD5 item that was mine. It is now answered, and the answer is worse
+than "rare." **No code changed, nothing committed, nothing pushed.**
+
+## 1. Finding 72 — accepted in full, including the narrowing that costs me something
+
+All three items accepted. §2(ii) is right that I under-stated my own point: the `states == nil` branch
+(`cost_aware_optimizer.go:144`) is dead **tree-wide**, not merely production-unreachable — no test
+calls `scaleDownVariantSet` directly and all five `scaleDownRoleIterated` test callers pass a map
+literal. §3's narrowing lands: the proof is **per-variant**, so "floor first, then tidy" is safe
+*exactly for floored variants*, which makes the ordering constraint **necessary but not sufficient**
+and does **not** rescue option (a) — its safe branch presumes complete floor coverage, which
+operator-set configuration is what cannot guarantee. Recording the coverage precondition alongside
+the ordering constraint, as asked, so the record cannot read as a licence to tidy up.
+
+## 2. Frequency — the `deadRC > 0` state has an ordinary production route, and it is cold start
+
+I had said my fixture carries no information about frequency and that only a hand-built ballot reaches
+the state. **The second half was wrong.** Traced from the analyzer that produces the result:
+
+**The dead end that makes it look safe.** Saturation's per-variant `TotalDemand` accumulates *only*
+inside the `len(replicas) > 0` branch (`saturation_v2/analyzer.go:397`), so a variant labelled
+`satReasonNoData` (`:430-432`) contributes **zero** demand. Read no further and "all variants NoData
+⇒ no demand ⇒ RC 0" looks airtight.
+
+**The second, independent demand source.** Role demand is not only the sum over variants:
+`estimateSchedulerQueueDemand` (`:750-794`) is added per role *after* aggregation (`:487-492`). Its
+input-token term is
+`tokensFromBytes = QueueBytes / BytesPerToken` (`:763`) — which **reads no replica metrics at all**.
+With no replica metrics, `computeModelWorkloadAverages` returns 0/0/0 (`:598-613`), so
+`tokensFromCount` and `avgHitRate` both vanish and `inputTokens = QueueBytes / BytesPerToken`,
+positive whenever `QueueBytes > 0`. Role attribution needs no metrics either —
+`byRole[prefill] = inputTokens`, `byRole[decode] = inputTokens + outputTokens` (`:783-786`) — and
+both `activeRoles` (`:104-107`) and `hasDisaggregation` (`:471-478`) are derived from
+`VariantStates`, i.e. from the CR, not from telemetry.
+
+**Liveness closes it.** `perAnalyzer[nr.Name]` is only ever written from an **informative** result, so
+an analyzer that has never produced one has no entry at all and `ok == false` → `Live = false`
+(`saturation/engine_v2.go:235-248`).
+
+**Composite: first deploy of a P/D model with requests queued upstream and no priceable variant —
+no ready replicas, no own capacity record, no compatible record via `lookupCompatibleCapacity` —
+yields `Enabled && !Live` with positive `RequiredCapacity` on both roles.** That is the `deadRC > 0`
+regime, reached by the most ordinary startup path there is, with no hand-built ballot.
+
+**The precondition, stated tightly so nobody over-claims it:** it needs `SchedulerQueue.QueueBytes >
+0` specifically. With `QueueSize > 0` but `QueueBytes == 0` and no replica metrics, both input-token
+terms are zero and the route does not open. This is a **reachability** answer, not a rate — how often
+real clusters sit there needs production data, not source.
+
+## 3. What happens there, measured — prefill **freezes**, it does not drain to 1
+
+Built the cold-start shape (dead saturation carrying 470.588 on both roles, live throughput carrying
+decode 4000 and prefill's structural zero, P/D variants at `cur` replicas) and ran both optimizers at
+HEAD and at base `075a208e`:
+
+| `cur` | base pf | base dc | HEAD pf | HEAD dc |
+|---|---|---|---|---|
+| 0 | 1 | 4 | **0** | 4 |
+| 1 | 2 | 5 | **1** | 5 |
+| 2 | 3 | 6 | **2** | 6 |
+
+Both optimizers identical in every row; decode identical across columns (the dominance combine lets
+4000 swamp 470.588).
+
+**The mechanism is not the one AD5 is written around.** With decode's RC positive,
+`anyRoleNeedsScaleUp` is **true** (printed, not inferred), so the dispatch takes the scale-up branch
+(`cost_aware_optimizer.go:59-66`) and `scaleDownRoleIterated` is **never entered** — the cheapest-at-1
+accident is not involved on this path at all. Prefill gets nothing because its RC is 0, so it stays
+where it is.
+
+**So AD5 has two regimes, with different mechanisms and different brakes:**
+
+- **(i) decode RC > 0** — rising load, cold start. Scale-up branch. Prefill **frozen at current**;
+  no brake exists or is needed. At `cur = 0` that means prefill stays at **0** while decode scales to
+  4 — a P/D model with no prefill replicas. The enforcer does not rescue it: its minimum-replica
+  preservation fires only when the model's *total* is zero (`enforcer.go:140-180`), and the total here
+  is 4.
+- **(ii) decode RC == 0 with spare** — steady/falling load. Scale-down branch. Prefill **drains to
+  1**, and the cheapest-at-1 accident is the only brake.
+
+The Type 1's *"prefill's target collapses to 1"* describes **(ii)** only. Left unqualified it
+understates (i), where there is no floor to collapse onto.
+
+**Attribution unchanged, and now numbered.** Same regime-split as before — this is the `deadRC > 0`
+half, so **HEAD-only**, opened by `VG-up` (mine): base keeps the dead entry on the ballot and converts
+its 470.588 into exactly **one** prefill replica; HEAD prunes it and grants none. The per-cycle delta
+is one prefill replica.
+
+**One inference, flagged as an inference.** Because unpriced variants contribute no supply, base's
+per-role RC does not decay as prefill grows, so base should add +1 to prefill *every* cycle while the
+analyzer stays dead — a slow creep bounded only by the GPU limiter rather than a one-off. That follows
+from the formula (`engine_v2.go:476-513`), but I did **not** run a multi-cycle fixture, so it is
+reasoning, not measurement. Either way base is differently wrong, not right, and none of this is an
+argument to revert `VG-up`.
+
+## 4. What I am not claiming
+
+Not measured and not asserted: what llm-d actually serves with prefill at 0 (a router/deployment
+question); the *rate* at which real clusters enter this state; whether a synthesized floor is the
+right repair (§3 of my last handoff — planner's and Dean's). `reclaimRole` remains un-instrumented
+per-function; Finding 72 §2(i) bounds what that costs without closing it.
+
+## 5. Hygiene
+
+Two scratch diagnostics (HEAD + a base copy), both **deleted**; detached worktree `/tmp/ad5-base4`
+created at `075a208e` and **removed** (`git worktree list` clean). No production file touched, no
+mutation applied this round. `git status --porcelain` empty; pipeline suite **386 passed / 0 failed /
+1 pending**; HEAD still `a9afb740`; nothing committed, nothing pushed.

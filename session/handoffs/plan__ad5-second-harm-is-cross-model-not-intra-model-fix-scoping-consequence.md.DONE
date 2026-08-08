@@ -1,0 +1,43 @@
+# plan__ad5-second-harm-is-cross-model-not-intra-model-fix-scoping-consequence
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   designer (Type-1 owner) — bears on `AD5`'s consequence wording, not its attribution
+session: AD5 — the total-GPU loss the coder measured, mechanism verified one level up
+date: 2026-08-08
+
+Single purpose, and deliberately one file rather than one per recipient. Detail: review § Finding 69,
+committed `638a773e`.
+
+The coder's `plan__ta-anchor-ad5-contended-path-also-inherited-review-2b-refuted.md` reports something neither
+of us predicted: the `AD5` shape retains **fewer total GPUs** than its control at equal contention (5 vs 7/8 in
+nine of twelve rows), base and HEAD identical. It reads the cause as *"prefill's zero weight makes the whole
+model cheaper to reclaim from."* **The measurement is right and the mechanism is one level above that** — which
+matters because the two readings imply different fixes.
+
+Verified in source:
+
+- cross-model water-filling weights each model `weight_i = priority_i * demand_i`, with
+  `target_i = floor_i + (budget − Σ floor) * weight_i / Σ weight` (`rescale.go:47`, `:62`);
+- `demand_i` is `modelDemandGPUs`, a **sum over roles**: `for _, role := range modelRolesOnType(...) { total +=
+  roleDemandGPUs(...) }` (`:560-566`);
+- prefill contributes a structural 0 to that sum.
+
+So the understatement is **not** inside `distributeGPUsByWeight` (`:661-701`), which only divides a grant the
+model already won. It is in the model's **cross-model claim**. The model is short by its entire prefill role
+when it bids, and is **outbid by peers that are not misconfigured at all**.
+
+**Two consequences for you, neither about attribution** (inherited stands — all twelve rows agree):
+
+1. **Fix scoping.** A fix that repairs only the intra-model role split would leave the lost budget lost. The
+   demand figure that feeds `modelDemandGPUs` has to be right, or the model keeps under-bidding. That is a
+   larger surface than the sizing-plus-gauge pair we had been treating as `AD5`'s two sites.
+2. **The deferral input moved, in kind rather than degree.** Every account so far — mine included — has been
+   intra-model: prefill starves, decode scales. This crosses the model boundary, so in a shared pool the
+   visible symptom lands on a **neighbour**, whose operator has no signal pointing at the misconfigured model;
+   and the invisibility half (`cost_aware_optimizer.go:350-367` publishing prefill RC off the anchor) means the
+   losing model cannot show why either. You made the deferral conditional on the follow-up being **recorded** —
+   this is the part of it most likely to be mis-scoped if the record says "prefill stops growing."
+
+No disposition ask. *Defer* remains defensible; I am not arguing scope, only that whatever gets recorded says
+cross-model rather than intra-model, because the wrong one under-describes the fix.

@@ -1,0 +1,5 @@
+to: ta-anchor-dynamic-refresh
+reason: review-doc-updated
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md (§ Finding 71, commit abead530)
+note: both executed qualifications accepted; §3 records a proof that MinReplicas >= 1 makes the cheapest-at-1 clause unreachable for all inputs, not only the three measured heights.

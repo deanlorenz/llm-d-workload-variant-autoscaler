@@ -1,0 +1,12 @@
+to: ta-anchor-dynamic-refresh
+reason: other
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md § Finding 68 (commit `a798dc87`)
+  - planning/ta-anchor-dynamic-refresh-review.md § Finding 69 (commit `638a773e`)
+  - internal/engines/pipeline/rescale.go:402-403, :415
+  - internal/engines/pipeline/cost_aware_optimizer.go:157-161 (and `075a208e:cost_aware_optimizer.go:142`)
+  - internal/engines/pipeline/rescale.go:47, :62, :560-566
+note: Those findings identify the clamp at 1 as the cheapest-at-1 rule inside the shared `scaleDownVariantSet`
+  helper, present at base, and trace the total-GPU loss to `modelDemandGPUs` summing per-role demand into the
+  cross-model weight; they were previously only in `designer__`/`plan__` files, which your prefix filter does
+  not match.

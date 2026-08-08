@@ -1,0 +1,83 @@
+# plan__ta-anchor-ad5-finding71-proof-verified-and-a-sequencing-constraint
+
+from: coder (ta-anchor-dynamic-refresh, HEAD `a9afb740`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — Finding 71 §3's proof independently re-derived and
+      accepted; two extensions to it, one of which narrows §3's own second bullet
+cc:   designer (Type-1 owner) — the sequencing constraint in §3 belongs in any AD5 fix that
+      touches the cheapest-at-1 rule
+session: AD5 — Finding 71 verified, plus an ordering constraint on the fix
+date: 2026-08-08
+
+Trigger `ta-anchor-dynamic-refresh__finding71-both-qualifications-accepted.md` (`.WIP`). Finding 71
+names no experiment for me — it accepts both of my Finding-70 runs and replaces my three-height
+measurement with a proof. **No new code, no commit, nothing pushed.** I did not take the proof on
+trust; §1 is my own re-derivation, and §2/§3 are what re-deriving it turned up.
+
+## 1. The proof holds — re-derived from source, not accepted on the reviewer's word
+
+Review's claim: `MinReplicas >= 1` makes the cheapest-at-1 clause **unreachable**, for all inputs.
+Re-derived at `cost_aware_optimizer.go:142-161`:
+
+- `removable := current - minReplicas` (`:149`), and `if removable <= 0 { continue }` (`:150-152`);
+- `n := maxRemovable(vc)` (`:153`), then `if n > removable { n = removable }` (`:154-156`) — so on
+  every route into the clause, `n <= current - minReplicas`;
+- the clause (`:159`) requires `current - n < 1`, i.e. over integers `n >= current`.
+
+Both together give `current - minReplicas >= current`, i.e. `minReplicas <= 0`. **Confirmed**, and I
+checked the one thing the argument depends on that the finding does not state: `n` is not touched
+anywhere between the clamp and the clause (`:157-158` is comment only), so the bound cannot be
+re-widened. Two side conditions also hold and are worth recording because they close the degenerate
+cases: `removable >= 1` at the clause implies `current >= 1` (given `minReplicas >= 0`), so the
+clause can never be entered with a zero or negative `current`; and a negative `maxRemovable` cannot
+reach the clause body usefully either, since `current - n < 1` fails for `n < 0` when `current >= 1`.
+
+## 2. The proof covers **both** scale-down routes, and §3's second bullet is narrower than written
+
+Two extensions, both from grepping rather than reasoning:
+
+**(i) Both call sites are covered.** `scaleDownVariantSet` has exactly two production callers —
+`scaleDownRoleIterated` (`cost_aware_optimizer.go:496`) and `reclaimRole` (`rescale.go:415`) — and
+**both pass a states map**. So the proof is not a `scaleDownRoleIterated`-only property: an explicit
+floor suppresses the clause on the contended/rescale path too. That is the one place where
+`reclaimRole` being un-instrumented does *not* leave a gap, since the guard is in the shared
+primitive.
+
+**(ii) The `states == nil` branch is test-only, which narrows §3's second bullet.** Review writes
+that `minReplicas` is 0 *"whenever `states` is nil or `MinReplicas` is unset."* In production the
+first disjunct is unreachable: all three production callers (`cost_aware_optimizer.go:65`,
+`greedy_score_optimizer.go:225`, `rescale.go:382`) pass a map from `buildStateMap`, which always
+`make`s one. So the only live route to `minReplicas == 0` is an **unset `MinReplicas` field** —
+i.e. exactly operator configuration. That does not change the conclusion; it makes §4's
+correlated-failure point sharper, because the exposure set is precisely "operators who did not set
+it," with no second population.
+
+## 3. The consequence nobody has written down yet: the fix is order-sensitive
+
+Combining Finding 70 §3 (tidying the positional rule enables prefill → 0) with Finding 71 §3 (a floor
+makes that rule unreachable) yields a constraint on *sequence*, not just on choice:
+
+- **floor first, then tidy up — safe.** Once the unpriced role carries `MinReplicas >= 1`, the
+  cheapest-at-1 clause is provably unreachable for that variant, so restoring #1237's intent
+  afterwards cannot re-open AD5 for the floored role.
+- **tidy up first — re-opens AD5**, at every height, on both paths. That is the disable-mutation I
+  already measured (pf = 0).
+
+So if both are ever wanted, the order is forced. I am not proposing either — scope and disposition
+remain the planner's and Dean's — but a plan that lists them as independent items would be wrong, and
+a plan that lists them in the wrong order would ship the regression through the front door.
+
+## 4. Standing
+
+Unchanged and not re-litigated: attribution regime-split (`deadRC == 0` inherited, `deadRC > 0`
+HEAD-only via `VG-up`); base is differently wrong, not correct; not an argument to revert `VG-up`;
+frequency of the `deadRC > 0` state still open; `reclaimRole` still un-instrumented per-function
+(§2(i) narrows what that costs, it does not close it). Agreed with Finding 71 §4 that option (a)'s
+failure mode is correlated with the bug it contains, and with §5 that the chain is closed from
+review's side unless new code lands. It is closed from mine on the same condition.
+
+## 5. Hygiene
+
+Source reads only — no test written, no fixture built, no mutation applied this round. `git status
+--porcelain` empty; HEAD still `a9afb740`; pipeline suite last green at 386 passed / 0 failed / 1
+pending; nothing committed, nothing pushed.

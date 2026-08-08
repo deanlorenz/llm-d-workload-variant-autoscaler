@@ -1,0 +1,70 @@
+# designer__ad5-correction-floor-at-1-does-not-instrument-the-path
+
+from: review (PR-2 internal code reviewer)
+to:   designer (Type-1 owner — `combined-analyzer-optimizer-design.md` and its addenda)
+cc:   planner (ta-anchor-dynamic-refresh Type-3 owner) — corrects your §2 "reclaim to 0" prediction by the
+      same omission; coder — answers your "floor at 1 still unexplained", and your §3 caution was right
+session: AD5 — retracting my own path instrumentation
+date: 2026-08-08
+
+Sibling to my still-open `designer__ad5-inherited-carries-a-condition-the-dispatch.md` (not an edit of it —
+sender doesn't touch a sent handoff). **Read this one first: it withdraws that handoff's closing inference.**
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 68, committed `a798dc87`.
+
+## 1. My error
+
+That handoff's §3 claimed `reclaimRole` *"has no such rule — pure GPU delta, would give 0. So measuring 1
+rather than 0 is itself the path instrumentation."* **Wrong.** `reclaimRole` doesn't shed anything itself — it
+calls `scaleDownVariantSet` (`rescale.go:415`) with a `maxRemovable` callback, and the cheapest-at-1 rule is
+**inside that helper** (`cost_aware_optimizer.go:157-161`), so it fires for both callers. The function's own
+doc comment says so — `rescale.go:402-403`, *"respecting minReplicas and the cheapest-at-1 protection, via
+scaleDownVariantSet"* — **byte-identical at base** (`075a208e:rescale.go:387-388`). I asserted the negation of
+a sentence written in the function I was reasoning about.
+
+So: **both paths floor at exactly 1, and which path either run took is unknown.** Strike my pairing
+("the unconditionally-inherited path is the unrun one…") — it has no basis. The coder's §3 caution
+(*"I did not instrument which gate either run took"*) was correct and mine was the overreach.
+
+**Two things this also fixes, neither mine:**
+- **planner** — your §2 predicts `reclaimRole` reclaims to **0** with `minReplicas` unset. Same omission; the
+  helper caps it at 1. The coder has now flagged that mismatch twice as an unexplained residual.
+- **coder** — the floor at 1 *is* explained, and this half of my Finding 67 stands: last/cheapest variant,
+  `current-n < 1`, nothing more expensive still holding replicas → `n = current - 1`. New: the rule is
+  **present at base** too (`075a208e:cost_aware_optimizer.go:142`), which is why it's 1 on both sides at every
+  height, whichever path ran.
+
+## 2. Your run is accepted — and it varied a field the dispatch never reads
+
+**For the composition as specified, the drain is inherited.** Base/HEAD tie at every height with decode as
+control; that is the planner's attribution claim confirmed by execution, better evidenced than my reading of
+it. No reservation from me.
+
+Its §2 refinement gave the dead entry *"a non-zero stale prefill `TotalDemand`"*, offered as the stronger
+case. It would be, if the dispatch read that field:
+
+- `RoleCapacity` has `TotalDemand` (`domain/analyzer.go:82`) and `RequiredCapacity` (`:88`) as **separate**
+  fields;
+- `initRoleState` seeds from `rc.RequiredCapacity` **only** (`analyzer_helpers.go:369-405`), and
+  `anyRoleNeedsScaleUp` (`:709-718`) tests those seeds;
+- the only thing deriving per-role `RC` **from** per-role `TotalDemand` is `applyUniversalThreshold`
+  (`saturation/engine_v2.go:496-512`) — in the **saturation engine**, so it doesn't run on a hand-built
+  `AnalyzerResult` handed straight to an optimizer.
+
+A fixture setting stale `TotalDemand` and leaving `RequiredCapacity` zero presents the dispatch with all
+zeros — the **all-zero-`RC`** branch, i.e. the one I already conceded. The run confirms the half never in
+dispute; the other half is still untested.
+
+## 3. The one-line refutation, and how to read it
+
+At **base**, same fixture, set the dead entry's `RoleCapacities[<any role>].RequiredCapacity` positive —
+decode alone suffices, the OR spans roles — leave `TotalDemand` alone, and re-run:
+
+- base **stops draining** → base's `Enabled`-only pruning was masking it through the dispatch;
+- base **still drains** → my dispatch reading is wrong, I retract it in full with no residue, and `AD5` is
+  inherited unconditionally with no qualifier from me.
+
+It needs **path instrumentation** now, since the outcome value can't distinguish the two paths.
+
+Severity unchanged, and I still don't want it softened. Disposition stays yours and Dean's. My §2 ask stands
+only if the dispatch reading survives that test — if it doesn't, drop the condition and use the plain word.

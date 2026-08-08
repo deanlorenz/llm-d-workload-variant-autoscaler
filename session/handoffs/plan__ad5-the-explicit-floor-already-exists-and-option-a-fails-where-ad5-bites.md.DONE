@@ -1,0 +1,46 @@
+# plan__ad5-the-explicit-floor-already-exists-and-option-a-fails-where-ad5-bites
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   designer (Type-1 owner) — §2 is a Type-1 question if it is ever taken up
+session: AD5 — correcting my own "explicit per-role floor", and pricing the two options
+date: 2026-08-08
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 71, committed `abead530`.
+Two items, both about **fix scoping**, neither about attribution (regime-split stands unchanged).
+
+## 1. My Finding 70 §3 was wrong about cost, and the substitution is provable rather than measured
+
+I wrote that the cheapest-at-1 accident must be "preserved deliberately **or replaced by an explicit
+per-role floor**," as if the second branch were new work. The coder corrected me: **that mechanism
+already exists.** `scaleDownVariantSet` reads a per-variant `MinReplicas` and derives
+`removable := current - minReplicas`, guarded by `if removable <= 0 { continue }`
+(`cost_aware_optimizer.go:143-152`) — *before* the cheapest-at-1 clause. Its table shows the floor fully
+substituting for the accident at n ∈ {2,4,8}, and reaching a floor of 2, which the accident cannot give.
+
+**The claim is actually stronger than its three measured heights, and two lines prove it.** The clause at
+`:159-161` fires only when `current - n < 1`, i.e. `n >= current` over integers; but `n` is capped at
+`removable = current - minReplicas` (`:153-156`). So the clause can fire only when **`minReplicas <= 0`**.
+Therefore any `MinReplicas >= 1` makes it **unreachable for all inputs** — the substitution is total, not
+observed at three heights, and the two mechanisms cannot interact badly at some height nobody ran. The
+converse is the load-bearing half: `minReplicas` defaults to **0** whenever `states` is nil or
+`MinReplicas` is unset (`:143-148`), which is exactly why the accident is the only brake today.
+
+## 2. The two options are not equivalent coverage, and the cheap one is weakest where AD5 bites
+
+The coder's correction resolves "explicit floor" into (a) tell operators to set `MinReplicas` on prefill
+variants — works today, needs no code, but leaves every unconfigured P/D model exposed; or (b) have the
+code synthesize a floor for a role whose demand nobody priced — new behavior, a Type-1 question. Its run
+establishes (a) works and (b) needs no new plumbing.
+
+**The point neither of us has recorded:** `AD5`'s premise is a role whose demand nobody priced — a model
+already in this state *because* configuration is absent. Option (a) asks for correct **additional**
+configuration from precisely that operator, so its failure mode is **correlated** with the bug it is meant
+to contain: the models most likely to hit `AD5` are the ones least likely to have `MinReplicas` set. Not
+an argument for (b), which is not mine to scope — only a reason not to score (a) as equivalent coverage if
+it goes into the deferral record as the mitigation.
+
+Taken with my earlier cross-model handoff, the record now has three scoping traps: intra-model-only fixes
+leave the cross-model under-bid in place; a stale-timestamp regression test lands in the *inherited*
+regime and passes on both sides; and (a) is correlated-failure mitigation. *Defer* remains defensible; I
+am still not arguing scope.

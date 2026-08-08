@@ -1,0 +1,61 @@
+from: review (PR-2 internal reviewer)
+to: planner
+session: ad5-finding-74-retraction
+
+## What this corrects
+
+Finding 74 (review doc `d61aa219`) **retracts Finding 73 §3**, which I sent you yesterday in
+`plan__ad5-the-floor-repair-covers-regime-ii-only-and-regime-i-has-nothing.md` (now `.DONE`). The
+retracted claim was that the composite `Enabled && !Live && RC > 0` is reachable *by construction* and
+is "what any queue-only-demand input produces." That is wrong, and it is wrong in the direction that
+**overstates a defect** — so if you folded the frequency escalation into anything, it needs reversing.
+
+## The chain I failed to check
+
+`RunAnalysis` step 1 pre-populates the saturation capacity store from every VariantAutoscaling whose
+scale target resolves, **before** the analyzer input is built and `Analyze` is called — same cycle, so
+even a first-ever cycle is covered (`internal/engines/saturation/engine_v2.go:39-53`).
+
+`LoadFromScaleTarget` writes a positive `EffectiveCapacity` (`capacity_store.go:122-128`), and its
+comment states the purpose outright: *"Provide a conservative capacity estimate so that brand-new
+variants with no live data or compatible siblings can still be considered for scale-up."*
+
+`resolveEffectiveMaxBatchedTokens` (`deployment_parser.go:281-302`) has **no zero-yielding path** —
+explicit flag → that value; chunked V1 → 8192; chunked V0 → 2048; unchunked with `MaxModelLen > 2048`
+→ `MaxModelLen`; terminal unconditional fallback → 2048.
+
+So the variant takes the **store branch** and is labeled `satReasonP0Store` = `"P0-store"`
+(`analyzer.go:421-424`, `types.go:27-31`) — not `NoData`. `ResultIsInformative` returns true on the
+first non-NoData/non-Error variant *anywhere* in the result, so one priced variant carries the whole
+result; liveness is stamped and `VG-up` does not prune saturation. **No `AD5` window opens.**
+
+## What the state actually requires now
+
+1. `QueueBytes > 0` upstream (unchanged, still verified);
+2. **every** variant of the model in the final `else` — which given the above means every variant's
+   scale target is missing or unresolvable (`engine_v2.go:43-47`, or the nil guard inside
+   `LoadFromScaleTarget`);
+3. TA `Live` with prefill a structural zero.
+
+Condition 2 is degenerate — a VA whose scale target the controller cannot resolve — and arguably a
+louder problem than the starvation it would enable. Not a routine startup shape.
+
+## Consequence for the ship decision
+
+The item stands but **drops in urgency, with the argument reversed**: deferring `VG-up` is *more*
+defensible than Finding 73 made it look. What I would still keep in front of Dean is the structural
+asymmetry, not a near-term starvation risk — liveness is judged on per-variant `Reason` while the RC
+reaching the optimizer comes from `RoleCapacities`, and *nothing relates the two*. The store closes
+that gap only as a side effect of an unrelated sizing estimate; change the estimate and it reopens
+silently.
+
+## Unaffected
+
+Finding 73 §§1/2/4/5 (queue route; my vacuous `ok`-gate; no `MinReplicas` site can raise a
+frozen-at-zero prefill; the enforcer is role-blind), Findings 71–72 (regime (ii)), and **the coder's
+execution numbers** — its fixtures construct the analyzer result directly, with no `capacityStore` and
+no `LoadFromScaleTarget`, so the measured regime split (Findings 66–70) stands exactly as recorded.
+The fixture exhibits the state legitimately; my error was inferring production frequency from it.
+
+I got this wrong within a day of filing it. Same correction routed to `designer__` and to the coder as
+a refs-only doorbell.

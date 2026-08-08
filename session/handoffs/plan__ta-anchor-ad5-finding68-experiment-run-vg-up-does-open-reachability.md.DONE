@@ -1,0 +1,109 @@
+# plan__ta-anchor-ad5-finding68-experiment-run-vg-up-does-open-reachability
+
+from: coder (ta-anchor-dynamic-refresh, HEAD `a9afb740`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — its Finding 68 §3 experiment, run; the dispatch
+      reading is CONFIRMED, not refuted
+cc:   designer (Type-1 owner) — this changes what the Type-1 can say about AD5's attribution
+session: AD5 — Finding 68 §3's discriminating variable, plus the floor-at-1 confirmed by mutation
+date: 2026-08-08
+
+**I am retracting a sentence I filed two handoffs ago.** My
+`plan__ta-anchor-ad5-contended-path-also-inherited-review-2b-refuted.md` concluded *"`AD5` is
+inherited in full. No part of it is a PR-2 regression."* **The second half of that is wrong in the
+regime Finding 68 §3 identified**, and review was right to say "in full" was ahead of the evidence.
+Ran the experiment; reporting against my own conclusion.
+
+## 1. The experiment, as specified
+
+Finding 68 §3: at base, on the same fixture, set the dead entry's
+`RoleCapacities[<any role>].RequiredCapacity` positive (decode alone suffices), leave `TotalDemand`
+alone, re-run. I also honored both conditions it attached — `TotalDemand` untouched, and the path
+instrumented. **Instrumentation is by construction rather than by counter:** rescale is off in the
+steady rows, so `applyRescale` cannot run and `reclaimRole` is unreachable; the path is not in
+doubt. Both optimizers, three starting heights, and I added the contended rows to close the matrix.
+
+| regime | path | base `075a208e` | HEAD `a9afb740` |
+|---|---|---|---|
+| `deadRC = 0` (my earlier fixtures) | steady, rescale off | pf=**1** dc=n | pf=**1** dc=n |
+| `deadRC = 0` | contended, rescale on | pf=**1** dc=n | pf=**1** dc=n |
+| `deadRC > 0` (**under test**) | steady, rescale off | pf=**n** dc=**2n** | pf=**1** dc=n |
+| `deadRC > 0` | contended, rescale on | pf=**n** dc=**2n** | pf=**1** dc=n |
+
+n ∈ {2,4,8}, identical at every height; both optimizers agree on every row.
+
+## 2. What it establishes
+
+**Review's dispatch reading holds, and my "in full" does not.** The chain executes exactly as
+Finding 68 read it: `s := votingResults(...)` → `initRoleState(s)` seeds `pickerState` from
+`rc.RequiredCapacity` (`analyzer_helpers.go:385`) → `anyRoleNeedsScaleUp` scans **every ballot
+entry** (`:709-718`), so one positive value anywhere flips the dispatch and the scale-down path is
+never reached. At base, `votingResults` prunes on `Enabled` alone, so the dead entry's stale
+`RequiredCapacity` is still on the ballot and prefill is **preserved at its starting count**. At
+HEAD, `VG-up` (`952d2fff` — mine) prunes on `Enabled && Live`, the entry is gone, only TA's
+structural zeros remain, and prefill drains to 1.
+
+So: **in a reconcile where the outage entry carries a positive per-role `RequiredCapacity`, base does
+not drain and HEAD does.** That is the realistic case, not the corner — an analyzer entry that has
+just gone stale carries its last computed values; zero-everywhere is the artificial input, and it is
+the one both of my earlier fixtures happened to supply.
+
+Corrected attribution, by regime rather than by path:
+
+- **`deadRC = 0`: inherited.** Base and HEAD identical, on both paths, all heights, twelve contended
+  configurations. Unchanged, and now confirmed three separate ways.
+- **`deadRC > 0`: HEAD-only.** `VG-up` opens the reachability of the drain. My commit is what makes
+  it reachable in that regime.
+
+**The contended row is also regime-sensitive, which review did not expect** (its reasoning was that
+`applyRescale` never consults `anyRoleNeedsScaleUp`). One caveat I will not skip: base's contended
+numbers are identical to its steady numbers, which suggests contention did not bite at
+`limit = 3n, used = 2n, hog = 1000` and the value came from the sizing pass rather than from
+`reclaimRole`. So that row is **not** discriminating for `reclaimRole` specifically; treat the
+contended line as unresolved rather than as evidence.
+
+## 3. What this does *not* mean, stated because the numbers invite the wrong reading
+
+**Base is not correct here — it is differently wrong.** Base preserves prefill by scaling the whole
+model **up to 2n** on the strength of a dead analyzer's stale figures. That is precisely the defect
+`VG-up` was written to remove. The honest statement is that `VG-up` traded *acting on stale data* for
+*exposing a pre-existing prefill-pricing hole* (`distributeDemandByRole`'s structural zero, which is
+byte-identical at base). Both states are wrong; neither is a safe place to stand.
+
+So this is **not** an argument to revert `VG-up`, and I am not making one. It does mean the deferral
+rationale can no longer rest on "this is not PR-2's bug" for the `deadRC > 0` regime, because in that
+regime the reachability is PR-2's. Which of the two wrongs is worse, and whether that moves `AD5`
+from *defer* to *in scope*, is the planner's call and Dean's — not mine.
+
+## 4. Floor-at-1: confirmed by mutation, and it is load-bearing elsewhere
+
+Finding 68's answer is right, and I verified it by execution rather than accepting it. The clause is
+`cost_aware_optimizer.go:157-161`, reached by both callers through the shared helper. Disabled it
+(one-token mutation, applied and reverted, nothing committed) and re-ran the AD5 fixture:
+
+| | prefill, clause live | prefill, clause disabled |
+|---|---|---|
+| steady (`scaleDownRoleIterated`) | 1 | **0** |
+| contended (`reclaimRole`) | 1 | **0** |
+
+n ∈ {2,4,8}, all six rows. So AD5's true severity absent that clause is **teardown of the prefill
+role to zero**, and the only thing preventing it is a rule written as a *model-level* scale-to-zero
+guard that happens to fire per-role because both callers pass `variantsForRole(...)` — a
+single-variant set on a P/D model, so `i == len(sorted)-1` always holds and `sorted[:0]` is always
+empty. The one surviving replica is an accident of that misapplication, not a designed floor.
+Worth recording for whoever sizes an AD5 fix: **anything that touches the cheapest-at-1 rule's
+positional test also removes AD5's last brake.** The mutation additionally failed 4 other specs in
+386, so the clause is load-bearing beyond this fixture.
+
+## 5. Evidence and hygiene
+
+Base run in a throwaway detached worktree at `075a208e` (`/tmp/ad5-base3`, created and removed;
+`git worktree list` back to its prior twenty lines). Diagnostic copied in unmodified; the only
+difference between columns is the one field. Both `zz_*` diagnostics and the mutation reverted:
+`git status --porcelain` empty, pipeline suite green (**386 passed / 0 failed / 1 pending** at HEAD;
+base runs 308), HEAD still `a9afb740`, nothing committed, nothing pushed.
+
+Also noting the delivery point review raised against its own process: its Finding 68/69 answers were
+in `designer__`/`plan__` files, which my prefix filter does not match. The refs-only doorbell at
+`ta-anchor-dynamic-refresh__floor-at-1-and-cross-model-weight-in-review-doc.md` reached me
+immediately and I read both findings before running any of this. The mechanism works.

@@ -1,0 +1,63 @@
+# designer__ad5-regime-i-has-no-floor-and-informativeness-cannot-see-the-rc
+
+from: review (PR-2 internal code reviewer)
+to:   designer (Type-1 owner, combined-analyzer-optimizer-design.md)
+session: AD5 — Finding 73: two Type-1-level items, one wording and one structural
+
+Scored the coder's frequency handoff as **Finding 73**
+(`planning/ta-anchor-dynamic-refresh-review.md`, commit `8d4e96e0`), verifying its claims at `a9afb740`.
+Two items land at the Type 1 rather than at the plan. Delivering separately because a cc on a `plan__`
+file may never appear in a `designer__` listing.
+
+## 1. Wording — `AD5` describes one of two regimes
+
+The coder measured both optimizers on the cold-start shape and the mechanism splits:
+
+- **(i) decode RC > 0** (rising load, cold start): `anyRoleNeedsScaleUp` is a global OR
+  (`analyzer_helpers.go:709-718`), so the model takes the scale-up branch and `scaleDownRoleIterated` is
+  never entered. Prefill is **frozen at current, including 0**. At `cur = 0` that is a P/D model with no
+  prefill replicas while decode scales to 4.
+- **(ii) decode RC == 0 with spare** (steady/falling): scale-down branch; prefill **drains to 1**, with
+  the cheapest-at-1 accident as the only brake.
+
+`AD5`'s *"prefill's target collapses to 1"* describes **(ii)**. Left unqualified it understates (i), where
+there is no floor to collapse onto.
+
+## 2. Structural — informativeness and the RC that reaches the optimizer read disjoint field families
+
+This is the stronger item, and it makes the `deadRC > 0` state constructible rather than rare:
+
+- `ResultIsInformative` (`pipeline/analyzer_helpers.go:53-63`) iterates
+  `nr.Result.VariantCapacities[].Reason` and returns true on the first non-`NoData`/non-`Error` entry. It
+  **never reads `RoleCapacities`**.
+- `perAnalyzer[nr.Name] = at` (`saturation/engine_v2.go:244`) is the only liveness write and sits inside
+  `if ResultIsInformative(*nr)` (`:240`); with no entry, `ok == false` and `Live = false` with no staleness
+  window involved (`:246-247`).
+- The positive per-role `RequiredCapacity` is computed by `applyUniversalThreshold` (`:476-513`) from
+  `RoleCapacities.TotalDemand`, which `estimateSchedulerQueueDemand` (`saturation_v2/analyzer.go:750-795`)
+  can fill from `QueueBytes` alone, touching no `VariantCapacity` at all.
+
+So `Enabled && !Live && RC > 0` is not an unlucky input — it is what any input that puts demand only in
+the queue term produces. Consequence for the Type 1: no production-frequency data can retire this state;
+only aligning the two predicates would (having informativeness consider `RoleCapacities` demand, or having
+the queue term mark the variants it speaks for). **I am flagging the asymmetry, not proposing which side
+should move** — that is a design call, and by the Type 1's own principle a choice it declines to make is a
+defect in the Type 1 rather than coder latitude.
+
+## 3. The floor the design has been assuming does not exist for regime (i)
+
+Relevant because the repair discussion has been framed around a per-variant `MinReplicas` floor. I swept
+all four `MinReplicas` read sites in `internal/engines/pipeline`: the shed floor
+(`cost_aware_optimizer.go:145-146`) is regime-(ii) only; `rescale.go:527-528` and `:647-648` are GPU-budget
+accounting, not target raises; and `greedy_saturation_algorithm.go:114-115` — labelled *"MinReplicas is a
+hard floor"* — is unreachable for a frozen variant, because `filterScaleUpCandidates` keeps only
+`TargetReplicas > CurrentReplicas` (`:52-63`) and `allocateForDecision` early-returns on
+`replicasNeeded <= 0` (`:80-83`).
+
+`MinReplicas >= 1` therefore does **not** raise a frozen-at-zero prefill. Every floor in the pipeline
+guards against shedding below a floor; none establishes a floor for a variant that is never granted
+anything. The enforcer is not a backstop either — its preservation fires only when the model's *total* is
+zero (`enforcer.go:138-147`) and its fallback references `Role` nowhere (`:150-174`), so it is role-blind
+and cannot rescue a per-role zero in principle.
+
+If the Type 1 states or implies a per-role replica floor anywhere, that is the sentence to re-check.

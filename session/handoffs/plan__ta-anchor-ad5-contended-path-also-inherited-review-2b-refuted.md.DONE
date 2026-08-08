@@ -1,0 +1,91 @@
+# plan__ta-anchor-ad5-contended-path-also-inherited-review-2b-refuted
+
+from: coder (ta-anchor-dynamic-refresh, HEAD `a9afb740`)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — this refutes the second bullet of §2 of its
+      `designer__ad3-substitute-rationale-scope-and-ad5-is-not-a-freeze.md`
+cc:   designer (Type-1 owner) — relevant only if the Type-1 wording distinguishes the two paths
+session: AD5 attribution, second path (`reclaimRole`, contended)
+date: 2026-08-08
+
+Closes the caveat I put in §3 of my own
+`plan__ta-anchor-ad5-attribution-settled-base-drains-identically.md` (now `.DONE`), where I said
+the contended `reclaimRole` path was *"still open on its own terms and neither confirmed nor
+refuted"* by my steady-state fixture. It is now measured on both sides.
+
+## Result
+
+**`reclaimRole` drains prefill identically at base `075a208e` and at PR-2 HEAD `a9afb740`.** All
+twelve swept configurations agree, digit for digit, on both sides:
+
+| hog demand | A100 limit | AD5 shape (prefill demand 0) | control (prefill demand > 0) | verdict |
+|---|---|---|---|---|
+| 1000 | 8  | pf=1 dc=4 (tot 5) | pf=3 dc=4 (tot 7) | diverges |
+| 1000 | 10 | pf=1 dc=4 (tot 5) | pf=4 dc=4 (tot 8) | diverges |
+| 1000 | 12 | pf=1 dc=4 (tot 5) | pf=4 dc=4 (tot 8) | diverges |
+| 2000 | 8  | pf=1 dc=4 (tot 5) | pf=3 dc=3 (tot 6) | diverges |
+| 2000 | 10 | pf=1 dc=4 (tot 5) | pf=4 dc=4 (tot 8) | diverges |
+| 2000 | 12 | pf=1 dc=4 (tot 5) | pf=4 dc=4 (tot 8) | diverges |
+| 4000 | 8  | pf=1 dc=4 (tot 5) | pf=2 dc=2 (tot 4) | diverges |
+| 4000 | 10 | pf=1 dc=4 (tot 5) | pf=3 dc=3 (tot 6) | diverges |
+| 4000 | 12 | pf=1 dc=4 (tot 5) | pf=4 dc=4 (tot 8) | diverges |
+| 8000 | 8  | pf=1 dc=1 (tot 2) | pf=1 dc=1 (tot 2) | crushed — proves nothing |
+| 8000 | 10 | pf=1 dc=2 (tot 3) | pf=1 dc=1 (tot 2) | no divergence |
+| 8000 | 12 | pf=1 dc=4 (tot 5) | pf=2 dc=2 (tot 4) | diverges |
+
+Both tables are the *same* table: base and HEAD produced byte-identical rows. Base ran 308 specs +
+the 1 diagnostic; HEAD ran 386 + 1 + 1 pending. Ten of twelve rows exercise the role split; one is
+crushed by contention (labelled as proving nothing, not as a pass); one does not diverge.
+
+Two things the rows show beyond the attribution question:
+
+- **Prefill is pinned at 1 across every contention level and every budget** — it never tracks the
+  budget, while the control's prefill moves 3 → 4 → 2 → 3 with it. Same floor-at-1 as the
+  steady-state measurement, from a completely different code path.
+- **A second harm, visible only in the contended path:** the AD5 shape retains *fewer total GPUs*
+  than the control at equal contention (5 vs 7/8) in nine of the twelve rows. It is not a
+  redistribution of the same allocation between roles — the model loses budget outright, because
+  prefill's zero weight makes the whole model cheaper to reclaim from than a correctly-priced peer.
+  I had not measured this before and no handoff on either side predicts it.
+
+## What this settles
+
+**Review's §2, second bullet — "narrower reachability, but this half *is* newly unmasked by
+`VG-up`" — does not hold.** The narrower-reachability half of that sentence is right (it needs the
+rescale opt-in plus a contended pool; the steady-state path needs neither). The attribution half is
+wrong for the same reason the first path's was: base already read prefill `TotalDemand = 0`, and
+`VG-up` cannot push a value below the zero it already held.
+
+**The planner's attribution handoff is confirmed on the point where it went further than the
+reviewer** — `designer__ad5-drain-is-inherited-from-base-not-unmasked-by-vg-up.md` says AD5 is
+inherited *"both of its paths, not just `scaleDownRoleIterated`'s."* Both paths, executed. Its
+closing prediction — *"if it is written today it should be expected red at base too"* — holds for
+the contended fixture as well as the steady-state one.
+
+So: **AD5 is inherited in full. No part of it is a PR-2 regression.** I have no view on the scope
+call (yours) or the priority (Dean's); I am only removing the last factual reason to think my
+`952d2fff` authored any of it.
+
+## Method, and what I did not establish
+
+- A/B with **contention held identical** between rows: the only difference between the two columns
+  is TA's prefill `TotalDemand` (0 vs `sup`). Everything else — hog priority and demand, pool limit,
+  `Used`, replica counts, costs, the dead-but-`Enabled` saturation entry carrying topology and
+  stale nonzero per-role demand — is the same. Contention therefore cannot be the explanation for a
+  divergence.
+- Base run in a throwaway detached worktree at `075a208e`, the same diagnostic file copied in
+  unmodified, then the worktree removed. Both diagnostics deleted; `git status --porcelain` empty;
+  pipeline suite green at 386 passed / 0 failed / 1 pending; HEAD still `a9afb740`; nothing
+  committed, nothing pushed.
+- **Not established:** that `reclaimRole` specifically is the function doing the shedding in these
+  rows. The fixture reaches it through `Optimize` with rescale enabled and a contended pool, which
+  is the only route review names, but I did not instrument the call to prove the reclaim rather than
+  a scale-down elsewhere in the same pass produced the number. The attribution conclusion does not
+  depend on that — identical-at-base is identical whichever function did it — but if the Type 1 or a
+  future fix wants a per-function claim, it needs an instrumented run I have not done.
+- **Still unexplained:** why the floor is 1 and not 0. `minReplicas` is unset in the fixture and
+  `floorByRole[prefill]` should be 0 on the reading in the planner's handoff. Something clamps at 1
+  on both paths and both revisions. Worth knowing before anyone sizes an AD5 fix, since it is the
+  difference between "sheds to one replica" and "deletes the role."
+- The observability half is unmeasured. `cost_aware_optimizer.go:350-367` still reads
+  `anchor.RoleCapacities[role]` for `decision.RequiredCapacity`; I did not assert on the gauge.

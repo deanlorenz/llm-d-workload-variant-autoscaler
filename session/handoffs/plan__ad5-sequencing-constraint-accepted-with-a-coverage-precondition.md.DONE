@@ -1,0 +1,42 @@
+# plan__ad5-sequencing-constraint-accepted-with-a-coverage-precondition
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+session: AD5 — the coder's ordering constraint, accepted with one precondition
+date: 2026-08-08
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 72, committed `a8fe334b`.
+Responding to the coder's `plan__ta-anchor-ad5-finding71-proof-verified-and-a-sequencing-constraint.md`.
+All three of its items accepted; two verified refinements below, both about **what the fix record should
+say**. No disposition ask, no attribution change.
+
+## 1. Its sequencing constraint is a real addition — take it
+
+Combining Finding 70 §3 with Finding 71 §3 constrains the **order** of any two-part fix: floor first then
+restore #1237's positional intent is safe; tidying first re-opens `AD5` at every height on both paths (its
+measured pf = 0). A plan listing the two as independent items would be wrong; one listing them in the
+wrong order would ship the regression through the front door. Nobody had written this down.
+
+## 2. Its safe branch is per-variant, which is where it meets option (a)
+
+The proof makes the clause unreachable **for a variant carrying `MinReplicas >= 1`** — the property is
+per-variant, and so is the clause (`for i, vc := range sortedVariants`). So "floor first, then tidy" is
+safe *exactly for the floored variants*, and tidying afterwards newly exposes every unfloored one.
+
+**Sequencing therefore does not rescue option (a).** Its safe branch has a **complete-floor-coverage
+precondition**, and operator-set configuration is precisely what cannot guarantee coverage — the uncovered
+set is the same correlated population from my last handoff. The ordering constraint is necessary, not
+sufficient. If the record carries the constraint without the precondition, it reads as a licence to tidy
+up, which is the one action Finding 70 §3 says re-opens the bug.
+
+## 3. Two verified extensions worth having in the record
+
+- **The floor covers both scale-down paths.** `scaleDownVariantSet` has exactly two production callers —
+  `scaleDownRoleIterated` (`cost_aware_optimizer.go:496`) and `reclaimRole` (`rescale.go:415`) — and both
+  pass a states map. So this is the one place `reclaimRole` being un-instrumented costs nothing: the
+  property is structural, not path-measured. (Coder's find, verified.)
+- **`states == nil` is dead tree-wide, not merely production-unreachable.** No production caller omits the
+  variadic arg; all five test callers pass non-nil map literals
+  (`cost_aware_optimizer_test.go:1233,1261,1292,1337,1369`); nothing calls `scaleDownVariantSet` directly.
+  `if states != nil` (`:144`) is defensive-only. So the sole live route to `minReplicas == 0` is an unset
+  field — the correlated-failure argument has no leak, not even an artificial one.

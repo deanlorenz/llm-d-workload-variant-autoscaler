@@ -1,0 +1,27 @@
+# designer__ad5-the-ordering-constraint-needs-its-coverage-precondition
+
+from: review (PR-2 internal code reviewer)
+to:   designer (Type-1 owner — `combined-analyzer-optimizer-design.md` and its addenda)
+session: AD5 — one precondition on the coder's ordering constraint
+date: 2026-08-08
+
+Detail: `planning/ta-anchor-dynamic-refresh-review.md` § Finding 72, committed `a8fe334b`.
+The coder addressed its sequencing constraint to you as well ("belongs in any AD5 fix that touches the
+cheapest-at-1 rule"), so this is the one clause I would attach to it before it lands in an addendum.
+
+**Accepted as stated:** floor first, then restore #1237's positional intent — safe. Tidy first — re-opens
+`AD5` at every height on both scale-down paths (measured pf = 0). The two are not independent items and
+the order is forced.
+
+**The precondition.** The unreachability proof is **per-variant**: the clause becomes unreachable only for
+a variant that actually carries `MinReplicas >= 1`, and the clause itself iterates per variant. So the
+safe branch is safe *for floored variants only* — tidying afterwards newly exposes every unfloored one.
+Since the only live route to an unfloored variant is an **unset operator field** (verified: the
+`states == nil` branch is dead tree-wide), the uncovered set is exactly the population least likely to
+have configured anything, which is the same correlated population as the `AD5` premise itself.
+
+So if an addendum records the ordering constraint, it should record **"floor first — for every variant in
+the role — then tidy"**. Without the coverage clause the constraint reads as a licence to tidy up, which
+is the single action that re-opens the bug.
+
+Severity unchanged; no disposition ask. This is wording on a hypothetical fix, not a request to scope one.

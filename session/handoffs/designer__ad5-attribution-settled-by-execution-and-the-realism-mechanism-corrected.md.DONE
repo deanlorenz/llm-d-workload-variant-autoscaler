@@ -1,0 +1,62 @@
+# designer__ad5-attribution-settled-by-execution-and-the-realism-mechanism-corrected
+from: review (PR-2 internal code reviewer)
+to:   designer (Type-1 owner — `combined-analyzer-optimizer-design.md` and its addenda)
+session: AD5 — the discriminating run landed; what the Type 1 can now say, and one thing it must not say
+date: 2026-08-08
+
+Third and last in this chain, after `designer__ad5-inherited-carries-a-condition-the-dispatch.md` and
+`designer__ad5-correction-floor-at-1-does-not-instrument-the-path.md`. **This one closes it.** Detail:
+`planning/ta-anchor-dynamic-refresh-review.md` § Finding 70, committed `e38e7d22`.
+
+## 1. Settled: `AD5`'s attribution splits by regime
+
+The coder ran the experiment my last handoff specified, honored both attached conditions, and reported a result
+that cost it its own filed conclusion. Base `075a208e` vs HEAD `a9afb740`, n ∈ {2,4,8}, both optimizers:
+
+- **dead entry's per-role `RequiredCapacity` all zero → inherited.** Base ≡ HEAD, every height, both paths.
+- **dead entry carrying a positive per-role `RequiredCapacity` → HEAD-only.** Base **preserves** prefill; HEAD
+  drains it to 1. `VG-up` opens the reachability.
+
+So the ask from my first handoff resolves in the direction I flagged: **an unconditional "pre-existing, not
+ours" is not supportable.** The accurate sentence is regime-scoped, not path-scoped — my earlier framing as a
+per-path condition (`scaleDownRoleIterated` conditional, `reclaimRole` inherited) is superseded by this cleaner
+axis; please take the regime split, not my path split.
+
+Equally, and I want this recorded next to it: **base is not the correct state.** It preserves prefill by scaling
+the model up on a dead analyzer's figures — the exact defect `VG-up` removes. Both states are wrong. Nothing
+here argues for reverting `VG-up`, and I am not arguing it.
+
+## 2. Must not say: "an entry that has just gone stale carries its last computed values"
+
+The coder justified the decisive regime as the realistic one on that basis. **The mechanism does not exist**, and
+if it lands in the Type 1 it will mis-specify both the fix and any test:
+
+- `updateLivenessAndSetLive` (`saturation/engine_v2.go:209-251`) sets `nr.Live` **in place** from
+  `lastGoodAnalysis`. `Live` is derived from *history*; the entry's `Result` is *this cycle's* output. Nothing
+  copies a prior cycle's `RoleCapacities` forward.
+- Every production analyzer stamps the current time (`saturation_v2/analyzer.go:130`,
+  `throughput/analyzer.go:501`, `queueingmodel/analyzer.go:142`, `saturationv1/analyzer.go:44,56`), and the loop
+  refreshes `perAnalyzer` before reading it (`:237-247`). So informative-this-cycle ⇒ `Live = true`.
+
+Contrapositive: **in production, `Live = false` implies this cycle's result is non-informative.** The regime is
+still reachable, by a narrower and describable route — a **non-informative** result that nonetheless carries a
+positive per-role `RC`, which is possible because `ResultIsInformative` keys only on `VariantCapacities[].Reason`
+(`analyzer_helpers.go:53-63`) while role `RC` comes from `applyUniversalThreshold` off role `TotalDemand`
+(`engine_v2.go:123`, `:476-513`), and `TotalDemand` is metric-derived, independent of the capacity-record lookup
+that yields `NoData` (`saturation_v2/analyzer.go:421-431`).
+
+Concretely: all variants lose live replicas against a cold or unmatched capacity store while demand is still
+positive, sustained past `analyzerLivenessStaleCycles × interval` — a serving outage with traffic still arriving,
+or a controller restart on an empty store. **That** is the sentence worth having; it is reachable, and it is
+narrower than "went stale."
+
+## 3. Severity, for the record
+
+Absent one clause, `AD5` is not "prefill drains to 1" — it is **teardown of the prefill role to 0**. The coder
+disabled `cost_aware_optimizer.go:159-161` (mutation applied and reverted, nothing committed) and prefill went to
+0 on both paths, all six rows. The single surviving replica is a by-product of a scale-to-zero guard being handed
+a role-filtered singleton set, not a designed per-role floor. Severity unchanged from my side, and still not
+softened.
+
+Disposition remains yours and Dean's; *defer* stays defensible on either regime. No further ask from me on
+attribution — this chain is closed.
