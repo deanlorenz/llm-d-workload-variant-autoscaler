@@ -533,12 +533,12 @@ Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated
 `a9afb740`, tree clean, nothing pushed. Git order, oldest first. Sub-labels are taken from the commit
 bodies' own self-identification, not assigned here.
 
-⚠️ **Tip moved once since this ledger was written: `a9afb740` → `6d55fbd7` (26th commit — the one
-authorized §4a residual fix, "name the analyzer-design owner, not the Type-1 taxonomy label").
-Reviewer's Finding 76 confirms it (no defects) at that tip.** A **27th commit, `C12`, is now specified**
-([§2g](#2g-ad8)) and not yet landed — `AD8` option (b)'s three-site pricing repair, decided in this PR
-2026-08-08, after Finding 76's review. Re-verify line numbers against whichever tip you're actually
-reading; every citation below this point predates both moves.
+⚠️ **Tip moved twice since this ledger was written: `a9afb740` → `6d55fbd7` → `136a214a`.** `6d55fbd7`
+(26th commit) is the one authorized §4a residual fix, confirmed defect-free by reviewer Finding 76.
+`136a214a` (27th commit) is `C12` — `AD8` option (b)'s pricing repair, spec'd at [§2g](#2g-ad8), **landed
+2026-08-08, under review now** (Dean: *"coder is done. reviewer finishing"* — no Finding filed for it
+yet). Re-verify line numbers against whichever tip you're actually reading; every citation below this
+point predates all three moves.
 
 | # | SHA | Label | Subject |
 |---|---|---|---|
@@ -567,8 +567,14 @@ reading; every citation below this point predates both moves.
 | 23 | `209e148f` | C9c | pin the multi-vote decision goldens and invariant 7 directly |
 | 24 | `4e369f10` | C9d | remove the sat-only characterization goldens, scenario by scenario |
 | 25 | `a9afb740` | C9e | make every reference in shipped comments resolvable from `main` |
+| 26 | `6d55fbd7` | — | the one authorized §4a residual: "Type-1 owner" → "analyzer-design owner" |
+| 27 | `136a214a` | C12 | abstain a role with no demand model instead of voting it as zero (`AD8` (b)) |
 
-**Four deviations from the map, all deliberate and all recorded in the commits themselves:**
+**Reviewer reviewing `136a214a` as of 2026-08-08** (Dean: *"coder is done. reviewer finishing"*) — no
+Finding filed yet for `C12`; treat as in-progress, not signed off.
+
+**Five deviations from the map, all deliberate and all recorded in the commits themselves — the fifth
+is `C12`'s own, see `§2g`'s "Shipped differently" note for the reason constant's actual home:**
 
 1. **Git order ≠ label order** — `C1–C5 → C7 → C8 → C6a…C6f → C11 → C10 → C9a…C9e`. C6c-before-
    C6e/C6f/C11 was load-bearing, not convenience: C6c is the only behavior-preserving one of the four, so
@@ -1892,6 +1898,17 @@ type RoleCapacity struct {
 // see satReasonNoData = pipeline.ReasonNoData, saturation_v2/analyzer.go:31)
 const ReasonRoleUnmodeled = "role-unmodeled"
 ```
+
+⚠️ **Shipped differently, `136a214a` — the precedent above doesn't transfer to `throughput` specifically,
+and the coder caught it rather than following this section literally.** `pipeline` imports
+`internal/config`, and `internal/config`'s own in-package tests import `throughput` — the identical
+test-binary import cycle `C10`'s `resolveKSat` interface trick already exists to work around.
+`saturation_v2` (this section's cited precedent) is not in that test's import chain, so it never hits
+this; `throughput` is. Shipped shape: `throughput` carries its **own** duplicated
+`roleUnmodeledReason` constant, pinned against drift by `TestRoleUnmodeledReasonMatchesPipeline` —
+exactly the `fallbackKSat`/`TestFallbackKSatMatchesConfigDefault` pattern `C10` established, applied
+here for the same structural reason. **Correct, not a deviation to fix** — this section's constant
+placement was the thing wrong, not the shipped code.
 
 **Set at construction, TA-side, one line:** `aggregateRoleCapacities` (`throughput/analyzer.go:960-968`),
 inside the `for role, t := range byRole` loop — when `role == domain.RolePrefill`, set
