@@ -7414,3 +7414,100 @@ I do not build or test in the coder's worktree, so everything above that is not 
 read at `a9afb740` and `075a208e`, quoted inline. The disposition — defer, fix, or file — remains the
 planner's and Dean's; my only ask is that whichever word the Type 1 uses, "inherited" carries the condition
 rather than dropping it.
+
+---
+
+## Finding 68 — my Finding 67 path instrumentation is wrong; `reclaimRole` honors cheapest-at-1 too. The base run confirms the branch of my prediction that was never in dispute, and cannot have tested the other one.
+
+**Severity: correction (of my own Finding 67, and of one shared prediction). Evidence: source reads at
+`a9afb740` and `075a208e`, plus the coder's base/HEAD execution table.**
+
+Input: the coder's `plan__ta-anchor-ad5-attribution-settled-base-drains-identically.md` — it built the
+instrument I named and ran it on **both** sides, in a throwaway detached worktree (`git worktree add --detach
+/tmp/ad5-base 075a208e`), removed afterward, no branch moved. Its table:
+
+| start (each role) | base `075a208e` | HEAD `a9afb740` |
+|---|---|---|
+| 2 | pf = **1**, dc = 2 | pf = **1**, dc = 2 |
+| 4 | pf = **1**, dc = 4 | pf = **1**, dc = 4 |
+| 8 | pf = **1**, dc = 8 | pf = **1**, dc = 8 |
+
+### 1. Retracting my path instrumentation. The function's own doc comment says the opposite.
+
+Finding 67 claimed *"`reclaimRole` has no such rule — pure GPU delta, would give **0**. So measuring 1 rather
+than 0 is itself the path instrumentation."* **That is wrong.** `reclaimRole` does not implement its own
+shedding loop — it *calls* `scaleDownVariantSet` (`rescale.go:415`) and passes a `maxRemovable` callback. The
+cheapest-at-1 positional rule lives **inside** that helper (`cost_aware_optimizer.go:157-161`), so it fires
+for **both** callers regardless of the callback. `reclaimRole`'s own doc comment states it plainly —
+`rescale.go:402-403`, *"respecting minReplicas and **the cheapest-at-1 protection**, via
+scaleDownVariantSet"* — and that comment is **byte-identical at base** (`075a208e:rescale.go:387-388`, with
+the `scaleDownVariantSet` call in-body). I asserted the negation of a sentence written in the function I was
+reasoning about; reading the callee's rule and not the caller's one-line delegation is the whole of the
+mistake.
+
+Consequences, in order of who they touch:
+
+- **Mine.** The pairing Finding 67 closed on — *"the path whose attribution is unconditionally 'inherited' is
+  the one nobody has run, and the executed path is the one whose attribution is conditional"* — **has no
+  basis.** Both paths floor at exactly 1. **Which path either run took is unknown**, exactly as the coder
+  said in its §3 (*"I did not instrument which gate either run took"*). Strike the inference; the two-sentence
+  conclusion built on it goes with it.
+- **The planner's.** Its §2 bullet — `reclaimRole` *"the role gets only its floor (0 when `minReplicas` is
+  unset), so `rt < rc` and the whole allocation is reclaimed"* — predicts **0** by the same omission. The
+  helper caps it at 1. Worth correcting because the coder has now flagged the mismatch twice as an
+  unexplained residual against that prediction.
+- **The coder's open item.** *"The floor at 1 is still unexplained"* — it is explained, and this is the half
+  of Finding 67 that survives intact: cheapest-at-1, `if i == len(sortedVariants)-1 && current-n < 1 &&
+  !anyHasReplicas(sortedVariants[:i], targets) { n = current - 1 }`. New here: the rule is **present at base**
+  (`075a208e:cost_aware_optimizer.go:142`, same line), which is why the floor is 1 on both sides and at every
+  height. A single prefill variant, last in cost-descending order with nothing more expensive still holding
+  replicas, is floored at 1 from any height in one pass — whichever of the two paths ran.
+
+### 2. What the base run establishes, and the one variable it did not vary
+
+**Accepted without reservation: for the composition as specified, the drain is inherited.** Base and HEAD are
+a tie at every height, decode holding as control. That is the planner's attribution claim, confirmed by
+execution rather than reading, and it is now better evidenced than my Finding 66/67 reading of it was.
+
+What it does **not** reach is the discriminating variable of my dispatch analysis, and the reason is a field
+name. The coder's §2 refinement gave the dead saturation entry *"a non-zero stale prefill `TotalDemand`"* —
+offered as the stronger case, which it would be if the dispatch read that field. It does not:
+
+- `RoleCapacity` carries `TotalDemand` (`domain/analyzer.go:82`) and `RequiredCapacity`
+  (`:88`) as **separate fields**;
+- `initRoleState` seeds from `rc.RequiredCapacity` **only** (`analyzer_helpers.go:369-405`; the
+  `greedy_score_optimizer.go:320` doc says so in words), and `anyRoleNeedsScaleUp` (`:709-718`) tests those
+  seeded values;
+- the only code that derives a per-role `RequiredCapacity` **from** a per-role `TotalDemand` is
+  `applyUniversalThreshold` (`saturation/engine_v2.go:496-512`), which lives in the **saturation engine** and
+  runs when that analyzer's result is post-processed — not when a hand-built `AnalyzerResult` is handed
+  straight to an optimizer.
+
+So a fixture that sets stale `TotalDemand` and leaves `RequiredCapacity` zero presents the dispatch with all
+zeros — which is precisely the **all-zero-`RC`** branch of the prediction in Finding 67, the branch where I
+already conceded "inherited" is the right word. The run confirms the half that was never in dispute.
+
+### 3. What would refute me, stated as a one-line change
+
+The untested branch needs the field the dispatch actually reads. At **base**, on the same fixture, set the
+dead entry's `RoleCapacities[<any role>].RequiredCapacity` to any positive value — decode alone suffices,
+since the OR spans roles — and re-run:
+
+- if base **stops draining**, base's `Enabled`-only pruning was masking the drain through the dispatch, and
+  `VG-up` makes it reachable in that reconcile;
+- if base **still drains**, my dispatch reading is wrong and I retract it in full, with no residue: `AD5` is
+  inherited unconditionally and the Type 1 should say so without the qualifier I asked for.
+
+Two conditions on reading that result, both learned the hard way above: the run needs **path
+instrumentation** (which of `scaleDownRoleIterated` / `reclaimRole` produced the target), because the outcome
+value can no longer distinguish them; and `TotalDemand` must be left alone, so the only thing varying is the
+field under test.
+
+### 4. Standing
+
+Unchanged: `reclaimRole`'s **machinery** is inherited — conceded in Finding 67 on base links
+(`bindingAnchor:183` binder-sourced at base, base binder gate already `Enabled && Live && Informative`, base
+`roleDemandGPUs` ballot-free) — and severity is unchanged and should not be softened. What is now weaker than
+Finding 67 claimed is my knowledge of **which path executed**: none. What is unchanged is the dispatch reading
+itself, which no run has yet addressed. I have corrected the record with all three recipients of Finding 67
+rather than letting the pairing stand, and I flagged my own error before the coder or planner had to find it.
