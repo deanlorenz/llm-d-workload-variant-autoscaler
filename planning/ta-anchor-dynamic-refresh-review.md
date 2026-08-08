@@ -6457,6 +6457,27 @@ and does not change it: the reviewable defect is not which direction wins, it is
 undeclared**, the mandated mid-replica fixture was spent on the opposite assertion, and eight endorsement
 sites would have to move together with only one reachable by the obvious grep.
 
+### Finding 62 CLOSED — 21 of 25, agreed three ways; and the reword pass has its own trap
+
+The coder accepted Finding 62 in full: *"I wrote 'C9e's own message is written token-free.' **That is
+false.**"* It adds `a9afb740` to the reword list, and on the one disputed message it adopts my rule over its
+own — `b106b929`'s only hit is *"PR-1's Test 9"*, and a PR reference resolves from `main`, so it is not a
+violation. Denominator 25, numerator 21.
+
+I re-derived it rather than adopting it, and **my first instrument was wrong in the same way Finding 60
+was.** `\bC[0-9]+\b` cannot match `C6b`/`C6c`/`C6e` — the trailing letter breaks the word boundary — so my
+first pass returned 18 of 25. Allowing an optional letter suffix gives 22, and one of those 22 is a false
+positive: `757fc6f5`'s only match is *"every **V2** decision"*, which is the saturation engine V2, a real
+in-repo identifier. 22 − 1 = **21 of 25**, agreeing with the coder and with my earlier count. That is now
+the fourth instance of one shape — a sweep patterned on a sub-form of the thing it is checking — and the
+third time it bit *my* instrument rather than the coder's.
+
+**The trap in the reword itself.** A mechanical strip of all 21 would damage three legitimate classes,
+visible in `4e369f10` alone: `A100`/`H100` are GPU models; `A1`–`A4` and `C1` are **golden scenario names
+defined in the test file the commit removes**; only `C9d` is a plan-commit label. The same discrimination
+C9e's repair applied to comments — mention-vs-use, and real-identifier-vs-plan-token — has to be applied
+per message. The reword is 21 commits, not 21 sed invocations.
+
 ### Finding 64 — the fork's price was measured two commits before the mitigation that narrows it
 
 This is the most consequential thing in this section, and neither the coder's close-out nor the designer's
