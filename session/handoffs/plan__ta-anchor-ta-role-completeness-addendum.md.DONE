@@ -1,0 +1,130 @@
+# plan__ta-anchor-ta-role-completeness-addendum
+
+from: designer (Type-1 owner — `combined-analyzer-optimizer-design.md` and its addenda)
+to: planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc: review (PR-2 internal code reviewer) — `AD4` dispositions `N7` for scale-down; `AD5` bears on the
+    `VG-up` commit you are reviewing
+session: partial scale-from-zero / analyzer role completeness
+date: 2026-08-08
+ask: fold-in — three decided items to place, one scope call that is yours
+
+## What exists now
+
+**New file: [`planning/combined-analyzer-optimizer-design-addendum-1.md`](../../planning/combined-analyzer-optimizer-design-addendum-1.md)**
+— Type-1 **Addendum 1**, TOC-indexed (11 sections, `AD1`–`AD7` + residual/withdrawn/disposition).
+Read the TOC and fetch sections; the disposition summary is the last section and is the short version.
+
+**The frozen parent is unedited.** Dean, 2026-08-08: *"no editing"*. So
+`combined-analyzer-optimizer-design.md` @ `8c2a9b04` still reads as if its
+[§ open](../../planning/combined-analyzer-optimizer-design.md#open) queue were the complete picture,
+and it does not link the addendum. Where the two overlap the addendum is later and governs.
+
+**Not in the addendum, deliberately:** the fair-share `ceil` → `floor` conversion. Dean, 2026-08-08:
+*"the ceil/floor we discuss later."* Nothing in the addendum depends on it. If you are holding
+`plan__ta-anchor-ceil-floor-remeasured-at-head.md` for that discussion, this handoff does not touch it.
+
+## The one thing I need from you first — discoverability
+
+I cannot link the addendum from anywhere a reader will actually look, because the two documents that
+could carry the pointer are not my write scope: the **Type-3 plan** (yours) and **CURRENT.md**
+(sync's). Right now the addendum is reachable only by filename.
+
+Requested: a pointer from the Type-3 plan's design-authority line — currently "*Type 1 governs on
+disagreement*" — naming the addendum alongside the parent. And, when you next emit a `sync__`, one
+line so CURRENT.md's design-authority reference covers both files. I have not written a `sync__`
+myself; routing CURRENT edits through you keeps sync single-purpose.
+
+## Decided — three items to place (Dean's rulings, not proposals)
+
+1. **`AD2` — `[TA]`-only is unsupported on P/D models; both analyzers is the default.** Dean:
+   *"you should not use TA only on P/D. The default should be to use both. This can be documented --
+   as long as we only have TAdec we cannot use it as the ONLY analyzer."*
+   **Documentation, not enforcement**, and the reason is structural, not laziness: analyzer enablement
+   is fixed from controller config while roles arrive at runtime from VA specs
+   (`VariantReplicaState.Role`), so at the moment the analyzer set is chosen no role is known. A real
+   check would be a *per-model runtime warning* on first observing a prefill-roled variant under a
+   TA-only config — separate work, not a config-schema addition. **The constraint therefore ships
+   unenforced by design**; the addendum records that so nobody later reads the missing check as an
+   oversight. C9's dev-guide pass looks like the natural host for the doc line, but placement is yours.
+
+2. **`AD3` — the from-zero PRC work is scoped to `decode` and `both` roles only.** Follows from `AD1`
+   with no further argument: every pricing mechanism (retained PRC, sibling inheritance, demand ratio,
+   the `FZ-admission` `PRC = 1` sentinel) is a **denominator** intervention, and prefill's blocker is a
+   **zero numerator** — `ceil(0/anything) = 0`. All four are exactly equally inert on a prefill
+   variant, and no refinement of any of them changes that. This is not a guard anyone needs to write;
+   it is a domain statement for the spec. **It does not reopen `FZ-admission`'s mechanism** — it
+   narrows what that mechanism is claimed to cover.
+
+3. **`AD7` — `N5` (sat `Cost = 0` for a zero-replica variant) is to be fixed.** Dean: *"2.cost:
+   should be fixed."* Root cause is sourcing, not arithmetic: cost is a spec property
+   (`va.Spec.VariantCost` is the precedent) but the pipeline reads it from `ReplicaMetrics.Cost`
+   (`saturation_analyzer.go:59`), a live-pod-derived type a cold variant has no entry in. Sizing,
+   placement and whether it rides PR-2 at all are yours — the addendum authorizes it and says where
+   the field belongs, nothing more.
+
+## The scope call that is yours — `AD5`
+
+**`AD5` is the only genuinely open design item, and PR-2 is about to make it worse.**
+
+The combine is safe — `AD4` verifies TA cannot veto sat in either direction (scale-up MAX with TA
+contributing an identity zero; scale-down all-live-agree plus a min). **The anchor is not**, because it
+takes `RoleCapacities` wholesale from the binding analyzer. When TA binds on a P/D model,
+`anchor.RoleCapacities[prefill].TotalDemand == 0`, so `roleDemandGPUs` (`rescale.go:554-570`) returns
+`ceil(0/best) = 0` and the prefill role is granted **no fair-share budget** — while the prefill
+`wva_required_capacity` gauge also reads 0, so the symptom is invisible in the series an operator
+would check.
+
+**The PR-2 interaction is the part I want you to see before `VG-up` ships.** Today `votingResults`
+prunes on `Enabled` only, so a stale-but-enabled sat entry still reaches the scale-up MAX and
+*accidentally* supplies a nonzero prefill `RequiredCapacity` during a sat outage. `VG-up`'s
+`Enabled && Live` hardening removes that entry — correctly. The side effect is that a `[sat,TA]` P/D
+model with a stale sat then runs prefill scale-up on TA's structural zero alone, while decode scales
+normally: a model that quietly stops scaling half of itself. Relying on a stale value was wrong;
+sizing a role from an analyzer that has no model of it is also wrong.
+
+**My recommendation, which is a predicate and not a new mechanism:** when the binding analyzer is not
+role-complete for a role, **hold that role** — the same per-model hold already specified for
+`bindingAnchor == nil`.
+
+**Your call, and both answers are defensible:** in-scope for PR-2, or recorded as a known limitation
+of `[sat,TA]` under sat outage. The window is narrow (needs a sat outage on a P/D model) and PR-2 is
+already large, so deferring is reasonable. What I would not want is `VG-up` shipping with nobody
+having noticed it unmasks this — that is the whole reason this handoff exists now rather than after
+the coder lands.
+
+## Candidate follow-ups — no decision requested, just don't lose them
+
+- **Retention exception (`AD6`) — Dean's own idea, still cheap, still unscoped.** Carry
+  `lastPerReplicaSupply` (+ `role`, `lastFittedB`) across TA's idle expiry
+  (`throughput/analyzer.go:158-163`). The eviction's two stated motives — bounding memory, avoiding
+  false shape-change signals on recreate — **cover neither the price**; the shape hazard lives in
+  `observationWindow`/`shapeTracker`, and `lastFittedB` already has an explicit
+  "a shape change must not clear this" carve-out that idle expiry deserves too. Covers a **long-idle**
+  variant only, never a genuinely new one.
+- **One plumbing change serves three items.** `VariantReplicaState` (`saturation_analyzer.go:386-409`)
+  is spec/deployment-derived and exists for a zero-replica variant, but has **no `AcceleratorName` and
+  no `Cost`** — both live on `ReplicaMetrics:58-59`, a live-pod type, which is exactly why a cold
+  variant cannot see them. Those two spec-sourced fields would supply `AD7`'s cost, the retention
+  hazard's accelerator identity, and the accelerator identity a sibling lookup would need. Worth
+  scoping together **if any one of them is scoped at all** — this is also the same
+  `AcceleratorName`-on-a-never-measured-variant gap the reviewer's Finding 47 hit from the other side
+  (`fairShareRolePick` unreachable because `available[vc.AcceleratorName]` is empty). One root cause,
+  three symptoms.
+- **`N7` can be dispositioned** — `AD4` verifies it fails **safe** for scale-down: a role key missing
+  from one live analyzer reads as zero spare, hits `needsScaleDownForRole`'s `<= 0` branch, and vetoes.
+  Divergent key-sets cause a role to *never* scale down, never a spurious one.
+- **Rejected, so don't re-derive it:** TA cross-variant sibling pricing (Dean: *"skip unless really
+  cheap"* — it is not: needs accelerator identity, a compatibility predicate, and a provenance
+  decision, and without the first it would inherit an H100 price onto an A100 variant), and the
+  demand-model ratio (dead twice per role — zero prefill numerator, and the two analyzers' role demands
+  are not proportional, so there is no stable per-role exchange rate).
+
+## One thing I did not verify
+
+The two preconditions the reviewer attaches to saturation's tier-2 (own-`CapacityRecord`) pricing rung
+— the `engine_v2.go` `scaleTarget == nil` skip and `capacity_store.go:126-128`
+(`EffectiveCapacity <= 0 && EffectiveMaxBatchedTokens > 0`). The addendum's residual table credits
+that rung with covering `[sat]`-only and `[sat,TA]` non-disaggregated from-zero. **If either
+precondition blocks it for a zero-replica variant, that row weakens and the residual widens to include
+`[sat]`-only.** Flagged as unverified in the addendum rather than asserted. One read closes it; I did
+not want to state it on the reviewer's authority alone.

@@ -1,0 +1,100 @@
+# plan__ta-anchor-ad5-cites-main-not-pr2-and-vgup-already-landed
+
+from: ta-anchor-dynamic-refresh (coder)
+to:   planner — the `AD5` scope call is yours
+cc:   designer (Type-1 addendum author) — two corrections to `AD5` and an answer to your unverified row
+reason: the AD5 scope call rests on a code description that PR-2 already changed, and on a timing
+  assumption that is no longer true. Facts only; the scope call and the priority are not mine.
+refs:
+  - plans/planning/combined-analyzer-optimizer-design-addendum-1.md § AD5, § residual
+  - plans/session/handoffs/plan__ta-anchor-ta-role-completeness-addendum.md (planner's; not consumed by me)
+  - internal/engines/pipeline/rescale.go:579 (`roleDemandGPUs` at HEAD)
+  - internal/engines/pipeline/analyzer_helpers.go:545-565 (`votesFromTotalDemand`)
+
+## 1. `VG-up` has already shipped — the window the handoff assumes is closed
+
+`AD5` says *"what is not defensible is shipping `VG-up` with nobody having noticed it unmasks this"*,
+and the covering handoff says this arrives *"now rather than after the coder lands."*
+
+**`VG-up` landed in `952d2fff`** (*"pipeline: liveness-gate the voting set and drop the sizing
+fallback"*), 20 commits before code-complete. `votingResults` at `analyzer_helpers.go:332-340` prunes on
+`e.Enabled && e.Live` at HEAD. So the mask is already removed in-branch.
+
+Nothing is lost — **the branch is unpushed**, so this is a scope call between *a new commit on top of
+`a9afb740`* and *a follow-up PR*, not between "in PR-2" and "catch it before it lands." Worth stating
+because it changes which options you are choosing among, not whether you have a choice.
+
+## 2. `AD5`'s mechanism describes `main`, not PR-2's HEAD
+
+`AD5` cites `roleDemandGPUs` (`rescale.go:554-570`) as reading `demand = rc.TotalDemand` off the anchor
+and returning `ceil(0/best) = 0`. **That is exactly right at base `075a208e`** — verified:
+
+```
+075a208e  func roleDemandGPUs(anchor *domain.AnalyzerResult, stateMap ..., accType, role string) int
+          replicas := int(math.Ceil(demand / best))     // demand read from the anchor
+```
+
+**At HEAD it no longer does that.** Bug #3 (`07b8fdb7` + `3c9d45bb`) added the ballot as a parameter:
+
+```
+a9afb740  func roleDemandGPUs(anchor *domain.AnalyzerResult, s []NamedAnalyzerResult, stateMap ..., accType, role string) int
+          combineVotes(votesFromTotalDemand(s, role, bestVariant), true)   // rescale.go:596
+```
+
+The anchor now supplies **only** topology and `v*`; each voting entry supplies its own demand and PRC.
+The `rc.TotalDemand` read `AD5` describes moved into `votesFromTotalDemand`
+(`analyzer_helpers.go:551-557`) and is applied **per voting entry**.
+
+### The conclusion survives; the fix site moves
+
+I checked whether Bug #3 accidentally closes `AD5`. **It does not.** With sat pruned by `VG-up`, the
+voting set is `{TA}`, and both paths through `votesFromTotalDemand` still yield zero prefill GPUs:
+
+- TA carries no `RoleCapacities["prefill"]` key → `continue` at `:555` → **ballot empty** → `binder < 0`
+  → `replicas` stays 0;
+- TA carries the key with `TotalDemand == 0` → a zero-valued vote → `combineVotes` → 0.
+
+So *"the prefill role is granted no fair-share budget"* holds at HEAD, and so does the invisible-gauge
+symptom. But a *"hold the role when the binder is not role-complete"* predicate **cannot be placed where
+`AD5` points**, because the anchor's `RoleCapacities` is no longer what sizes a role. It belongs where
+the ballot is built or where `binder < 0` is handled.
+
+**And that placement forces a sub-decision `AD5` does not currently make.** The two paths above are
+different states — *nobody priced this role* versus *someone priced it at zero* — and they are the same
+abstain-versus-veto seam already settled elsewhere in PR-2 (C6f/`W4`). Today both return 0 GPUs. A hold
+predicate has to say **which of the two triggers it**, because "no live analyzer models this role" and
+"the analyzers that model it agree on zero" are not the same situation and arguably want different
+outcomes. That is a Type-1 question, not a coder judgment call, so I am naming it rather than assuming.
+
+## 3. Your unverified row — checked, and it holds. The residual does not widen.
+
+You flagged saturation's tier-2 (own-`CapacityRecord`) rung as resting on two preconditions you had not
+verified, and said one read closes it. **Neither precondition blocks a zero-replica variant:**
+
+1. `engine_v2.go:38-53` pre-populates the capacity store by iterating **`variantAutoscalings`** — VA
+   specs, *not* `replicaMetrics`. A zero-replica variant with a VA is iterated.
+2. The `scaleTarget == nil` skip at `:42` keys on the **Deployment/LWS accessor**, which exists at
+   `replicas: 0`. It catches a *missing* scale target, not a scaled-to-zero one. (`LoadFromScaleTarget`
+   repeats the same guard at `capacity_store.go:89-91`.)
+3. The params are **spec-derived**: `ParseEngineArgs` → `ParseVLLMArgs` reads
+   `scaleTarget.GetLeaderPodTemplateSpec()` — a pod *template*, present at 0 replicas.
+4. `capacity_store.go:126-128` exists **for this exact case**, per its own comment: *"so that brand-new
+   variants with no live data or compatible siblings can still be considered for scale-up."*
+5. `EffectiveMaxBatchedTokens > 0` is effectively guaranteed — `resolveEffectiveMaxBatchedTokens`
+   (`deployment_parser.go:281-299`) falls back to **8192** (V1 + chunked prefill, which
+   `defaultEngineParams` sets) or 2048 (V0), and runs even on the nil-scaleTarget path.
+
+One adjacent fact, which **supports** the rung rather than weakening it: `LoadFromScaleTarget:98-101`
+will not overwrite a record whose `LearnedFrom == learnedFromLive`, so a variant that *was* live and
+scaled to zero keeps its live record until `EvictStale` — documented at a 24h timeout *"since
+historical capacity data is valuable for zero-replica estimation."* That is the retained-PRC row, not a
+blocker for this one.
+
+## Scope — what I did and did not do
+
+Read-only verification. **No code change, no commit, no Type-1 or Type-3 edit.** Tip **`a9afb740`**,
+25 commits on `075a208e`, working tree clean, **nothing pushed**. I did not consume
+`plan__ta-anchor-ta-role-completeness-addendum.md` — it is addressed to you.
+
+`AD2`'s doc line, `AD7`'s cost fix, `AD6`'s retention scoping and the `AD5` scope call are all yours;
+none of them is something I will start unasked, and PR-2 is code-complete as it stands.
