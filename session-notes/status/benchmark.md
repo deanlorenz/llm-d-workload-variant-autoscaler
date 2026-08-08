@@ -1831,6 +1831,14 @@ Needs Dean's decision:
 3. **Scale the decode replica to 0?** Its 1 GPU is still held as the `minReplicas=1` steady
    state (§16.5). The serving stack was deliberately left up.
 4. **The unpushed commits above.**
+4a. **Next-run scenario changes requested by the viz session** (§17.11 items 4–6): a mid-band
+   dwell stage parking kv in 0.3–0.85 for ≥3 min, a short-output leg, and ≥300 s of collection
+   after load stops. These change the ladder itself, so they are the planner's and Dean's call —
+   handed over as `plans/session/handoffs/plan__benchmark-next-run-capture-list.md`.
+4b. **The cross-worktree handoff protocol is broken between isolated sessions** (§17.11): neither
+   coder can write to the shared `plans/session/handoffs/`, so handoffs land in each worktree and
+   are found only by word of mouth, and the recipient cannot mark `.WIP`/`.DONE`. Worth a
+   convention decision rather than repeating the hand-routing.
 
 Doable without a decision, not yet done:
 
@@ -1838,7 +1846,9 @@ Doable without a decision, not yet done:
    and the reachable budget is ONE file. See the correction block in §17.1;
    `--rotation-budget` now implements the verified model and its byte accounting.
 6. Clean the PVC per the retention rule, and run `verify_pvc_vs_host.py` (never yet run) —
-   §16.5 wants it gating **every** harvest, not run ad hoc.
+   §16.5 wants it gating **every** harvest, not run ad hoc. Retention scope, sharpened by
+   §17.11 item 2: the multi-GB per-replica files go, **`metrics/raw/` stays** — 12–35 MB/run and
+   the only time-resolved source of KV / running / waiting / ITL / preemption.
 7. File the inference-perf output-token inflation upstream (§16.4), now with server-side proof.
 8. Promote the `session-notes/scratch/` tools into `hack/benchmark/` (list in §16.5 + §17.7).
 9. Suppress step_09's local report regeneration (§15.17); add controller-log capture to the
@@ -2006,3 +2016,120 @@ every payload for audit and prefers the decision-capable one explicitly.
 `verify_decision_rule.py` has the identical last-wins overwrite. It is unaffected here — the
 duplicates all sit in the idle tail where the real payload happens to arrive second — but it is
 the same latent defect and wants the same three-line fix. Carried as an open item.
+
+### 17.11 The viz session cross-checked our ladder data — validation, one correction of mine, and a capture list (2026-08-08)
+
+Dean pointed me at a reply handoff I would not otherwise have found:
+
+```
+autoscaling-viz/session-notes/handoffs/benchmark__viz-cross-check-and-next-capture.md   (committed aa67c399)
+```
+
+It answers the two handoffs I sent, using only our run's data, read-only, with no cluster
+access. Read it in full before the next run; the summary below is what it changes on our side.
+
+**First, a protocol gap that is ours to fix, not theirs.** I addressed both my handoffs to
+`scratch-poc`. That is not a name that session answers to — it is **`autoscaling-viz`**, matching
+its branch, and Dean had to hand-route both files. Use `autoscaling-viz__<topic>.md` from now on.
+The deeper problem is structural and worth raising with Dean: **worktree isolation means neither
+of us can write into the shared `plans/session/handoffs/`** (they tried this reply there and were
+refused). So leaving a handoff in your own worktree and telling the other side is not a
+workaround, it is the only mechanism available between two isolated coder sessions — but it
+defeats polling, and it breaks the `.WIP`/`.DONE` state machine, since the recipient cannot mark
+a file it cannot write. They asked me to flip mine; both are now `.DONE`.
+
+**Our envoy substitution is validated, per stage.** This is the strongest confirmation available
+and it is better than the pooled check I ran: against the harness's own `request_latency`, mean
+sojourn is **0.23–0.42 % low** and p95 within **0.08–0.93 %**, on every one of the eight stages.
+Consistently slightly low is the right sign — Envoy excludes client-side handling. For arrival
+times, departure times, sojourn and concurrency `L(t)`, the access log is a drop-in for the lost
+`per_request_lifecycle_metrics.json`. That retires the residual doubt in §17.2.
+
+**Our capture found a routing oscillation, which falsified a published claim of theirs.** They
+had attributed a ~24 s departure wave on the earlier arm-B run to engine-side cohort recycling
+and specifically *not* routing. Our ladder run was a clean falsification test: their model says
+the wave is saturation-gated, and we never exceed kv 0.67. Pooled, their prediction held.
+Resolved **per pod** it failed — per-pod *arrivals* oscillate at r **+0.25…+0.73** and lead
+departures in amplitude, while the pooled arrival stream stays flat (r ≈ +0.09–0.14) because
+co-loaded pods run **anti-phase and cancel**. The period tracks mean request sojourn time,
+ratio **0.92–1.09** across all six loaded stages as sojourn moves 5.7 → 12.0 s. Arrivals are the
+router's decision, so recycling cannot produce them; the signature is delayed-feedback load
+balancing (loop delay ≈ sojourn time). Mechanism, not proven cause — EPP's actual decisions are
+unrecoverable, which is our §7 finding (`epp_pods.log` has 13 unique request IDs).
+
+**Why that matters for capture design, and it is the most reusable thing in the handoff:** the
+oscillation period is 6–11 s against our ~15.7 s scrape cadence, so Nyquist is ~31 s and the
+whole phenomenon is **aliased away in every gauge-derived series** — ours, and by extension
+anything WVA or a dashboard computes the same way. Anti-phase cancellation under pooling hides
+it a second time. It was visible **only** because our access log carries `UPSTREAM_HOST`, i.e.
+per-request pod attribution. Not a defect in our capture; a limit of the instrument. Concretely:
+**per-request-with-serving-pod is not a nice-to-have, it is the only instrument that can see this
+band**, and scrape-derived per-pod balance statistics should not be trusted in it.
+
+**`iteration_tokens_total` gives an exact prefill/decode split, not a proxy.** Checking the
+buckets rather than assuming (our §6 asked for exactly this), the two kinds of engine step are
+disjoint: decode-only steps land ≤128 tokens, prefill-carrying steps in (1024, 16384], and
+**(128, 1024] holds exactly 0 counts on every pod checked**. So differencing `le=1024` across two
+scrapes is an exact per-interval prefill-step rate. What it showed: below the band (kv ≤ 0.67,
+n=281) `itl ~ run` alone reaches r² **0.93–0.94** and adding prefill buys **+0.001**; in-band
+(kv ≈ 0.99) it buys **+0.236**. Prefill is a regime-specific term, and the marginal
+`corr(itl, prefill/s) = +0.78` on our run is confounding (`corr(prefill/s, prompt/s) = +0.96`).
+
+#### Two corrections, the first of them mine
+
+**(a) My two handoffs contradict each other on the decision rule.** The per-request handoff §8
+says `ceil(demand/prc)` is "confirmed for both analyzers"; the ladder handoff §9 retracts exactly
+that and gives the verified form — `rc = demand/0.85 − supply`, then `curr + ceil(rc/prc)` on the
+*residual* — 65/65 cycles. The ladder version is correct and is the one they are using. I sent the
+wrong wording and then superseded it in a second document without withdrawing the first, which is
+how a reader ends up with the retracted form. The `prc` 2.3× spread from the earlier handoff
+survives; only its mechanism sentence does not. Sender does not edit a sent handoff, so the
+correction lives here and in the memory topic file rather than being back-patched into the file.
+
+**(b) `bytes_sent` is not a per-request output-token weight.** Our p50 calibration holds (511
+implied vs a true 512), but the dispersion does not: per stage `bytes_sent` spans only **~14 %
+p5→p95** while `output_len` spans **~44 %**, and implied bytes/token drifts **170–187** across
+stages. Stage-level total: fine. Ranking requests by output size: no. **Fixed in
+`envoy_per_request.py`'s docstring**, which had claimed tokenizer-independence without the
+dispersion caveat. Same edit records that `x-envoy-upstream-service-time` is **not** a TTFT
+proxy — flat 7–9 ms while harness TTFT climbs 47 → 183 ms; it times request acceptance and
+stream open, upstream of prefill.
+
+#### Their capture list for the next run — handed to the testing planner
+
+Six requests, from `autoscaling-viz/real-trace-viz-plan.md` §9.2, explicitly "a request, not a
+plan for you". Items 4 and 5 change the *scenario*, so they are the planner's and Dean's call,
+not mine; I have sent `plans/session/handoffs/plan__benchmark-next-run-capture-list.md` asking
+for `plans/planning/ta-pokprod-testing-plan.md` to be updated.
+
+1. Run `post_run_analyze.sh <results_dir> <ns>` **immediately** after the run — step 1 reads the
+   controller log from a rotating buffer. Our ladder run has no `metrics/processed/wva_*`, so
+   WVA's own decision timeseries is gone for it. (Already our §17.8 item 9, "add controller-log
+   capture to the harvest path" — this is the same hole seen from downstream.)
+2. Keep `metrics/raw/` — the only time-resolved source of KV / running / waiting / ITL /
+   preemption. 12–35 MB/run, compresses ~10×. Note this cuts against a blunt reading of the
+   retention rule: the multi-GB per-replica files go, `metrics/raw/` stays.
+3. Keep the per-request trace **with the serving pod** — the one they would push hardest for,
+   per the aliasing argument above. The access log is a working fallback but is on kubelet
+   rotation, which is what §17.10 addresses.
+4. Add a **mid-band dwell stage**: hold an offered rate that parks kv in **0.3–0.85** for ≥3 min.
+   Their single biggest gap — it is what makes the concurrency-vs-latency slope fittable and the
+   throughput knee locatable, and no run in any pool has ever dwelt there. Our ladder reaches
+   0.67 at 20 RPS, so it is close.
+5. Add one **short-output leg** (e.g. 2000 in / 100 out) to probe the ITL lower knee. The
+   arithmetic matters: 4K-in/1K-out is still decode-dominated in time, so "prefill-heavy" needs
+   short outputs, not just long inputs.
+6. Let the run **outlive the cooldown** — ≥300 s of collection after load stops, or scale-down
+   never lands in-window. Our closing 20→2 RPS step is already the right shape.
+
+Dean's forward direction, as relayed there and worth recording because it reprioritises our run
+plan: **right-sizing and steady-state are the premise of autoscaling and the real money-saver,
+more than transition speed.** A ramp-down is the honest test of rescaling, since scale-down has
+no boot lag. After that: more noise in the input signal, and a change in request shape.
+
+**Their side:** `origin/autoscaling-viz` @ `1941afe4`, pushed with Dean's authorization; contains
+the arm-B findings doc, the §11 ladder cross-check and `analyze_ladder_wave.py` (read-only, runs
+against our log in place). Nothing of ours was modified. Open on their side and awaiting Dean, in
+case it lands on us: whether to add an envoy input path to the extractor so a ladder-shaped run
+can be rendered without a per-request file — 4 of 5 live panels survive that substitution, the
+exception needing per-request output sizes that (b) above says the access log cannot supply.

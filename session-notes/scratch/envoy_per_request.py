@@ -14,20 +14,41 @@ BETTER trace than the lost file in three respects:
      so per-request data joins directly to controller logs and HPA events.
   2. It records UPSTREAM_HOST -- which decode pod actually served each request. The harness
      file never had routing attribution at all.
-  3. `bytes_sent` is a tokenizer-independent proxy for response size, so it is immune to the
-     inference-perf output-token defect that makes every reported `output_len`,
-     `time_per_output_token`, `inter_token_latency` and `normalized_time_per_output_token`
-     unusable for this run.
+  3. `bytes_sent` is a tokenizer-independent measure of response size, so a STAGE-LEVEL total
+     is immune to the inference-perf output-token defect that makes every reported
+     `output_len`, `time_per_output_token`, `inter_token_latency` and
+     `normalized_time_per_output_token` unusable for this run. It is NOT a per-request weight
+     -- see the dispersion caveat under Validation.
 
 What it does NOT recover: per-request TTFT and an exact per-request output-token count.
 Envoy sees one duration per request, not the token stream. Those survive only as
 server-side histogram buckets in `metrics/raw/*_metrics.log`
 (`vllm:time_to_first_token_seconds_bucket`, `vllm:request_generation_tokens_bucket`).
 
+In particular `upstream_ms` (`x-envoy-upstream-service-time`, captured by the regex below) is
+NOT a TTFT substitute, however much it looks like one. Measured on this run by the
+autoscaling-viz session: it sits flat at 7-9 ms across all eight stages while harness TTFT
+climbs 47 -> 183 ms. It times the server accepting the request and opening the response
+stream, which is upstream of prefill.
+
 Validation performed against the surviving stage aggregates:
   * 22,200 in-window POSTs vs 22,200 harness successes -- exact.
   * mean duration 8817 ms vs 8850 ms predicted from the request-weighted stage means (0.37%).
   * bytes_sent p50 implies 511 output tokens at ~299 B/token vs a true mean of 512 (0.2%).
+
+Independently cross-checked per stage against the harness's own `request_latency` by the
+autoscaling-viz session (2026-08-08), which is the stronger test because it is per stage
+rather than pooled: mean sojourn 0.23-0.42% low and p95 within 0.08-0.93%, on every one of the
+eight stages. Envoy runs consistently *slightly* low, which is the right sign -- it excludes
+client-side handling. For arrival times, departure times, sojourn and concurrency L(t) the
+access log is a drop-in replacement for the lost per-request file.
+
+THE bytes_sent DISPERSION CAVEAT (same cross-check): the p50 calibration above holds, but the
+SPREAD does not. Per stage `bytes_sent` spans only ~14% p5->p95 while the harness's `output_len`
+spans ~44%, and the implied bytes/token drifts 170-187 across stages. So `bytes_sent` cannot
+rank requests by output size and must not be used as a per-request work weight; it is usable as
+a stage-level total only. Anything needing per-request output size needs the harness file (or
+the vLLM generation-tokens histogram, which is not per-request either).
 
 Stage boundaries are derived by partitioning the sorted arrival series on the CUMULATIVE
 per-stage request counts, not by anchoring to a start time and accumulating durations. The
