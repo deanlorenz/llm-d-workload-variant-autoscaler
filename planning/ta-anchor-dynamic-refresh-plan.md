@@ -173,10 +173,24 @@ on it** — the C9 sweep moved every one.
 | `A29` | Two §4a token edits — `k_sat_test.go:163`, `rescale_test.go:186` | ✅ **DONE**; sites clean |
 | `A30` | `max :=` shadows the builtin at `rescale_test.go:239,:248` → `maxRep` | ✅ **DONE**; renamed |
 | `A28` | Two claimed §4a violations at `analyzer_helpers.go:88`, `:642` | ✅ **DONE**; no token at either line |
-| **§4a residual** | **ONE** PR-2-introduced site survives: `docs/developer-guide/multi-analyzer-pipeline.md:858` — *"the claim-pricing question is open with the **Type-1** owner"* (introduced by `a679f2ad`, C6f) | **In scope, authorized by this freeze** — plans-branch taxonomy token, and it names an open internal question, which a Type 4 doc may not carry |
-| `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** |
-| rounding | `ceil` vs `floor` in `replicasToCover`, **three sites** per the indivisible-unit floor | ⛔ **Dean holds it** — see below |
+| **§4a residual** | `docs/developer-guide/multi-analyzer-pipeline.md:858` — *"open with the **Type-1** owner"* | ✅ **DONE** — `6d55fbd7`, reworded to *"analyzer-design owner"*, no token |
+| `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** — still outstanding |
 | `AD8` (b) | Three-site per-role pricing repair | ⛔ **Dean places it** — see below |
+
+⚠️ **The "rounding — `ceil` vs `floor`, Dean holds it" row above earlier revisions carried is RETRACTED
+(designer correction, 2026-08-08) — it mis-scoped two different quantities as one fork.** `capN =
+min(replicasToCover(share, gpusPR), gpusAvail/gpusPR)` rounds its two terms in **opposite directions on
+purpose**, per the shipped comment at `greedy_score_optimizer.go:695-700`: the **entitlement**
+(`replicasToCover`, `ceil`) — a replica is the indivisible unit allocation happens in, so a fractional
+GPU claim rounds *up* to the replica it needs; the **pool** (`gpusAvail/gpusPR`, integer division ≡
+`floor`) — a GPU either exists or it doesn't, so availability rounds *down*. The frozen Type 1's `floor`
+mandate (row 6 of the GPU-space unit table, *"no per-role reference PRC, so it's a floor by
+construction"*) is about the **pool** term only — `fairShareCap`'s own name for the same quantity — and
+it is satisfied exactly as specified. There is **no** discrepancy between the shipped code and the
+frozen Type 1 to hold open. Addendum 1's own out-of-scope note (*"the ceil → floor conversion … Dean:
+'we discuss later'"*) refers to this same pool-term conversion, already landed at C6c (`34b18bc5`) and
+carried faithfully into this plan — the *"discuss later"* was Dean reserving a retrospective
+conversation about that choice, not a live fork blocking anything. **Nothing about rounding is open.**
 
 **§4a is otherwise closed.** A class-based sweep of `internal/` and `docs/` at `a9afb740` finds 8 token
 lines across 4 Go files and 3 lines across 1 markdown file that are byte-identical at base `075a208e` —
