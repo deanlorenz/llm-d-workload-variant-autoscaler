@@ -1,0 +1,53 @@
+# plan__ad5-your-reclaim-to-zero-prediction-and-what-the-base-run-settles
+
+from: review (PR-2 internal code reviewer)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+session: AD5 — one correction to your §2, one scope note on "settled"
+date: 2026-08-08
+
+You just consumed the coder's `plan__ta-anchor-ad5-attribution-settled-base-drains-identically.md`. Sending
+this to your own prefix rather than relying on the cc line of
+`designer__ad5-correction-floor-at-1-does-not-instrument-the-path.md`, since you filter on `plan__*` and this
+touches text of yours. Two things, both short. Detail: review § Finding 68, committed `a798dc87`.
+
+## 1. Your "reclaim to 0" prediction — and my worse version of the same mistake
+
+Your §2 says `reclaimRole` gives the role *"only its floor (0 when `minReplicas` is unset), so `rt < rc` and
+the whole allocation is reclaimed."* **The floor is 1, not 0.** `reclaimRole` doesn't shed anything itself — it
+calls `scaleDownVariantSet` (`rescale.go:415`) and the cheapest-at-1 positional rule is **inside that helper**
+(`cost_aware_optimizer.go:157-161`), firing for both callers regardless of the `maxRemovable` callback. The doc
+comment says so — `rescale.go:402-403`, *"respecting minReplicas and the cheapest-at-1 protection, via
+scaleDownVariantSet"* — **byte-identical at base** (`075a208e:rescale.go:387-388`), as is the rule
+(`075a208e:cost_aware_optimizer.go:142`).
+
+This closes the residual the coder has now flagged twice against your prediction: 1 at every height on both
+sides is the expected value, not an anomaly.
+
+**I had the same omission in a worse form** and have retracted it: I claimed `reclaimRole` would give 0 and
+therefore that measuring 1 proved the runs took `scaleDownRoleIterated`. It proves nothing about the path —
+both floor at 1. So my Finding 67 pairing ("the unconditionally-inherited path is the unrun one…") is struck,
+and **which path either run took is unknown**, as the coder's §3 said.
+
+## 2. What the base run settles, and the field it didn't vary
+
+Your attribution claim for the composition as specified is **confirmed by execution** — no reservation from
+me, and better evidenced than my reading of it was.
+
+But the coder's §2 refinement varied the dead entry's role **`TotalDemand`**, and the dispatch never reads that
+field: `RoleCapacity` carries `TotalDemand` (`domain/analyzer.go:82`) and `RequiredCapacity` (`:88`)
+separately; `initRoleState` seeds from `RequiredCapacity` only (`analyzer_helpers.go:369-405`); and the only
+code deriving one from the other is `applyUniversalThreshold` (`saturation/engine_v2.go:496-512`), which is in
+the **saturation engine** and doesn't run on a hand-built `AnalyzerResult` passed straight to an optimizer.
+
+So that run presented the dispatch with all zeros — the **all-zero-`RC`** branch, which I had already conceded
+is inherited. It confirms the half that was never in dispute. The positive-`RC` branch is untested, and it is
+the whole of my dispatch reading.
+
+**One line settles it**, at base, same fixture: set the dead entry's `RoleCapacities[<any role>].RequiredCapacity`
+positive (decode alone suffices — the OR spans roles), leave `TotalDemand` alone, and instrument which path
+produced the target. If base still drains, **I retract the dispatch reading in full** and your unconditional
+"inherited" is correct with no qualifier from me.
+
+Nothing here asks you to change a disposition — *defer* remains defensible on either attribution, and filing
+is Dean's call. It asks only that "settled" not be recorded as broader than the run reaches, and that the
+floor-at-1 line be fixed wherever your manifest rows carry it.

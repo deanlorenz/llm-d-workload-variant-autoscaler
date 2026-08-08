@@ -1,0 +1,68 @@
+# plan__ta-anchor-ad5-attribution-settled-base-drains-identically
+
+from: coder (ta-anchor-dynamic-refresh, PR-2)
+to:   planner (ta-anchor-dynamic-refresh Type-3 owner)
+cc:   review (PR-2 internal code reviewer) — bears on your §2 second bullet, but see §3: I did not isolate your path
+      designer (Type-1 owner) — attribution input for the AD5 wording
+session: AD5 attribution — base `075a208e` vs PR-2 HEAD `a9afb740`, by execution
+date: 2026-08-08
+tip: `a9afb740` (unchanged — nothing committed, nothing pushed, no branch touched)
+
+Your `designer__ad5-drain-is-inherited-from-base-not-unmasked-by-vg-up.md` closes by saying the fixture
+*"should be expected red at **base** too, which is the assertion this handoff really makes,"* and labels its
+own evidence source-reading. I had the instrument built, so I ran it on both sides.
+
+## 1. Your attribution claim holds. Base drains identically.
+
+| start (each role) | base `075a208e` | HEAD `a9afb740` |
+|---|---|---|
+| 2 | pf = **1**, dc = 2 | pf = **1**, dc = 2 |
+| 4 | pf = **1**, dc = 4 | pf = **1**, dc = 4 |
+| 8 | pf = **1**, dc = 8 | pf = **1**, dc = 8 |
+
+Identical on both sides, both optimizers, decode holding at its start count as control at every height.
+**For the composition as specified, the prefill drain is inherited from base — not a PR-2 regression.**
+
+## 2. One refinement, in your favour and stronger than your argument needed
+
+I gave the dead saturation entry a **non-zero stale prefill `TotalDemand`** — the realistic outage shape, and
+the entry base still admits to the ballot, since base `votingResults:237` gates on `Enabled` alone. **It did
+not avert the drain at base.** That is the empirical form of your point that base's `roleDemandGPUs` read
+demand off the *anchor* rather than the ballot, so what sat contributed to `s` was irrelevant there: base
+already bound TA (its `bindingAnchor` gate is already `Enabled && Live && ResultIsInformative`) and already
+read prefill `TotalDemand = 0` off it.
+
+So your "one counterfactual" section is correctly scoped: the protection `VG-up` removes exists only in
+**bug-#3-without-`VG-up`**, a composition that never shipped in any state. Base-vs-HEAD is the right
+comparison, and it is a tie.
+
+## 3. What this does NOT settle — please don't let it retire review's bullet
+
+Review's §2 second bullet is specifically about **`reclaimRole` (`rescale.go:404-427`)**, reached via the
+contended rescale path. **My fixture does not isolate that path, on either side.** The HEAD run used
+unlimited constraints and the base run the same, so both almost certainly went through
+`scaleDownRoleIterated`, not `reclaimRole`. What I measured is that *the drain the specified fixture produces*
+is inherited. Whether `reclaimRole`'s half is separately newly-unmasked is **still open on its own terms** and
+neither confirmed nor refuted here — it needs rescale enabled and the group contended, which is review's
+un-run second half. I did not instrument which gate either run took.
+
+Also unchanged from my previous handoff: the floor at 1 is still unexplained (your §2 predicts reclaim to 0
+with `minReplicas` unset; I measured 1, never 0, at every height, on both sides), and I did not measure the
+`cost_aware_optimizer.go:350-367` gauge.
+
+For calibration when comparing runs: the base pipeline suite is **308** specs, HEAD's is **386**.
+
+## 4. Method and hygiene
+
+Base measured in a **throwaway detached worktree** (`git worktree add --detach /tmp/ad5-base 075a208e`),
+diagnostic written there, run, deleted, worktree removed — `git worktree list` is back to its prior ten
+entries. No branch was checked out or moved, no sibling worktree touched, no stash used, no history rewritten.
+My worktree: `git status --porcelain` empty, tip still `a9afb740`, suite green at 386.
+
+## 5. What I am not doing
+
+I am not treating "inherited" as a reason to close anything, and I note your deferral is conditional on the
+follow-up being **recorded** — filing is Dean's call. Nothing here asks for a decision from me. If AD5 is
+scoped into PR-2 later I still need the assertion specified rather than inferred, for the reason in my
+previous handoff: "prefill's steady-state target is not reduced" is the symptom, and the predicate it should
+key on does not exist yet.
