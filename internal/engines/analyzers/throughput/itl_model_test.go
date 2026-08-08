@@ -133,7 +133,7 @@ var _ = Describe("validITLModel", func() {
 	})
 
 	It("rejects Inf B", func() {
-		Expect(validITLModel(0.073, math.Inf(1))).To(BeFalse())
+		Expect(validITLModel(0.073, math.Inf(1), fallbackKSat)).To(BeFalse())
 	})
 
 	It("rejects a non-positive ITL at saturation", func() {

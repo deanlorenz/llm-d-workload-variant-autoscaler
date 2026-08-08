@@ -592,7 +592,7 @@ var _ = Describe("ThroughputAnalyzer", func() {
 					return analyzer.variantStates[variantKey(namespace, modelID, "v1")]
 				}(),
 				[]domain.ReplicaMetrics{belowBaseline},
-				namespace, modelID, "v1",
+				namespace, modelID, "v1", fallbackKSat,
 			)
 			Expect(ok).To(BeFalse())
 			Expect(reason).To(Equal(itlReasonT2Failed))
@@ -2173,16 +2173,16 @@ var _ = Describe("computeVariantSupply", func() {
 		// mean to the KV-capable count rather than to the replica count.
 		total, perReplica, nKV := computeVariantSupply(
 			[]domain.ReplicaMetrics{replicaWithCap(65536), replicaWithCap(131072), replicaWithCap(0)},
-			shape, itlSat)
+			shape, itlSat, fallbackKSat)
 		Expect(nKV).To(Equal(2))
-		// Σ_r DefaultKSat × KV_max_r / KVreq / itlSat over the KV-capable replicas.
-		Expect(total).To(BeNumerically("~", DefaultKSat*(65536+131072)/shape.KVreq/itlSat, 1e-6))
+		// Σ_r fallbackKSat × KV_max_r / KVreq / itlSat over the KV-capable replicas.
+		Expect(total).To(BeNumerically("~", fallbackKSat*(65536+131072)/shape.KVreq/itlSat, 1e-6))
 		Expect(perReplica).To(BeNumerically("~", total/2, 1e-9))
 	})
 
 	It("skips a replica with non-positive TotalKvCapacityTokens", func() {
 		total, perReplica, nKV := computeVariantSupply(
-			[]domain.ReplicaMetrics{replicaWithCap(0)}, shape, itlSat)
+			[]domain.ReplicaMetrics{replicaWithCap(0)}, shape, itlSat, fallbackKSat)
 		Expect(nKV).To(Equal(0))
 		Expect(total).To(Equal(0.0))
 		Expect(perReplica).To(Equal(0.0))
