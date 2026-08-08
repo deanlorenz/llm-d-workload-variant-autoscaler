@@ -2266,3 +2266,195 @@ Switch profiles by editing `harness.experimentProfile`, **not** with `BENCHMARK_
 (lines 677–692) looks in `BENCHMARK_SCENARIOS_DIR` = `test/benchmark/scenarios`, where these
 profiles do not live — so it would silently copy nothing while still passing `-w` to
 `llmdbenchmark`. Noted in the scenario file at the key itself.
+
+---
+
+## §18 Dwell run EXECUTED 2026-08-08 — it does not dwell, it limit-cycles (THIS IS THE LIVE SECTION)
+
+**§17.12 is now historical.** Everything it describes as "staged and unlaunched" has happened.
+Dean approved with "run". This section is the live state.
+
+Run identity:
+
+| field | value |
+|---|---|
+| results dir | `dean-20260808-051912-230` |
+| profile | `ta_autoscale_dwell.yaml` (21,120 req / 1,740 s load) |
+| namespace | `dhl-wva-209` |
+| harness pod | `inference-perf-9dioozrx` on node `pokprod-b93r39s2`, 16 cpu / **96Gi** req==lim |
+| console log | `ta-dwell-run.log` |
+| wait timeout | default 7200 s |
+| controller pod | `...-75fd9f8d-hv9g4`, started **2026-08-07T20:20:17Z**, 0 restarts (matters — see §18.4) |
+| pre-run marker | UTC `2026-08-08T02:17:56Z`, gateway follower at 18 lines / 3,198 B; decode `1/1` cold |
+| GPU peak | **10** decode replicas (I had flagged ~5 to Dean pre-launch; the 2× under-estimate was mine) |
+
+### §18.1 The headline
+
+The run did **not** produce a dwell in kv 0.3–0.85. It produced a **limit cycle**, ~9 min period,
+fully instrumented — which is a stronger and more actionable result than the dwell would have been.
+Target trajectory, one tick/min, from `scaling-decision`:
+
+```
+02:19–02:22  1  1  1  1        entry rungs, 5 rps
+02:23–02:26  4  7  10  10      peak #1
+02:27–02:31  9  4  2  1  2     trough #1
+02:32–02:34  6  9  10          peak #2
+02:35–02:39  6  4  1  2  2     trough #2
+02:40–02:43  9  9  9  9        peak #3, held
+02:44–02:51  1 …               floor (minReplicas), descent rung
+```
+
+Peak-to-peak 02:25 → 02:34 = **9m12s**. My earlier verbal "~5 min" was the peak-to-*trough*
+half-period; the full period is ~9 min. The scale-**down** path is healthy: the 720 s 2 rps descent
+drove it to `minReplicas` = 1 cleanly and 9 GPUs came back without intervention.
+
+### §18.2 Mechanism: `prc` collapses at both peaks; at the second, demand was FALLING
+
+| time | supply | demand | util | prc | reason |
+|---|---|---|---|---|---|
+| 02:23 | 329,011 | 974,024 | 2.96 | 329,011 | P1-obs |
+| 02:24 | 329,011 | 1,882,870 | 5.72 | 329,011 | P1-obs |
+| **02:25** | 76,044 | 2,682,201 | **35.27** | **25,348** | **P2-hist** |
+| 02:32 | 658,022 | 1,538,533 | 2.34 | 329,011 | P1-obs |
+| 02:33 | 658,022 | 2,349,653 | 3.57 | 329,011 | P1-obs |
+| **02:34** | 206,046 | 2,306,010 | **11.19** | **34,341** | **P2-hist** |
+
+02:25: demand +42%, `util` **×6.2**. 02:34: demand **fell** while `util` rose **×3.1**. Both
+excursions to `maxReplicas` are `prc` collapsing 10–13×, not real demand.
+
+### §18.3 Why — bucket-keyed capacity history (hypothesis, mechanism confirmed in source)
+
+`internal/engines/analyzers/saturation_v2/analyzer.go:289-334` (`computeK2`):
+
+- `historyKey = "modelID|accelerator|gpuCount|outputBucket"`,
+  `outputBucket = classifyOutputLength(avgOutput)` (`types.go:60-69`)
+- edges (`constants.go:34-40`): `short` < 100, `medium` < 500, `long` ≥ 500
+- the rolling average (window **10**) is appended **only** under Priority 1 (`:302-312`); Priority 2
+  reads that same per-bucket average
+
+This run's output is **mean 512, sd 20** — 12 tokens above the 500 edge with sd 20. As the completed
+mix shifts, `avgOutput` crosses 500, the key changes, and an unrelated bucket's average is read.
+
+**NOT confirmed from logs: `outputBucket`/`historyKey` are computed and used but never emitted.**
+The collapse is observed; the bucket flip is inferred. Ask #1 to the planner is to log that one
+field. The design issue stands independently: keying capacity history on a discretised bucket of a
+continuous noisy quantity makes `prc` discontinuous in `avgOutput`.
+
+### §18.4 Capacity history is contaminated ACROSS runs — affects campaign design
+
+Controller up since 2026-08-07T20:20:17Z, 0 restarts, spanning the 08-07 ladder.
+`computeCapacityHistory` is in-process with no invalidation. Proof: the **first tick of this run**
+(02:19:09Z) already reports `prc = 25,348` reason **P2-hist**, which requires `histAvg > 0` before
+P1 had fired in this run — i.e. left over from the ladder. 25,348 is also exactly what `prc`
+collapses to at 02:25.
+
+⇒ **Consecutive benchmark runs are not independent samples.** The 08-07 ladder and this run share
+history state.
+
+**RUNNER PROTOCOL CHANGE ADOPTED (do this next run):** restart the WVA controller deployment in
+`dhl-wva-209` before each benchmark run and record its start time in the run notes. In-namespace,
+non-destructive, cheap. No approval needed; not yet mechanised into the Makefile.
+
+### §18.5 Dispatch rate missing for 100% of ticks
+
+`collector/replica_metrics.go:1035` — `Pod has engine metrics but no dispatch rate — possible
+pod/pod_name label mismatch`: **157 occurrences / 33 ticks** (~4.75 per tick = every decode pod every
+tick), first at 02:19:09Z. **Total, not intermittent.** Every decision this run was made with no
+dispatch-rate signal. Most plausible upstream cause of §18.6.
+
+### §18.6 Demand is backlog-shaped, not rate-shaped
+
+Identical offered load, **48× different demand**:
+
+| time | offered | demand | note |
+|---|---|---|---|
+| 02:40 | **2 rps** | 2,247,803 | **scaled 2 → 9** |
+| 02:41 | 2 rps | 2,184,613 | held 9 |
+| 02:42 | 2 rps | 53,639 | backlog drained |
+| 02:46 | 2 rps | 38,407 | |
+
+**At 02:40:11Z the client offered 2 rps and the controller provisioned 9 replicas**, chasing a queue
+the generator had stopped feeding (descent began ~02:37). Corroborating: demand 1,882,870 at
+1 replica (14 rps) vs 333,172 at 10 replicas (20 rps) — 5.6× *fall* as offered load *rose*.
+
+### §18.7 The two analyzers contradict each other outright
+
+**02:41:12Z**, same instant, same variant:
+- saturation `supply 658,022 demand 2,184,613 util 3.32` → scale **up** hard
+- throughput `supply 9,020 demand 0 util 0 sc 9,020` → scale **down** fully
+
+Optimizer resolved `no-change` at 9. Throughput's demand went 13,401 → **0** in one tick, right
+after `throughput/analyzer.go:351 GPS mismatch persisted, clearing observation window for
+recalibration {"threshold": 3}`, with `:841` reporting `GPSObs 7,921` vs `muDecModel 4,736`
+(**gpsErrPct 40.2**). Its decode-speed model is 29–40% off observation, it discards its window, and
+the emptied window reports demand 0 → spurious scale-down vote.
+
+### §18.8 `supply` lags replica count ~1 tick, both directions
+
+- 02:31 decision `current=2`, supply = 329,011 × **4** → over-count on the way down (ready was 2)
+- 02:41 decision `current=9`, supply = 329,011 × **2** → under-count on the way up
+
+Loop delay > 0, more-than-proportional correction, no damping. Over-counting during scale-down also
+suppresses warranted scale-up — same territory as the Live-flag gating asymmetry.
+
+### §18.9 Real kv ≈ 1.00 vs reported util 0.36
+
+Measured on a replica: `vllm:kv_cache_usage_perc = 0.9987`, `num_requests_running=170`,
+`num_requests_waiting=289` (all reason `capacity`), while saturation reported `util 0.360` and chose
+no-change (02:31). Not the same quantity (`util` is demand/supply in tokens), but if the job is to
+hold kv near `k_sat` 0.80, supply over-estimates capacity ~**3×** when the engine is completely full.
+
+⚠️ **vLLM 0.20.2 emits `vllm:kv_cache_usage_perc`, NOT `gpu_cache_usage_perc`** (the latter returns
+nothing). Port 8200, container `vllm`. Which name does the WVA collector query? Open.
+
+### §18.10 Reason-code distribution
+
+33 ticks: `P1-obs` **6**, `P3-k2` 2, `P2-hist` **25**. Observed-capacity path available for **18%**
+of decisions; dispatch rate for **0%**.
+
+### §18.11 Two of these artifacts are MY workload-design errors
+
+Do not attribute to WVA:
+
+1. **Entry rungs too sharp** — 5 rps×120 s then 14 rps×180 s vs the ladder's 300 s steps; I budgeted
+   90–120 s of transient assuming a 1-replica step, but the 1→10 cold start took ~5.5 min. The
+   20 rps rung's first half is transient, weakening it as the intended control. Driven by a
+   request-count budget.
+2. **Output mean 512 sd 20 straddles the 500 bucket edge** — this is what excites §18.3. Next
+   profile should put the mean well clear of both 100 and 500 (e.g. 700 or 300) so "is `prc`
+   bucket-discontinuous?" and "where does it dwell?" stop being confounded.
+
+§18.4–§18.10 are independent of workload shape.
+
+### §18.12 Harness memory — the 96Gi bump was load-bearing
+
+Peak **~29,469Mi ≈ 28.8 GiB** during report serialization (then dropped to ~11.9 GiB as CPU rose to
+1136m for the next phase). The ladder's **32Gi** limit was genuinely the binding constraint; 96Gi was
+necessary, not precautionary. A future tightening to ~48Gi would be safe; 32Gi is not.
+
+### §18.13 Deliverables from this run
+
+- `session-notes/scratch/controller-decisions-20260808-dwell.log` — 33-tick decision trace, captured
+  live with `--since-time` retroactive to run start. **The irreplaceable artifact** (the ladder lost
+  its equivalent to rotation). Closes the §17.8 "add controller-log capture" item for this run.
+- `session-notes/handoffs/plan__benchmark-dwell-run-findings.md` — full findings + 5 prioritised
+  asks. **Supersedes** the rate-invariance hypothesis in the delivered
+  `plan__benchmark-dwell-operating-point.md` (a sender does not edit a sent handoff).
+- `session-notes/handoffs/sync__benchmark-dwell-run-executed.md` — CURRENT.md update request.
+
+### §18.14 Still open after this run
+
+Carried from §17.8 and unchanged: file the harness OOM upstream; file the inference-perf
+output-token inflation upstream; promote `session-notes/scratch/` tools into `hack/benchmark/`; fix
+`verify_decision_rule.py`'s last-wins overwrite; suppress step_09's local report regeneration; §11
+design-C Makefile change; fix `reset_run.py`'s existence-check defect; the
+`variant.VariantAutoscaling` event-recorder scheme error (still spamming — seen live 02:23:10Z and
+02:24:10Z).
+
+New from this run: `ta_calibration_probe.yaml.in` is tracked in the fork and should not be; the
+`kv_cache_usage_perc` vs `gpu_cache_usage_perc` collector question (§18.9); the unexplained gateway
+`wc -l` 20,042 vs `grep -c " 200 "` 20,047 discrepancy — **confirm at harvest, do not assume benign**
+(likely file growth between the two `exec` calls, or `" 200 "` matching a byte-count field).
+
+**Nothing pushed.** `benchmark` is 11 ahead of `origin/benchmark`; fork `wva-ta-benchmark` 1 ahead.
+Both await Dean's explicit per-push confirmation.
