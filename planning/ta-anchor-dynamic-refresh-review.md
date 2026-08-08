@@ -6285,7 +6285,7 @@ second."* If that holds, the effect is a bounded one-replica over-grant per role
 a drip. Either way the redundancy stands, and the dev-guide's stated principle is the strongest argument
 on the record for the authority's direction — sourced from the branch, not from the Type 1.
 
-### The search surface: 8 endorsement sites, 2 reachable by the obvious grep
+### The search surface: 8 endorsement sites, 1 reachable by the obvious grep
 
 This corrects my own standing item, which named three artifacts and implied `ceil|floor` would find them.
 Fork-relevant sites (`fairShareCap`/`replicasToCover` only — *not* the demand→replica `ceil` at Type 1
@@ -6303,14 +6303,38 @@ Fork-relevant sites (`fairShareCap`/`replicasToCover` only — *not* the demand�
 | 7 | `:1400` — that fixture's worked comment | no |
 | 8 | `34b18bc5` — C6c's commit message body | no ("round up"/"round down") |
 
-So a `git grep -i ceil` fix-up pass lands **2 of 8**, and #4 is an active trap: it contains the token
-`floor` while endorsing round-up. My item was right that C6c's message endorses `ceil` and wrong that a
-token search would find it — the message never uses either word.
+So a `git grep -i ceil` fix-up pass lands **1 of 8** — only #1. I previously wrote "2 of 8", which
+credited #2 to the search; #2 says "floored", not "ceil", so the grep never sees it. Verified per line:
+of `:453`, `:595`, `:659`, `:829` and `:837`, exactly one (`:837`) matches `-i ceil`.
 
-Two consequences. Whoever flips the fork will leave six prose endorsements behind, including a *test
-name* that then contradicts its own assertion. And #8 is the one that hardens: rewritable now while the
-branch is unpushed, permanent once PR-2 opens. It joins the §4a reword window as a second, independent
-reason that window is worth spending.
+Widening to `git grep -iE "ceil|floor"` reaches **3 of 8** (#1, #2, #4) and simultaneously surfaces two
+hits that are *not* fork sites — `:595` ("Two floors keep the sequence from starving whoever draws
+last") and `:659` ("See the second floor below"), both C6e additions in which *floor* means
+**minimum**, not round-down.
+
+Counted per token rather than per site, inside the one file that owns the policy:
+`greedy_score_optimizer.go` carries four `floor` mentions (`:453`, `:595`, `:659`, `:829`) plus one
+`math.Ceil` (`:837`), and **only `:829` is a round-down statement**. Three of the four say *minimum*. So
+the widened grep's false-positive rate on the rounding question is 3:1 — the trap is not one line as I
+first wrote, it is the dominant reading of the token in this file.
+
+The plan's own incantation is worse than either. §6 specifies case-sensitive `grep -rn "ceil("`, which
+across `internal/engines/pipeline/` returns **30 hits, every one of them in a `_test.go` file** and none
+in non-test code: they are `ceil(x/y)` mathematical notation in test names and worked comments
+(`It("computes max cross-analyzer ceil(roleRemaining/PRC)"`, `// cheap gets ceil(25000/10000)=3`)
+describing the demand→replica conversion that is *not* in dispute. A coder running the plan as written
+gets a wall of noise containing zero production sites. The coder's suggested `-i` repair reaches four
+non-test sites across `internal/` — the fork at `:837`, plus `analyzer_helpers.go:629`, `rescale.go:598`
+and `queueingmodel/analyzer.go:379`, the last of which its own count omitted by scoping to `pipeline/`.
+All three of those stay.
+
+My item was right that C6c's message endorses `ceil` and wrong that a token search would find it — the
+message never uses either word.
+
+Two consequences. Whoever flips the fork leaves at least five prose endorsements behind, including a
+*test name* that then contradicts its own assertion. And #8 is the one that hardens: rewritable now while
+the branch is unpushed, permanent once PR-2 opens. It joins the §4a reword window as a second,
+independent reason that window is worth spending.
 
 ### Type 4 gap
 
@@ -6431,7 +6455,71 @@ On T1-1 itself, the designer §2 withdraws its urgency and reframes it as a doc-
 Dean's call, with the compiled branch being the safe one. That is consistent with the preceding section
 and does not change it: the reviewable defect is not which direction wins, it is that **the divergence is
 undeclared**, the mandated mid-replica fixture was spent on the opposite assertion, and eight endorsement
-sites would have to move together with only two reachable by the obvious grep.
+sites would have to move together with only one reachable by the obvious grep.
+
+### Finding 64 — the fork's price was measured two commits before the mitigation that narrows it
+
+This is the most consequential thing in this section, and neither the coder's close-out nor the designer's
+withdrawal mentions it: **the 9-failure measurement that prices the fork was taken on a code shape that no
+longer exists.**
+
+The measurement is C6c's. The coder implemented the plan's `floor` (`wholeReplicaFill`) exactly as
+specified, got **9 failures out of 334** with deltas up to −4 (`bv` 6→2 under an *unconstrained* budget),
+diagnosed the cause, and backed it out. The diagnosis was precise and I verified it independently: `floor`
+is not a smaller allocation, it is a **termination** — `capN == 0` returns an empty pick, `allocated ==
+false`, and `fairShareScaleUp` sets `w.remaining = -1`, dropping the model from `active` permanently.
+
+**What changed after the measurement.** `firstDraw` is **absent** at C6c (`34b18bc5`) and was introduced
+by **C6e (`784c2b5c`)**, two commits later:
+
+```go
+capN := replicasToCover(share, gpusPR)
+if firstDraw && capN < 1 {
+	// ... First draw only: it grants past the balance, and only before the
+	// first commit is an empty pick fatal to the whole model rather than a defer.
+	capN = 1
+}
+```
+
+That comment *is* the C6c eviction diagnosis, encoded as a fix. I verified the whole chain at HEAD:
+
+1. `firstDraw := spentGPUs == 0` (`:660`) — true only when nothing is committed for this model yet.
+2. The guard forces `capN = 1`, so the first draw cannot be empty when a priced, affordable,
+   headroom-uncapped candidate exists.
+3. `allocateForModel` returns **`w.remaining < oldRemaining`** — progress, not pick-emptiness.
+4. So a non-empty first draw makes `allocated == true`, and `!allocated → w.remaining = -1` never fires.
+
+**The guard is strictly more load-bearing under `floor` than under `ceil`.** `replicasToCover` returns 0
+only when `entitlementGPUs <= 0`; otherwise `ceil ≥ 1`. So under the shipped `ceil`, `firstDraw && capN <
+1` can fire *only* on an exhausted balance. Under `floor` it would fire whenever `0 < share < gpusPR` —
+exactly the sub-replica-entitlement case that produced the eviction signature. C6e was written for the
+`ceil` world and happens to be precisely the `floor` mitigation.
+
+Compare the coder's own option (b): *"the honest fix is that `capN == 0` must mean defer, not evict, which
+means `!allocated` can no longer unconditionally set `remaining = -1`, and that is a change to the loop's
+termination argument."* C6e reaches the same end by the other route — rather than making `!allocated`
+non-fatal, it makes the first draw non-empty so `!allocated` cannot fire for a model that has a viable
+candidate. The work option (b) priced as "more than a one-line commit" is, for the dominant case, already
+in the branch.
+
+**Bound on this finding — what I am not claiming.** I have not re-measured. I do not build or test in the
+coder's worktree, so no failure count from me is signed off. I claim the *mechanism* is neutralized for
+the first-draw case, verified by reading; I do **not** claim the 9 becomes any particular smaller number.
+Two residuals are untouched by the guard and would still bite under `floor`: draws after the first (where
+`capN == 0` now genuinely defers, since `allocated` is already true — the intended behavior), and a model
+whose first draw finds no priced or affordable candidate at all, which the fork does not affect either way.
+
+**Why it matters as a review finding.** The close-out handoff says only that the fork "is still open in the
+tree" and was "avoided by construction." The designer's §2 withdraws T1-1's urgency and reframes it as a
+doc-vs-code divergence with "the branch currently compiled is the safe one." Both are true statements that
+omit the same fact. The result is that **Dean is being asked to decide a fork priced at C6c, in a PR that
+subsequently shipped the mitigation which addresses that price.** The refresh is cheap — flip `math.Ceil`
+to `math.Floor` at `:837` and run the existing suite at HEAD — and it is the one input that would make the
+decision informed rather than historical.
+
+Routed to the planner, which owns the fork's disposition ask and consumed the C6c handoff at its original
+content. Re-measuring is a coder action and I am not directing it; the fork itself is Dean's call and I am
+not making it.
 
 ---
 
