@@ -7717,3 +7717,84 @@ Unchanged and still not mine: severity **not** softened, *defer* still defensibl
 Dean's. One input has moved, as the coder says: for `deadRC > 0` the deferral can no longer rest on "not PR-2's
 bug," because in that regime the reachability is PR-2's. What I add is §2's narrowing — the regime is reachable
 but by a specific describable state — and §3's trap, which is the part most likely to be mis-scoped.
+
+---
+
+## Finding 71 — both of Finding 70's qualifications executed and confirmed; the "explicit per-role floor" I proposed already exists, and the substitution is provable rather than merely measured
+
+**Source:** coder handoff `plan__ta-anchor-ad5-finding70-route-confirmed-and-the-floor-repair-already-exists.md`.
+Verified at HEAD `a9afb740`. Execution numbers are the coder's; the source reads and the proof in §3 are mine.
+
+### 1. §2's route — confirmed, and the strengthening is right
+
+The coder called `applyUniversalThreshold` directly on the state I described (every variant `ReasonNoData`, role
+demand positive, no anticipated supply, shipped watermarks 0.85/0.70) and measured
+`ResultIsInformative` **false** before and after with role `RC` = **470.588** on both roles, model
+`RequiredCapacity` = 941.176.
+
+Its strengthening is correct and I verified it: **`applyUniversalThreshold` (`saturation/engine_v2.go:476-513`)
+contains no reference to `VariantCapacities` anywhere in its body** — it recalibrates the model-level pair and
+then loops `r.RoleCapacities` only. It cannot see `Reason`. So the route is not a data-dependent coincidence;
+non-informativeness and positive role `RC` are orthogonal **by construction**, and any non-informative result with
+positive role demand carries positive per-role `RC`. That is a better statement than my "keyed on different
+fields," and I adopt it.
+
+### 2. The fixture refinement goes against the coder's own instrument, and it sharpens my §2 rather than weakening it
+
+The doc comment is explicit that the same formula and the same `(scaleUp, scaleDown)` apply at every scope with no
+per-role overrides (`:472-475`). So in the production route **every** role with positive demand gets positive
+`RC` — both roles read 470.588 above. The coder's dispatch fixture seeded **decode only**, which it now flags as a
+weaker form of the production state than it had presented.
+
+Conclusion unchanged in both directions — at base any one positive value diverts to the scale-up branch, at HEAD
+the entry is pruned so none is read — but the consequence is worth stating: in the real state the divert is
+**over-determined**, not marginal. A regression test or a Type-1 description should set **all** roles positive,
+not one. Recording that the coder volunteered this against its own evidence.
+
+### 3. §3's "explicit per-role floor" already exists — and I can prove the substitution is total
+
+My Finding 70 §3 offered "preserved deliberately **or replaced by an explicit per-role floor**" as if the second
+branch were new work. **It is not.** `scaleDownVariantSet` already reads a per-variant `MinReplicas`
+(`cost_aware_optimizer.go:143-149`) and derives `removable := current - minReplicas`, guarded by
+`if removable <= 0 { continue }` (`:149-152`) — *before* the cheapest-at-1 clause. The coder measured the
+substitution:
+
+| | `MinReplicas` unset | `= 1` | `= 2` |
+|---|---|---|---|
+| clause live (today) | pf=1 | pf=1 | pf=2 |
+| clause disabled | pf=**0** | pf=1 | pf=2 |
+
+**The measurement is three heights; the claim is actually universal, and the two lines prove it.** The clause at
+`:159-161` fires only when `current - n < 1`, i.e. `n >= current` over integers. But `n` is capped at
+`removable = current - minReplicas` (`:154-155`). So the clause can fire only if
+`current - minReplicas >= current`, i.e. **only when `minReplicas <= 0`**. Therefore:
+
+- any `MinReplicas >= 1` makes the cheapest-at-1 clause **unreachable**, not merely dominated — the explicit floor
+  substitutes for the accident on *all* inputs, not just the tested ones;
+- and the default matters: `minReplicas` is **0** whenever `states` is nil or `MinReplicas` is unset (`:143-148`),
+  which is exactly why the accident is load-bearing today.
+
+That also retires any worry that the two mechanisms could interact badly at a height nobody ran.
+
+### 4. The (a)/(b) split is a correction to my phrasing, and (a) fails where `AD5` bites
+
+The coder's correction stands: `MinReplicas` is a **per-variant operator-set field**, not something the optimizer
+synthesizes, so "replaced by an explicit per-role floor" resolves into two options with different costs — (a) tell
+operators to set `MinReplicas` on prefill variants (works today, but it is documentation, and leaves every
+unconfigured P/D model exposed), or (b) have the code synthesize a floor for a role whose demand nobody priced
+(new behavior, a Type-1 question). Its run establishes that (a) works and that (b) needs no new plumbing, since
+the read is already in the right place. I accept the split as a repair to my sentence.
+
+**One thing to add, because it bears on how the two options compare.** `AD5`'s premise is a role whose demand
+nobody priced — i.e. a model already in this state *because* configuration is absent. Option (a) asks for correct
+additional configuration from precisely that operator, so its failure mode is **correlated** with the bug it is
+meant to contain: the models most likely to hit `AD5` are the ones least likely to have `MinReplicas` set. That is
+not an argument for (b) — (b) is new behavior and not mine to scope — only a reason not to score (a) as
+equivalent coverage.
+
+### 5. Standing
+
+Unchanged. Attribution regime-split, severity not softened, *defer* still defensible, disposition the planner's
+and Dean's. Nothing in this finding moves attribution; it tightens the state description (§2), makes the floor
+substitution provable (§3), and prices option (a) honestly (§4). The `AD5` chain is closed from my side unless
+new code lands.
