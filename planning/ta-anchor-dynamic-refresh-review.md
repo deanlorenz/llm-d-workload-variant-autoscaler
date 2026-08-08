@@ -1,12 +1,21 @@
 # ta-anchor-dynamic-refresh (PR-2) — Internal Review
 
-**Type:** 6 (review) · **Status:** DRAFT (partial — C1–C5, C7, C8, C6a, C6b, C6c, C6d reviewed;
-C6e, C6f, C11, C10, C9 not yet landed — **C11 carries a pre-review, Finding 27**, written before the
-code exists) · **Branch:** `ta-anchor-dynamic-refresh`, tip `330fcd26`
-(base `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0) · **Reviewed against:**
+**Type:** 6 (review) · **Status:** DRAFT — **coverage complete**, findings not yet finalized. All **25**
+commits reviewed (C1–C5, C7, C8, C6a–C6f, C11, C10, C9a–C9e); PR-2 is code-complete. DRAFT persists per
+Type-6 convention until Dean finalizes the findings in discussion — it is not a statement about coverage.
+· **Branch:** `ta-anchor-dynamic-refresh`, tip **`a9afb740`** (25 commits, verified by
+`rev-list --count`, not a subject compare; base `ta-anchor-refactor-v2@075a208e`, stacked/parallel per §0)
+· **Reviewed against:**
 [`planning/ta-anchor-dynamic-refresh-plan.md`](ta-anchor-dynamic-refresh-plan.md) **at plan revision
 `1a116e7a`** §1.1 commit map, §2d score semantics, §4 ship gate, §5 dev-guide map, §6 semantic-pivot
-grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-07 (rolling).
+grep · **Reviewer:** internal (this session) · **Date:** 2026-08-06 → 2026-08-08 (rolling).
+
+> **Open at the top level, for Dean, not for the coder:** the **T1-1 `ceil`/`floor` fork** — the frozen
+> Type 1 mandates `floor`, the tree ships `math.Ceil` with a written justification. See
+> [Finding 64](#finding-64--the-forks-price-was-measured-two-commits-before-the-mitigation-that-narrows-it):
+> the fork is priced on a C6c measurement taken **two commits before C6e shipped the mitigation** that
+> addresses that price. Refreshing the measurement is cheap and would make the decision current rather
+> than historical. I do not make the call and have not re-measured.
 
 > ⚠️ **C6c was redesigned on 2026-08-07 (plan `1a116e7a`): replica space → GPU space, and `prcRef`
 > is gone entirely.** Everything in this review that reasons about `prcRef` is **historical**, and one
