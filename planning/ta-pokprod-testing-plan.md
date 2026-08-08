@@ -15,15 +15,32 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L30:66
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L68:122
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L124:152
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L154:293
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L295:429
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L431:643
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L645:947
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L949:972
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L974:end
+- [1. Where we are (findings)](#1-where-we-are-findings) — L47:98
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L100:261
+  - 2a. pokprod shared-cluster safety invariants — L132:167
+  - 2b. Two-fork contract — what lives where — L169:206
+  - 2c. Configuration contract — fail-closed, per kube context — L208:261
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L263:291
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L293:432
+  - 4.1 Refresh trigger — ARMED 2026-07-30 — L353:382
+  - 4.2 Tier-A image currency — three tags exist — L384:432
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L434:650
+  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L545:591
+  - 5.7 The KEDA arm is present but unrunnable — L608:650
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L652:864
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L866:1372
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1168:1235
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1237:1266
+  - **7.6 The dwell is a controller-configuration lever, not a workload lever — L1268:1372**
+  - 7.6.1 Cold-resume state (2026-08-08) — L1341:1372
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1374:1397
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1399:end
+  - 9.1 Tooling track (T1–T11) — L1430:end
+
+> **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
+> literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
+> heading probe without saying so. Ranges here are hand-maintained; re-derive with
+> `grep -n '^## \|^### '` and end each range 2 lines before the next same-or-higher heading.
 
 ---
 
@@ -62,6 +79,21 @@ State captured 2026-07-28, read-only:
   controlled Arm-B showed **sat_v2 + cost-aware optimizer** was the driver; TA on-vs-off made no
   decision difference. **The real open goal (§14) is still: a clean test where TA *itself*
   drives a decision sat_v2 would not.** This has never been observed.
+
+**Update 2026-08-08 — this is a tooling plan as well as a test plan (Dean).** The deliverable is
+not only "run TA on pokprod" but a **shareable benchmark tooling kit** Ofer can consume by checking
+out a branch and adding a worktree. Findings since the 07-28 capture:
+
+- **The harness is as-built, not hypothetical.** `hack/benchmark/` carries **33 files, 22 of them
+  branch-added** (scripts, scenario guides, workload profiles, preflight, gateway log-follower).
+  The branch is **9 commits ahead of `origin/benchmark`** with several dirty paths — all local,
+  nothing pushed.
+- **Two runs of record, both single-variant:** the 2026-08-03 staircase and the 2026-08-07 8-stage
+  ladder. **Two-variant is built but has never been run.** Analysis lives on the branch in
+  `session-notes/status/benchmark.md` §17 (§17.8 = consolidated open items).
+- **Tooling and guards belong in two different forks** — §2b. This was implicit until 2026-08-07
+  and produced drift in both directions.
+- **The KEDA arm has never run and cannot run as configured** — three verified blockers in §5.7.
 
 ---
 
@@ -118,6 +150,113 @@ mutate cluster-global state. These invariants bind every phase and must be resta
   helm manifest, verify it does not create or mutate cluster-scoped / other-namespace objects** (scan
   for `ClusterRole`/`ClusterRoleBinding`, resources without a `namespace:`, or edits to shared
   monitoring/gateway CRs); if it does, stop and surface it to Dean rather than applying.
+
+**The safety net has three levels** (named in `preflight_shared_cluster.py`'s docstring; each is
+independent, and only L2/L3 are mechanical):
+
+| Level | Layer | Enforced by |
+|---|---|---|
+| **L1** | operator discipline — explicit `-n`, no teardown without approval | the human, and this section |
+| **L2** | this repo's Makefile targets, scripts, and `benchmark-preflight` | WVA branch (§2c) |
+| **L3** | the llm-d-benchmark fork's presence-gates on cluster-scoped standup steps | harness fork (§2b) |
+
+**The L3 hazard is inverted from the obvious one.** A presence-gate skips because a shared object
+*already exists*. Absence therefore reads as "not installed yet — go install it", so **a deleted
+precondition silently converts a safe standup into a destructive one.** Worst case on the books: a
+real prometheus-adapter install claiming the cluster-wide `external.metrics` APIService that KEDA
+owns. This is why L3 must be *verified present in the code that will execute*, not assumed.
+
+### 2b. Two-fork contract (Dean, 2026-08-07) — what lives where
+
+Two forks back this mission, with **non-overlapping** contents:
+
+| Fork | Contains | Lifetime |
+|---|---|---|
+| `deanlorenz/llm-d-workload-variant-autoscaler` (**WVA**) | the tools, the Makefile, `hack/`, scenarios, workload profiles, docs | **temporary measure** — expected to move upstream; Ofer clones the branch, worktrees it, or merges what he wants |
+| `deanlorenz/llm-d-benchmark` (**harness**) | **guards only** — presence-gates for the cluster-scoped operations upstream's standup would otherwise perform | longer-lived; the guards are to be **opened as upstream issues later** |
+
+**Rule:** anything in the harness fork that is not a guard belongs in WVA `hack/`. The harness fork
+is what makes the tools installed on the cluster *safe*; it is not where tools live. Ofer can use it
+as-is; the local clone the Makefile pulls can be nothing but the part that runs on the cluster,
+since everything else is in `hack/` and pathed on the fly anyway.
+
+**Audit against that rule (2026-08-08, read-only).** Four fork-authored commits on
+`wva-ta-benchmark`:
+
+| Commit | Touches | Verdict |
+|---|---|---|
+| `963bb00` | `standup/steps/step_03_workload_monitoring.py` +55/−16 | **guard ✓** — don't overwrite the shared `cluster-monitoring-config` |
+| `e88b882` | `standup/steps/step_07_deploy_setup.py` +64, `standup/wva.py` +52 | **guard ✓** — presence-gate cluster-scoped gateway/RBAC |
+| `7a1b478` | `llmdbenchmark/analysis/output_token_correction.py` +306, `analysis/__init__.py` +17 | **violates** — pure tooling, and it *duplicates* WVA's `correct_output_tokens.py` (88) + `completion_tokens_scan.py` (166). The clone's copy is already **modified-uncommitted**, i.e. the duplicate is actively drifting |
+| `cfe6088` | `workload/profiles/guidellm/wva_sat2_short.yaml.in` (16), `workload/profiles/inference-perf/ta_calibration_probe.yaml.in` (73) | **violates** — identical filenames *and* line counts to files WVA already owns. `sync_workloads.py` exists precisely so these stay a **cache**, not commits (four untracked `workload/profiles/inference-perf/*` files are that mechanism working correctly) |
+
+Migrating the two violators out leaves the harness fork at **2 commits / 3 files, all under
+`standup/`** — which is also the shape that makes the eventual upstream issues a direct extract.
+
+**Not a cleanup item:** `50c8da8` + `6d5ff6b` ("multi-variant / Topology B") are **Ofer's**;
+`6d5ff6b` is the tip of `ofer/feat/multi-variant-benchmark`. Whether they belong under a guards-only
+rule is his call, not ours.
+
+**Verification, not trust.** `preflight_shared_cluster.py::check_fork_guards` greps the *configured
+clone* for each guard symbol and registers the result as `gating=True`, so a missing guard is a
+`FAIL` that increments `rep.failed` and exits non-zero. That is a **property** test. Identity comes
+separately, from defaulting `BENCHMARK_REPO_URL` to Dean's fork (§2c) — under the guards-only
+contract the fork carries no tooling for anyone to extend, so Ofer never needs a harness fork of his
+own and there is exactly one correct value. **The default supplies the right answer; the gate
+catches a wrong one.**
+
+### 2c. Configuration contract — fail-closed, keyed per kube context (Dean, 2026-08-07/08)
+
+Today `.env` is **fail-open**: `Makefile:45` is `-include hack/benchmark/.env`, and the leading `-`
+suppresses the missing-file error, so an absent `.env` is silently tolerated and the `?=` defaults
+take over. On a shared cluster the failure mode of a default is not "it didn't run" — it is "it ran,
+plausibly, against the wrong target". Two defaults make that concrete: `BENCHMARK_REPO_URL`
+(`Makefile:46`) points at **upstream** llm-d-benchmark, so the *guarded* fork arrives only via
+`.env`; and `BENCHMARK_REPO_REF` (`Makefile:49`) resolves in KEDA mode to a ref with **no guards at
+all** (§5.7).
+
+Dean's requirements, in his ordering — *"safely running in a shared cluster is the most important
+thing"*:
+
+1. **Benchmark targets must not run without a `.env`.** The guard is unconditional and lives in the
+   **Makefile** — not in a doc, not in a skill. *"Our benchmark targets should not run without .env
+   and the benchmark repo should be explicit."*
+2. **One `.env` per target cluster / kube context**, discovered by name:
+   `hack/benchmark/env/<context>.env`. If the file for the current context is absent, targets refuse
+   and point at the wizard. (*"we can have an env per target cluster or per k8s context — we should
+   look for the specific .env for the context and ask to create it if needed"*.)
+3. **An embedded assertion triple** — `WVA_ENV_CONTEXT` / `WVA_ENV_SERVER` / `WVA_ENV_NAMESPACE` —
+   checked against the live context before anything runs. The filename gives *discovery*; the triple
+   gives *correctness*. A single `.env` cannot detect a config/cluster mismatch; a context-keyed one
+   carrying an assertion cannot miss it. (OpenShift context names already encode
+   `<namespace>/<apiserver>/<user>`, so the triple is derivable, not hand-typed.)
+4. **A wizard** — `make benchmark-configure` → `hack/benchmark/configure_env.py`: walks the options,
+   **confirms every choice**, **warns about the dangerous ones**, and materializes an explicit
+   `.env`. Deterministic and agent-free.
+5. **An on-branch skill** — `.claude/skills/benchmark-configure/` — that *explains*. It ships with
+   the branch so it reaches Ofer (*"a shared skill that is included on the branch"*), but it is
+   **never the enforcement layer**: a skill only helps Claude Code users, so the Makefile guard and
+   the wizard must stand alone.
+
+**Why materialize rather than derive.** The alternative Dean raised was deriving everything from the
+scope triple (cluster / namespace / test) at run time. Adopted as **wizard input, not run-time
+behavior**: the wizard derives the defaults, then writes an explicit auditable file. Run-time
+derivation has exactly the failure mode this section exists to prevent.
+
+**Arm-derived refs.** The autoscaler arm is part of the scope, so **`BENCHMARK_REPO_REF` and
+`BENCHMARK_SPEC` are derived from the arm and never hand-set** (arms in §7.5; why it is load-bearing
+in §5.7). The wizard asks which arm and pins both together, so an arm **cannot select an unguarded
+ref by construction**.
+
+**Where the preflight gate belongs.** `benchmark-preflight` (`Makefile:579-587`) exists and is
+thorough — it passes both `--repo-dir` and `--expect-ref` — but it has **exactly one call site**:
+`benchmark-standup-shared` (`Makefile:604`). The other twelve namespace-requiring targets never
+invoke it. It moves onto at least `benchmark-run`, `benchmark-standup`, `benchmark-run-all`,
+`benchmark-teardown`, and `benchmark-install`.
+
+**Correction to an earlier note in this plan:** `benchmark-standup-shared` skips **only `step_02`**
+(admin CRDs/SCCs) — its step list is `0,3,4,5,7,8,9`, so **step 8 does run**. Any statement that it
+skips "02 and 08" is wrong.
 
 ---
 
@@ -300,6 +439,14 @@ with **every environment-specific value parametrized to an explicit `.env`**, va
 variable and **deferrable**. Executed by the **benchmark coder** in the `benchmark` worktree; the
 plan-agent does not write harness code.
 
+**Status 2026-08-08 — this phase is largely BUILT, and the KEDA arm within it is BLOCKED.** The
+harness landed and has run twice (single-variant, §1). Two-variant is built but unrun. The KEDA path
+below was adopted as designed and is wired end-to-end in the Makefile — but it **has never executed
+and cannot as configured**: three verified blockers in **§5.7**, whose fix (refreshing the harness
+fork's `main` and rebasing the guards onto it) is a **prerequisite** for the arm rather than part of
+it. Everything from §5.0 to §5.6 below is retained as the record of what was adopted and why; §5.7
+is what remains.
+
 ### 5.0 Approach — (A) blend (DECIDED 2026-07-28, per Dean)
 
 **Adopt PR #1435's WVA-side changes as the concrete KEDA starting point** (it is the only
@@ -340,6 +487,11 @@ WVA-side `biranofer/workload-variant-autoscaler` @ `feat/two-variant-keda` (#143
 **#1435 creates NO cluster-scoped objects** — every object it makes (`ScaledObject`,
 `TriggerAuthentication wva-prometheus-auth`, KEDA-managed HPA `wva-keda-hpa-<dep>`, deployment
 label patch) is namespaced. Good for §2a.
+
+> **⚠ Script renamed since #1435 — `add_variant.py` → `configure_variants.py`** (commit
+> `ca825621`, on this branch). The names above and in §5.2 / §5.4 are #1435's, kept so the
+> provenance still reads; **every reference to `add_variant.py` in this section means
+> `hack/benchmark/configure_variants.py`.** A coder grepping for the old name will find nothing.
 
 ### 5.2 Hardcoded values to parametrize (→ explicit `.env`, no defaults)
 
@@ -405,8 +557,35 @@ worries — both are moot on the #1435 base.)
    the `awk` block rewrites `scaledObject:` bounds from `BENCHMARK_KEDA_*`).
 3. **New `.env.sample`** with `dhl-wva-209` + every value in 5.2 as an explicit placeholder (no
    defaults, no inferred values) — the §2a `.env` discipline.
-4. **Port only the still-relevant runbook bits** — environment/standup/RBAC/signals — dropping the
-   `:ta3`-specific and VA+HPA-specific steps Ofer's KEDA path supersedes. Runbook + `results/`
+4. **Documentation — ONE new runbook (Dean, 2026-08-08).** His instruction was to collapse three
+   proposed artifacts into a single new one: *"README → new guide linked from main bench guide (a new
+   runbook). GETTING_STARTED → in same guide. tools guide → in same guide."*
+
+   **New file:** `docs/developer-guide/benchmark-tooling-runbook.md`. Sections, in order:
+   *Getting started* (add a worktree, clone, `make benchmark-configure`, first dry run) ·
+   *Tool inventory* (the 22 branch-added files under `hack/benchmark/`, grouped by role) ·
+   *Makefile target surface* · *Two-repo topology and the guards-only contract* (§2b) ·
+   *Autoscaler arms and how to select one* (§7.5) · *Shared-cluster safety — L1/L2/L3 + preflight*
+   (§2a, §2c) · *Run → harvest → analyze loop* · *Troubleshooting*.
+
+   **Linked from the main bench guide** `docs/developer-guide/benchmark-guide.md` (221 lines,
+   "Running WVA Scaling Benchmarks") at **two** named points: its `## Prerequisites` section (the
+   KEDA CRD prereq and the `.env` gate) and `## Step 4: Clone the Repository` (worktree + wizard).
+   No other section of that file changes.
+
+   **Folded in, not left as a second runbook:** `docs/two-variant-wva-pokprod-runbook.md` (405
+   lines, fork-owned, from `6505de62`) currently sits at top-level `docs/` rather than
+   `developer-guide/` and already covers much of this ground. It becomes the **pokprod section** of
+   the new file. *(Decision for Dean: fold-and-delete, or fold-and-leave-a-stub. Recommendation:
+   fold and delete — a fork-only doc outside `developer-guide/` is exactly the kind of thing that
+   goes stale unnoticed.)*
+
+   **Left alone, linked only:** `docs/developer-guide/two-variant-wva-benchmark.md` (462 lines,
+   already rewritten for the KEDA path on this branch) stays the two-variant **scenario** doc.
+   `docs/benchmark.md` (589 lines, upstream "Benchmark Results") is untouched.
+
+   Port only still-relevant legacy runbook content — environment/standup/RBAC/signals — dropping the
+   `:ta3`-specific and VA+HPA-specific steps the KEDA path supersedes. Runbook + `results/` are
    committed on this branch, **fork only**.
 5. **Fallback noted in the runbook:** if the KEDA path fails, the archived VA+HPA runbook
    (`archive/benchmark-ta3-legacy`) is the proven recovery path.
@@ -425,6 +604,48 @@ controller image build/push (Tier A, deferred — `:ta-0.9` stays a `.env` var).
 **Separation invariant to state in the runbook:** the controller under test is always the Tier-A
 image/tag; if it must change, the change is made in a code worktree (PR branch) → re-tag → re-image
 → update `tag:` here. The benchmark branch never carries WVA controller source edits.
+
+### 5.7 The KEDA arm is present but unrunnable — three verified blockers (2026-08-08)
+
+Dean, 2026-08-08: *"we need to KEDA benches too."* The wiring exists. `BENCHMARK_DIRECT_KEDA=true`
+(`Makefile:48`, branch at `Makefile:417`) selects controller-free EPP+KEDA autoscaling instead of
+WVA, with four tunables (`BENCHMARK_KEDA_{MIN,MAX}_REPLICAS`, `_SCALE_{UP,DOWN}_PERIOD`,
+`Makefile:103-106`) and a KEDA-CRD precondition check. It has never run, and as configured it cannot.
+Verified read-only:
+
+1. **Its spec is absent from the fork.** `Makefile:61` selects `guides/epp-keda-saturation` in KEDA
+   mode. That path exists on **neither** fork ref — `wva-ta-benchmark` and `origin/main` carry only
+   `guides/workload-autoscaling` (scenario + `.j2` specification), and `wva-ta-benchmark` is the only
+   one of the two that has even that. `epp-keda-saturation` is presumably on true upstream `main`
+   post-Feb-2026, but the clone has **no upstream llm-d remote** (only `origin` = Dean's fork, and
+   `ofer`, whose push URL is deliberately the literal `READ-ONLY-MIRROR-DO-NOT-PUSH-TO-OFER`), so
+   **its existence is unverified** — and a `git fetch` in a tree this role does not own is not the
+   planner's to run.
+2. **Its ref default selects the unguarded branch.** `Makefile:49` flips `BENCHMARK_REPO_REF` to
+   `main` when `BENCHMARK_DIRECT_KEDA=true`. The fork's `origin/main` is at **`b70cf76`,
+   2026-02-17** ("Add CKS nightly benchmark workflow (#694)"); **none of the four fork-authored
+   commits is an ancestor of it**, and it contains **zero** occurrences of the
+   `cluster-monitoring-config` guard symbol. It also lacks the WVA spec from (1). So KEDA mode names
+   a ref with **no guards and no scenarios** — note that *neither* branch of that `$(if …)` names
+   `wva-ta-benchmark`, the branch the clone is actually on.
+3. **Both exits from the resulting error lose something.** `benchmark-standup` asserts the clone's
+   branch equals `BENCHMARK_REPO_REF` (`Makefile:432-445`, under a "CLONE SAFETY" comment) and
+   hard-errors otherwise, so KEDA mode refuses to start. Correct — but the two ways out are: move
+   the clone to `main`, which drops the guards (`check_fork_guards` then fails correctly, since it
+   registers `gating=True` → `rep.failed` → non-zero exit); or set `BENCHMARK_CLONE_FORCE_SYNC=true`
+   (`Makefile:60`), which hard-resets to `origin/main` and destroys the guards **and** the local
+   commits — `Makefile:451` says so explicitly.
+
+**Consequence — a prerequisite, not a task.** Under the §2b guards-only contract the fix is: refresh
+the harness fork's `main` from true upstream, **rebase the two guard commits onto it**, and have KEDA
+mode select *that* ref. This **gates** the KEDA arm and is not parallelizable with it. It is also the
+cheapest moment to do it, because the guards-only migration (§2b) is touching those same two commits
+anyway.
+
+**Two cosmetic defects in the same block, worth fixing while it is open:** `Makefile:423` prints
+*"upgrading the llm-d-benchmark checkout to '<ref>'"* but the code that follows only checks the CRD —
+it upgrades nothing; and `Makefile:424` passes `-n $(BENCHMARK_NAMESPACE)` to a `get crd`, which is
+cluster-scoped, so the flag is inert but reads as though CRDs were namespaced.
 
 ---
 
@@ -944,6 +1165,210 @@ raise if requests start erroring out partway through a stage.
 **Verification signals (same as the fuller experiment):** `analyzer=throughput` log lines — watch
 `reason` flip off `T2-default`, and `RequiredCapacity` go nonzero at some point during the sweep.
 
+### 7.4 Scenario gaps from the ladder-run cross-check (2026-08-08)
+
+Source: handoff `plan__benchmark-next-run-capture-list.md` from the `benchmark` session, itself the
+product of an independent cross-check by the `autoscaling-viz` session. The harness-side items in
+that handoff are the coder's and are tracked in its own `session-notes/status/benchmark.md` §17.8;
+the three below change the **workload scenario**, which is not the coder's to change, and are
+therefore plan-level.
+
+**Status: OPEN — recorded, not decided.** Planner recommendation: **take all three.** 7.4.1 + 7.4.3
+together are exactly the right-sizing / steady-state emphasis Dean named (*right-sizing and
+steady-state are the premise of autoscaling and the real money-saver, more than transition speed*),
+and 7.4.2 is one extra leg. Any run needs Dean's approval regardless, so writing these down as open
+costs nothing and holds nothing up.
+
+> **⚠ Read §7.6 before acting on 7.4.1 or 7.4.2.** A later addendum from the coder shows that
+> **7.4.1's stated mechanism cannot deliver 7.4.1's stated goal** — steady-state KV under a tracking
+> controller is a *controlled* variable, so the dwell is an analyzer-configuration lever, not an
+> offered-rate one; 7.4.2 has the same defect, more sharply. The *goals* stand; the *mechanisms* are
+> superseded. §7.6 also records that the coder reports Dean approved all three and has implemented
+> them — **unconfirmed by the planner**, which is why this marker still reads OPEN.
+
+**7.4.1 A mid-band dwell stage — the largest gap.** Hold an offered rate that parks KV utilization in
+**0.3–0.85** for **≥3 min**. **No run in any pool has ever dwelt there** — every run to date is
+either sub-saturation (the 08-07 ladder tops out at kv 0.67 @ 20 RPS) or pinned at kv ≈ 0.99 (arm B).
+The interesting region is between them, and it is precisely the region an autoscaler is supposed to
+hold a service in. It is also what makes the concurrency-vs-latency slope fittable and the throughput
+knee locatable. The ladder is close, so this is likely one or two more rungs above 20 RPS held long
+enough to be a dwell rather than a step. **The rate must be found by measurement, not predicted** —
+the RPS↔KV relationship is the thing being characterized. The coder has offered a short probe run to
+locate it first, which needs Dean's approval like any other run.
+
+**7.4.2 One short-output leg.** E.g. **2000 in / 100 out**, to probe the ITL lower knee. The
+arithmetic is the point: 4K-in/1K-out is still **decode**-dominated in time, so the current
+"long input" shapes are not prefill-heavy in any useful sense — **prefill-heavy needs short outputs,
+not merely long inputs.** Corroborating measurement from the ladder run: `itl ~ running` alone
+reaches r² 0.93–0.94 *below* the band and adding a prefill term buys **+0.001**, whereas in-band it
+buys **+0.236**. Prefill is a regime-specific term, so a shape that isolates it is worth having.
+
+**7.4.3 Let the run outlive the cooldown.** **≥300 s of collection after load stops**, or scale-down
+never lands inside the measurement window. The closing 20→2 RPS step is already the right shape — it
+is the *collection window* that needs extending, not the load profile. A ramp-down is also the honest
+test of rescaling, because scale-down has no boot lag. Named next after these, per Dean: more noise in
+the input signal, and a change in request shape.
+
+**Measurement constraint — restate this wherever the plan or the runbook specifies metrics
+collection.** The ladder run contains a **routing oscillation** with a period of **6–11 s**, tracking
+mean request sojourn time (ratio 0.92–1.09 across all six loaded stages as sojourn moves 5.7 →
+12.0 s); per-pod arrivals oscillate at r **+0.25…+0.73** while the *pooled* stream looks flat
+(r ≈ +0.09–0.14) because co-loaded pods run anti-phase and cancel. At ~15.7 s between scrapes,
+**Nyquist is ~31 s**, so this whole band is aliased away in **every gauge-derived series** — ours, and
+by extension anything WVA or a Grafana panel computes the same way. **A finer scrape rate does not fix
+this and neither does a per-pod gauge**; it was visible solely because the gateway access log records
+`UPSTREAM_HOST`. That is why the per-request trace is a requirement, not a nice-to-have — and why the
+gateway log-follower (built, **not yet applied** — see §9 T9) matters.
+
+**Two corrections to propagate if any doc, handoff, or derived note quotes them.**
+- **The decision rule is not `ceil(demand/prc)`** — that form was retracted. Verified 65/65 cycles:
+  `rc = demand/0.85 − supply`, then `curr + ceil(rc/prc)` applied to the **residual**.
+- **`bytes_sent` is not a per-request output-token weight.** The median calibrates (511 implied vs a
+  true 512) but the dispersion does not — ~14% p5→p95 vs `output_len`'s ~44%, and implied bytes/token
+  drifts 170–187 across stages. Stage-level totals only. Likewise
+  **`x-envoy-upstream-service-time` is not TTFT** (flat 7–9 ms while harness TTFT climbs
+  47 → 183 ms).
+
+**Retention rule carries an exception.** The multi-GB per-replica files go; **`metrics/raw/` stays**
+(12–35 MB/run, compresses ~10×, and the only time-resolved source of KV / running / waiting / ITL /
+preemption). A blunt reading of "delete the big data" would take it — and did, once, during the
+autoscaling-viz migration, which is where the **fresh-checkout acceptance gate** (§9 T8) comes from.
+
+### 7.5 Autoscaler-arm matrix + A/B hygiene (2026-08-08)
+
+The variable under test is the **autoscaler**, so the arm is a first-class axis of every scenario,
+not a flag:
+
+| Arm | Mechanism | Selects |
+|---|---|---|
+| **WVA-TA** | WVA controller, ThroughputAnalyzer enabled (alongside saturation) | `guides/workload-autoscaling` |
+| **WVA-SAT** | WVA controller, saturation-v2 only | `guides/workload-autoscaling` + analyzer config |
+| **KEDA-direct** | no WVA controller; EPP + KEDA `ScaledObject` | `guides/epp-keda-saturation` — **blocked, §5.7** |
+
+`BENCHMARK_REPO_REF` and `BENCHMARK_SPEC` are **derived from this choice** (§2c), never hand-set — so
+an arm cannot select an unguarded ref by construction.
+
+**Three known contamination paths that destroy attributability.** All three must be closed before an
+A/B across arms means anything:
+
+1. **The scenario file is mutated in place and stays mutated.** `Makefile:611-620` rewrites
+   `base_url` with `sed -i.bak` in direct-KEDA mode and removes only the `.bak` — the scenario keeps
+   the edit. Run a WVA arm after a KEDA arm from the same scenarios directory and it silently
+   inherits the gateway `base_url`.
+2. **`benchmark-enable-v2-saturation` rewrites *thresholds* alongside analyzers**, so "turn the
+   analyzer on" is not a single-variable change.
+3. **Carry-over state between arms** — analyzer memory, vLLM prefix cache, and leftover namespaced
+   objects.
+
+Also: the `awk` block at `Makefile:526-539` injects the KEDA bounds by matching the **literal**
+strings `periodSeconds: 180` / `periodSeconds: 300`. If upstream changes those defaults the injection
+**silently no-ops** and the arm quietly reverts to upstream scaling behavior — same failure class as
+(2): a knob that appears set and is not.
+
+### 7.6 The mid-band dwell is a controller-configuration lever, not a workload lever (2026-08-08)
+
+Source: handoff `plan__benchmark-dwell-operating-point.md` (now `.DONE`), an **addendum** to the
+capture list behind §7.4 — delivered as a separate file because a sender does not edit a handoff it
+has already sent. The coder's own record is `benchmark/session-notes/status/benchmark.md` §17.12.
+This section supersedes §7.4.1's *mechanism*; §7.4.1's *goal* still stands.
+
+**The claim.** Raising the offered rate may not move steady-state KV utilization at all. Under a
+controller that is tracking, replicas rise with load and per-replica KV is held near whatever the
+controller's operating point implies — so in steady state KV is closer to rate-**invariant** than
+rate-proportional. It is a **controlled variable**, and the controller is the thing that sets where it
+sits.
+
+**Why that is the economical explanation for §7.4.1's own observation.** "No run in any pool has ever
+dwelt in 0.3–0.85" is a fact about *configuration*, not about rate:
+
+| Run | KV reached | Why |
+|---|---|---|
+| 08-07 ladder | 0.67 @ 20 RPS | ThroughputAnalyzer dominated the combine and provisioned **ahead of** saturation ⇒ holds KV low *by construction* |
+| arm B | ≈ 0.99 | its `ScaledObject` was capped at **2 replicas** — not because its load was higher |
+
+Neither number is really a fact about the offered rate. So §7.4.1 as written asks the *workload
+profile* to do something only the *analyzer configuration* can do.
+
+**The decision — OPEN, Dean's.** The lever is the operating point, and there are two candidates. The
+coder explicitly has no standing to choose: both are analyzer/scenario changes, not workload changes.
+
+| Option | Configuration | Steady state | Extra cost | What the run then measures |
+|---|---|---|---|---|
+| **(a)** | Saturation analyzer alone, **uncapped** — TA off, `maxReplicas` left at 10 | SAT's own scale-up/scale-down watermarks are **0.85 / 0.70**, so its steady state sits *inside* the requested band by design — band and watermarks are nearly the same interval | **none** — no extra requests | SAT's own right-sizing, **not** the combined optimizer's |
+| **(b)** | A deliberate replica cap | parks KV wherever you choose | none | **the cap.** Every latency number at a binding cap is a measurement of the cap |
+
+Arm B was already configuration (a), and missed the band **only** because of the replica cap.
+
+**Recommendation — (a).** Coder and planner read it the same way: (a) is right if the goal is *"does
+the autoscaler hold the service at the right size"*, which is Dean's stated forward direction
+(right-sizing and steady-state over transition speed). (b) is right **only** if the goal is
+specifically to characterize engine behavior at a known KV level with the autoscaler deliberately out
+of the loop — legitimate as an instrument when chosen knowingly, **not** legitimate as a default.
+That is precisely why the ladder rejected a cap.
+
+**A fallback is already staged that needs no decision.** `ta_autoscale_dwell.yaml.in` exploits replica
+**quantization** instead of configuration: replica count is an integer, so per-replica load — and
+hence KV — peaks at rates just *below* the point where one more replica is warranted. The profile
+takes two long rungs **1.3× apart — 20 and 26 RPS at 360 s each** — as two independent samples of that
+sawtooth; whichever lands on its high side yields the dwell.
+
+The 20 RPS rung is **retained from the ladder as a control, deliberately and not by inertia**, and
+that is what makes the run informative either way: if **both** rungs come back at KV ≈ 0.67, that is a
+clean positive result for rate-invariance and settles the question the other way — at which point (a)
+or (b) becomes **necessary rather than optional**.
+
+**The same defect applies to §7.4.2, more sharply.** A knee is a property of load **per replica**, and
+the autoscaler's job is to keep load per replica *off* the knee. Sweeping offered rate under an active
+controller samples the **operating point**, not the curve. `ta_prefill_knee.yaml.in` is not wasted —
+per-stage ITL against *measured* concurrency-per-replica is still a valid point at each rung — but the
+sharp instrument for a knee is a **fixed replica count with autoscaling off**, which is again a
+scenario decision, not a workload one.
+
+**PVC ceiling — a deliberate omission, not an oversight.** A rung above 26 RPS does not fit: 32 RPS ×
+300 s is another ~9,600 requests ≈ **5.1 GB** of per-request trace, and the **20Gi** results PVC
+cannot hold that beside the two dwell rungs. It is the natural follow-up run **if both rungs read
+low**.
+
+**Status of §7.4's three asks.** The coder reports that Dean **approved all three** and that it has
+implemented them — two new files,
+`hack/benchmark/workloads/inference-perf/ta_autoscale_dwell.yaml.in` and `ta_prefill_knee.yaml.in`.
+The planner has **not** independently confirmed that approval, and §7.4 therefore keeps its OPEN
+marker. This section is itself the evidence that the asks were not self-contained: 7.4.1's stated
+mechanism cannot deliver 7.4.1's stated goal. **What the plan needs from Dean is one line:** confirm
+the three asks, and pick (a) or (b) — or accept the quantization fallback as the next run and defer
+(a)/(b) until its result is in.
+
+#### 7.6.1 Cold-resume state (2026-08-08)
+
+**Staged and unlaunched.** No cluster action has been taken and no run is proposed. Dean's standing
+rule holds: **no run without his explicit approval.**
+
+- **Config staged, not launched:** the two workload files above, on the `benchmark` branch, **local
+  only** — that branch is 9 commits ahead of `origin/benchmark` with several dirty paths (§9.1).
+- **Four preconditions before the dwell run** (coder's §17.12): reclaim the results PVC to
+  **≥14 GB** with `verify_pvc_vs_host.py` **gating** it; confirm the **96Gi** harness pod schedules;
+  set the **5-GPU** footprint flag; and run **`post_run_analyze.sh` immediately** after the run — the
+  ladder run has no `metrics/processed/wva_*` precisely because that step was not run promptly and
+  the controller log is read from a rotating buffer.
+- **Restart the controller before each run.** Capacity history is bucket-keyed and was found
+  contaminated *across* runs; this is an adopted protocol, not a suggestion.
+- **GPU state:** the ladder run's GPUs are released; **one GPU remains held** by the decode replica's
+  `minReplicas=1` steady state — a separate open question (coder's §17.8 item 3).
+- **T9 still gates the per-request trace.** Until Dean applies the gateway log-follower, every
+  per-request trace is a bet against log rotation (§9.1 T9) — and per §7.4 the routing oscillation is
+  invisible without it.
+
+**Next steps, in order.**
+
+1. **Dean** — confirm §7.4's three asks, and answer (a)/(b), or explicitly defer (a)/(b) behind the
+   quantization run.
+2. **Dean** — apply the gateway log-follower (T9); otherwise step 4 may yield no per-request trace.
+3. **Coder** — satisfy the four preconditions; restart the controller.
+4. **Dean** — approve the run. **Coder** — run it, then `post_run_analyze.sh` **immediately**.
+5. **Planner** — read the two rungs. Both ≈ 0.67 ⇒ rate-invariance confirmed ⇒ (a)/(b) becomes
+   necessary; either rung in-band ⇒ the dwell is had and §7.4.1 is satisfied with no config change.
+6. **Only if both read low** — the 32 RPS follow-up run, which needs the PVC headroom first.
+
 ---
 
 ## 8. Decisions (all resolved 2026-07-28)
@@ -1001,3 +1426,32 @@ Execution map (order = dependency order):
   (Dean); Ofer consumes Tier-A image/tag after sanity passes.
 - **CURRENT.md / PR-status:** updated by the plan-agent via `/sync-current` from handoffs — not
   as part of executing this plan.
+
+### 9.1 Tooling track (added 2026-08-08) — all `benchmark` worktree, all local
+
+Phases 0–1 above are done; this is the work the 2026-08-07/08 direction adds. Everything marked
+"benchmark coder" is coder work in the `benchmark` worktree, **local only, no pushes** — Dean pushes
+after review, per push. Dependency order matters only where stated.
+
+| # | Work | Owner | Section |
+|---|---|---|---|
+| **T1** | Migrate `7a1b478` + `cfe6088` out of the harness fork into WVA `hack/`, deduping against the files WVA already owns; resolve the clone's uncommitted `output_token_correction.py` drift. Leaves the fork at 2 commits / 3 files, all under `standup/` | benchmark coder | §2b |
+| **T2** | Refresh the harness fork's `main` from true upstream; **rebase the two guard commits onto it**; repoint KEDA mode at that ref. **Gates T3.** Cheapest while T1 has those commits open | benchmark coder | §5.7 |
+| **T3** | Make the KEDA-direct arm actually run; add it to the arm matrix. Fix the two cosmetic defects in the same Makefile block | benchmark coder | §5.7, §7.5 |
+| **T4** | Context-keyed `.env` (`hack/benchmark/env/<context>.env`) + **fail-closed** Makefile guard + the `WVA_ENV_*` assertion triple + arm-derived `BENCHMARK_REPO_REF`/`BENCHMARK_SPEC`; move `benchmark-preflight` onto `benchmark-run`, `benchmark-standup`, `benchmark-run-all`, `benchmark-teardown`, `benchmark-install` | benchmark coder | §2c |
+| **T5** | `make benchmark-configure` → `hack/benchmark/configure_env.py` wizard, plus the on-branch `.claude/skills/benchmark-configure/`. The skill explains; it never enforces | benchmark coder | §2c |
+| **T6** | The one runbook `docs/developer-guide/benchmark-tooling-runbook.md`, its two link points in `benchmark-guide.md`, and the fold-in of `docs/two-variant-wva-pokprod-runbook.md` | benchmark coder | §5.5 item 4 |
+| **T7** | Close the three cross-arm contamination paths and the literal-match `awk` injection | benchmark coder | §7.5 |
+| **T8** | Pin `hack/benchmark` Python deps in a tracked requirements file; add a **fresh-checkout acceptance gate** — simulate a clean clone and confirm the documented flow works end to end. This is the technique that caught the `metrics/raw/` loss during the autoscaling-viz migration (8 PASS/7 FAIL from a clone vs 12/4 locally) | benchmark coder | §7.4 |
+| **T9** | `kubectl apply` the gateway access-log follower (`hack/benchmark/gateway-log-follower.{sh,yaml}`) — **Dean personally**; the coder's permission classifier blocks it, and until it is applied every per-request trace is a bet against log rotation | **Dean** | §7.4 |
+| **T10** | File upstream llm-d-benchmark issues for the two guards — **later**, Dean's call, after T2 has them isolated | **Dean** | §2b |
+| **T11** | Dwell-run preconditions for the staged `ta_autoscale_dwell` / `ta_prefill_knee` run: reclaim the results PVC to **≥14 GB** with `verify_pvc_vs_host.py` **gating** it, confirm the 96Gi harness pod schedules, set the 5-GPU footprint flag, **restart the controller** (capacity history is contaminated across runs), and run `post_run_analyze.sh` **immediately** after | benchmark coder | §7.6.1 |
+
+**Scenario decisions still Dean's:** §7.4.1 / §7.4.2 / §7.4.3 (recorded OPEN with a recommendation to
+take all three) — **plus the §7.6 operating-point fork, (a) saturation-alone-uncapped vs (b) a
+deliberate replica cap, which §7.4.1 cannot be executed without** (or an explicit deferral behind the
+§7.6 quantization fallback run) — the §5.5-item-4 fold-and-delete-vs-stub call for the pokprod
+runbook, and — as always — approval of any cluster run.
+
+**Not in this plan's scope:** the `benchmark` branch is 9 commits ahead of `origin/benchmark` with
+several dirty paths, all local. Whether and when that pushes is Dean's, per push.
