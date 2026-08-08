@@ -555,9 +555,21 @@ diff while an incremental `--onto` replay does N sequential ones:
   match the sibling test beside it — deliberately not folded into any rebased commit, since that would
   rewrite history nobody asked to have touched.
 
-Under review now (`review__ta-anchor-dynamic-refresh-post-rebase.md`, `.WIP` as of this writing) — no
-Finding filed yet for the rebase. **Do not push until that lands clean.** Re-verify line numbers against
-whichever tip you're actually reading; every citation below this point predates all four moves.
+**Reviewed clean — Finding 78, `a8f9327f`.** All three collision points verified directly (not trusted
+from the coder's report); the apparent `rescale.go` discrepancy resolves to a correct independent-
+convergence case; the 28th commit's fixup is narrowly-scoped and correctly value-substituted.
+
+**Pushed 2026-08-08, per Dean's explicit confirmation.** `origin/ta-anchor-dynamic-refresh` forced from
+the orphaned `f6485980` to `8c335893` (`--force-with-lease`). No GitHub PR opened yet — that still needs
+a separate explicit go-ahead, and the commit-message reword window (§4) is now the most time-sensitive
+open item, since a push is the point CONVENTIONS treats as "about to become a live PR branch."
+
+**Genuinely open items, none blocking the push, all pre-existing in this plan's own accounting** (per
+Finding 78's own closing line): `AD7`/`N5` sizing-placement (§7, mine, follow-up), `AD5`'s regime-(i)
+freeze (§7, deferred, needs a future demand model), `B2` — the `fairShareRolePick` discriminating spec
+I still haven't written. Re-verify line numbers against whichever tip you're actually reading; every
+citation below this point predates all five moves (`a9afb740` → `6d55fbd7` → `136a214a` → `8c335893` →
+push).
 
 | # | SHA | Label | Subject |
 |---|---|---|---|
