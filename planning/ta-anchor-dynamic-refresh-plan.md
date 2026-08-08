@@ -560,16 +560,27 @@ from the coder's report); the apparent `rescale.go` discrepancy resolves to a co
 convergence case; the 28th commit's fixup is narrowly-scoped and correctly value-substituted.
 
 **Pushed 2026-08-08, per Dean's explicit confirmation.** `origin/ta-anchor-dynamic-refresh` forced from
-the orphaned `f6485980` to `8c335893` (`--force-with-lease`). No GitHub PR opened yet — that still needs
-a separate explicit go-ahead, and the commit-message reword window (§4) is now the most time-sensitive
-open item, since a push is the point CONVENTIONS treats as "about to become a live PR branch."
+the orphaned `f6485980` to `8c335893` (`--force-with-lease`).
 
-**Genuinely open items, none blocking the push, all pre-existing in this plan's own accounting** (per
+**Commit-message reword — DONE, before the PR opened, closing the cheap window (§4) rather than
+missing it.** All 28 commit messages rewritten (planner-executed, `git filter-branch --msg-filter`,
+verified zero content diff and matching tree hashes commit-for-commit before and after) — every
+plans-branch token (`W1`-`W4`, `N2`/`N7`/`N8`, `C6a`-`C6f`, `C10`-`C12`, `Bug #1-3`, `D-a`/`D-b`,
+`Finding NN`, `§4a`, `Type-1`, plan-doc filenames) replaced with descriptive prose; golden-scenario
+labels (`A1`-`C1`, `M1`-`M7`) and GitHub references (`#1513`) deliberately left alone, same standard
+`C9e`'s own sweep used. Full gate battery re-run post-rewrite: `gofmt`/`go build`/`go vet`/`go test`/
+`make lint` all green, DCO 28/28. Re-pushed to `origin/ta-anchor-dynamic-refresh` at `9f8408d9`
+(`--force-with-lease`).
+
+**PR opened: [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523)**, base
+`main`, stacked on merged `#1516`, per Dean's explicit go-ahead.
+
+**Genuinely open items, none blocking, all pre-existing in this plan's own accounting** (per
 Finding 78's own closing line): `AD7`/`N5` sizing-placement (§7, mine, follow-up), `AD5`'s regime-(i)
 freeze (§7, deferred, needs a future demand model), `B2` — the `fairShareRolePick` discriminating spec
 I still haven't written. Re-verify line numbers against whichever tip you're actually reading; every
-citation below this point predates all five moves (`a9afb740` → `6d55fbd7` → `136a214a` → `8c335893` →
-push).
+citation below this point predates all six moves (`a9afb740` → `6d55fbd7` → `136a214a` → `8c335893` →
+push → reword/re-push → PR #1523).
 
 | # | SHA | Label | Subject |
 |---|---|---|---|
