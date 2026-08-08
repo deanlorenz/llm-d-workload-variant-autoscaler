@@ -8392,3 +8392,83 @@ series' own self-disclosed gaps are already routed to the right people. This is 
 for Dean, not a push — push still needs his explicit per-push confirmation separately, and the two items
 the freeze itself declines to decide (rounding direction; `AD8` (b) placement) remain his to rule on,
 unaffected by this review.
+
+## Finding 77 — C12 (`136a214a`), the `AD8`/§2g abstain-a-structurally-unmodeled-role mechanism, matches its spec exactly; closes the regime-(ii) drain, honestly leaves regime-(i) freeze untouched
+
+**Trigger.** `review__ta-anchor-dynamic-refresh-c12-landed.md` — one new commit past Finding 76's tip,
+landed after Dean decided `AD8` (b) placement ("in this PR," not held) and the planner wrote the
+resulting spec at plan §2g. Supersedes nothing in Finding 76; this is additive.
+
+### 1. What changed and why it matters
+
+Tip moved `6d55fbd7` → `136a214a`, 27 commits on base `075a208e`. The new commit gives `RoleCapacity` a
+`Reason` field (mirroring the existing `VariantCapacity.Reason` idiom) so an analyzer with no demand
+model for a role — throughput's prefill, structurally excluded from `distributeDemandByRole` before the
+split runs, not computed and landing at zero — can mark its `TotalDemand = 0` as non-measurement.
+Ballot-construction functions then abstain on a tagged entry instead of voting a real-looking zero.
+
+This is the mechanism that closes Finding 75/76's own regime split (§0.0 of the plan, "Regime (ii), the
+drain"): before this commit, a single TA voter's inflated `RoleSpare[prefill]` (the whole live fleet,
+because nothing bounds it) drained prefill to its floor whenever decode's `RC == 0`. Read plan §2g in
+full before trusting any of what follows against it — it is a joint planner/designer design ruling
+("don't leave design decisions to coder"), not a coder-authored spec.
+
+### 2. Verified against code, not just against the plan or commit message
+
+- **`RoleCapacity.Reason` exists exactly as specified.** `internal/domain/analyzer.go:90-93`, same
+  doc-comment language as §2g's mechanism section.
+- **The constant-duplication deviation is genuine, same shape as C10's.** `throughput/analyzer.go`'s
+  import block carries no `internal/engines/pipeline` entry — confirmed directly, not inferred from the
+  commit message. `constants.go:138-148` duplicates `roleUnmodeledReason = "role-unmodeled"` with a
+  drift guard (`role_unmodeled_reason_test.go`'s `TestRoleUnmodeledReasonMatchesPipeline`, asserting it
+  equals `pipeline.ReasonRoleUnmodeled`), mirroring `fallbackKSat`/`TestFallbackKSatMatchesConfigDefault`
+  precisely. The commit message's claim that the naive form (`throughput` importing `pipeline` directly)
+  would reopen C10's `internal/config` test-binary cycle is consistent with what I already verified for
+  C10 in Finding 76 §3 — `pipeline` does import `internal/config`, so a `throughput → pipeline` import
+  plus `internal/config`'s existing `throughput` import would indeed close a cycle in that test binary.
+- **TA-side tagging.** `throughput/analyzer.go:971-974`, inside `aggregateRoleCapacities`'s role loop:
+  `rc.Reason = roleUnmodeledReason`, with a comment stating the same "structural absence, not a
+  measurement" framing as §2g.
+- **All three ballot-abstain sites, exact match to §2g's table:**
+  `votesFromPickerState` (`analyzer_helpers.go:541-547`, regime (i) scale-up),
+  `votesFromRoleSpare` (regime (ii) scale-down — the load-bearing one, guard placed before the
+  `RoleSpare` map-miss handling as specified), `votesFromTotalDemand` (rescale water-fill, reading the
+  `RoleCapacity` it already has in hand rather than a fresh lookup, as §2g's table notes). Each `continue`
+  sits exactly where the table says, with matching rationale in the surrounding comments.
+- **Site 3, observability.** `cost_aware_optimizer.go:362-369`: `if rc, ok := ...; ok && rc.Reason !=
+  ReasonRoleUnmodeled { reqCap, spareCap = rc.RequiredCapacity, rc.SpareCapacity }` — the condition is
+  inverted correctly (skip the per-role overwrite, not skip the fallback), so a tagged role keeps the
+  model-level totals already assigned above. Matches §2g's site-3 spec exactly.
+- **Dev-guide prose does not overclaim** (the trigger's specific ask). The new subsection states "What
+  this closes: the drain" and "What this does not close: the freeze" as two explicit, separately-headed
+  paragraphs, matching the code's actual reach — regime (i) is untouched because `combineVotes` on a
+  single remaining voter returns the same `(0, 0)` either way once there's no second voter to
+  un-suppress. No claim in the prose exceeds what §2g's own "traced through `combineVotes`, not asserted"
+  section proves.
+
+### 3. What I did not re-derive
+
+The "verified red-before-fix by mutation" claim (disabling the `votesFromRoleSpare` guard fails exactly
+three specs) is taken as reported, same posture as Finding 76's gate claims — Dean's mid-review
+instruction not to repeat the coder's own tests applies here too. I did not independently confirm the
+exact spec count.
+
+### 4. One completeness note, not a defect
+
+§2g names `cost_aware_optimizer.go:350-367` as the sole observability site needing the fallback; I did
+not check whether `GreedyByScoreOptimizer` has an analogous per-role observability read that could
+misrepresent the same structural zero. Per the plan's own §7.1 rule (a site list is a plan step, not
+coder latitude), an omission there — if one exists — is a plan-scoping question, not a diff-fidelity
+defect in what `C12` actually claims to do. Not raised as a finding; named so it isn't mistaken for
+coverage I performed.
+
+### 5. Verdict
+
+**No defects found.** `C12` implements §2g's design ruling exactly, at all three ballot sites and the one
+named observability site, with a real (not asserted) import-cycle deviation handled the same way C10
+already established, and dev-guide prose that states its own boundary rather than overclaiming. Full gate
+battery re-reported green at this tip (`gofmt`, `go build`, `go vet`, `make test` including
+`internal/config`, `make lint` 0 issues) — taken as reported, not re-run, per the same instruction as
+Finding 76. Push-readiness signal for Dean; push itself still needs his explicit confirmation, and `AD7`/
+`N5`, `AD5`'s regime-(i) freeze, and `B2` remain open per the plan's own accounting, unaffected by this
+review.
