@@ -1,0 +1,5 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read design doc
+refs:
+  - planning/combined-analyzer-optimizer-design-addendum-1.md (Rev 7, commit 43f20c65 — header note is the whole summary; § withdrawn item 9 has the detail)
+note: Evidence corrections only — no ruling, severity, or open question moved from Rev 6. The AD8 checklist row's counter-example ask is answered, so it needs no fixture.
