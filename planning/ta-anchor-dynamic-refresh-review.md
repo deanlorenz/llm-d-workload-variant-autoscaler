@@ -8270,3 +8270,125 @@ never-called eviction path — plus **two** that are structural and robust (§3)
 I would still put in front of Dean; the second pair is why I would not call it urgent.
 
 I have not proposed which side moves. That remains the designer's call and Dean's.
+
+## Finding 76 — PR-2 code review at the freeze (`6d55fbd7`, 26 commits on `075a208e`): no defects found; the commit series is unusually self-verifying, and the two places it disclosed its own gaps were already the right two places
+
+**Trigger.** `review__ta-anchor-dynamic-refresh-pr2-ready.md` — the coder's push-ready signal, per plan
+§0.0's freeze record (Type 1 frozen at Addendum 1 Rev 7 `43f20c65`, Type 3 frozen the same day). This is
+a diff-vs-plan review, not another Type 1 verification pass — Dean's standing instruction for this
+segment was explicit: the designer finalizes Type 1, the planner finalizes Type 3, the coder codes it,
+and only then does this role review code. Finding 75 (above) was the last Type-1-adjacent work; nothing
+in this finding revisits it.
+
+### 1. Scope and method
+
+Read plan §0.0 (freeze record), §1.1.0 (landed ledger), §1.1.1 (C11 (D-a) deferral) in full. Diffed the
+coder's tip against PR-1's base (`075a208e`), not against `main` — per this review's standing convention,
+since PR-2 is stacked/parallel on PR-1 and a `main`-diff would carry PR-1's own 29 files as noise. Read
+every one of the 26 commits' full message and stat; spot-verified the highest-risk and most-surprising
+claims against the actual code rather than trusting prose alone (listed in §3 below). Ran `gofmt -l`,
+`go build ./...`, and `go vet ./...` myself before being told to stop; did not independently re-run
+`go test` to completion or `make lint` — Dean's instruction mid-session was "don't repeat coder's tests",
+so the coder's own gate report (§9.1 status template: gofmt clean, build clean, `make test` all green
+with 94.1% coverage on `internal/engines/pipeline`, `make lint` 0 issues) is taken as reported, the same
+way a push-ready handoff's gate claims normally are. All of it is a source read at `6d55fbd7`.
+
+### 2. Commit-list integrity
+
+`git log --oneline 075a208e..6d55fbd7` returns exactly the 26 commits the handoff and the plan's §1.1.0
+ledger both name, in the same order, with the same subjects — 25 matching the ledger's `a9afb740` tip
+plus the 26th (`6d55fbd7`, authored by Dean directly, not the coder's bot identity — consistent with the
+freeze's own "Dean, relayed by the coder" framing). No commit is missing, reordered, or unaccounted for
+against either source.
+
+### 3. Claims verified against code, not just against prose
+
+Four factual claims were checkable independently and I checked them:
+
+- **The 26th commit is exactly the authorized §4a residual, nothing more.** `docs/developer-guide/
+  multi-analyzer-pipeline.md:857-859`: `"Type-1 owner"` → `"analyzer-design owner"`, same referent, no
+  token. 4 insertions / 3 deletions, one file, no other change. Matches plan §0.0's table row verbatim.
+- **C10's import-cycle deviation is real, not a rationalization.** `internal/config/config_test.go:13`
+  does import `internal/engines/analyzers/throughput` (to drift-check `throughputAnalyzerName` against
+  `throughput.AnalyzerName`), so a direct `*config.SaturationScalingConfig` type-assert from `throughput`
+  would indeed close a cycle in the test binary even though `go build ./...` stays clean — exactly the
+  asymmetry the commit message describes. `resolveKSat` (`analyzer.go:217-219`) reads through a
+  structural `interface{ KSat() float64 }`, not a direct import; `throughput/analyzer.go`'s import block
+  carries no `internal/config` entry. The deviation is genuine, and the workaround matches what's
+  described.
+- **C10's four threaded call sites are all present.** `resolveKSat` feeds `kSat` into `model.ITLAt(kSat)`
+  (`analyzer.go:321`), `computeVariantSupply(..., kSat)` (`:326`, consuming it at `:747` as
+  `nSat := kSat * kvMax / shape.KVreq`), `resolveITLModel → FitITLModel → validITLModel` (`:311/587/591`,
+  `itl_model.go:37,74,96`), and `checkVariantGPSMismatch(..., kSat)` (`:371`, consumed at `:874` against
+  `DefaultNearKSatMargin`). No site keeps a private constant — the commit's "no site keeps a private k"
+  claim holds.
+- **`DefaultKSat`'s deletion is not a bare silent removal.** The diff at `constants.go:49-65` replaces it
+  with `fallbackKSat = 0.80` under a comment that states what the old constant was, why it was wrong
+  ("This constant previously held 0.85 for exactly that reason and was wrong"), and what invariant now
+  holds it equal to `config.DefaultKvCacheThreshold` (a same-commit test,
+  `TestFallbackKSatMatchesConfigDefault`, pins the two together). That satisfies the deletion-
+  documentation rule's actual bar — a future reader can recover why `DefaultKSat` is gone and what
+  replaced it — even though the word "DEPRECATED" itself does not appear at the site.
+
+### 4. Golden-file scope matches the claim exactly
+
+Across the full 26-commit range, exactly three files under `internal/engines/pipeline/` match
+`*characterization*`/`*golden*`: `optimizer_characterization_test.go` (the C9d removal, −335/+17 net),
+`optimizer_combine_characterization_test.go` (touched in C6a's tie-break rename and again in C9e's §4a
+token strip — both are comment-only edits, no assertion value changed, confirmed by reading both diff
+hunks directly), and `optimizer_multivote_characterization_test.go` (the new C9c file). No golden outside
+that set moved. C9d's own mapping table (7 lettered scenarios `A1`–`C1`/`B2` each claimed to transcribe
+onto an `M1`–`M7` multi-vote scenario "identical, not re-derived", plus one smoke-test spec explicitly
+marked as subsumed rather than transcribed) reads as an honest accounting rather than a hand-wave — the
+one line that isn't a literal transcription is the one line the commit message says isn't.
+
+### 5. A finding of mine that the coder closed
+
+`79a590d6` ("test the admission ceiling at fillRole") closes exactly the gap §1.1.1 of the plan itself
+flags as "owed, not blocking" and the commit message credits directly: *"Raised by the PR-2 internal
+review as Finding 47."* The fixture (admission ceiling holds `fillRole` to 1 replica out of 10 available
+GPUs where the same untagged variant would take all 10, with all three ceiling specs failing when the tag
+check is disabled) matches what that gap needed. Confirms the review loop closed the loop it opened.
+
+### 6. What the commits disclose about themselves, and why that's the right shape
+
+Two commits in this series explicitly name their own incompleteness rather than papering over it:
+
+- **C6f (`a679f2ad`)** states in its own message that its prescribed universal W4 equality is *"RED,
+  measured, and the cause is upstream of W4"* — a reference/picked-variant divergence that can inflate a
+  claim through a ratio of `GPUsPerReplica` values, demonstrated with concrete numbers (3 GPUs/replica at
+  ceiling vs. 1 GPU/replica turning +3 replicas into +9). It routes this to the planner via two handoffs
+  named in the commit body; both exist and are in the right state (`review__ta-anchor-claim-inflation-
+  measured-single-analyzer.md.DONE` — processed earlier in this session; `plan__ta-anchor-c6f-w4-no-
+  spend-is-false.md.WIP` — with the planner). Nothing here is a gap in the review's coverage; it is a
+  gap the commit itself surfaced and routed correctly.
+- **C6e (`784c2b5c`)** names two adjacent defects it deliberately leaves alone (`w.remaining` under-
+  reporting a spent-to-zero model's outstanding claim; `allocateForModelPaired` pricing every role
+  against the same un-decremented `available`) and states plainly that raising them is the planner's call,
+  not something fixed in passing.
+
+Both read as the coder distinguishing "what this commit fixes" from "what this commit's own fix now makes
+visible" — which is the right instinct on a branch this dense with cross-analyzer interaction, and it's
+what let this review skip re-deriving those two items rather than treating their absence from the diff as
+an omission.
+
+### 7. Incident, disclosed rather than folded into hygiene notes
+
+Twice during this review's gate-verification and golden-scope steps, I ran a bare `cd` into the coder's
+worktree instead of `git -C`/`go -C`/absolute paths — once caught immediately (four read-only commands,
+self-corrected), once not caught until a file lookup in my own worktree failed several commands later
+(two `git log -p`/`git show --stat` reads). Both windows were read-only start to finish — `git status
+--porcelain` on the coder's tree came back empty immediately after each correction — but the second
+occurrence, landing in the same session right after the first was disclosed, is a worse pattern than a
+one-off slip and is recorded as such rather than folded into a generic hygiene line. No code, plan, or
+git state in the coder's worktree was touched.
+
+### 8. Verdict
+
+**No defects found.** Commit-list integrity holds, the one non-coder commit is exactly what it claims to
+be, every spot-checked factual claim about code and imports checks out, golden-file scope matches the
+documented claims exactly, C11's deferral is genuinely built-not-enabled in the shipped tree, and the
+series' own self-disclosed gaps are already routed to the right people. This is a push-readiness signal
+for Dean, not a push — push still needs his explicit per-push confirmation separately, and the two items
+the freeze itself declines to decide (rounding direction; `AD8` (b) placement) remain his to rule on,
+unaffected by this review.
