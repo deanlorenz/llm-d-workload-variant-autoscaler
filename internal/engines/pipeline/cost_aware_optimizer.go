@@ -359,7 +359,12 @@ func buildDecisionsWithOptimizer(
 			if role == "" {
 				role = domain.RoleBoth
 			}
-			if rc, ok := anchor.RoleCapacities[role]; ok {
+			// A role tagged ReasonRoleUnmodeled has no demand model behind
+			// its RequiredCapacity/SpareCapacity -- publishing them would
+			// present a structural non-answer as a measurement, so fall back
+			// to the model-level totals, same as when no per-role entry
+			// exists at all.
+			if rc, ok := anchor.RoleCapacities[role]; ok && rc.Reason != ReasonRoleUnmodeled {
 				reqCap, spareCap = rc.RequiredCapacity, rc.SpareCapacity
 			}
 			decision.RequiredCapacity = reqCap

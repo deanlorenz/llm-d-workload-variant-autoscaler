@@ -94,6 +94,18 @@ func ResultIsInformative(nr NamedAnalyzerResult) bool {
 // combine's admission rules, and is not settled here.
 const ReasonFromZeroAdmission = "from-zero-admission"
 
+// ReasonRoleUnmodeled marks a RoleCapacity whose TotalDemand/RequiredCapacity/
+// SpareCapacity is structurally, not measurably, zero: the analyzer has no
+// demand model for this role at all, so the map key was never written rather
+// than computed and landing on zero (e.g. throughput's distributeDemandByRole
+// excludes prefill by construction). A ballot function seeing this Reason
+// abstains rather than voting the value, the same idiom ReasonNoData/
+// ReasonFromZeroAdmission already use one level down on VariantCapacity.
+// Analyzer-owned pipeline vocabulary — see satReasonNoData =
+// pipeline.ReasonNoData (saturation_v2/types.go) for the existing
+// cross-package alias pattern this follows.
+const ReasonRoleUnmodeled = "role-unmodeled"
+
 // admissionCeilingReplicas is how many replicas a variant admitted on the
 // from-zero sentinel may hold. One bite, then measure: the sentinel does not
 // price the variant's capacity, so the spend is what has to be bounded instead.
@@ -515,11 +527,19 @@ func voteScore(e NamedAnalyzerResult) float64 {
 
 // votesFromPickerState collects the scale-up ballot for (role, variant) from
 // picker-local remaining demand: state[i][role] / PRC_i[variant] replicas per
-// participating entry.
+// participating entry. An entry whose RoleCapacity for role carries
+// ReasonRoleUnmodeled abstains: it has no demand model for the role, so its
+// value is structural, not a measurement of "nothing needed".
 func votesFromPickerState(s []NamedAnalyzerResult, state RolePairedState, role, variant string) []replicaVote {
 	out := make([]replicaVote, 0, len(s))
 	for i, e := range s {
 		if e.Result == nil || i >= len(state) || state[i] == nil {
+			continue
+		}
+		if rc, ok := e.Result.RoleCapacities[role]; ok && rc.Reason == ReasonRoleUnmodeled {
+			// This entry has no demand model for role at all -- its zero is
+			// structural, not a measurement of "nothing needed" -- so it
+			// abstains rather than voting 0 into the scale-up combine.
 			continue
 		}
 		prc := prcForVariant(e.Result, variant)
@@ -538,7 +558,10 @@ func votesFromPickerState(s []NamedAnalyzerResult, state RolePairedState, role, 
 // votesFromTotalDemand collects the rescale ballot for (role, variant) from
 // each entry's own reported demand: the synthetic "both" role reads model-level
 // TotalDemand, a P/D role reads that entry's own RoleCapacities demand. An
-// entry that does not decompose the role contributes nothing.
+// entry that does not decompose the role contributes nothing, and one whose
+// RoleCapacity for role carries ReasonRoleUnmodeled abstains for the same
+// reason: it has no demand model for the role, so there is no real demand
+// here to convert into replicas.
 func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []replicaVote {
 	out := make([]replicaVote, 0, len(s))
 	for i, e := range s {
@@ -549,6 +572,11 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 		if role != domain.RoleBoth {
 			rc, ok := e.Result.RoleCapacities[role]
 			if !ok {
+				continue
+			}
+			if rc.Reason == ReasonRoleUnmodeled {
+				// No demand model for role at all -- the zero is structural,
+				// not a measurement, so it must not enter the rescale ballot.
 				continue
 			}
 			demand = rc.TotalDemand
@@ -568,7 +596,10 @@ func votesFromTotalDemand(s []NamedAnalyzerResult, role, variant string) []repli
 
 // votesFromRoleSpare collects the scale-down ballot for (role, variant) from
 // each entry's per-role spare: RoleSpare[role] / PRC_i[variant] removable
-// replicas per participating entry.
+// replicas per participating entry. An entry whose RoleCapacity for role
+// carries ReasonRoleUnmodeled abstains: with no demand model for the role its
+// reported spare is the whole fleet by construction, not a measurement of what
+// is safe to remove.
 //
 // Live-gated — a non-live entry (no metrics, error state, never analyzed, or
 // stale) does not constrain safe removal. An entry with no per-variant capacity
@@ -595,6 +626,13 @@ func votesFromRoleSpare(s []NamedAnalyzerResult, role, variant string) []replica
 			continue // non-live analyzers do not constrain the safe-removal minimum
 		}
 		if e.Result == nil || e.RoleSpare == nil {
+			continue
+		}
+		if rc, ok := e.Result.RoleCapacities[role]; ok && rc.Reason == ReasonRoleUnmodeled {
+			// No demand model for role at all, so its "spare" is the whole
+			// fleet by construction, not a measurement. Left unguarded, this
+			// entry would vote its entire fleet as removable simply because
+			// it never priced this role's demand in the first place.
 			continue
 		}
 		prc := prcForVariant(e.Result, variant)

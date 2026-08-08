@@ -581,6 +581,49 @@ only when the `Cost = 0` behavior itself is fixed, which is out of scope here. T
 one-replica ceiling is therefore the *only* guard on an admitted variant, not one
 of two.
 
+### A structurally unmodeled role does not vote
+
+The throughput analyzer has no demand model for the prefill role at all: its
+role split excludes prefill by construction, so `RoleCapacities["prefill"]`
+always carries `TotalDemand = 0` — not because prefill needs nothing this
+cycle, but because the map key was never computed. Left unmarked, that zero
+reads to every ballot function exactly like a real measurement of "nothing
+needed", and on the scale-down side it is actively dangerous: with no demand
+to weigh against, the whole prefill fleet reads as spare, and a single-voter
+ballot drains it to its floor.
+
+**The fix is to abstain, not to vote a real-looking zero.** `RoleCapacity`
+carries a `Reason` field for exactly this: an analyzer that has no demand
+model for a role tags that role's entry with `ReasonRoleUnmodeled`
+(`internal/engines/pipeline/analyzer_helpers.go`), and every ballot-collector
+function that reads `RoleCapacities` -- `votesFromPickerState`,
+`votesFromRoleSpare`, `votesFromTotalDemand` -- skips a tagged entry instead
+of counting its value. An entry that abstains casts no vote at all, which is
+a different statement from casting a vote of zero: `combineVotes` on an empty
+ballot returns "no basis to act", while a real zero vote still participates
+and can be outweighed. Saturation is role-complete for every role its
+variants declare, so it never sets this tag.
+
+**What this closes: the drain.** When decode has no scale-up demand and the
+model is on the scale-down path, an analyzer with a real per-role model
+(saturation) still votes its measured prefill spare; one with no model for
+the role now abstains instead of voting the whole fleet as removable. The
+single-voter case -- the analyzer with no prefill model is the only one
+sizing it -- stops draining prefill toward its floor.
+
+**What this does not close: the freeze.** When decode needs scale-up, the
+whole model takes the scale-up path, and prefill's own demand is still zero
+by construction -- abstaining changes nothing when there is no second voter
+to un-suppress. Prefill stays frozen at its current replica count, including
+zero, exactly as before. Closing that side needs a real demand model for the
+role, which is future analyzer work, not a ballot-participation fix.
+
+**Observability follows the same rule.** A decision built from a role tagged
+`ReasonRoleUnmodeled` does not publish that role's `RequiredCapacity`/
+`SpareCapacity` -- both would misrepresent a structural non-answer as a
+measurement -- and falls back to the model-level totals instead, the same
+fallback already used when no per-role entry exists at all.
+
 ---
 
 ## Data model: AnalyzerResult → NamedAnalyzerResult

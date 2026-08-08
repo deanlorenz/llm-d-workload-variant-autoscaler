@@ -885,6 +885,31 @@ var _ = Describe("ThroughputAnalyzer", func() {
 			Expect(prefillRC.RequiredCapacity).To(Equal(0.0))
 		})
 
+		It("tags prefill's RoleCapacity with roleUnmodeledReason and leaves decode's Reason empty", func() {
+			buildVariantWindow("v-decode")
+			buildVariantWindow("v-prefill")
+
+			input := domain.AnalyzerInput{
+				ModelID:   modelID,
+				Namespace: namespace,
+				ReplicaMetrics: []domain.ReplicaMetrics{
+					baseReplica("v-decode", 5),
+					baseReplica("v-prefill", 5),
+				},
+				VariantStates: []domain.VariantReplicaState{
+					{VariantName: "v-decode", Role: "decode"},
+					{VariantName: "v-prefill", Role: "prefill"},
+				},
+			}
+			result, err := analyzer.Analyze(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+
+			// This analyzer has no demand model for prefill at all (its zero
+			// is structural, not measured); decode's is a real measurement.
+			Expect(result.RoleCapacities["prefill"].Reason).To(Equal(roleUnmodeledReason))
+			Expect(result.RoleCapacities["decode"].Reason).To(Equal(""))
+		})
+
 		It("returns nil RoleCapacities when all variants are non-disaggregated", func() {
 			buildVariantWindow("v1")
 

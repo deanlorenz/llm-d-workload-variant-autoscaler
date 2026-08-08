@@ -967,12 +967,21 @@ func aggregateRoleCapacities(vcs []domain.VariantCapacity, arrivalDemandByRole, 
 
 	result := make(map[string]domain.RoleCapacity, len(byRole))
 	for role, t := range byRole {
-		result[role] = domain.RoleCapacity{
+		rc := domain.RoleCapacity{
 			Role:                   role,
 			TotalSupply:            t.TotalSupply,
 			TotalAnticipatedSupply: t.TotalAnticipatedSupply,
 			TotalDemand:            arrivalDemandByRole[role] + queueDemandByRole[role],
 		}
+		if role == domain.RolePrefill {
+			// distributeDemandByRole excludes prefill by construction (this
+			// analyzer has no demand model for it), so TotalDemand above is
+			// unconditionally 0 -- a structural absence, not a measurement.
+			// Tag it so ballot-construction functions abstain rather than
+			// vote a real zero.
+			rc.Reason = roleUnmodeledReason
+		}
+		result[role] = rc
 	}
 	return result
 }

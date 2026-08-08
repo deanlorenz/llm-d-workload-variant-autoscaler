@@ -134,4 +134,16 @@ const (
 	// previously-live variant now at zero replicas: its per-replica capacity is the
 	// persisted last-good value, not a fresh fit. Not produced by resolveITLModel.
 	itlReasonScaleFromZero = "T-sfz"
+
+	// roleUnmodeledReason marks a RoleCapacity (not a VariantCapacity) whose
+	// TotalDemand is structurally zero because this analyzer has no demand
+	// model for the role at all -- set on prefill in aggregateRoleCapacities.
+	// Duplicated from pipeline.ReasonRoleUnmodeled rather than imported: this
+	// package cannot import internal/engines/pipeline (pipeline imports
+	// internal/config for its quota/enforcer plumbing, and internal/config's
+	// own in-package tests import this package for the k_sat drift guard --
+	// the same test-binary import cycle resolveKSat's interface trick works
+	// around, but a bare string constant has no equivalent trick). Pinned
+	// against drift by TestRoleUnmodeledReasonMatchesPipeline.
+	roleUnmodeledReason = "role-unmodeled"
 )
