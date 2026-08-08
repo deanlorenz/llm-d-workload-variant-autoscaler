@@ -7798,3 +7798,65 @@ Unchanged. Attribution regime-split, severity not softened, *defer* still defens
 and Dean's. Nothing in this finding moves attribution; it tightens the state description (§2), makes the floor
 substitution provable (§3), and prices option (a) honestly (§4). The `AD5` chain is closed from my side unless
 new code lands.
+
+---
+
+## Finding 72 — the proof's reach: both scale-down paths, a dead nil-branch, and a sequencing constraint whose safe branch is per-variant
+
+**Source:** coder handoff `plan__ta-anchor-ad5-finding71-proof-verified-and-a-sequencing-constraint.md`.
+Verified at HEAD `a9afb740`. All three of its items accepted; §2 strengthens one and §3 narrows one.
+
+### 1. The re-derivation and its side conditions — accepted, independently checked
+
+The coder re-derived Finding 71 §3's proof from source rather than taking it, and checked the one premise
+I left implicit: **`n` is not touched between the clamp (`:154-156`) and the clause (`:159`)** — I
+confirmed `:157-158` is comment only. Its two degenerate cases also hold: `removable >= 1` at the clause
+implies `current >= 1`, and a negative `maxRemovable` cannot satisfy `current - n < 1` for `current >= 1`.
+The proof is closed on both ends.
+
+### 2. Two extensions, both verified — and the second is stronger than stated
+
+**(i) The proof covers both scale-down paths.** Confirmed by grep: `scaleDownVariantSet` has **exactly
+two** production callers — `scaleDownRoleIterated` (`cost_aware_optimizer.go:496`) and `reclaimRole`
+(`rescale.go:415`) — and both pass a states map. The guard lives in the shared primitive, so an explicit
+floor suppresses the clause on the contended/rescale path too. This is worth recording precisely because
+it is the one place where `reclaimRole` being un-instrumented per-function costs nothing: the property is
+structural, not path-measured.
+
+**(ii) The `states == nil` branch is dead tree-wide, not test-only.** The coder narrowed my "whenever
+`states` is nil or `MinReplicas` is unset" to production-unreachable. It is further than that. Both
+production callers of `scaleDownRoleIterated` (`cost_aware_optimizer.go:65`,
+`greedy_score_optimizer.go:225`) pass `stateMap` — **no production caller omits the variadic arg** — and
+additionally: all five test callers pass a non-nil map literal
+(`cost_aware_optimizer_test.go:1233,1261,1292,1337,1369`), and **nothing in the tree calls
+`scaleDownVariantSet` directly**. So `if states != nil` (`:144`) is defensive-only code with no live
+route, in tests or in production.
+
+Consequence, which sharpens Finding 71 §4 rather than changing it: the sole route to `minReplicas == 0` is
+an **unset `MinReplicas` field**, so the exposed population is exactly "operators who did not set it" —
+with no second population, not even an artificial one. The correlated-failure argument has no leak.
+
+### 3. The sequencing constraint is real — but its safe branch is per-variant, not global
+
+The coder's §3 is a genuine addition and nobody had written it down: combining Finding 70 §3 (tidying the
+positional rule enables prefill → 0) with Finding 71 §3 (a floor makes that rule unreachable) constrains
+the **order** of any two-part fix — floor first then tidy is safe, tidy first re-opens `AD5` at every
+height on both paths, which is the disable-mutation it already measured at pf = 0. A plan listing the two
+as independent items would be wrong, and one listing them in the wrong order would ship the regression
+through the front door. I accept it as stated.
+
+**One narrowing, which is where it meets option (a).** The proof makes the clause unreachable *for a
+variant carrying `MinReplicas >= 1`* — it is a per-variant property, and the clause is per-variant too
+(`for i, vc := range sortedVariants`). So "floor first, then tidy — safe" is safe **exactly for the
+floored variants**, and tidying afterwards newly exposes every variant that was not floored. Sequencing
+therefore does **not** rescue option (a): its safe branch is conditional on complete floor coverage, which
+operator-set configuration is precisely what cannot guarantee — and by §2(ii) the uncovered set is the
+same correlated population. The ordering constraint is necessary but not sufficient; if the record carries
+it, it should carry the coverage precondition with it, or it reads as a licence to tidy up.
+
+### 4. Standing
+
+Unchanged. Attribution regime-split, severity unsoftened, frequency of the `deadRC > 0` state still open,
+`reclaimRole` still un-instrumented per-function (§2(i) bounds what that costs without closing it),
+disposition the planner's and Dean's. Closed from my side on the same condition as before — unless new
+code lands.
