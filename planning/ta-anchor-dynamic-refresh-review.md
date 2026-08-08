@@ -7306,3 +7306,111 @@ later and governs where they overlap, and is currently reachable only by filenam
 rather than waiting on the Type-3 and CURRENT.md pointers, which are the planner's and sync's to place:
 design authority for this review is `combined-analyzer-optimizer-design.md` (FINAL, frozen `8c2a9b04`)
 **together with** `combined-analyzer-optimizer-design-addendum-1.md`, the latter governing on overlap.
+
+---
+
+## Finding 67 — `AD5` is CONFIRMED by execution; my attribution was wrong on one path and is *conditional* on the other
+
+Three parties have now converged on `AD5` and each of us got a different piece wrong. This finding records
+the corrections in the direction they actually run, including mine.
+
+**Credit where it belongs.** The coder built the fixture I specified in Finding 66 §5, ran it as a scratch
+diagnostic in the pipeline package, and deleted it (tip unchanged at `a9afb740`, `git status` empty, the 386
+pipeline specs green throughout). Its measured result:
+
+| prefill start | cost-aware | greedy | decode (control) |
+|---|---|---|---|
+| 2 | **1** | **1** | 2 ✓ |
+| 4 | **1** | **1** | 4 ✓ |
+| 8 | **1** | **1** | 8 ✓ |
+
+Decode holds at its start in both optimizers, so the collapse is **role-selective** — the signature Finding
+66 predicted. And prefill goes to 1 **regardless of where it started, in a single pass**. The coder is right
+that this is worse than my own wording: *"sheds prefill to ~1 replica"* invites "loses a replica or two,"
+while the measurement is that **starting size does not matter at all** — an 8-replica prefill tier sheds 7 in
+one reconcile. The cost of leaving `AD5` open is not proportional to fleet size; it is the whole prefill tier
+minus one, every time the window opens. **Finding 66's severity paragraph should be read with that
+substitution.**
+
+I also verified the coder's own strengthening refinement rather than relaying it: `distributeDemandByRole` has
+**exactly two call sites**, `analyzer.go:478` and `:483`, and they are the sole constructors of both demand
+maps. So TA reports prefill `TotalDemand == 0` for **every P/D model, always** — structural, not a
+data-dependent edge case. The exposure is unconditional whenever TA is the only live voter.
+
+### I was wrong about `reclaimRole`: that path is inherited
+
+Finding 66 §2 called the `reclaimRole` half *"newly unmasked by `VG-up`."* **That is wrong, and the planner's
+correction is right.** Checked at base `075a208e` rather than argued:
+
+- Base `bindingAnchor:183` already reads **`RoleCapacities: binding.Result.RoleCapacities`** — binder-sourced,
+  not carrier-sourced. So the anchor's prefill `RoleCapacities` came from the binder at base too.
+- Base's binder gate is already `Enabled && Live && Informative`, so in the `AD5` fixture base **already bound
+  TA** and already read prefill `TotalDemand = 0` off that anchor.
+- Base `roleDemandGPUs` had no ballot parameter at all — the `s` argument is bug #3's addition.
+
+So prefill's target already collapsed to its floor at base, `rt < rc` already fired, and base already
+reclaimed the role's whole allocation. Ballot pruning cannot push a demand of 0 lower. Path B drains at base
+unchanged, and my attribution there was simply a mistake.
+
+### But the dispatch makes the *other* path conditional — and neither peer document checks it
+
+Both peer documents treat `scaleDownRoleIterated` as flatly inherited. It is not, because **reachability** is
+governed by a dispatch that reads the ballot *without* a liveness filter:
+
+- Base `votingResults:234-240` prunes on **`e.Enabled` alone**; HEAD `:332-338` on `e.Enabled && e.Live`. That
+  difference *is* `VG-up`.
+- Base's dispatch is byte-identical in shape to HEAD's: `s := votingResults(...)` → `initRoleState(s)` →
+  `if anyRoleNeedsScaleUp(ps, roles) { allocateForModelPaired } else { scaleDownRoleIterated }`.
+- **`initRoleState` applies no liveness filter.** It sets `pickerState[i][role] = rc.RequiredCapacity` for
+  every entry with a non-nil `Result` and non-nil `RoleCapacities` — dead entries included.
+- **`anyRoleNeedsScaleUp` is a global OR across every entry and every role**: one positive `RequiredCapacity`
+  anywhere returns true.
+
+Therefore at base, a dead-but-`Enabled` saturation whose stale `RoleCapacities` carries **any** role with
+`RC > 0` sends the model down the **scale-up** branch, and `scaleDownRoleIterated` is never reached — no
+path-A drain at base. `VG-up` removes that entry; only TA remains; prefill's `RC` is structurally 0 and
+decode's is covered; the dispatch falls through to scale-down and prefill collapses.
+
+So **path A is inherited only when the dead analyzer's final snapshot has no positive `RC` on any role.**
+Note the OR spans *roles*: a positive **decode** `RC` alone suffices to divert, which makes the diverting case
+considerably broader than "prefill needed scale-up."
+
+This is not a quibble, because it moves the planner's stated *basis* for deferring. Its counterfactual
+dismissal — a protection that *"never existed in any shipped state"* — is correct for path B's demand-weight
+route, but for path A the masking **did** exist in shipped base, via the dispatch. Base's behavior in that
+case is of course its own bug (it scales up on stale data), so this is bug-masking-bug again; the difference
+is that **this** masking shipped. For a saturation that dies holding any positive `RC`, PR-2 converts *"scales
+up on stale data"* into *"sheds prefill to one replica."* The machinery is inherited; the reachability in that
+reconcile is not.
+
+### The floor at 1 is explained — and it is the path instrumentation the coder said it lacked
+
+The coder flagged that it measured 1 and never 0, and that `reclaimRole` predicts 0, but did not chase which
+path ran. Both questions have one answer. `scaleDownVariantSet:157-161` carries the **cheapest-at-1 positional
+rule** (`#1237`'s): for the last, cheapest variant, when `current-n < 1` and no more-expensive variant still
+holds replicas, `n = current - 1`. With a single prefill variant, `i == len(sortedVariants)-1` and
+`sortedVariants[:i]` is empty, so it floors at **exactly 1 from any height, in one pass** — precisely the
+measured table.
+
+`reclaimRole` has no such rule; its `maxRemovable` is a pure GPU delta and would have produced **0**. **So
+measuring 1 rather than 0 *is* the instrumentation: the confirmed runs took `scaleDownRoleIterated`, and path
+B was not executed.** Two consequences: the coder's "either a clamp intervened or it took the
+`scaleDownRoleIterated` path" is a single statement, not a disjunction — the clamp lives *in* that path; and
+the confirmed table says nothing about path B. Which leaves the uncomfortable pairing that **the path whose
+attribution is unconditionally "inherited" is the one nobody has run, and the path that has been executed is
+the one whose attribution is conditional.**
+
+### Status and the experiment that settles attribution
+
+- **Path A (`scaleDownRoleIterated`): CONFIRMED by execution** — coder's diagnostic, both optimizers, 2/4/8
+  all → 1, decode held as control.
+- **Path B (`reclaimRole`): PLAUSIBLE by reading, unexecuted.** Inherited from base, per the correction above.
+- **Attribution: CONDITIONAL, and settleable cheaply.** Run the same fixture at **base** in two variants —
+  stale saturation `RoleCapacities` all-zero, and with any one role positive. Prediction: base drains in the
+  first and **does not** in the second; HEAD drains in both. If that holds, "inherited" is the right word for
+  the all-zero case only, and the positive-`RC` case is a reachability regression PR-2 authored.
+
+I do not build or test in the coder's worktree, so everything above that is not the coder's table is a source
+read at `a9afb740` and `075a208e`, quoted inline. The disposition — defer, fix, or file — remains the
+planner's and Dean's; my only ask is that whichever word the Type 1 uses, "inherited" carries the condition
+rather than dropping it.
