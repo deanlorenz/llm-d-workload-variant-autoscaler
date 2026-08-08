@@ -8157,3 +8157,116 @@ in §4 — that today's protection is incidental — not a near-term starvation 
 
 I got this wrong within a day of filing it, and the error inflated a defect. Routed as a correction
 to the same three recipients that received Finding 73.
+
+## Finding 75 — Addendum 1 Rev 6's closure of the `[sat, TA]`-sat-non-live cell is CONFIRMED, and it holds for a tighter reason than Rev 6 gives: the two memories warm from the same event, not on asymmetric retention. Three cited mechanisms need correction and two independent closures go uncited; one residual predicate I could not close by reading
+
+Addendum 1 Rev 6 (`423eb2a8`, Dean-approved) records the `[sat, TA]`-with-saturation-non-live cell as
+closed, and its § verification checklist `AD8` row states the terms explicitly: *"Verify by
+counter-example, not by re-deriving: find any single-fault story in which saturation stamps `no-data`
+on every variant while TA emits a `T-sfz` capacity. If none exists, the `[sat, TA]` cell is closed and
+only `[TA]`-only remains."* That row is addressed to planner and reviewer jointly. This finding is my
+half.
+
+Everything below is a source read at `a9afb740`. I ran no build and no test, so nothing here is a
+gate result.
+
+### 1. Verdict on the counter-example search
+
+**No single-fault story exists.** I constructed four and each one fails, three of them for reasons
+the addendum does not cite:
+
+| Story (single fault) | Why it fails to produce "sat all-NoData ∧ TA emits `T-sfz`" |
+|---|---|
+| Replica metrics vanish model-wide | The model is skipped **before any analyzer runs**: `saturation/engine.go:1540-1545` returns `nil, nil` ("nil modelData signals skip") on `len(replicaMetrics) == 0`. TA emits nothing either. |
+| Scale-target fetch fails for every variant | `engine.go:1500-1507` `continue`s **before** the variant enters `scaleTargets`/`variantAutoscalings`/`variantCosts` (`:1519-1524`), so `CollectReplicaMetrics` is called with empty maps and the model lands in the skip above. This is the addendum's own residual, and it resolves to "no model", not "all-NoData model". |
+| Engine args unparseable | No such path. Both parsers call `resolveEffectiveMaxBatchedTokens` before **every** return — `ParseVLLMArgs` at `deployment_parser.go:76,82,110`, `ParseSGLangArgs` at `sglang_parser.go:48,54,65` — and `ParseEngineArgs:14-19` has exactly those two branches and no third. The resolver's terminal line is an unconditional `= 2048` (`deployment_parser.go:299-301`). |
+| Variant-name mismatch between the metrics collector and `BuildVariantStates` | The only story that looked promising, because sat's result loop keys off `variantStates` (`saturation_v2/analyzer.go:367-368`) while TA's *memory* keys off the metric rows' names (`throughput/analyzer.go:86,96-99`). It fails because TA's *emission* keys off `input.VariantStates` too (`:426`) and then looks its memory up by that name (`:430-431`) — the lookup misses, `continue`, TA emits nothing. Both analyzers go blind on the same input, for the same structural reason. |
+
+### 2. The implication holds for a tighter reason than Rev 6 gives
+
+Rev 6 argues `TA warm ⟹ sat warm` from a **retention asymmetry** — sat's store kept 7 days, TA's
+`lastPerReplicaSupply` expiring in 1 hour. The conclusion is right; the argument is weaker than the
+code supports, because it makes the implication depend on two durations that could each move
+independently.
+
+The tight form is that **the two memories are written by the same event.** `saturation_v2/analyzer.go:198-207`
+writes a `learnedFromLive` `CapacityRecord` for **every** replica metric row, keyed by that row's
+`VariantName`. TA's `lastPerReplicaSupply` (`throughput/analyzer.go:346`) can only become positive
+from rows in the same key space. So at the instant TA has a persisted supply for variant *v*,
+saturation has a live store record for *v* — same cycle, same rows, no duration involved. Two further
+reads make it permanent rather than merely simultaneous: `capacity_store.go:99-101` refuses to
+overwrite a `learnedFromLive` record from the scale-target path, and eviction never runs (§4a below).
+
+That is why the counter-example search comes back empty in one line rather than four: TA's `T-sfz`
+emission *requires* a prior live sighting, and the prior live sighting *is* sat's warm record.
+
+### 3. Two closures the addendum does not cite, each sufficient on its own in its regime
+
+- **`engine.go:1540-1545` — the model-level skip.** Any story whose fault is "metrics are gone"
+  terminates here, before `Analyze`. The addendum's chain reasons about what saturation *stamps* on a
+  metrics-gap input; for the total-gap case there is no such input.
+- **`engine.go:1500-1507` — the pre-analyzer `continue`.** A variant whose scale target cannot be
+  fetched is dropped from the per-model pipeline entirely, not carried forward as an unpriced variant.
+  This narrows the residual further than Rev 6 states: the residual is not "sat stamps `no-data` on
+  every variant", it is "the model has no variants", which produces no request at all.
+
+Neither of these is a correction — both point the same way as Rev 6. They matter because they are
+robust to the sizing-estimate edit that Finding 74 §4 flagged as the fragile link: if
+`EffectiveMaxBatchedTokens` stopped producing a positive floor tomorrow, these two would still hold.
+
+### 4. Three corrections to the cited evidence
+
+**(a) Retention is not 7 days — the capacity store is never evicted at all.** `EvictStale`
+(`capacity_store.go:137`) and `EvictStaleHistory` (`saturation_v2/analyzer.go:50`) have **zero callers
+tree-wide**, tests included; `CapacityEvictionTimeout` (`constants.go:19`) and `HistoryEvictionTimeout`
+(`:25`) are referenced nowhere but their own declarations. Records therefore live for the process
+lifetime. Two knock-ons: the conclusion is *stronger* than Rev 6 states, and the cited mechanism is
+**dormant**, so Rev 6's stated form describes what would become true if someone wired eviction up at
+the declared 7 days. Separately, `capacity_store.go:135`'s doc comment cites `EvictionTimeout = 24h`
+— a constant name that does not exist; the two real constants are 7 d and 24 h and the 24 h one is
+the *k2 history*, not capacity. My own earlier note recorded 24 h for capacity on the strength of that
+comment, which is where my figure came from.
+
+**(b) TA's 1-hour expiry keys on the variant *appearing* in the metrics slice, not on usable
+metrics.** `throughput/analyzer.go:92` iterates `groupByVariant(metrics)` and sets
+`state.lastObservedAt = now` at `:99` — **before** the `SanityIssueNoReplicas` `continue` at `:101-108`
+and before the `!report.OK()` branch. So a gap of the "rows present but unusable" kind keeps TA warm
+indefinitely; only a rows-absent gap reaches the `2*DefaultObservationMaxAge` eviction at `:159-163`
+(`DefaultObservationMaxAge = 30 * time.Minute`, `throughput/constants.go:24`, so 1 h is right for that
+flavor). Rev 6's "expires in 1 hour" is therefore true of one gap shape and not the other. This does
+not reopen the cell — under (2), sat is warm from the same rows either way — but the asymmetry as
+*stated* is narrower than it reads.
+
+**(c) The store branch is unreachable while rows are present.** Rev 6's chain and my own Finding 74
+both lean on the store branch (`saturation_v2/analyzer.go:421-431`). It is guarded by `len(replicas) > 0`
+failing (`:390`): a variant with any metric row this cycle takes the first branch and gets
+`k2SourceLabel(replicas)`, non-NoData, whatever its capacity arithmetic produces. So the store branch
+only ever governs zero-row variants. That is the correct scope for both arguments, but neither states
+it, and it is what makes the residual in §5 narrow rather than broad.
+
+### 5. The one residual predicate I could not close by reading
+
+For the cell to open, **every** variant must reach `satReasonNoData`. Given (2), a variant TA can size
+has a live store record, so its store branch fails only if that record's `EffectiveCapacity` is
+non-positive — and `EffectiveCapacity = min(k1, k2)` as computed at `saturation_v2/analyzer.go:185-188`.
+I did not establish whether `min(k1, k2) <= 0` is reachable on a live row. So the residual predicate
+is:
+
+> on the last cycle with rows, `min(k1, k2) <= 0` for **every** variant of the model, while TA computed
+> a positive `perReplicaSupply` from those same rows — and `lookupCompatibleCapacity` also misses for
+> every variant.
+
+I am not claiming that is reachable. I am recording it as the single link in the closure I verified by
+neither construction nor refutation, so that "closed" does not get read as "closed by exhaustive
+proof". Testing it needs a k1/k2 fixture, not a liveness fixture — and Rev 6's own caution against
+faked stale timestamps applies here too.
+
+### 6. Standing
+
+No change of direction. Finding 74 already dropped the ship item's urgency and Rev 6 agrees; this
+finding does not move it further. What it adds is that the standing protection now rests on **two**
+mechanisms that exist for unrelated reasons — the conservative sizing floor (Finding 74 §4) and a
+never-called eviction path — plus **two** that are structural and robust (§3). The first pair is what
+I would still put in front of Dean; the second pair is why I would not call it urgent.
+
+I have not proposed which side moves. That remains the designer's call and Dean's.
