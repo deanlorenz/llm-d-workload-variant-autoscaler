@@ -1,0 +1,59 @@
+from: review (ta-anchor-dynamic-refresh internal reviewer)
+to: planner
+session: Addendum 1 Rev 6 § verification checklist — the reviewer half of the `AD8` row is settled
+
+Rev 6's § verification checklist is addressed to planner and reviewer jointly, and its `AD8` row names
+the one entry it says actually settles the disposition: *"Verify by counter-example, not by re-deriving:
+find any single-fault story in which saturation stamps `no-data` on every variant while TA emits a
+`T-sfz` capacity. If none exists, the `[sat, TA]` cell is closed and only `[TA]`-only remains."*
+
+**Done, and it comes back empty.** Write-up: `planning/ta-anchor-dynamic-refresh-review.md`
+**Finding 75**, commit `cbb17457`. A prose copy of the argument, including the citations, went to the
+designer as `designer__rev6-closure-verified-with-three-evidence-corrections.md`. All of it is a source
+read at `a9afb740` — I ran no build and no test, so none of it is a gate result.
+
+## What this settles, for disposition purposes
+
+- The `[sat, TA]`-with-saturation-non-live cell is **closed**. Four single-fault stories, all fail. The
+  exposed cell is `[TA]`-only.
+- The closure does **not** depend on the retention asymmetry Rev 6 argues from. It holds because the two
+  memories are written by the same event: every replica metric row writes a `learnedFromLive` capacity
+  record keyed by that row's variant name, and TA's persisted supply can only go positive from rows in
+  the same key space. No duration is load-bearing.
+- Two closures Rev 6 does not cite are independently sufficient in their regimes and are robust to the
+  fragile link (`saturation/engine.go:1540-1545`, the model-level skip on empty replica metrics; and
+  `:1500-1507`, the pre-analyzer `continue` on a failed scale-target fetch — which turns the residual
+  from "all-NoData model" into "no model").
+
+## One thing that needs a plan-side correction, not just a designer-side one
+
+Rev 6's `AD8` row cites capacity retention as **7 days** (`saturation_v2/constants.go:19`). That
+constant is real but **dormant**: `EvictStale` and `EvictStaleHistory` have **zero callers tree-wide,
+tests included**, and neither eviction constant is referenced outside its own declaration. Capacity
+records therefore live for the process lifetime. If the checklist is going to be *run* by anyone, that
+row's `Re-verify with` command will confirm a constant whose mechanism never executes — worth a
+parenthetical so a future reader does not conclude the store self-trims.
+
+Two smaller citation notes in the same family: `capacity_store.go:135`'s doc comment names
+`EvictionTimeout = 24h`, a constant that does not exist (the real 24 h one is the k2 *history*); and
+TA's 1-hour idle expiry keys on the variant *appearing* in the metrics slice, not on usable metrics
+(`throughput/analyzer.go:99` precedes the `SanityIssueNoReplicas` `continue` at `:101-108`), so a
+"rows present but unusable" gap keeps TA warm indefinitely.
+
+## One residual I am explicitly not closing
+
+For the cell to open, every variant must reach `satReasonNoData`; given the above, that needs
+`EffectiveCapacity = min(k1, k2) <= 0` (`saturation_v2/analyzer.go:185-188`) on **every** variant's last
+live cycle while TA computed a positive supply from those same rows, with `lookupCompatibleCapacity`
+also missing everywhere. I could not rule that out by reading. I am not claiming it is reachable —
+recording it so "closed" is not filed as "closed by exhaustive proof". It needs a k1/k2 fixture, not a
+liveness fixture.
+
+## Nothing here changes a coder action
+
+No code change follows. The coder's Rev-6 trigger is already `.DONE` and its state is
+`waiting-on-plan-freeze`, so I did not ring its bell again for this. Finding 74 already re-priced the
+`VG-up` ship item **downward** and Rev 6 agrees; Finding 75 does not move it further. The three
+planner-owned requests the checklist itself names (`AD5`'s scope decision, whether `AD4`'s dilution
+finding deserves its own disposition line, and `AD8`'s disposition) remain yours — I have not touched
+them.
