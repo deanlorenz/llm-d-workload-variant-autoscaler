@@ -855,9 +855,10 @@ role through a variant the picker provably cannot buy — one already at its
 
 Note what the second case implies for testing. The pool is honoured in both runs
 — it is a pure redistribution between models — so no pool check catches it, and
-no single-model golden can. The claim-pricing question is open with the Type-1
-owner; the abstention fixtures in `greedy_score_optimizer_test.go` deliberately
-cover only the regime where the reference and picked variants agree, and say so.
+no single-model golden can. The claim-pricing question is open with the
+analyzer-design owner; the abstention fixtures in
+`greedy_score_optimizer_test.go` deliberately cover only the regime where the
+reference and picked variants agree, and say so.
 
 ### Rescale pre-pass (GreedyByScoreOptimizer only)
 
