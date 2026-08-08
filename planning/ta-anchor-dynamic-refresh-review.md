@@ -8472,3 +8472,81 @@ battery re-reported green at this tip (`gofmt`, `go build`, `go vet`, `make test
 Finding 76. Push-readiness signal for Dean; push itself still needs his explicit confirmation, and `AD7`/
 `N5`, `AD5`'s regime-(i) freeze, and `B2` remain open per the plan's own accounting, unaffected by this
 review.
+
+## Finding 78 — post-rebase check (`git rebase --onto main 075a208e`, tip `8c335893`): clean. All three named risk spots verified directly, and the 28th commit's fixup is a correct, narrowly-scoped mechanical substitution
+
+**Trigger.** `review__ta-anchor-dynamic-refresh-post-rebase.md`. The branch moved off PR-1's stale tip
+(`075a208e`, which predates ev-shindin's finding-12 fix `a38d7b73`) onto `main@a6b39809` directly — the
+exact rebase the freeze's own §0.0 anticipated ("PR-1 merged; the rebase target is now plain `main`").
+This is the CONVENTIONS "non-trivial rebase" case (multi-commit stack, touched files modified on the new
+base) — checked as such, not waved through on the coder's own report.
+
+### 1. What the rebase actually carried, verified independently before trusting any file-level claim
+
+`git log --oneline 57f3fe64..a6b39809` — exactly two commits landed on `main` since PR-1's squash: the
+go 1.25→1.26 bump (`a6b39809`, #1512) and the v0.9.0 release-prep pin (`d5d58640`, #1522). Neither
+touches anything PR-2 cares about (Makefile/CI/go.mod/version-pin files only — 8 files, matching
+CURRENT.md's own description of #1512 exactly).
+
+That is **not** the full base drift, though — PR-2 was branched from `075a208e`, PR-1's tip *before*
+`a38d7b73` (ev-shindin's finding-12 fix) was pushed and squashed in. `git diff 075a208e a6b39809 --stat`
+confirms the real drift: 23 files, dominated by `a38d7b73`'s content (`saturation/engine.go` +117/-,
+`engine_v2.go`, `engine_queueing_model.go`, `queueingmodel/analyzer.go`, `variant/types.go`, plus the
+throughput/pipeline files PR-2 also touches) on top of the toolchain bump. Confirmed this 23-file list
+**exactly** accounts for the full pre-rebase-tip-vs-post-rebase-tip diff (`136a214a` vs `65cf99ee`, before
+the 28th commit) — one file short at first glance (`rescale.go` appears in the base-drift list but not
+in the tip-to-tip diff), explained in §2 below, not a discrepancy.
+
+### 2. The three named risk spots, each verified directly rather than trusted from the trigger's claim
+
+- **`internal/engines/pipeline/rescale.go`.** `git diff 136a214a 8c335893 -- <file>` is empty — confirmed
+  directly. Reason, also confirmed directly: `a38d7b73`'s fix and PR-2's own `3c9d45bb` ("combine
+  rescale's demand-to-GPU conversion across voters (Bug #3)", whose message explicitly says "Also adds
+  the N3 nil-guard to `rescaleModelDecisions`'s `bindingAnchor` call") independently added the **identical**
+  `if anchor == nil { return nil }` guard at the same site. Read the base-drift hunk in full (adds the
+  guard with `a38d7b73`'s own comment wording) and the post-rebase file's actual content (the guard is
+  present, with PR-2's comment wording naming the N3 sibling-topology-helpers rationale) — two independent
+  fixes converging to one copy is the correct outcome of a rebase, not a loss.
+- **`internal/engines/pipeline/analyzer_helpers.go`.** `git diff 136a214a 8c335893 -- <file>` shows
+  exactly one hunk, at `bindingAnchor`: the inline `bByName` map-building loop replaced by a call to the
+  existing `buildCapacityMap` helper — `a38d7b73`'s DRY refactor. Confirmed the post-rebase file actually
+  calls `buildCapacityMap(binding.Result.VariantCapacities)` at that line (not the old inline loop), and
+  confirmed it sits directly below PR-2's own C8 comment rewrite ("identity carrier" / "sizing", not the
+  stripped `(a)`/`(b)` notation) — both changes present, neither clobbered the other, despite the
+  base-drift patch's *context* lines still reading the pre-C8 `(a)`/`(b)` wording (a genuine collision
+  point, resolved correctly by the merge rather than by luck).
+- **`internal/engines/pipeline/rescale_test.go`.** Confirmed both `Describe("rescaleModelDecisions", ...)`
+  (main's, landed at `a38d7b73`) and `Describe("fillRole", ...)` (PR-2's own C11 follow-up, `79a590d6`)
+  present exactly once each, at adjacent but distinct line ranges (185/210) — no shadowing, no
+  duplication.
+
+### 3. The 28th commit (`8c335893`), a post-rebase fixup outside the original plan
+
+Not part of §1.1's commit map — a mechanical follow-up the rebase itself made necessary. Three main-side
+test call sites (`resolveITLModel`, two `computeVariantSupply` calls, `validITLModel`) landed via
+`a38d7b73`'s tests written against the pre-C10 signatures; C10 (this branch, already reviewed in Finding
+76) added a `kSat` parameter to all three. Read the full diff directly: every change is `, fallbackKSat`
+appended to a call plus, in exactly one case, an assertion's `DefaultKSat` (deleted by C10) replaced with
+`fallbackKSat` in the same formula shape (`fallbackKSat*(65536+131072)/shape.KVreq/itlSat`) — the value
+changes from what `DefaultKSat` (0.85) would have produced to what `fallbackKSat` (0.80) actually
+produces, which is correct: this test takes no config, so `resolveKSat` genuinely falls back to
+`fallbackKSat`, and asserting against the deleted constant would either not compile or assert stale math.
+No other assertion value changed. Mechanical, correctly scoped, matches the sibling tests this branch's
+own C10 already wrote the same way.
+
+### 4. What I did not re-verify
+
+Gate results (`gofmt`/`go build`/`go vet`/`go test`/`-race`/`make lint`) are taken as reported in the
+status file, including the one disclosed exception (a coverage-instrumented test run failing from a
+local go1.25.6-vs-go.mod-go1.26.0 toolchain mismatch, reproduced independently on `main` itself per the
+status file — pre-existing, not this branch's). Consistent with Finding 76/77's posture and Dean's
+mid-review instruction not to repeat the coder's own tests.
+
+### 5. Verdict
+
+**Rebase is clean.** No hunk was silently dropped or clobbered at any of the three collision points, the
+one apparent file-list discrepancy (`rescale.go`) resolves to a correct independent-convergence case
+rather than a loss, and the 28th commit is a narrowly-scoped, correctly-value-substituted mechanical
+fixup with no hidden behavior change. Push-readiness signal for Dean, unchanged from Findings 76/77 —
+push itself still needs his explicit confirmation, and `AD8` (b) placement (now landed via `C12`), `AD7`/
+`N5`, `AD5`'s regime-(i) freeze, and `B2` remain the open items per the plan's own accounting.
