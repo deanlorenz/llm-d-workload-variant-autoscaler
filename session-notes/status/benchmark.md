@@ -1821,20 +1821,36 @@ failure mode: frontmatter is not delivery.
 
 Needs Dean's decision:
 
-1. **The harness OOM** (§16.3) — memory bump vs `per_request: false`. Should be filed as a
-   reproducible defect. The gateway trace removes the *analysis* dependency but not the bug.
-2. ~~**How to capture the gateway access log during runs**~~ — approach approved and **built**;
-   see §17.10. The pod-delete reset is **done** (29.5 MB → 2.5 KB, ~4.6 runs of headroom). What
-   remains is a single step: **apply the follower**, which the local permission classifier
-   blocked. Nothing was created on the cluster. This is the last thing standing between us and a
-   next run whose per-request trace cannot be lost.
+1. ~~**The harness OOM** (§16.3) — memory bump vs `per_request: false`~~ — **DECIDED 2026-08-08**
+   ("increase the harness mem"): memory bump, `per_request: true` kept. Applied as
+   `harness.resources` → `cpu: 16 / memory: 96Gi` in
+   `hack/benchmark/scenarios/guides/wva-sat2-tp1.yaml`, overriding the fork default of 32Gi.
+   Sizing is evidence-based, not a guess: a 4.23 GB report succeeded at 32Gi, the ~11.9 GB ladder
+   report OOMed at 32Gi, so scaling the observed success ratio (7.6×) to 11.9 GB gives ~90 GB and
+   **64Gi would be expected to OOM too**. Two caveats recorded in the file itself: requests ==
+   limits in `20_harness_pod.yaml.j2`, so this is a real reservation on a shared cluster (cheap
+   against ~2 TiB node allocatable); and it is **not sufficient alone**, because the report is
+   written straight to the 20Gi PVC — see item 6. **Still open:** filing it upstream as a
+   reproducible defect. Peak is at serialization, not under load.
+2. ~~**How to capture the gateway access log during runs**~~ — **DONE 2026-08-08.** Approved,
+   built, applied and validated end to end; see §17.10. `deployment/gateway-log-follower` is
+   Running 1/1 in `dhl-wva-209`, writing `/requests/gateway-logs/igw-access.log` on the PVC. One
+   live completion request was traced the whole way through — request → gateway access log →
+   follower → PVC → `envoy_per_request.py` — giving
+   `MATCH code=200 bytes_tx=514 dur=720ms upstream=10.130.2.214:8000 reqid=43e32c11-2084-46c9`,
+   i.e. `UPSTREAM_HOST` and `x-request-id` both present in durable capture. The next run's
+   per-request trace is no longer a bet against kubelet rotation.
 3. **Scale the decode replica to 0?** Its 1 GPU is still held as the `minReplicas=1` steady
    state (§16.5). The serving stack was deliberately left up.
 4. **The unpushed commits above.**
-4a. **Next-run scenario changes requested by the viz session** (§17.11 items 4–6): a mid-band
-   dwell stage parking kv in 0.3–0.85 for ≥3 min, a short-output leg, and ≥300 s of collection
-   after load stops. These change the ladder itself, so they are the planner's and Dean's call —
-   handed over as `plans/session/handoffs/plan__benchmark-next-run-capture-list.md`.
+4a. ~~**Next-run scenario changes requested by the viz session** (§17.11 items 4–6)~~ —
+   **APPROVED by Dean 2026-08-08 ("3. OK") and IMPLEMENTED**; see §17.12. Built as two *new*
+   profiles rather than edits to `ta_autoscale_ladder.yaml.in`, which stays as the 08-07 run's own
+   record. The handoff `plans/session/handoffs/plan__benchmark-next-run-capture-list.md` still
+   stands for the planner, and §17.12 adds one item to it that only surfaced during
+   implementation: **the dwell may not be reachable by changing the offered rate at all**, because
+   steady-state kv is set by the controller's operating point, not by load. That lever is an
+   analyzer/scenario change and remains the planner's and Dean's call.
 4b. **The cross-worktree handoff protocol is broken between isolated sessions** (§17.11): neither
    coder can write to the shared `plans/session/handoffs/`, so handoffs land in each worktree and
    are found only by word of mouth, and the recipient cannot mark `.WIP`/`.DONE`. Worth a
@@ -2133,3 +2149,110 @@ against our log in place). Nothing of ours was modified. Open on their side and 
 case it lands on us: whether to add an envoy input path to the extractor so a ladder-shaped run
 can be rendered without a per-request file — 4 of 5 live panels survive that substitution, the
 exception needing per-request output sizes that (b) above says the access log cannot supply.
+
+### 17.12 Next run is configured and unlaunched: two new profiles + a 96Gi harness (2026-08-08)
+
+Dean's four go-aheads of 2026-08-08 — apply the follower, increase harness memory, take the three
+scenario changes, and "commit your edits and work" — are all executed. **Nothing has been run.** The
+standing rule holds: wait for his approval before any run, and show the final config first.
+
+#### What changed
+
+| file | change |
+|---|---|
+| `hack/benchmark/scenarios/guides/wva-sat2-tp1.yaml` | `harness.resources: cpu 16 / memory 96Gi` (new key; overrides the fork default 32Gi). `harness.experimentProfile` → `ta_autoscale_dwell.yaml`. |
+| `hack/benchmark/workloads/inference-perf/ta_autoscale_dwell.yaml.in` | **new** — mid-band dwell + long descent. 5 stages, 21,120 requests, 29 min of load. |
+| `hack/benchmark/workloads/inference-perf/ta_prefill_knee.yaml.in` | **new** — short-output leg, ~2000 in / ~100 out. 4 stages, 16,800 requests, 17 min of load. |
+| `.gitignore` | `.claude/settings*.json`, `ta-*-run.log`, `fork-local-uncommitted-*.patch`. |
+
+Verified by re-parsing the files rather than trusting the headers: `experimentProfile` resolves,
+`resources` reads back as `{cpu: 16, memory: 96Gi}`, and the request counts and durations quoted in
+each header match the stage lists (21,120 / 16,800).
+
+#### Why two profiles and not one edited ladder
+
+Three reasons, in order of weight.
+
+1. **`ta_autoscale_ladder.yaml.in` is the 08-07 run's own record.** Editing it in place would leave
+   an analysed run described by a file it never executed. Same argument that made the ladder a new
+   file rather than an edit of the staircase.
+2. **The short-output leg moves the stimulus, not the load.** Folding it into the dwell sweep would
+   move token shape and rate ladder together and destroy the comparable axis back to 08-07. The
+   profiles' own stated principle is one variable at a time.
+3. **They do not fit together.** Both are sized against the same 20Gi PVC and each needs it
+   reclaimed first, so they are sequential runs regardless.
+
+#### Sizing — the per-request trace is the binding resource, twice over
+
+`ta_autoscale_dwell` is deliberately **just under** the ladder: 21,120 req × 535 KB/req ≈ **11.3 GB**
+vs the ladder's 22,200 × 535 KB ≈ 11.9 GB. That is not a safety margin at 32Gi — it is why the
+96Gi bump and the PVC reclaim are both preconditions, not one-or-the-other. Request budget was the
+active constraint on the whole design: it is what forced the entry rungs short (the ladder already
+characterises 2–14 rps), what kept the sweep to two dwell rungs instead of three, and what pushed a
+rung above 26 rps out to a follow-up run (32 rps × 300 s is another ~9,600 req ≈ 5.1 GB and does not
+fit). Each of those is recorded in the profile as a choice, not an omission.
+
+`ta_prefill_knee`'s 535 KB/req does **not** transfer — its token shape is different — so its size is
+an estimate with a stated model. 535 KB cannot be input-dominated (2048 tokens of prompt text is
+~8–10 KB, three orders off); 535 KB / 512 output tokens ≈ 1.05 KB per *output* token is consistent
+with a verbose per-output-token record. Output-proportional therefore gives ~125 KB/req and ~2.1 GB,
+but the rung count is set by the **worst case** (shape-independent, 9.0 GB) because the model is
+unverified. If the run confirms ~2 GB, the follow-up can afford 4–5× more rungs and should take
+them: three load rungs is thin for a curve fit and is a budget compromise, not a design preference.
+
+#### The one thing that surfaced during implementation and is not in the handoff
+
+**Raising the offered rate may not move steady-state kv at all**, which would mean neither profile
+reaches the dwell. Under a controller that is tracking, replicas rise with load and per-replica kv is
+held near whatever the controller's operating point implies — so in steady state kv is closer to
+rate-*invariant* than rate-proportional. That is the most economical explanation for why no run in
+the pool has ever dwelt in 0.3–0.85: on the ladder the throughput analyzer dominated the combine and
+provisioned ahead of saturation, which holds kv low **by construction**.
+
+If that is the mechanism, the lever is the operating point, not the rate:
+
+- **(a) SAT alone, uncapped.** With the throughput analyzer off and `maxReplicas` at 10, the
+  saturation analyzer's own 0.70/0.85 watermarks put steady state *inside* the requested band by
+  design. Arm B was already this configuration and only missed because its ScaledObject was capped
+  at 2, which is what pinned it at kv ≈ 0.99. This is the cheapest and cleanest route to the dwell
+  and it costs no extra requests.
+- **(b) A deliberate replica cap.** Measures the cap — rejected for the ladder for exactly that
+  reason, but a legitimate instrument if chosen knowingly.
+
+Both are analyzer/scenario changes rather than workload changes, so both are the planner's and
+Dean's call. Sent as a **second** handoff,
+`plans/session/handoffs/plan__benchmark-dwell-operating-point.md`, rather than by editing the
+already-delivered `plan__benchmark-next-run-capture-list.md` — a sender does not edit a sent handoff,
+even one still in `.md` state.
+
+What the dwell profile can do **without** that decision is exploit replica quantisation: replica
+count is an integer, so per-replica load — and hence kv — peaks at rates just below the point where
+one more replica is warranted. The two rungs 1.3× apart (20 and 26 rps) are two independent samples
+of that sawtooth. The 20 rps rung is **retained from the ladder as the control**, not carried over by
+inertia: if both rungs come back at kv ≈ 0.67, that is a clean positive result for rate-invariance
+and settles the question the other way.
+
+#### Preconditions before this run can start
+
+1. **PVC reclaim to ≥14 GB free**, with host copies verified byte-identical first via
+   `verify_pvc_vs_host.py` — which has **never been run** (§17.8 item 6). Retention scope per §17.11:
+   the multi-GB per-replica traces go, **`metrics/raw/` stays**.
+2. **Confirm the 96Gi harness pod schedules** in `dhl-wva-209`. Node allocatable is ~2 TiB so this
+   should be uneventful, but requests == limits means it is a real claim on a shared cluster.
+3. **Cluster footprint flag, not a blocker:** at the observed ~6 rps/replica wall for this token
+   shape, 26 rps implies ~4.3 → **5 decode replicas / 5 GPUs** for ~6 min, one more than the
+   ladder's ~4. `maxReplicas` 10 should not bind; if it does, that is a finding. `ta_prefill_knee` is
+   the *cheaper* of the two (~2 replicas) despite its higher rates, because 100-output requests are
+   ~4.7× faster.
+4. **Run `post_run_analyze.sh <results_dir> dhl-wva-209` immediately afterwards** — §17.11 item 1.
+   The controller log is read from a rotating buffer and the ladder run lost its
+   `metrics/processed/wva_*` to exactly this.
+
+#### Profile switching — a trap worth not stepping in twice
+
+Switch profiles by editing `harness.experimentProfile`, **not** with `BENCHMARK_WORKLOAD=<name>`.
+`sync_workloads.py` resolves and asserts `experimentProfile` against
+`hack/benchmark/workloads/<harness>/`, whereas the Makefile's `BENCHMARK_WORKLOAD` copy branch
+(lines 677–692) looks in `BENCHMARK_SCENARIOS_DIR` = `test/benchmark/scenarios`, where these
+profiles do not live — so it would silently copy nothing while still passing `-w` to
+`llmdbenchmark`. Noted in the scenario file at the key itself.

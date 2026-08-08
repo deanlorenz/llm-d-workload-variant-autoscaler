@@ -1,0 +1,128 @@
+# ta_prefill_knee.yaml.in
+#
+# SHORT-OUTPUT / PREFILL-DOMINATED profile -- ~2000 in / ~100 out.
+# The autoscaling-viz cross-check's item 5 (session-notes/status/benchmark.md
+# §17.11), carried as its own run rather than as a leg of ta_autoscale_dwell.
+#
+# WHY IT IS A SEPARATE RUN, NOT A LEG
+#
+# It moves the STIMULUS. ta_autoscale_dwell.yaml.in moves the rate ladder while
+# holding the token shape fixed at 2048/512, which is what keeps it comparable to
+# the 08-07 ladder and staircase. Appending a 100-out leg to it would move shape
+# and rate together and leave no clean axis back to either. It also does not fit:
+# both profiles are sized against the same 20Gi results PVC, and each needs the
+# PVC reclaimed before it runs.
+#
+# THE ARITHMETIC THAT MAKES THIS PROFILE NECESSARY
+#
+# Our existing "prefill heavy" shapes are not prefill-heavy in any useful sense.
+# On the 08-07 arm A run at 2048 in / 512 out: TTFT mean 0.192 s, TPOT mean
+# 0.0217 s => decode ~= 512 x 0.0217 = 11.1 s against ~0.19 s of prefill. Decode
+# is ~98% of request time. 4K-in/1K-out is WORSE, not better -- lengthening the
+# input while lengthening the output keeps decode dominant. Prefill dominance
+# needs SHORT OUTPUTS, which is what this profile is.
+#
+# At 100 out the same numbers give ~2.17 s decode + ~0.19 s prefill ~= 2.36 s, so
+# ~4.7x faster per request => the single-replica wall moves from the observed
+# ~6 rps to roughly ~28 rps. The rate ladder below is scaled to that, which is
+# also why its cluster footprint is SMALLER than the dwell profile's despite the
+# higher rates (see Footprint).
+#
+# WHAT IT IS FOR: the ITL LOWER KNEE. On 08-07, below saturation `itl ~ running`
+# alone already reaches r^2 0.93-0.94 and adding a prefill term buys +0.001;
+# in-band (kv ~0.99) the same term buys +0.236. Prefill is a regime-specific
+# term, so a shape that isolates it is worth having. Note the confound that
+# motivated this: on that run corr(prefill/s, prompt/s) = +0.96, so the apparent
+# corr(itl, prefill/s) = +0.78 cannot be attributed. Holding output length short
+# and sweeping rate is how the two are separated.
+#
+# CAVEAT -- SAME OPERATING-POINT PROBLEM AS THE DWELL PROFILE, stated so it is not
+# discovered mid-analysis. A knee is a property of load per replica, and the
+# autoscaler's job is precisely to keep load per replica off the knee. Sweeping
+# offered rate under an active controller therefore samples whatever operating
+# point the controller holds, not the curve. Per-stage ITL against MEASURED
+# concurrency-per-replica is still a valid point on the curve at each rung, so
+# this run is not wasted -- but the sharp instrument for a knee is a FIXED replica
+# count with autoscaling off, which is an analyzer/scenario change and so is the
+# planner's and Dean's call. Raised in
+# plans/session/handoffs/plan__benchmark-next-run-capture-list.md.
+#
+# SIZING -- and this is an ESTIMATE with a stated model, unlike the dwell profile
+# whose 535 KB/req is measured at its own token shape.
+#   Measured: 4,234,888,579 B / 7920 req = 535 KB/req at 2048 in / 512 out.
+#   That cannot be input-dominated: 2048 tokens of prompt text is ~8-10 KB, three
+#   orders off. 535 KB / 512 output tokens ~= 1.05 KB per OUTPUT token, which is
+#   consistent with a verbose per-output-token record. So the defensible model is
+#   output-proportional, giving ~100 x 1.05 KB + ~20 KB fixed ~= 125 KB/req here.
+#
+#   requests = 180x10 + 180x25 + 180x45 + 480x5
+#            = 1800 + 4500 + 8100 + 2400 = 16,800
+#   expected ~= 16,800 x 125 KB  ~= 2.1 GB
+#   worst case (if the model is wrong and size is shape-independent at 535 KB/req)
+#            ~= 16,800 x 535 KB  ~= 9.0 GB
+# The rung count is set by the WORST case, not the expected one: 9.0 GB still fits
+# a reclaimed 20Gi PVC with margin. If the run confirms ~2 GB, a follow-up can
+# afford 4-5x more rungs and should take them -- three load rungs is thin for a
+# curve fit and is a budget compromise, not a design preference.
+# Wall clock: 180+180+180+480 = 1,020 s ~= 17 min of load.
+#
+# FOOTPRINT: at a ~28 rps/replica wall, 45 rps implies ~1.6 => 2 decode replicas.
+# This is the CHEAPER of the two profiles on a shared cluster despite the higher
+# offered rates. maxReplicas 10 will not bind.
+load:
+  type: constant
+  # Same seed as the ladder/dwell profiles. Note the output distribution differs,
+  # so sampled output lengths are NOT the ladder's -- only this profile repeats.
+  base_seed: 42
+  stages:
+  - rate: 10
+    duration: 180
+  - rate: 25
+    duration: 180
+  - rate: 45
+    duration: 180
+  # Descent: keeps the scale-down path and the 0.70 watermark in-window, and is
+  # the ">=300 s after load stops" window (480 s). Trickle rather than zero for
+  # the same reason as the dwell profile -- no requests means nothing observes the
+  # drain.
+  - rate: 5
+    duration: 480
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+  base_url: REPLACE_ENV_LLMDBENCH_HARNESS_STACK_ENDPOINT_URL
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+data:
+  type: random
+  # Input held at the ladder's shape so input is the CONTROLLED variable and only
+  # output length moves.
+  input_distribution:
+    min: 2000
+    max: 2100
+    mean: 2048
+    std_dev: 40
+    total_count: 2000
+  # The change. std_dev scaled with the mean (512 -> 100 is ~5x, 20 -> 4) so the
+  # coefficient of variation matches the ladder and dispersion is not a second
+  # moving variable.
+  output_distribution:
+    min: 90
+    max: 110
+    mean: 100
+    std_dev: 4
+    total_count: 2000
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+    # Load-bearing here more than anywhere: per-request ITL IS the measurement.
+    # The gateway access log cannot substitute (no TTFT, no per-token timing).
+    per_request: true
+storage:
+  local_storage:
+    path: /workspace

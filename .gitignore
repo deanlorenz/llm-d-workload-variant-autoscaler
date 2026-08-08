@@ -57,6 +57,22 @@ hack/tls-certs/
 
 # AI
 .claude/worktrees/
+# Per-session tool-permission grants. .claude/agents/ and .claude/skills/ ARE
+# tracked project content; settings*.json is local to one operator's session.
+.claude/settings.json
+.claude/settings.local.json
+
+# Console transcripts of individual benchmark runs (make output). Run-scoped like
+# the dean-*/ directories; whatever survives a run belongs in session-notes/.
+ta-*-run.log
+# Local reference copies from the 2026-06-15 TA3 session, deliberately untracked --
+# its own README says so, and the authoritative writeups are in git on
+# branch benchmark-ta3-legacy / tag archive/benchmark-ta3-legacy.
+reference-legacy/
+# Safeguard snapshots of uncommitted state in the llm-d-benchmark fork clone,
+# taken before an operation that could lose it. Redundant once the same change is
+# committed on the fork's wva-ta-benchmark branch, but harmless to keep locally.
+fork-local-uncommitted-*.patch
 
 # Python bytecode from the hack/benchmark and session-notes analysis scripts
 __pycache__/

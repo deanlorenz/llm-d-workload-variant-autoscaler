@@ -1,0 +1,170 @@
+# ta_autoscale_dwell.yaml.in
+#
+# MID-BAND DWELL profile -- successor to ta_autoscale_ladder.yaml.in, reshaped
+# around steady-state right-sizing rather than transition speed.
+#
+# WHY A NEW PROFILE RATHER THAN AN EDIT
+#
+# ta_autoscale_ladder.yaml.in is the profile the 2026-08-07 run executed and the
+# document that explains that run's stage boundaries. Editing it in place would
+# leave the analysed run describing itself with a file it never ran. Same reason
+# the ladder was a new file rather than an edit of the staircase.
+#
+# WHAT IT CHANGES AND WHY (requests, from the autoscaling-viz cross-check of
+# 2026-08-08 -- their items 4 and 6; see session-notes/status/benchmark.md §17.11)
+#
+#   1. A MID-BAND DWELL. Hold an offered rate that parks KV utilisation in
+#      0.3-0.85 for >=3 min. Called out as the single biggest gap in the whole
+#      data pool: it is what makes the concurrency-vs-latency slope fittable and
+#      the throughput knee locatable, and no run we have has ever dwelt there.
+#      Every run is either far below (this ladder topped out at kv 0.67 at
+#      20 rps) or pinned at kv ~0.99 (the 08-07 arm B, and only because its
+#      ScaledObject was capped at 2 replicas). The band between them is exactly
+#      the region an autoscaler is supposed to hold a service in.
+#
+#   2. LET THE RUN OUTLIVE THE COOLDOWN. >=300 s of collection after peak load
+#      stops, or scale-down never lands inside the measurement window. The
+#      ladder's closing 20->2 rps step was already the right SHAPE; it was the
+#      duration that was short. Extended to 720 s here, because the observed
+#      KEDA cooldown back to 1 replica is ~10 min -- 300 s would have satisfied
+#      the letter of the request and still cut the descent off mid-flight.
+#      Kept as a 2 rps trickle rather than zero load on purpose: at zero load
+#      there are no requests, so neither the per-request report nor the gateway
+#      access log can observe the drain they are there to observe.
+#
+#   Deliberately NOT changed here: the token shape, held at ~2048 in / ~512 out,
+#   identical to the ladder and the staircase. The cross-check also asked for a
+#   short-output leg (their item 5); that is a stimulus change and it lives in
+#   ta_prefill_knee.yaml.in as its own run. Folding it in would move the shape
+#   and the rate ladder at the same time and leave no comparable axis back to
+#   08-07. One variable at a time.
+#
+# THE HONEST CAVEAT, AND IT IS THE MAIN OPEN RISK IN THIS PROFILE
+#
+# Raising the offered rate may NOT move steady-state KV utilisation at all. Under
+# a controller that is tracking, replicas rise with load and per-replica KV is
+# held near whatever the controller's operating point implies -- so kv is closer
+# to rate-INVARIANT in steady state than it is to rate-proportional. That is the
+# most likely reason no run has dwelt in-band: on the 08-07 ladder the throughput
+# analyzer dominated the combine and provisioned ahead of saturation, which holds
+# kv LOW by construction.
+#
+# If that is what is happening, the lever is the operating point, not the rate:
+#   (a) SAT alone (throughput analyzer off) with an UNCAPPED ScaledObject should
+#       settle inside its own 0.70/0.85 watermark band -- i.e. in-band by design.
+#       Arm B was this configuration and only missed because maxReplicas was 2.
+#   (b) a deliberate replica cap, which measures the cap (rejected for the
+#       ladder, but it is a legitimate instrument if chosen knowingly).
+# Both are analyzer/scenario changes, not workload changes, so they are the
+# planner's and Dean's call -- raised in
+# plans/session/handoffs/plan__benchmark-next-run-capture-list.md.
+#
+# What this profile can do WITHOUT that decision is exploit the quantisation
+# sawtooth: replica count is an integer, so per-replica load -- and hence KV --
+# peaks at rates just below the point where one more replica is warranted. Two
+# long rungs 1.3x apart (20 and 26 rps) give two independent samples of that
+# sawtooth, and whichever lands on its high side yields the dwell. If BOTH still
+# read kv ~0.67, that is a clean positive result for rate-invariance and it
+# settles the question the other way -- which is why the 20 rps rung is repeated
+# from the ladder rather than dropped: it is the control.
+#
+# STAGE DURATIONS
+#
+# GLOBAL_OPT_INTERVAL is 60 s and a decode replica needs ~60 s to reach Ready
+# (measured 08-07: decisions 17:12:20 / 18:09:09, curr=2 observed 17:13:20 /
+# 18:10:09). So budget ~90-120 s of every rung to the transient. The two dwell
+# rungs are 360 s => ~240-270 s of SETTLED dwell, which clears the >=3 min ask
+# with margin. The two entry rungs are short on purpose: the ladder already
+# characterises 2-14 rps at 300 s each, so re-buying that costs requests the
+# per-request trace cannot afford (see Sizing).
+#
+# SIZING (the per-request trace is the binding resource -- both PVC and RAM)
+#   requests   = 120x5 + 180x14 + 360x20 + 360x26 + 720x2
+#              = 600 + 2520 + 7200 + 9360 + 1440 = 21,120
+#   trace size = 21,120 x 535 KB/req (measured: 4,234,888,579 B / 7920 req on the
+#                08-07 arm A run, same token shape) ~= 11.3 GB
+# Deliberately kept just UNDER the ladder's ~11.9 GB, which is the size that
+# OOM-killed the harness at the default 32Gi. Two things follow, and neither is
+# optional:
+#   * the scenario must carry harness.resources.memory: 96Gi (now in
+#     hack/benchmark/scenarios/guides/wva-sat2-tp1.yaml) -- 11.3 GB is not
+#     meaningfully safer than 11.9 GB at the old limit;
+#   * the 20Gi results PVC must be reclaimed to >=14 GB free BEFORE the run, and
+#     host copies verified byte-identical first
+#     (session-notes/scratch/verify_pvc_vs_host.py). Per the retention rule the
+#     multi-GB per-replica traces go and metrics/raw/ STAYS.
+# Wall clock: 120+180+360+360+720 = 1,740 s ~= 29 min of load.
+#
+# CLUSTER FOOTPRINT -- flag, not a blocker. At the observed ~6 rps/replica wall
+# for this token shape, 26 rps implies ~4.3 => 5 decode replicas, i.e. 5 GPUs
+# held for ~6 min, one more than the ladder's ~4. maxReplicas is 10, so the cap
+# should not bind; if it does, that is a finding, not a misconfiguration. GPUs
+# are released on scale-down and by the idle reaper as usual.
+#
+# NOT INCLUDED, and recorded so it is a choice rather than an omission: a rung
+# above 26 rps to push saturation harder. 32 rps x 300 s alone is another ~9,600
+# requests (~5.1 GB) and does not fit beside the dwell rungs on a 20Gi PVC.
+# Follow-up run if both dwell rungs come back below 0.3-0.85.
+load:
+  type: constant
+  # Same fixed seed as the ladder so prompt sampling is reproducible. The stage
+  # structure differs, so this does NOT reproduce the ladder's request stream --
+  # it only makes THIS profile repeatable.
+  base_seed: 42
+  stages:
+  # Entry: gentle warm-up off minReplicas=1. Short -- the ladder already covers
+  # this region and requests here buy nothing new.
+  - rate: 5
+    duration: 120
+  - rate: 14
+    duration: 180
+  # Dwell rung A -- the CONTROL. Reproduces the ladder's top rung (kv 0.67) but
+  # held 360 s instead of 300 s.
+  - rate: 20
+    duration: 360
+  # Dwell rung B -- the ASK. 1.3x above the ladder top; second sample of the
+  # replica-quantisation sawtooth.
+  - rate: 26
+    duration: 360
+  # Descent: exercises the scale-down path and the 0.70 watermark, and is the
+  # ">=300 s after load stops" window (720 s, sized to the ~10 min cooldown).
+  - rate: 2
+    duration: 720
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+  base_url: REPLACE_ENV_LLMDBENCH_HARNESS_STACK_ENDPOINT_URL
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: REPLACE_ENV_LLMDBENCH_DEPLOY_CURRENT_MODEL
+data:
+  type: random
+  input_distribution:
+    min: 2000
+    max: 2100
+    mean: 2048
+    std_dev: 40
+    total_count: 2000
+  output_distribution:
+    min: 480
+    max: 550
+    mean: 512
+    std_dev: 20
+    total_count: 2000
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+    # Load-bearing: per-request TTFT/ITL is the only source for the ITL fits, and
+    # the gateway access log is NOT a substitute for it (it carries no TTFT and no
+    # per-token timing). The access log IS a validated substitute for arrival,
+    # departure, sojourn and concurrency -- mean sojourn 0.23-0.42% low, p95
+    # within 0.08-0.93% on all eight stages of 08-07 -- so if this serialization
+    # OOMs again the run is degraded, not lost.
+    per_request: true
+storage:
+  local_storage:
+    path: /workspace

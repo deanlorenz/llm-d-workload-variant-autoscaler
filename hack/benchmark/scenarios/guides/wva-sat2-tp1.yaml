@@ -232,7 +232,17 @@ shared:
   workDir: "__WVA_WORKDIR__"
   harness:
     name: inference-perf
-    experimentProfile: ta_autoscale_ladder.yaml
+    # Next run: the mid-band dwell profile. The prior ta_autoscale_ladder.yaml is
+    # kept in hack/benchmark/workloads/inference-perf/ as the 08-07 run's record.
+    #
+    # Switch profiles by editing THIS key, not with BENCHMARK_WORKLOAD=<name>:
+    # sync_workloads.py resolves and asserts experimentProfile against
+    # hack/benchmark/workloads/<harness>/, whereas the BENCHMARK_WORKLOAD copy
+    # branch in the Makefile looks in BENCHMARK_SCENARIOS_DIR
+    # (test/benchmark/scenarios), where these profiles do not live -- so it would
+    # silently copy nothing while still passing -w to llmdbenchmark.
+    # For the short-output run, set: ta_prefill_knee.yaml
+    experimentProfile: ta_autoscale_dwell.yaml
     # Prevent the entrypoint's 3-attempt retry loop from re-running the whole
     # workload when inference-perf exits non-zero due to per-request errors.
     # Without this, stage 1 errors (e.g. transient timeouts under load) trigger
@@ -241,6 +251,27 @@ shared:
     extraEnvVars:
       - name: LLMDBENCH_RUN_EXPERIMENT_HARNESS_MAX_TRIES
         value: "1"
+    # Override of the harness default (cpu 16 / memory 32Gi, see the fork's
+    # config/templates/values/defaults.yaml). The 2026-08-07 ladder run OOM-killed
+    # the harness pod while serializing per_request_lifecycle_metrics.json.
+    #
+    # Sizing evidence, not a guess:
+    #   * a 4.23 GB per-request report SUCCEEDED at 32Gi (08-07 staircase, 7920 req)
+    #   * an ~11.9 GB report OOMed at 32Gi (08-07 ladder, 22200 req)
+    # Scaling the observed success ratio (32Gi / 4.23 GB = 7.6x) to 11.9 GB gives
+    # ~90 GB, so 64Gi is expected to OOM as well and 96Gi is the smallest defensible
+    # value. Peak is at serialization, not during load.
+    #
+    # NOTE this is a real reservation, not a ceiling: 20_harness_pod.yaml.j2 puts
+    # harness.resources.memory in BOTH limits and requests. Cheap against pokprod
+    # node allocatable (~2 TiB) but it is a shared cluster, so it is held for the
+    # life of the harness pod only.
+    #
+    # NOTE this alone does not make a large run succeed -- the report is written
+    # straight to the 20Gi results PVC, so PVC headroom is the co-binding resource.
+    resources:
+      cpu: 16
+      memory: 96Gi
 
   storage:
     modelPvc:
