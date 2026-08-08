@@ -84,37 +84,47 @@ here records the answers rather than pointing at open questions.
 
 ## TOC
 
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L103:208
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L209:296
-  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L251:296
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L297:608
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L609:681
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L682:711
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L712:1108
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L719:738
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L739:786
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L787:849
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L850:923
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L924:1050
-    - [Sat-only invariance](#sat-only-invariance) L989:1030
-    - [Goldens](#goldens) L1031:1050
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1051:1089
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1090:1108
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1109:1251
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1118:1153
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1154:1190
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1191:1251
-- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1252:1395
-  - [The gap](#the-gap) L1263:1285
-  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1286:1328
-  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1329:1371
-  - [Scope](#scope) L1372:1395
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1396:1430
-- [§4 Ship gate & tests](#4-ship-gate--tests) L1431:1686
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L1687:1933
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1934:2146
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2147:2283
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2224:2283
+- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L129:351
+  - [Where the branch actually is](#where-the-branch-actually-is) L138:161
+  - [What is genuinely left](#what-is-genuinely-left) L162:190
+  - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L191:212
+  - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L213:321
+  - [Premises to stop carrying](#premises-to-stop-carrying) L322:338
+  - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L339:351
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L352:457
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L458:658
+  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L500:658
+    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L505:564
+    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L565:615
+    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L616:658
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L659:970
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L971:1057
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1058:1087
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1088:1484
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1095:1114
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1115:1162
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1163:1225
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1226:1299
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1300:1426
+    - [Sat-only invariance](#sat-only-invariance) L1365:1406
+    - [Goldens](#goldens) L1407:1426
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1427:1465
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1466:1484
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1485:1646
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1494:1529
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1530:1585
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1586:1646
+- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1647:1802
+  - [The gap](#the-gap) L1670:1692
+  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1693:1735
+  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1736:1778
+  - [Scope](#scope) L1779:1802
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1803:1837
+- [§4 Ship gate & tests](#4-ship-gate--tests) L1838:2127
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2128:2391
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2392:2625
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2626:2826
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2767:2826
 
 ## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
 
@@ -147,19 +157,36 @@ Two consequences the freeze fixes rather than restates:
   golangci-lint **2.8.0 → 2.10.0** (PR #1512), so a green run from before that bump does not carry
   forward, and new findings are the bump's, not a regression.
 
+[↑ TOC](#toc)
+
 ### What is genuinely left
 
-The coder's own stand-down list, which the freeze adopts as the checklist — everything else in this plan
-is landed:
+⚠️ **The coder's stand-down list was stale by the time it was written — re-verified at `a9afb740` for this
+freeze, not adopted as written.** `A29`, `A30`, and `A28` are **already landed**: `k_sat_test.go:163` now
+reads *"scale-up watermark is 0.85"* (the token gone), `rescale_test.go:239,:248` already read
+`maxRep := 3` / `maxRep := 8` (`a9afb740`'s own commit body records the rename, from Finding 50), and
+`analyzer_helpers.go:88`/`:642` carry no token. **Re-verify any line number in this document before acting
+on it** — the C9 sweep moved every one.
 
-| Item | Work | Status at the freeze |
+| Item | Work | Status at the freeze (verified at `a9afb740`) |
 |---|---|---|
-| `A29` | Two §4a token edits — `k_sat_test.go:163`, `rescale_test.go:186` | **In scope, authorized by this freeze** |
-| `A30` | `max :=` shadows the builtin at `rescale_test.go:239,:248` → rename `maxRep` | **In scope, authorized** |
-| `A28` | Two surviving §4a violations — `analyzer_helpers.go:88`, `:642` (production doc comments) | **In scope, authorized** |
+| `A29` | Two §4a token edits — `k_sat_test.go:163`, `rescale_test.go:186` | ✅ **DONE**; sites clean |
+| `A30` | `max :=` shadows the builtin at `rescale_test.go:239,:248` → `maxRep` | ✅ **DONE**; renamed |
+| `A28` | Two claimed §4a violations at `analyzer_helpers.go:88`, `:642` | ✅ **DONE**; no token at either line |
+| **§4a residual** | **ONE** PR-2-introduced site survives: `docs/developer-guide/multi-analyzer-pipeline.md:858` — *"the claim-pricing question is open with the **Type-1** owner"* (introduced by `a679f2ad`, C6f) | **In scope, authorized by this freeze** — plans-branch taxonomy token, and it names an open internal question, which a Type 4 doc may not carry |
 | `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** |
 | rounding | `ceil` vs `floor` in `replicasToCover`, **three sites** per the indivisible-unit floor | ⛔ **Dean holds it** — see below |
 | `AD8` (b) | Three-site per-role pricing repair | ⛔ **Dean places it** — see below |
+
+**§4a is otherwise closed.** A class-based sweep of `internal/` and `docs/` at `a9afb740` finds 8 token
+lines across 4 Go files and 3 lines across 1 markdown file that are byte-identical at base `075a208e` —
+inherited from `main`, not this branch's to fix (`greedy_score_optimizer_test.go`, `analyzer_test.go`,
+`analyzer_helpers.go:411,:419`, `constants.go:85`, `throughput-analyzer.md:614,:646,:714`). Dismissed as
+false positives: the goldens' own `A1`–`C1`/`B1`/`B2` scenario labels and their `M1`–`M7` mirrors (which
+`a9afb740` deliberately made resolvable in-file), `Pro-B60-Graphics` (an Intel product name), and
+`grep -A5` in `controller-behavior.md`.
+
+[↑ TOC](#toc)
 
 ### What this freeze deliberately does NOT decide
 
@@ -181,6 +208,8 @@ latitude**, so silence here would read as permission. Two items are Dean's and a
 Neither is a defect in the freeze. A design or scheduling choice this plan declines to make is Dean's to
 make — what would be a defect is leaving it unnamed.
 
+[↑ TOC](#toc)
+
 ### `AD5`/`AD8` — the disposition the freeze carries
 
 Addendum 1 `AD8` is **DECIDED: repair the pricing** (Dean, 2026-08-08). The mechanism question is closed;
@@ -200,6 +229,20 @@ only placement is open.
   (`saturation/engine.go:1362`). It survives only as a documented severity floor for regime (ii), cost
   attached.
 
+**`AD5` — a distinct backlog item, not one of `AD8`'s three letters.** `AD5` is the *hold predicate*
+question (when the binding analyzer is not role-complete for a role, hold that role rather than let it
+drain or freeze) — related to `AD8` by sharing a cause (`VG-up`, `952d2fff`) but a different mitigation
+shape, and it does **not** fix `AD8` route (A) (demand vs. `RoleSpare` — a hold predicate addresses a
+role never being granted anything, not a role being priced away). **Recommendation, unchanged across
+every round of analysis: defer to a follow-up, not PR-2.** Reasons: the placement exists in **no
+document** (the anchor no longer sizes a role, so the predicate's insertion point — ballot construction
+vs. `binder < 0` handling — is undesigned); it needs its own trigger-state sub-decision (which state
+holds — "nobody priced this role" vs. "the analyzers agree on zero" are different states); and per
+*"don't leave design decisions to coder"* a mitigation that presupposes a modeling decision (how prefill
+demand is denominated, §7.1 `W2`-adjacent) cannot be correctly scoped on a code-complete branch. File the
+follow-up naming **both** halves — the mitigation (hold predicate) and the actual fix (demand
+denomination) — so it is not closed by the cheaper half alone.
+
 **Two regimes from one cause — they reach the backlog as two items, never one, because a fix verified on
 one says nothing about the other.** Dispatch is a global OR over roles
 (`analyzer_helpers.go:709-718`) with mutually exclusive arms (`cost_aware_optimizer.go:62-67`), which is
@@ -217,22 +260,28 @@ with no build or test behind it. `[TA]`-only is what remains, and Dean's guard (
 with TA and no saturation, do nothing*) makes that configuration **hold** rather than act, which
 *enforces* `AD2` rather than documenting it.
 
-⚠️ **Take the closure, not Rev 6's stated reason for it.** The addendum argues from a retention asymmetry
-— saturation's capacity store kept **7 days** (`saturation_v2/constants.go:19`) against TA's **1-hour**
-idle expiry. That constant is real but **dormant**: `EvictStale` and `EvictStaleHistory` have **zero
-callers tree-wide, tests included**, so records live for the process lifetime and the store does not
-self-trim. Anyone who *runs* that checklist row's re-verify command confirms a mechanism that never
-executes. The closure does **not** need the asymmetry: both memories are written by **the same event** —
-every replica-metric row writes a `learnedFromLive` capacity record keyed by that row's variant name, and
-TA's persisted supply can only go positive from rows in the same key space. **No duration is
-load-bearing.** Two further closures Rev 6 does not cite are independently sufficient in their own
-regimes: the model-level skip on empty replica metrics (`saturation/engine.go:1540-1545`) and the
-pre-analyzer `continue` on a failed scale-target fetch (`:1500-1507`, which turns "all-NoData model" into
-*no model*). Two citation notes in the same family: `capacity_store.go:135`'s doc comment names an
-`EvictionTimeout = 24h` that **does not exist** (the real 24 h constant is the k2 *history*), and TA's
-1-hour expiry keys on the variant **appearing** in the metrics slice rather than on usable metrics
-(`throughput/analyzer.go:99` precedes the `SanityIssueNoReplicas` `continue` at `:101-108`), so a
-rows-present-but-unusable gap keeps TA warm indefinitely.
+⚠️ **Take the closure, not Rev 6's stated reason for it — and this is now settled upstream, not a plan-side
+caveat.** Rev 6 argued from a retention asymmetry (saturation's capacity store kept **7 days** against TA's
+**1-hour** idle expiry). The designer has **withdrawn that argument** in **Rev 7** (`43f20c65`, § withdrawn
+item 9) while keeping the conclusion, so cite the addendum rather than re-deriving here. Three mechanisms
+under Rev 6's argument do not hold: the eviction constants are **dormant** (`EvictStale` /
+`EvictStaleHistory` have **zero callers tree-wide, tests included** — records live for the process
+lifetime); the TA side conflated **two fields** (`lastObservedAt`, `throughput/analyzer.go:99`, is assigned
+*before* the `SanityIssueNoReplicas` `continue` at `:101-108`, so the 1-hour clock keys on a variant merely
+**appearing** in the metrics slice, whereas the field the cell depends on is `lastPerReplicaSupply`, which
+needs usable rows); and the `NoData` stamp is governed by **row count**, `len(replicas) > 0`
+(`saturation_v2/analyzer.go:390`), not by arithmetic. The replacement needs **no time constant at all**:
+both memories are written by **the same event** — a usable replica-metric row writes saturation a
+`learnedFromLive` record keyed on the same `rm.VariantName` on the same cycle
+(`saturation_v2/analyzer.go:198-207`), protected from weaker sources by `capacity_store.go:98-101`, and
+saturation is warm over a **strictly broader** set because the store is also pre-populated from
+scale-target objects on step 1 of every cycle (`saturation/engine_v2.go:38-53`). Containment, not a race.
+**No duration is load-bearing**, and the conclusion is *stronger* than Rev 6 claimed. Rev 6's own stated
+residual ("a fresh process where every scale-target fetch fails") is **retired** by two closures it did not
+cite: the failed-fetch `continue` at `saturation/engine.go:1506` precedes both `scaleTargets[key] = …`
+(`:1520`) and `variantAutoscalings[…] = va` (`:1523`), and `:1540-1545` returns early on
+`len(replicaMetrics) == 0` before `BuildVariantStates` (`:1547`) — that state is **no model on the ballot**,
+not an all-`NoData` model, so there is nothing for TA to be sole voter on.
 
 **"Closed" is not "closed by exhaustive proof."** One residual is explicitly not closed: for the cell to
 open, **every** variant must reach `satReasonNoData`, which needs `EffectiveCapacity = min(k1, k2) <= 0`
@@ -268,6 +317,8 @@ rule is ever tidied, floor every variant in the role first* — tidy-first re-op
 both scale-down paths (measured: prefill → 0). It **governs regime (ii) only**; everything it protects
 lives inside `scaleDownVariantSet`, which regime (i) never enters.
 
+[↑ TOC](#toc)
+
 ### Premises to stop carrying
 
 Delete these from any inherited text rather than softening them:
@@ -283,6 +334,8 @@ Delete these from any inherited text rather than softening them:
 - **`W2` with `U4` as an open question** — it was answered and then deferred on Dean's own criticality
   test. Record it as settled-deferred.
 
+[↑ TOC](#toc)
+
 ### Latent, not live — recorded without an ask
 
 The reviewer's seam is real and survives Rev 6: informativeness reads per-variant `Reason`
@@ -291,6 +344,8 @@ The reviewer's seam is real and survives Rev 6: informativeness reads per-varian
 `VariantCapacities`. Aligning the two predicates is a **Type-1 design question, not PR-2 work**, and it is
 **not** a revival of rejected option (a) — different site (the liveness computation, not a second refusal
 predicate in the optimizer). No ask attached.
+
+[↑ TOC](#toc)
 
 ---
 
@@ -505,6 +560,8 @@ bodies' own self-identification, not assigned here.
    of the whole model's allocation, taking every variant behind it down too), and in `fairShareRolePick`
    the clamp must stay **after** the `firstDraw` floor, which raises `capN`.
 
+[↑ TOC](#toc)
+
 #### §1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature
 
 Classification per the deletion rule: **DEFERRED**, reason recorded in-code at
@@ -532,6 +589,18 @@ so it is the **Type-1 owner's** — raised to the designer by handoff, not resol
 enabled** — nothing in production code writes the tag, the write site is reachable only from tests, and
 for an untagged variant `maxTargetReplicas` is the `MaxReplicas` check verbatim. C9b's dev-guide
 subsection says exactly that; prose calling the ceiling an active guard would be false on the merged tree.
+
+**Owed, not blocking: `fillRole`'s clamp is untested at the one site a tagged variant can actually reach
+it through.** Of the three grant sites, `costGreedyRolePick` has three behavioral specs and
+`fairShareRolePick` is legitimately excused (a tagged variant's empty `AcceleratorName` fails its
+`available[...]` gate first, disclosed in that test's own comment) — but `fillRole` has neither an excuse
+nor a spec, despite the commit's own prose naming it the worst case (*"this loop is otherwise unbounded
+whenever MaxReplicas is unset"*). Because nothing in production writes the tag, this is dormant today and
+becomes live at the exact moment a future (D-a) lands — so it travels with that backlog item rather than
+needing a PR-2 amendment: whoever revisits (D-a) should land a `fillRole` fixture
+(`VariantCapacity{PerReplicaCapacity: 1, Reason: ReasonFromZeroAdmission}`, `GPUsPerReplica: 1`,
+`MaxReplicas` nil, `wantGPUs: 10` ⇒ assert `spent == 1`) alongside it — the four `maxTargetReplicas` unit
+specs prove the helper returns the right number, not that the loop honors it.
 
 ⚠️ **(D-b)'s ranking premise was also wrong and is corrected in the shipped tests.** An admitted variant
 does **not** sort behind every measured option: `PRC = 1` degenerates cost efficiency to `Cost`, but a
@@ -578,7 +647,7 @@ cover the change):
 | **C6f** | **`W4` — no conversion factor ⇒ no spend** (**behavior change**, TA-CREATED). An analyzer that cannot price a variant (no PRC for it) **abstains**: it contributes nothing to the claim and draws nothing from the budget. It is *not* budget-exempt — the distinction is the whole finding. Applies at unit-table rows 0 and 8. | `[sat,TA]` fixture where one analyzer has **no PRC for the reference variant** must produce the **same allocation** as the identical fixture with that analyzer **absent from the ballot** | pipeline "How results combine", "Fair-share iteration" | §7.1 `W4` |
 | **C7** | **Liveness** — `votingResults` `Enabled` → `Enabled && Live` (VG-up/D2); **DROP** the `bindingAnchor` sizing-fallback (N8, rewrites PR-1 Test 2 v2 110→0); **N7** abstain-vs-veto default abstain. | stale-enabled scale-up + role-coverage-mismatch fixtures | pipeline "How results combine" + "Scale-from-zero"; sat-config "How Scale-Up Triggers Work", "Saturation as the Identity Carrier" | §2b |
 | **C8** | **§2c notation cleanup** — strip `(a)/(b)` letters, keep descriptive prose. Comments/docs only, byte-identical behavior. | none (green byte-for-byte) | pipeline + sat-config (see §2c line list) | §2c |
-| **C11** | **`FZ-admission`** — a never-measured variant is currently invisible to the optimizer (`PRC <= 0` ⇒ ineligible), so a model at zero replicas can never be *proactively* admitted onto it. Two parts, **both already decided in the Type 1** — transcribe, do not re-open: **(D-a)** a `Reason`-tagged **`PRC = 1` admission sentinel** at the anchor's no-variant branch, gated on `ReplicaCount == 0` **and** binder-omitted; **(D-b)** a **one-replica ceiling on the variant's target** at the three sites that can grant replicas (`costGreedyRolePick`, `fairShareRolePick`, `fillRole`), folded into each one's existing `MaxReplicas`-headroom mechanism, **skip-not-zero-cap**. The cap is what makes the sentinel legal under `W4`. Retires the deferred *partial* scale-from-zero picker as a separate scope item. | four assertions: eligibility (a never-measured variant becomes pickable at 0 replicas) · ranking (it sorts **behind** every measured option) · the one-replica ceiling holds across iterations · **skip-not-zero-cap regression** (a capped variant must not zero out the model's allocation loop) | pipeline "Scale-from-zero" | §2f |
+| **C11** | **`FZ-admission`** — a never-measured variant is currently invisible to the optimizer (`PRC <= 0` ⇒ ineligible), so a model at zero replicas can never be *proactively* admitted onto it. Two parts, **both already decided in the Type 1** — transcribe, do not re-open: **(D-a)** a `Reason`-tagged **`PRC = 1` admission sentinel** at the anchor's no-variant branch, gated on `ReplicaCount == 0` **and** binder-omitted; **(D-b)** a **one-replica ceiling on the variant's target** at the three sites that can grant replicas (`costGreedyRolePick`, `fairShareRolePick`, `fillRole`), folded into each one's existing `MaxReplicas`-headroom mechanism, **skip-not-zero-cap**. The cap is what makes the sentinel legal under `W4`. Retires the deferred *partial* scale-from-zero picker as a separate scope item. | four assertions as originally specified: eligibility (a never-measured variant becomes pickable at 0 replicas) · ranking (⚠️ **written as "sorts behind every measured option" — false; corrected below and in §1.1.1/§2f: it sorts *first*, at `Cost = 0`, and safety comes from the cap plus one-cycle self-healing, not from rank**) · the one-replica ceiling holds across iterations · **skip-not-zero-cap regression** (a capped variant must not zero out the model's allocation loop) | pipeline "Scale-from-zero" | §2f |
 | **C10** | **k_sat is configuration, not a constant** — TA evaluates per-replica capacity at saturation's configured k_sat (`KvCacheThreshold`, default 0.80) instead of the hard-coded `DefaultKSat = 0.85`, which mirrored a *watermark*. Resolver + 4 threaded sites; `DefaultKSat` **deleted**. Not a combine bug; a correctness/configurability fix — the numeric shift is sub-1% at default config, *not* the ~6% an early draft claimed (§2e.3). | `resolveKSat` unit table; TA `Analyze` fixture with `KvCacheThreshold: 0.5` asserting PRC tracks config (red: pinned at 0.85), expected **2618.9**, **tolerance ≤1% relative** — the file's `muSat*0.10` idiom is *above* the 6.17% bound and stays green at 0.85 (§4) | throughput-analyzer (5 named locations) | §2e |
 | **C9** | **Dev-guide multi-vote sections + goldens endgame** — multi-vote reference prose; **relax/remove** the #1513 sat-only goldens as an explicit commit once the multi-vote goldens cover the single-vote sub-case. | multi-vote goldens; hand-worked design examples | all touched dev-guides finalized, **plus two documentation-only items that have no code commit of their own** and would otherwise be homeless: the `U5` capacity-gauge limitation (pipeline "Observability") and the `W3` priority-idiom prose (sat-config "V2 Analyzer Parameters" + "Validation Rules") — see §5 | §4 |
 
@@ -1460,21 +1529,40 @@ the PRC math. Recorded because the opposite conclusion was reached once and aban
 
 ### §2e.2 The fix — resolve once, thread to four sites
 
+⚠️ **FREEZE CORRECTION — the shipped shape is not the one this section specified, and is the reference
+now.** The code block below was written before C10 landed and type-asserted directly against
+`*config.SaturationScalingConfig`, clearing itself with *"verified no cycle (`internal/config` imports no
+`internal/engines` package)"*. **That clearance is wrong even for the code as specified**: `internal/config`'s
+own in-package tests import `throughput`, so a direct import the other way is a **test-binary** import
+cycle, not a production one — the earlier check looked at the wrong binary. The coder took a fifth shape
+that avoids the coupling rather than clearing it (verified read-only at `1a50b418`,
+`throughput/analyzer.go:217-223`):
+
 ```go
-// resolveKSat returns the KV-utilization fraction at which per-replica capacity is
-// evaluated. It is saturation's configured k_sat, so both analyzers agree on what
-// "full" means. It is NOT a scale-up/scale-down watermark — those are margins the
-// engine applies to RC/SC after Analyze() returns.
+// resolveKSat resolves saturation's configured k_sat from an analyzer-agnostic
+// interface rather than importing *config.SaturationScalingConfig: this package
+// cannot import internal/config (that package's in-package tests import this
+// one, so the edge is a test-binary import cycle). Any config exposing KSat()
+// satisfies it.
 func resolveKSat(cfg domain.AnalyzerConfig) float64 {
-	if sc, ok := cfg.(*config.SaturationScalingConfig); ok && sc.KvCacheThreshold > 0 {
-		return sc.KvCacheThreshold
+	if p, ok := cfg.(interface{ KSat() float64 }); ok {
+		if k := p.KSat(); k > 0 {
+			return k
+		}
 	}
-	return config.DefaultKvCacheThreshold
+	return fallbackKSat
 }
 ```
 
-Called once at the top of `Analyze`; the value threads down. New import of `internal/config` into
-`throughput` — **verified no cycle** (`internal/config` imports no `internal/engines` package).
+**The layering property holds by construction, not by a cleared cycle check:** production `throughput`
+imports **nothing** from `internal/config` — `KSat()` was added *inside* `internal/config`
+(`saturation_scaling.go:243`) as the concrete method the self-declared interface binds to, so the
+assertion is against TA's own already-injected config parameter, not a new dependency. `fallbackKSat`
+(0.80, `constants.go`) duplicates `config.DefaultKvCacheThreshold` rather than importing it, guarded
+against drift from both sides: `k_sat_test.go`'s `TestFallbackKSatMatchesConfigDefault` pins
+`fallbackKSat == config.DefaultKvCacheThreshold`, symmetric with `config.go`'s existing guard in the
+opposite direction (the same duplication pattern `throughputAnalyzerName` already uses). Called once at
+the top of `Analyze`; the value threads down to the three remaining sites below.
 
 | Site | Today | Change |
 |---|---|---|
@@ -1640,7 +1728,7 @@ never-seen variant rank *best* precisely when scale-up is needed. The explicit c
 | concern | effect | |
 |---|---|---|
 | eligibility | clears every `PRC <= 0` gate — the whole point, riding gates that already exist | ✅ |
-| ranking | `costEfficiency = Cost / PRC` degenerates to `Cost`, totally ordering never-seen peers by cost; and because measured PRCs are ≫ 1, a never-seen variant ranks **behind** every measured option — conservative and desirable | ✅ |
+| ranking | `costEfficiency = Cost / PRC` degenerates to `Cost` ⚠️ **this row is false and was never buildable — see §1.1.1.** A never-seen variant's `Cost` is **0** (saturation prices `variantCost` only from live `inputMetrics`, `saturation_v2/analyzer.go:352-360`, and a zero-replica variant contributes none), so `costEfficiency = 0/1 = 0` and it ranks **first**, tying every other never-measured peer, not last. Measured PRCs being ≫ 1 was never the operative condition — ranking behind a priced peer needs a *cost-ratio* inequality the sentinel does not satisfy. Safety comes from the (D-b) cap plus one-cycle self-healing once real metrics arrive, not from rank. | ❌ |
 | sizing | in the binder's currency `PRC = 1` reads as *"one replica serves 1 req/s"*, so `target / PRC` and `fillRole`'s `targets[v]++` loop treat it as real capacity. **Unclamped, one never-seen variant can absorb the whole budget one request-per-second at a time** | ⚠ needs (D-b) |
 
 [↑ TOC](#toc)
@@ -1748,6 +1836,22 @@ after. Run with `-race` (§4).
 
 <a id="4-gate"></a>
 ## §4 Ship gate & tests
+
+> **FREEZE RECORD (2026-08-08) — the gate ran and the goldens endgame executed.** Pipeline suite at
+> `a9afb740`: **386 passed / 0 failed / 1 pending** (base was 308 specs). **No golden moved anywhere in the
+> stack**, including at C6c — the `ceil → floor` boundary this section warned about turned out
+> value-neutral on every existing fixture, so the anticipated legitimate move never materialized. C6e's
+> commit states the same result and, correctly, *"that is not evidence the fix is inert"* — the existing
+> golden is single-model and demand-bound with a generous pool, i.e. blind to the double-spend by
+> construction. **Invariant 7's direct test landed** in `209e148f` (both halves: field-for-field anchor
+> equality and the not-invoked assertion). **The endgame executed** in `4e369f10` — the sat-only goldens
+> were removed as an **explicit** commit, scenario by scenario, with a one-line mapping per removed spec.
+>
+> **Two gates remain and are NOT satisfied by the above**, because both post-date the runs: (1) **re-run
+> `make lint`** after the rebase — `main` moved golangci-lint **2.8.0 → 2.10.0** (PR #1512), so a green run
+> from before that bump does not carry forward and any new finding is the bump's, not a regression;
+> (2) the rebase itself now targets plain **`main`** (PR-1 merged as `57f3fe64`), not a sibling branch tip.
+> Everything below is the specification the suite was written against.
 
 - The saturation-only characterization goldens (landed via their own PR
   [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513)) must **still** pass
@@ -1962,6 +2066,16 @@ after. Run with `-race` (§4).
   (`make test` / `gofmt` / `make lint` / `go build`; DCO sign-off; branch verify). See §6 for the
   semantic-pivot grep steps that must run before commit.
 
+⚠️ **FREEZE RECOUNT (2026-08-08) — every count below (32/48/31/17) is superseded; do not re-quote them.**
+This passage tracked a moving target through C6a→C9 and was rewritten several times mid-flight (each
+revision below records its own "corrected" date). It is now closed: the actual, final numbers are in
+§0.0's *"What is genuinely left"* table — **0 PR-2-introduced Go-file violations, 1 PR-2-introduced
+markdown violation** (`multi-analyzer-pipeline.md:858`, missed by C9e's own sweep, now authorized for a
+follow-up edit), **8 Go-file + 3 markdown lines inherited from base** (`governance-follow-ups.md`'s, not
+PR-2's). The commit-*message* half is separately recounted just above (§4 note): **22 of 25 commits**
+carry a token. Read the rest of this passage as **historical narration of how the count was tracked
+down**, not as a current figure — kept for the reasoning, not the numbers.
+
 **Plans-branch token hygiene (CODER-CONVENTIONS §4a) — two halves, only one of which a commit can fix.**
 A full-branch sweep (reviewer, 2026-08-07) found **32 code/doc locations plus a token in all nine commit
 messages** — 6 of 9 subject lines (`(N2)`, `(Bug #2)`, `(Bug #1)`, `(Bug #3)`, `(C6a)`, `(C6b)`) and 8 of 9
@@ -1972,7 +2086,7 @@ cross-cutting token-sweep bullet): widening the grep to the full §4a token set 
 PR-1 base `075a208e`**. The inherited 17 are **out of scope for this PR** — they belong to the pre-existing
 `main`-side §4a cleanup tracked in `planning/governance-follow-ups.md`, and 8 of them are the #1513
 goldens' own `Commit 2/3/4` scenario labels, which PR-2 must not churn. Any "grep to zero" criterion has to
-be scoped to the PR-2 delta or it is unachievable by construction. Notes for whoever actions it:
+be scoped to the PR-2 delta or it is unachievable by construction. Notes for whoever actioned it (landed):
 
 - **The 32 code/doc locations ride one sweep commit.** C9 already touches the dev-guide, so it is the
   natural host. Two of the 32 are in the shipped Type 4 `multi-analyzer-pipeline.md` (`:338` `N7`, `:472`
@@ -1982,21 +2096,29 @@ be scoped to the PR-2 delta or it is unachievable by construction. Notes for who
   `Bug #n` form is worse than the `Nn` form: `Nn` is merely opaque, whereas `Bug #2` reads as a tracker
   reference and sends a reader to an unrelated issue #2. Keep `#1513` in the golden's comment — that is a
   real GitHub PR number and is legitimate.
-- **The nine commit *messages* are not reachable by any later commit.** A tenth commit cannot clean subject
-  lines that `git log --oneline` and the GitHub commit list show permanently; only `rebase -i` + reword ×9
-  reaches them. **This is a decision for Dean, and it is schedule-bound rather than work-bound:** the branch
-  needs a force-push regardless (`origin/ta-anchor-dynamic-refresh@f6485980` is already orphaned by PR-1's
-  reword), so folding the reword into that unavoidable force-push costs ~nothing — whereas the identical
-  reword *after* a GitHub PR is opened becomes a history rewrite on a live PR branch, which the project's
-  "no rebase of live PR branches" rule exists to prevent. So the cheap window closes the instant the PR
-  opens. **"Not worth it" is a legitimate answer** and should be recorded as accepted; what should not
-  happen is the default-by-omission where the PR gets opened first and the choice is made for us.
-  Requires Dean's explicit go-ahead like any force-push. **Second, weaker deadline:** if the answer is
-  "reword", doing it now keeps the rebase at **9** commits rather than **16** (count corrected
-  2026-08-07 — the refresh added C6e, C6f and C11, so **seven** commits are still unwritten:
-  C6c/C6d/C6e/C6f/C11/C10/C9, each one another reword to type). Not a correctness matter, only effort —
-  but the effort roughly doubles by waiting, and the *cheap-window* deadline above is the one that
-  actually closes.
+- **⚠️ FREEZE RECOUNT (2026-08-08) — the "nine" figure is stale; the branch is code-complete and the
+  count is now final, not a moving target.** Measured directly against the shipped tip `a9afb740`
+  (`git log --format='%s'` / `%b` over `075a208e..a9afb740`, all 25 commits): **9** subjects carry a
+  plans-branch token; **22 of 25 commits** carry one in the subject *or* body — only `34b18bc5` and
+  `757fc6f5` are fully clean. `a9afb740` itself (C9e, the final comment sweep) is the largest single body,
+  13 lines, because it is the commit that *removed* most in-tree tokens and had to explain the removal in
+  branch-history terms. **The reword count and the token-removal count are two different numbers and this
+  plan previously conflated their trajectory** — §4a's *code/doc* token count went **down** over the
+  branch's life (C9's sweep is what did it), while the *commit-message* count only ever goes **up**,
+  because messages are permanent once committed. The "9 now vs 16 later" framing measured the wrong
+  quantity against a moving target; there is no more "later" to project — the batch is 22 either way,
+  and rewording is now a fixed one-time cost. **The commit *messages* are not reachable by any later
+  commit.** A further commit cannot clean subject or body text that `git log --oneline` and the GitHub
+  commit list show permanently; only `rebase -i` + reword ×22 reaches them (as bodies, not all as
+  subjects — 13 of the 22 are body-only, a smaller edit than a subject reword). **This is a decision for
+  Dean, and it is schedule-bound rather than work-bound:** the branch needs a force-push regardless
+  (`origin/ta-anchor-dynamic-refresh@f6485980` is already orphaned by PR-1's reword), so folding the
+  reword into that unavoidable force-push costs ~nothing — whereas the identical reword *after* a GitHub
+  PR is opened becomes a history rewrite on a live PR branch, which the project's "no rebase of live PR
+  branches" rule exists to prevent. So the cheap window closes the instant the PR opens. **"Not worth it"
+  is a legitimate answer** and should be recorded as accepted; what should not happen is the
+  default-by-omission where the PR gets opened first and the choice is made for us. Requires Dean's
+  explicit go-ahead like any force-push.
 
 [↑ TOC](#toc)
 
@@ -2004,6 +2126,17 @@ be scoped to the PR-2 delta or it is unachievable by construction. Notes for who
 
 <a id="5-devguide"></a>
 ## §5 Dev-guide sections (named, per commit)
+
+> **FREEZE RECORD (2026-08-08) — all four named dev-guides shipped.** Measured at `a9afb740`:
+> `multi-analyzer-pipeline.md` **+548/−**, `saturation-scaling-config.md` **+65/−**,
+> `throughput-analyzer.md` **+28/−**, `quota-limiter.md` **+15/−** (572 insertions, 84 deletions across the
+> four). The two homeless documentation-only items this section adopted both landed in `757fc6f5` — the
+> `U5` capacity-gauge limitation and the `W3` priority-idiom prose — and the prose half of C9 landed in
+> `2ae440e3`. **One shipped section says the opposite of what this plan specified, deliberately:** the
+> from-zero admission subsection is written as *built, not enabled*, because C11 (D-a) is deferred
+> (§1.1.1), and it corrects the ranking claim rather than repeating it. Treat the per-commit rows below as
+> the specification, and `2ae440e3` as the authority on what the merged prose actually asserts. **Every
+> `~L` hint in this section is now up to 25 commits stale — grep the heading text.**
 
 Per CONVENTIONS Type-3: name specific sections, not "update the dev guide." Section titles are as-of
 `f6485980`; grep the heading text if line numbers drift. **They have drifted — do not trust the `~L`
@@ -2257,6 +2390,27 @@ have.
 
 <a id="6-grep"></a>
 ## §6 Semantic-pivot grep steps
+
+> **FREEZE RECORD (2026-08-08) — the greps ran and their fallout landed.** The comment-accuracy repairs
+> they surfaced are commits `4fb49ac6`, `eb12089a`, `2ae440e3` and `a9afb740` (the last one titled for
+> exactly this: *"make every reference in shipped comments resolvable from `main`"*). Four premises the
+> greps exposed as false were rewritten rather than reworded — see §2b's N8 note and §1.1.1's ranking
+> correction.
+>
+> **The §4a token sweep is NOT closed, and it is the freeze's only remaining mechanical work.** Still owed,
+> all authorized by this freeze and all in the coder's scope: two production doc comments at
+> `analyzer_helpers.go:88` and `:642`, two test tokens at `k_sat_test.go:163` and `rescale_test.go:186`,
+> and the `max :=` builtin shadowing at `rescale_test.go:239,:248` (rename `maxRep`). Note `2ae440e3`
+> already removed four tokens that the final ledger had counted, so the remaining ledger is **smaller than
+> any earlier count in this document** — re-grep rather than trusting a number written here.
+>
+> ⚠️ **Separately and still unresolved: the commit-message half.** A plans-branch token appears in the
+> *messages* of the landed commits, and a further commit cannot fix a message — only `rebase -i` + reword.
+> The branch needs a force-push anyway (`origin/…@f6485980` is orphaned), so it is nearly free now and
+> becomes a live-PR history rewrite once PR-2 opens. **Re-count against `a9afb740` before acting**: the
+> figure this document carried was measured at an earlier tip and every commit since then may add one.
+> *"Not worth it" is a legitimate answer; silence is not.* **Dean's call, and the window closes when PR-2
+> opens.**
 
 Each behavioral-contract change below carries a grep the coder runs **after** implementing and **before**
 committing, updating every stale hit in comments/docstrings/dev-guides (CONVENTIONS + CODER-CONVENTIONS
@@ -2530,9 +2684,38 @@ were deliberately moved into C6e/C6f/C11. Nothing new left PR-2's scope as a res
   question, the Type-1 owner's) is answered. PR-1 §12's listing of it as deferred is therefore **correct
   as written** and needs no reconciliation.
 - **`AnalyzerName` validation** — separate validation PR.
-- **sat `Cost=0`-for-zero-replica mis-ranking (N5, non-fallback half)** — reaches all three configs; a
-  **separate saturation bug**, not fixed by N8 (N8 only removes the *fallback* half). File/fix
-  separately.
+- **sat `Cost=0`-for-zero-replica mis-ranking (`N5`/`AD7`, non-fallback half)** — reaches all three
+  configs; a **separate saturation bug**, not fixed by N8 (N8 only removes the *fallback* half).
+  **Decided (Dean, via Addendum 1): fix.** Root cause is **sourcing, not arithmetic** — cost is a spec
+  property (`VariantCost` is set on the spec, the same precedent `AcceleratorName` follows) but the
+  pipeline reads it from `ReplicaMetrics.Cost` (`saturation_analyzer.go:59`), a live-pod-derived type a
+  cold variant has no entry in. **Sizing/placement is the planner's call, and the recommendation is: a
+  follow-up, not a PR-2 growth** — `VariantReplicaState` (`:386-409`) is spec/deployment-derived and
+  already exists for a zero-replica variant, but carries neither `AcceleratorName` nor `Cost`; adding
+  that field pair there fixes this bug, the `AD6` retention-hazard identity question, and the
+  `fairShareRolePick`-unreachable-via-`available[AcceleratorName]` gap (§1.1.1's fillRole note above) in
+  one change — one root cause, three symptoms, so the follow-up should be scoped as *the field pair*,
+  not as three separate patches. **File/fix as that follow-up, not inside this PR.** ⚠️ **Reverses
+  CURRENT.md, which lists `N5` under this PR's *out* set — needs a `sync__` line recording this
+  disposition change**, not a silent carry-forward.
+
+**NOT in PR-2 — genuinely unanswered, not decided-and-deferred: the claim-pricing distortion
+(`537b0153`).** `referenceVariantForRole` prices a role's claim through one variant's `GPUsPerReplica`
+while `fairShareRolePick` spends the entitlement through whichever candidate it lands on, using *that*
+variant's `GPUsPerReplica` — reference selection filters only on `PerReplicaCapacity > 0`, never checks
+headroom, so it can price a whole role through a variant the picker cannot buy, inflating that model's
+claim (and ranking) by the ratio between the two `GPUsPerReplica` values. **Cross-model, not intra-model**
+— the pool is honoured in both directions (it is a pure redistribution between contending models), so no
+pool check and no single-model golden can see it. The coder deliberately left this **undecided** rather
+than picking a fix: a `PIt` pending spec (`537b0153`, +88, asserting the honest even split) is pinned as a
+dormant characterization, verified red when temporarily enabled, isolated in its own revertable commit.
+**Disposition is the Type-1 owner's** (three shapes on the table, none chosen: accept-and-document /
+headroom-partial / `min(gpusPR / PRC)` over feasible candidates — the last changes the **ranking key**
+for any unequal-PRC role and no golden covers that either) — route by handoff, not decided here. If the
+ruling is "current pricing is correct as designed," the pending spec is deleted; otherwise it goes green
+when the fix lands. The dev-guide sentence naming this (`multi-analyzer-pipeline.md`, "Fair-share
+iteration") must say *"open with the analyzer-design owner"* or equivalent — not "Type-1 owner" verbatim,
+which is the one §4a residual this freeze already authorizes fixing (§0.0 table).
 
 **NOT in PR-2 — deferred design work, decided-and-deferred rather than unanswered (added 2026-08-07):**
 - **`W2` with `U4` — priority orders but never scales an entitlement.** Answered in the frozen Type 1 and
