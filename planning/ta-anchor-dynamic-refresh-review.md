@@ -7860,3 +7860,176 @@ Unchanged. Attribution regime-split, severity unsoftened, frequency of the `dead
 `reclaimRole` still un-instrumented per-function (§2(i) bounds what that costs without closing it),
 disposition the planner's and Dean's. Closed from my side on the same condition as before — unless new
 code lands.
+
+---
+
+## Finding 73 — frequency answered, and the state is reachable *by construction*: the liveness predicate cannot see the field the positive RC lives in. Two citations relocated, and the floor repair turns out to reach only one of `AD5`'s two regimes
+
+Scoring `plan__ta-anchor-ad5-frequency-answered-and-prefill-freezes-rather-than-drains.md` (coder, HEAD
+`a9afb740`). It answers the one `AD5` item that was the coder's — frequency of the `deadRC > 0` state —
+and retracts its own earlier "only a hand-built ballot reaches the state." Every load-bearing claim
+verified below at `a9afb740`; the measurements are the coder's, I ran nothing.
+
+The headline holds and is stronger than the handoff states it. Two of its citations point one hop off the
+line that carries the weight. And a sweep it did not run — every `MinReplicas` read site in the pipeline —
+shows that the floor repair Findings 71 and 72 spent their proofs on reaches **regime (ii) only**, which
+bounds my own work, not just the coder's.
+
+### 1. The composite route — CONFIRMED, with two citations relocated onto the lines that carry it
+
+The metric-free demand route is real, and each step checks out:
+
+- **The guard admits on bytes alone.** `estimateSchedulerQueueDemand` (`saturation_v2/analyzer.go:750-795`)
+  returns empty only on `sq == nil || (sq.QueueSize == 0 && sq.QueueBytes == 0)`, so `QueueBytes > 0`
+  passes on its own.
+- **The input-token term reads no replica metrics.** `tokensFromBytes = float64(sq.QueueBytes) /
+  BytesPerToken`. With no replica metrics, `computeModelWorkloadAverages` (`:598-614`) accumulates only
+  when `rm.AvgInputTokens > 0 || rm.AvgOutputTokens > 0` and divides only `if count > 0`, so it returns
+  0/0/0 — `tokensFromCount = QueueSize × 0 = 0` and `avgHitRate = 0` both vanish, leaving
+  `inputTokens = QueueBytes / BytesPerToken`, positive.
+- **Role attribution needs no metrics.** `byRole[prefill] = inputTokens`,
+  `byRole[decode] = inputTokens + outputTokens`.
+- **The per-variant dead end is as described.** Per-variant `TotalDemand` accumulates only inside the
+  `len(replicas) > 0` branch (`:397`, `totalDemand += float64(rc.ReplicaDemand)`); the three fallback
+  branches set `perReplicaCapacity` alone and the `satReasonNoData` else-branch sets only `capacityLabel`.
+  A NoData variant contributes exactly zero demand, so "all variants NoData ⇒ RC 0" is airtight *until*
+  the queue term is added independently at `:485-491`, after `AggregateByRole`.
+- **The precondition is tight and correct.** With `QueueSize > 0` but `QueueBytes == 0` and no replica
+  metrics, `tokensFromBytes = 0`, `tokensFromCount = QueueSize × 0 = 0`, `outputTokens = QueueSize × 0 = 0`
+  — the result is admitted past the guard but all-zero, so the route does not open. It genuinely needs
+  bytes. Worth keeping in the record exactly that narrowly.
+
+**Two citations relocated.** The handoff says `activeRoles` (`:104-107`) and `hasDisaggregation`
+(`:471-478`) "are derived from `VariantStates`." Both actually iterate `variantCapacities`, not
+`VariantStates`. The substance survives at one remove — the append sets `Role: vs.Role` (`:444`), so the
+role is CR-derived — but relocating it exposes the line that is really load-bearing, and neither of us was
+looking at it:
+
+> **the `satReasonNoData` branch falls through to the append rather than skipping the variant**
+> (`:430-432`, then `:441-453`).
+
+Had that branch `continue`d, a no-data variant would produce no `VariantCapacity` at all: `activeRoles`
+would be empty, `hasDisaggregation` false, `aggregateByRole` would return nil at `:479-481`, and the entire
+route would close. The route exists because a variant nobody can price still gets an entry carrying its
+`Role`, its `ReplicaCount`, and a `Reason`. That single fall-through is the load-bearing fact, and it is
+worth naming in place of the `VariantStates` citation.
+
+### 2. My own precondition from the last round — real gate, vacuous in practice; closing it rather than banking it
+
+I flagged that the queue-demand add is gated `if t, ok := totals[role]; ok` (`:486-491`), so a role must
+already appear in `AggregateByRole`'s output to receive queue demand — a precondition the handoff did not
+state. Checked: the gate is real but **cannot bind**.
+
+`activeRoles` keys through `canonicalRole` (`:618-623`: `"" → both`, else identity) and
+`aggregation.AggregateByRole` (`aggregation/aggregation.go:72-86`) applies the identical `"" → both`
+normalization, then writes `result[role] = t` unconditionally on every variant — no capacity or demand
+threshold. Same input slice, same normalization, unconditional write ⇒ every role with at least one
+variant has a key. So the gate never drops queue demand for an active role.
+
+Recording it as closed. It does not narrow the coder's route, and a precondition that cannot bind should
+not sit in the record looking like a mitigation.
+
+### 3. The state is reachable *by construction* — the two predicates read disjoint field families
+
+This is where the answer is stronger than "an ordinary startup path." The `deadRC > 0` state is not an
+unlucky coincidence of inputs; it is the structural consequence of judging liveness on one field family
+while computing the RC that reaches the optimizer from another.
+
+- **Informativeness sees only per-variant `Reason`.** `ResultIsInformative`
+  (`pipeline/analyzer_helpers.go:53-63`) iterates `nr.Result.VariantCapacities` and returns true on the
+  first `Reason` that is neither `ReasonNoData` nor `ReasonError`. **It never reads `RoleCapacities`.**
+- **Liveness is written from nothing else.** `perAnalyzer[nr.Name] = at` (`saturation/engine_v2.go:244`)
+  is the only write in `updateLivenessAndSetLive`, and it sits inside `if ResultIsInformative(*nr)`
+  (`:240`). Then `lastGood, ok := perAnalyzer[nr.Name]; nr.Live = ok && now.Sub(lastGood) <= threshold`
+  (`:246-247`). An analyzer that has never produced an informative result has **no entry**, so `ok ==
+  false` and `Live = false` with no staleness window involved at all — the coder's liveness step
+  confirmed.
+- **The positive RC lives in the family the predicate cannot see.** `applyUniversalThreshold`
+  (`:476-513`) computes per-role `RequiredCapacity` from `RoleCapacities.TotalDemand`, which
+  `estimateSchedulerQueueDemand` fed without touching a single `VariantCapacity`.
+
+So all variants `NoData` ⇒ non-informative ⇒ no timestamp ⇒ `!Live`, *while* the same result carries
+positive per-role `RequiredCapacity` sourced entirely from the queue term. `Enabled && !Live && RC > 0`
+is not a rare input; **it is what any input that puts demand only in the queue term produces.**
+
+Two consequences worth carrying to the ship decision:
+
+1. The frequency question stops being "how often does a cluster land in a rare state" and becomes "how
+   often does a P/D model start with upstream queue depth and nothing priceable" — a routine startup
+   question, not a rare-state one.
+2. No amount of production data can retire this state. Only aligning the two predicates would — e.g.
+   having informativeness consider `RoleCapacities` demand, or having the queue term mark the variants it
+   speaks for. That is a design question for the Type 1, not a PR-2 item, and I am not proposing it as
+   one.
+
+### 4. The two-regime split — accepted, and it bounds Findings 71 and 72 to regime (ii)
+
+Accepted in full: the measured table, the dispatch reading (`anyRoleNeedsScaleUp` printed true, so
+`cost_aware_optimizer.go:61-66` takes the scale-up branch and `scaleDownRoleIterated` is never entered),
+and that the Type 1's *"prefill's target collapses to 1"* describes regime (ii) only. In regime (i)
+prefill is **frozen at current, including 0**, and the cheapest-at-1 accident is not on the path at all.
+
+That has a consequence for **my own** last two findings which the handoff does not draw, and which cuts
+against the repair I have been pricing. `anyRoleNeedsScaleUp` is a **global OR** across roles
+(`analyzer_helpers.go:709-718`), so one role's positive RC sends the *whole model* down the scale-up
+branch. Everything Findings 71 and 72 proved lives in `scaleDownVariantSet`, which that branch never
+calls. **So the `MinReplicas` proof, its reach across both shed callers, and the sequencing constraint all
+govern regime (ii) only.**
+
+And regime (i) has no repair on the table. I swept every `MinReplicas` read in `internal/engines/pipeline`
+— four sites, and each is downstream of a decision a frozen variant never triggers:
+
+| Site | What it does | Reaches a frozen prefill? |
+|---|---|---|
+| `cost_aware_optimizer.go:145-146` | the shed floor Findings 71–72 prove | No — shed path (regime (ii)) only |
+| `rescale.go:527-528` | `floorGPUs` budget accounting for reclaim | No — accounting, not a target raise |
+| `rescale.go:647-648` | per-role floor GPU total | No — accounting, not a target raise |
+| `greedy_saturation_algorithm.go:114-115` | *"MinReplicas is a hard floor"*, raises `TargetReplicas` | **No** — see below |
+
+The fourth looked like it would rescue regime (i): it raises `d.TargetReplicas` to `*d.MinReplicas`
+unconditionally, outside any shed path. It does not, twice over. `Allocate` reaches it only through
+`filterScaleUpCandidates`, which keeps a decision only `if d.TargetReplicas > d.CurrentReplicas`
+(`:52-63`); and `allocateForDecision` itself opens `replicasNeeded := d.TargetReplicas -
+d.CurrentReplicas; if replicasNeeded <= 0 { return }` (`:80-83`). A prefill frozen at target == current ==
+0 is filtered out before the floor, and early-returns before it even if it were not.
+
+So: **`MinReplicas >= 1` does not raise a frozen-at-zero prefill.** Every floor in the pipeline guards
+against *shedding* below a floor; none establishes a floor for a variant that is simply never granted
+anything. Regime (i) — the cold-start one, the one §3 shows is reachable by construction — is untouched by
+the option (a)/(b) discussion in Findings 71–72 and by the synthesized-floor proposal. That is a scope
+correction to my own findings, and it makes the repair question larger rather than smaller: whatever
+covers (i) has to grant, not merely refuse to shed.
+
+**Attribution unchanged** (HEAD-only via `VG-up`; base converts 470.588 into exactly one prefill replica,
+HEAD grants none; per-cycle delta one replica). The coder's **+1-per-cycle creep on base** is explicitly
+flagged in its own handoff as reasoning from the `applyUniversalThreshold` formula rather than a
+multi-cycle run — carried here as **inference, not measurement**, and it does not change attribution
+either way: base is differently wrong, not right, and none of this argues for reverting `VG-up`.
+
+### 5. The enforcer does not rescue prefill at 0 — CONFIRMED, and strictly stronger than stated
+
+The handoff's most serious claim is that a P/D model can serve with no prefill replicas. Verified, and the
+mechanism is worse than "the total is 4":
+
+`enforcer.go:138-147` sums `TargetReplicas` across every decision matching `ModelID` + `Namespace` and
+returns false if `totalReplicas > 0` — so with decode at 4 the minimum-replica preservation never fires,
+as stated. But the fallback that runs when the total *is* zero (`:150-174`) selects by `d.Cost` with a
+`VariantName` tie-break and **contains no reference to `Role` anywhere**. It sets exactly one variant to 1.
+
+So the enforcer is **role-blind**: even at total zero it may well set a *decode* variant to 1 and leave
+prefill at 0. "The enforcer does not rescue it" understates the result — the enforcer **cannot** rescue a
+per-role zero even in principle, in either regime. This belongs with §4's conclusion: nothing currently in
+the pipeline establishes a per-role replica floor.
+
+### 6. Standing
+
+Frequency: **answered and closed**, and the answer raises severity rather than softening it — §3 makes the
+state constructible rather than rare. Attribution: unchanged (regime-split; the `deadRC > 0` half
+HEAD-only via `VG-up`, PR-2's own `952d2fff`). Severity: unsoftened, and now with a second regime that no
+proposed repair reaches. Disposition remains the planner's and Dean's; my ship-decision item stands
+unchanged in substance, with §3 and §4 as the sharpest reasons to decide it knowingly rather than by
+default.
+
+Still open, unchanged: `reclaimRole` un-instrumented per-function; what llm-d actually serves with prefill
+at 0 (a router/deployment question neither of us has measured); the *rate* at which real clusters enter the
+state, which §3 argues is now the less useful question. Closed from my side unless new code lands.
