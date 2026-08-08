@@ -75,6 +75,29 @@ backlog or clean via a standalone one-line PR:
 - `docs/developer-guide/throughput-analyzer.md:671` — `Design: plans/planning/TA-Plan.md…`
 - `internal/engines/analyzers/throughput/analyzer_test.go` — `Regression test for F1…` (~:982),
   `Specs 1–5 from plan §3.4` (:1189)
+- `internal/engines/analyzers/throughput/constants.go:85` — `"the decode-dominated regime (N_pre ≈ 1,
+  TA-supply.md §3.1)"`; a plans-branch Type-1 doc citation plus a section identifier, in a shipped
+  production comment. (found via `ta-anchor-dynamic-refresh`'s §4a sweep, 2026-08-08)
+- `internal/engines/pipeline/analyzer_helpers.go:411,:419` — `"Design § Architecture/D"` and `"per
+  design A10"`. Same class. (found via `ta-anchor-dynamic-refresh`'s §4a sweep, 2026-08-08)
+
+All four re-verified byte-identical between `ta-anchor-dynamic-refresh@6d55fbd7` and `upstream/main`
+2026-08-08 — inherited, not any PR-2-family branch's to fix.
+
+### Broken doc links on `main` (different defect class — not §4a tokens, found the same way)
+- `cmd/main.go:165-169` — a comment links
+  `https://github.com/llm-d/…/blob/main/docs/user-guide/configuration.md`, which does not exist
+  (`docs/user-guide/` contains only `monitoring.md` and `sglang-backend.md`). A 404 shipped to users
+  reading the source, not just an internal citation.
+- `docs/developer-guide/throughput-analyzer.md:609` — `` [`saturation-scaling-config.md`](../saturation-scaling-config.md) ``
+  resolves to `docs/saturation-scaling-config.md`, which doesn't exist; the real file is
+  `docs/developer-guide/saturation-scaling-config.md`. Two-character fix (`../` → `./`). Verified still
+  present at `ta-anchor-dynamic-refresh@6d55fbd7`, in a file that branch's own C9 dev-guide commits
+  already touch — cheap to fold into whatever branch next edits that file's neighborhood, but not
+  routed there as an action; recorded here so it isn't lost either way.
+
+(found via `ta-anchor-dynamic-refresh` internal review, 2026-08-08; none of the six items above block
+any in-flight PR — all pre-existing on `main`, surfaced incidentally by PR-2's §4a sweep)
 
 ---
 
