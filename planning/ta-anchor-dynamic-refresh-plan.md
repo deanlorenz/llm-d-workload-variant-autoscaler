@@ -1,7 +1,16 @@
 # TA Anchor Refactor — PR-2 (dynamic refresh + multi-vote combine)
 
-**Type:** 3 (task plan) · **Status:** Coder-ready — **stacked on PR-1; worked in parallel** (does NOT wait for PR-1 merge; starts on Dean's go-ahead)
-**Design authority:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md) (Type 1)
+**Type:** 3 (task plan) · **Status: FROZEN 2026-08-08** — the coding batch is applied and this plan is
+the authoritative scope for the remainder of PR-2. **Read §0.0 first**: the branch is *code-complete at
+`a9afb740`*, so most of what follows below is a **record of what landed**, not a forward instruction, and
+§0.0 names the short list that is genuinely left plus the two decisions the freeze deliberately does
+**not** make.
+**Design authority:** [`combined-analyzer-optimizer-design.md`](combined-analyzer-optimizer-design.md)
+(Type 1, FINAL @ `8c2a9b04`) **plus
+[`combined-analyzer-optimizer-design-addendum-1.md`](combined-analyzer-optimizer-design-addendum-1.md)
+(Addendum 1, Rev 6 @ `423eb2a8`, approved by Dean 2026-08-08)**. The addendum is additive and the parent
+is deliberately unedited; **where the two overlap the addendum is later and governs**. The addendum is
+reachable only by name from the parent, which is why this line carries it — see its § discoverability.
 **Depends on:** [`ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md) (PR-1, FINAL) — this PR is a
 **dependent, stacked** follow-up (Dean, 2026-08-06): its base is **PR-1's branch tip**, not merged `main`,
 and the two PRs progress **in parallel**. PR-2 opens as a GitHub PR with base = the `ta-anchor-refactor-v2`
@@ -51,11 +60,18 @@ here records the answers rather than pointing at open questions.
 > behavior changes it surfaced (`W1` joint-role budget, `W4` abstain rule) plus `FZ-admission` are now
 > their own commits so they cannot ride inside the status-quo-preserving conversion. See §1.1.
 >
-> Code cites re-verified at branch tip `d9f3b97e` (landed through C6b; **C6c has zero edits**, so the
-> whole of §2 #5 / §2d.5 below is unimplemented and safe to re-specify).
+> ⚠️ **That revision marker is superseded by the freeze — read it as history.** It was written while the
+> branch stood at `d9f3b97e` with C6c unimplemented, and it says so ("C6c has zero edits … safe to
+> re-specify"). **C6c through C9e have since landed.** The branch is code-complete at **`a9afb740`**
+> (25 commits on base `075a208e`, working tree clean, nothing pushed). Every forward-looking sentence in
+> §2, §2b–§2f, §3 and §4 below therefore describes work that is **done**; the specification remains the
+> record of *what was required*, and §0.0 is the only place that states what is still *owed*.
 
-> **Line numbers in this plan are as-of `d9f3b97e`** and will drift after the PR-1 rebase. The coder
-> **greps by symbol**, not by line — every cite below names the function/identifier so it survives the drift.
+> **Line numbers in this plan are as-of `d9f3b97e` and are up to 25 commits stale**; the freeze did not
+> re-derive them, because the rule that makes them survivable has not changed. The coder **greps by
+> symbol**, not by line — every cite names the function/identifier. They will drift again at the PR-1
+> rebase, which is now onto plain **`main`** (PR-1 merged as `57f3fe64`, so PR-2's base is no longer a
+> sibling branch tip).
 
 ---
 
@@ -99,6 +115,184 @@ here records the answers rather than pointing at open questions.
 - [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L1934:2146
 - [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2147:2283
   - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2224:2283
+
+## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
+
+[↑ TOC](#toc)
+
+**Read this section before any other.** Dean, 2026-08-08 (relayed by the coder): *"stop running anymore
+tests and check. We freeze the plan then finish coding."* And to this role: *"when analyzer finalizes
+addenum you finalize PR-2 type 3 doc."* Addendum 1 reached Rev 6 (`423eb2a8`) and Dean approved it, so
+both gates fired and this is the resulting freeze.
+
+### Where the branch actually is
+
+**Code-complete at `a9afb740`** — 25 commits on base `075a208e`, working tree clean, **nothing pushed**,
+gates green as of C9e. The labelled commit map in §1.1 reads C1–C11; the *git* history is longer because
+C6 and C9 each decomposed while being coded (C6a–C6f, C9a–C9e). **Where the two disagree, the git history
+is the fact and the map is the intent.**
+
+⚠️ **One map row did not ship as written: C11's (D-a) admission sentinel is DEFERRED** — a *proven*
+regression, verified by mutation, not a skipped step. C11 ships as the (D-b) ceiling only, i.e. **built,
+not enabled**. §1.1.1 carries the full classification and the reason the sentinel cannot work
+anchor-only. That deferral needs a backlog entry outside this plan; it is not a coder action.
+
+Two consequences the freeze fixes rather than restates:
+
+- **`origin/ta-anchor-dynamic-refresh@f6485980` is orphaned** by PR-1's reword and needs a force-push
+  (`--force-with-lease`) to reach `a9afb740`. Dean's, not the coder's.
+- **The rebase target changed.** This plan's setup step targets PR-1's *branch tip*; PR-1 **merged** as
+  squash `57f3fe64`, so the target is now plain **`main`**, and PR-2's diff will no longer carry PR-1's
+  commits. Re-run **`make lint`** after that rebase regardless of its result here: `main` moved
+  golangci-lint **2.8.0 → 2.10.0** (PR #1512), so a green run from before that bump does not carry
+  forward, and new findings are the bump's, not a regression.
+
+### What is genuinely left
+
+The coder's own stand-down list, which the freeze adopts as the checklist — everything else in this plan
+is landed:
+
+| Item | Work | Status at the freeze |
+|---|---|---|
+| `A29` | Two §4a token edits — `k_sat_test.go:163`, `rescale_test.go:186` | **In scope, authorized by this freeze** |
+| `A30` | `max :=` shadows the builtin at `rescale_test.go:239,:248` → rename `maxRep` | **In scope, authorized** |
+| `A28` | Two surviving §4a violations — `analyzer_helpers.go:88`, `:642` (production doc comments) | **In scope, authorized** |
+| `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** |
+| rounding | `ceil` vs `floor` in `replicasToCover`, **three sites** per the indivisible-unit floor | ⛔ **Dean holds it** — see below |
+| `AD8` (b) | Three-site per-role pricing repair | ⛔ **Dean places it** — see below |
+
+### What this freeze deliberately does NOT decide
+
+Naming these is the point of the block: **plan §7.1's rule is that a site list is a plan step, not coder
+latitude**, so silence here would read as permission. Two items are Dean's and are not resolved:
+
+1. **The rounding decision** (`ceil` vs `floor` in `replicasToCover`). Dean: *"the ceil/floor we discuss
+   later."* It is **three sites**, not one — the indivisible-unit floor now exists at
+   `greedy_score_optimizer.go:458-460` (`bound = prc`), `:694` (`firstDraw && capN < 1`) and `:822`
+   (`math.Ceil` in `replicasToCover`), each citing the others. A "floor everywhere" mandate applied
+   literally means reverting three sites, not changing one expression. **Do not implement either
+   direction until Dean rules.**
+2. **Placement of the approved `AD8` pricing repair** — in PR-2, or a follow-up. Addendum 1 Rev 6 ask 2 is
+   explicit: *"do not schedule it into PR-2 on the strength of the old severity, and do not retire it
+   either. Ask him."* The severity that justified PR-2 placement was withdrawn (see §0.0's `AD8` note
+   below); the repair itself is still approved. It is three sites on a code-complete branch, which is why
+   it is a placement question and not a coding one.
+
+Neither is a defect in the freeze. A design or scheduling choice this plan declines to make is Dean's to
+make — what would be a defect is leaving it unnamed.
+
+### `AD5`/`AD8` — the disposition the freeze carries
+
+Addendum 1 `AD8` is **DECIDED: repair the pricing** (Dean, 2026-08-08). The mechanism question is closed;
+only placement is open.
+
+- **Approved — option (b), the per-role pricing repair, three sites:** per-role sizing; `CapGPUs`/`Demand`
+  in `rescaleInputsForGroup:540-546` (fixing only the role split leaves the model hard-capped at its
+  understated demand); `cost_aware_optimizer.go:350-367` observability.
+- **Rejected — option (a), a liveness-aware refusal.** Dean: *"PD not SAT — DONT."* The rule stays keyed
+  on the **enabled** set; no second refusal predicate is wanted. Anything that reads as a liveness special
+  case in the combine is in this family and is out.
+- **Additive — option (c), interim documentation.** Not an alternative to (b).
+- **`MinReplicas` is not a fourth option.** It is an operator-set **per-variant** field, unset by default,
+  fails correlated with the defect, **cannot reach regime (i) at all** (it can preserve a scale-up, never
+  originate one — `greedy_saturation_algorithm.go:52-63` + `:80-83`), and is not free: any variant with
+  `minReplicas > 0` makes `applyScaleToZeroEnforcement` skip the enforcer **model-wide**
+  (`saturation/engine.go:1362`). It survives only as a documented severity floor for regime (ii), cost
+  attached.
+
+**Two regimes from one cause — they reach the backlog as two items, never one, because a fix verified on
+one says nothing about the other.** Dispatch is a global OR over roles
+(`analyzer_helpers.go:709-718`) with mutually exclusive arms (`cost_aware_optimizer.go:62-67`), which is
+why one role captures the model:
+
+- **Regime (i), the freeze** — decode `RC > 0` ⇒ scale-**up** arm ⇒ prefill **freezes at its current
+  count, including 0**. **No floor of any kind reaches it.**
+- **Regime (ii), the drain** — decode `RC == 0` with spare ⇒ scale-**down** arm ⇒ prefill **drains to 1**.
+
+**Severity: dropped, and the drop is global.** Addendum 1 Rev 6 closes the `[sat, TA]`-with-saturation-
+non-live cell, and the internal reviewer's counter-example search (Rev 6's own settling test for that row)
+came back **empty** across four single-fault stories — write-up in
+`planning/ta-anchor-dynamic-refresh-review.md` **Finding 75**, `cbb17457`, a source read at `a9afb740`
+with no build or test behind it. `[TA]`-only is what remains, and Dean's guard (*on a disaggregated model
+with TA and no saturation, do nothing*) makes that configuration **hold** rather than act, which
+*enforces* `AD2` rather than documenting it.
+
+⚠️ **Take the closure, not Rev 6's stated reason for it.** The addendum argues from a retention asymmetry
+— saturation's capacity store kept **7 days** (`saturation_v2/constants.go:19`) against TA's **1-hour**
+idle expiry. That constant is real but **dormant**: `EvictStale` and `EvictStaleHistory` have **zero
+callers tree-wide, tests included**, so records live for the process lifetime and the store does not
+self-trim. Anyone who *runs* that checklist row's re-verify command confirms a mechanism that never
+executes. The closure does **not** need the asymmetry: both memories are written by **the same event** —
+every replica-metric row writes a `learnedFromLive` capacity record keyed by that row's variant name, and
+TA's persisted supply can only go positive from rows in the same key space. **No duration is
+load-bearing.** Two further closures Rev 6 does not cite are independently sufficient in their own
+regimes: the model-level skip on empty replica metrics (`saturation/engine.go:1540-1545`) and the
+pre-analyzer `continue` on a failed scale-target fetch (`:1500-1507`, which turns "all-NoData model" into
+*no model*). Two citation notes in the same family: `capacity_store.go:135`'s doc comment names an
+`EvictionTimeout = 24h` that **does not exist** (the real 24 h constant is the k2 *history*), and TA's
+1-hour expiry keys on the variant **appearing** in the metrics slice rather than on usable metrics
+(`throughput/analyzer.go:99` precedes the `SanityIssueNoReplicas` `continue` at `:101-108`), so a
+rows-present-but-unusable gap keeps TA warm indefinitely.
+
+**"Closed" is not "closed by exhaustive proof."** One residual is explicitly not closed: for the cell to
+open, **every** variant must reach `satReasonNoData`, which needs `EffectiveCapacity = min(k1, k2) <= 0`
+(`saturation_v2/analyzer.go:185-188`) on every variant's last live cycle while TA computed a positive
+supply from those same rows, with `lookupCompatibleCapacity` also missing everywhere. Reading could not
+rule that out. It is **not** being claimed reachable — recording it so the file is not mistaken for a
+proof. It needs a **k1/k2 fixture, not a liveness fixture**.
+
+⚠️ **This role recorded a scoped exception to that drop and has withdrawn it.** The claim was that route
+(A) (`scaleDownRoleIterated → scaleDownVariantSet`) drains prefill in a compliant `[sat, TA]` P/D model
+with **no** liveness gap, because TA's prefill `SpareCapacity` is the entire live prefill fleet (TA's
+prefill `TotalDemand` being structurally 0). **It is wrong, verified at `a9afb740`:** route (A)'s
+magnitude is `combineVotes(votesFromRoleSpare(…), false)` and `up == false` makes the binder the **MIN**
+over participating live entries, so TA's inflated spare cannot carry the vote by itself — a live
+saturation that sizes prefill bounds the count to its own, smaller figure; and `roleSpareVetoed` blocks
+the **entire role** the moment any live analyzer carries an explicit `RoleSpare[role] <= 0`, deliberately
+PRC-blind and score-blind so the objection cannot be diluted. The drain needs saturation to abstain on
+prefill or be non-live, and non-live is the cell Rev 6 closed.
+
+**One bounded residual survives, and the addendum does not name it for route (A).** Rev 6's reachability
+bound is stated *under uniform scores* and derived on the demand (**max**) path. Route (A) runs the same
+core in the **min** direction, where the correction term has the opposite sign: with `e = min`,
+`(e − v_i) ≤ 0`, so a **higher-scored** entry with a **larger** spare pulls the combined removable count
+**above** the min. Under default config this is exactly inert — `voteScore` returns `1.0` for any
+`Score <= 0` and the config layer coerces zero to `1.0`, so all scores are uniform and the correction is
+0. The residual therefore needs an operator to set per-analyzer scores with **TA above saturation**, is
+bounded by the weighting rather than unbounded, and remains fully blocked by `roleSpareVetoed`. Record it
+as a bounded known limitation of non-uniform scoring — **not** as a reachable drain, and not as a revival
+of the withdrawn claim.
+
+**Sequencing precondition, to travel with wherever the `#1237` tidy-up is tracked:** *if the positional
+rule is ever tidied, floor every variant in the role first* — tidy-first re-opens this at every height on
+both scale-down paths (measured: prefill → 0). It **governs regime (ii) only**; everything it protects
+lives inside `scaleDownVariantSet`, which regime (i) never enters.
+
+### Premises to stop carrying
+
+Delete these from any inherited text rather than softening them:
+
+- **Addendum § withdrawn items 6/7/8** — including *"the cell is reachable by the most ordinary path there
+  is (a cold start)"* and *"reachable by cold start or sustained metrics gap"*. Both wrong.
+- **Review finding `V6`'s (b)-fallback domain** — inverted; superseded by `N1`.
+- **`applyAllocation` as a sentinel sizing hazard** — it reads the ballot, never the anchor. The real
+  unbounded grant is `fillRole`.
+- **C10's effect as "~6%"** — numerator-only arithmetic. `k_sat` enters per-replica capacity **twice**;
+  the realistic band is **0.4%–2.5%** and it is **−0.548%** on the shipped fixture. The justification is
+  correctness and configurability, never a systematic correction.
+- **`W2` with `U4` as an open question** — it was answered and then deferred on Dean's own criticality
+  test. Record it as settled-deferred.
+
+### Latent, not live — recorded without an ask
+
+The reviewer's seam is real and survives Rev 6: informativeness reads per-variant `Reason`
+(`ResultIsInformative`, `analyzer_helpers.go:53-63`) while the `RC` reaching the optimizer comes from
+`RoleCapacities`, and `applyUniversalThreshold` (`saturation/engine_v2.go:476-513`) never mentions
+`VariantCapacities`. Aligning the two predicates is a **Type-1 design question, not PR-2 work**, and it is
+**not** a revival of rejected option (a) — different site (the liveness computation, not a second refusal
+predicate in the optimizer). No ask attached.
+
+---
 
 ## §0 Status — scope & the indivisible-PR decision
 
@@ -252,6 +446,105 @@ name-checks, per Dean's model. The anchor is derived on demand by the PR-1 Phase
 
 Ordered stack; each is DCO-signed, gates-green-after-every-commit in an isolated worktree. "Red-first"
 = add the fixture failing before the fix, passing after.
+
+#### §1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)
+
+**This ledger is the fact; the intent table below it is the spec.** 25 commits on base `075a208e`, head
+`a9afb740`, tree clean, nothing pushed. Git order, oldest first. Sub-labels are taken from the commit
+bodies' own self-identification, not assigned here.
+
+| # | SHA | Label | Subject |
+|---|---|---|---|
+| 1 | `680bebdb` | C1 | deterministic binder tie-break for multi-vote ballots (N2) |
+| 2 | `b106b929` | C2 | per-iteration dynamic refresh of the anchor's binder |
+| 3 | `50034d15` | C3 | compare `roleAggRemaining` in replica space, not raw units (Bug #2) |
+| 4 | `07b8fdb7` | C4 | decrement each analyzer by its own PRC, not the anchor's (Bug #1) |
+| 5 | `3c9d45bb` | C5 | combine rescale's demand-to-GPU conversion across voters (Bug #3) |
+| 6 | `952d2fff` | C7 | liveness-gate the voting set and drop the sizing fallback |
+| 7 | `1140a4c2` | C8 | strip (a)/(b) notation, keep the descriptive prose |
+| 8 | `8eb6ee2d` | C6a | hoist the cross-analyzer combine into one helper |
+| 9 | `d9f3b97e` | C6b | let a configured analyzer score weigh its vote |
+| 10 | `34b18bc5` | C6c | convert the fair-share claim to GPUs before comparing models |
+| 11 | `330fcd26` | C6d | re-check the role veto per variant; shed by coverage/GPU |
+| 12 | `784c2b5c` | C6e | one fair-share entitlement per model, drawn in sequence |
+| 13 | `a679f2ad` | C6f | abstain is not exempt — make `W4` a tested property |
+| 14 | `537b0153` | — | pin the claim-pricing distortion as a dormant spec |
+| 15 | `4fb49ac6` | — | drop plans-branch paths from shipped comments; fix the mean claim |
+| 16 | `a46c7eea` | — | pin the fair-share shared balance, not just the per-role clamp |
+| 17 | `eb12089a` | — | drop the mis-routed role label from a shipped comment |
+| 18 | `b6bb525c` | **C11 (D-b only)** | bound a from-zero-admitted variant at the grant sites |
+| 19 | `1a50b418` | C10 | read `k_sat` from config instead of hard-coding it |
+| 20 | `79a590d6` | C11 follow-up | test the admission ceiling at `fillRole` |
+| 21 | `757fc6f5` | C9a | document the capacity-gauge currency gap and the deprioritize idiom |
+| 22 | `2ae440e3` | C9b | write from-zero admission as deferred and fix four false premises |
+| 23 | `209e148f` | C9c | pin the multi-vote decision goldens and invariant 7 directly |
+| 24 | `4e369f10` | C9d | remove the sat-only characterization goldens, scenario by scenario |
+| 25 | `a9afb740` | C9e | make every reference in shipped comments resolvable from `main` |
+
+**Four deviations from the map, all deliberate and all recorded in the commits themselves:**
+
+1. **Git order ≠ label order** — `C1–C5 → C7 → C8 → C6a…C6f → C11 → C10 → C9a…C9e`. C6c-before-
+   C6e/C6f/C11 was load-bearing, not convenience: C6c is the only behavior-preserving one of the four, so
+   keeping the behavior changes after it is what makes a per-commit golden re-run attributable.
+2. **Rows 14–17 are unlabelled in the map** — two are `§4a`/comment-accuracy repairs pulled forward, two
+   pin a spec that had no commit of its own. They are part of the freeze's record even though no map row
+   predicted them.
+3. ⚠️ **C11 shipped as (D-b) only. (D-a), the `PRC = 1` admission sentinel, is DEFERRED as a proven
+   regression** — see §1.1.1. The intent table's row for C11 still says "both already decided in the
+   Type 1 — transcribe, do not re-open"; **that instruction is spent**, and the reason is not a coder
+   deviation.
+4. **The one-replica ceiling reads through a new `maxTargetReplicas` helper** rather than being folded
+   into each site's existing `MaxReplicas`-headroom branch as (D-b) literally instructed. The literal
+   form does not work: at all three granting sites that computation sits behind a nil-guard on
+   `MaxReplicas` whose fall-through treats *unset* as unbounded (`costGreedyRolePick` returns
+   `math.MaxInt`; `fillRole`'s loop is bounded by nothing else; `fairShareRolePick` applies no clamp), so
+   a ceiling folded into the guarded branch **would not exist on any variant without `MaxReplicas`** —
+   which is exactly the never-measured population the ceiling is for. For an untagged variant the helper
+   is the `MaxReplicas` check verbatim, so nothing else moved. Each site **skips** an exhausted ceiling
+   instead of returning a cap of 0 (a returned 0 makes the caller compute `deltaUtil == 0` and break out
+   of the whole model's allocation, taking every variant behind it down too), and in `fairShareRolePick`
+   the clamp must stay **after** the `firstDraw` floor, which raises `capN`.
+
+#### §1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature
+
+Classification per the deletion rule: **DEFERRED**, reason recorded in-code at
+`ReasonFromZeroAdmission`.
+
+**What it would have done.** Tag a never-measured variant with a `Reason`-marked `PRC = 1` sentinel at the
+anchor's no-variant branch — gated on `ReplicaCount == 0` **and** binder-omitted — so the non-positive-
+capacity gates stop excluding it and a model at zero replicas can be *proactively* admitted onto it.
+
+**Why it was removed now.** An anchor-only sentinel makes a variant **selectable without making it
+sizable**. Selection reads the anchor, but the replica count comes from the **ballot**, via
+`votesFromPickerState → combineVotes → roleBottleneckReplicas`, which **abstains** for a variant no voting
+entry prices and returns 0. Then `n = min(0, cap) = 0`, `deltaUtil == 0`, and `allocateForModelPaired`
+**breaks** — costing the model every variant behind the admitted one. **Verified by mutation:** with the
+sentinel written the measured variant stays at its current replicas; with it disabled the same fixture
+scales. That is a regression, not a missed feature. (The previously-live variant in
+`optimizer_scale_from_zero_test.go` works precisely because the throughput analyzer emits its PRC into the
+**ballot** rather than the anchor.)
+
+**Where the future version lands.** Whether the sentinel may enter the **voting set** is an `N8` question,
+so it is the **Type-1 owner's** — raised to the designer by handoff, not resolved here. Do not re-attempt
+(D-a) inside PR-2 on the strength of the map row.
+
+**Consequence for the shipped tree, stated so the dev guide and the plan agree:** C11 is **built, not
+enabled** — nothing in production code writes the tag, the write site is reachable only from tests, and
+for an untagged variant `maxTargetReplicas` is the `MaxReplicas` check verbatim. C9b's dev-guide
+subsection says exactly that; prose calling the ceiling an active guard would be false on the merged tree.
+
+⚠️ **(D-b)'s ranking premise was also wrong and is corrected in the shipped tests.** An admitted variant
+does **not** sort behind every measured option: `PRC = 1` degenerates cost efficiency to `Cost`, but a
+never-measured variant's `Cost` arrives as **0** from the same zero-replica lookup that leaves its
+accelerator empty, so the ratio is `0/1` and **it sorts first**, tying with every never-measured peer
+under an unstable sort. No sentinel value repairs that; the root is the sat-v2 zero-replica `Cost = 0` bug
+(`N5`), out of scope. The tests state the ranking the code actually has, and the ceiling is documented as
+**the only** guard on an admitted variant rather than one of several. The intent table's C11 "ranking"
+assertion is therefore **superseded** — do not restore it.
+
+[↑ TOC](#toc)
+
+#### §1.1.2 Original intent table (the spec each commit was written against)
 
 **Refreshed 2026-08-07 against the frozen Type 1.** The four remaining commits became **seven**. The split
 is not cosmetic: **C6c is a currency conversion that preserves current behavior** (with exactly one flagged
@@ -635,6 +928,20 @@ floor.
   fires), makes partial-scale-from-zero metric-consistent, dissolves findings **N1** + the
   fallback half of **N5**, and implements Dean's rule "when TA binds, every sized entry is TA's." This
   **revises PR-1 plan decision V9** (PR-1 ships the fallback as-is — see PR-1 §12).
+  ⚠️ **LANDED in `952d2fff`, but the reasoning above is superseded — keep the conclusion, replace the
+  argument** (the shipped comment was rewritten accordingly in `2ae440e3`). The premise *"the fallback
+  fires only when sat is already not binding"* — i.e. that a binder omits a variant only when it is
+  enabled-but-not-binding — is **false about the binder**: `ResultIsInformative` is an **any-variant**
+  predicate, so a perfectly healthy binder can price **nothing** for one particular variant. Same family as
+  review finding `V6`'s inverted (b)-fallback-domain claim; **do not carry either forward.** The real
+  argument is **structural**: when saturation binds it is both identity carrier *and* binder, so the sizing
+  map is built from the very slice the merge iterates and every lookup hits — the else branch is
+  **unreachable**. It can be reached only with a saturation entry present as *carrier* but not binding,
+  `!(Enabled && Live && Informative)`, which is exactly when saturation's own sizing is the least
+  trustworthy thing to borrow: stale, no-data, or not even asked for. The **disabled** case belongs in that
+  set, because the carrier is located **by name, not by vote** — an earlier draft wrote the narrower
+  `Enabled && !(Live && Informative)`, inherited from the very claim it was replacing. The byte-identical
+  ship-gate claim below survives on this structural ground, not on the old premise.
 - **N7 abstain-vs-veto** — see §1 item 5. Default **abstain**. Coordinate with C6 (iii)
   `sortVariantsForScaleDown` — both touch the scale-down role math.
 
@@ -1251,14 +1558,26 @@ out to be near-zero (above).
 <a id="2f-fromzero"></a>
 ## §2f Proactive from-zero admission — lands in C11
 
+> ⚠️ **HALF-SUPERSEDED BY THE FREEZE (2026-08-08). Read §1.1.1 before this section.**
+> **(D-b), the one-replica ceiling, LANDED** — `b6bb525c` plus the `fillRole` coverage in `79a590d6`, via a
+> new `maxTargetReplicas` helper rather than the per-site fold this section instructs (§1.1.0 deviation 4
+> gives the reason the literal form does not work). **(D-a), the sentinel, is DEFERRED** — a regression
+> proven by mutation, not a skipped step: an anchor-only sentinel makes a variant selectable without making
+> it *sizable*, so `roleBottleneckReplicas` abstains, `n = 0`, and `allocateForModelPaired` breaks out of
+> the model's whole allocation loop. Whether the sentinel may enter the **voting set** is an `N8` question
+> and therefore the **Type-1 owner's**, raised by handoff. The net shipped state is **built, not enabled**.
+> Everything below is preserved as the specification the commits were written against — the (D-a)
+> subsection is now a *record of an attempt*, not an instruction, and its "transcribe, do not re-open"
+> framing is spent. **Do not re-attempt (D-a) inside PR-2 on the strength of this section.**
+
 **Added by the 2026-08-07 refresh.** The frozen Type 1 answers Dean's own follow-up
 (*"the anchor no-variant fallback sets PRC=1 for unknown never seen if TA is binding? sat remains as
 is?"*) and **decides both the mechanism and the cap** — per *"don't leave design decsions to coder."*
 This section **transcribes** those decisions; it does not re-open them. The Type 1's `FZ-admission` row
 and its decision block are the authority.
 
-**Line numbers below are as of `ta-anchor-dynamic-refresh@d9f3b97e`. Re-verify each against your own tip
-before editing** — C6c–C6f land in the same files ahead of C11.
+**Line numbers below are as of `ta-anchor-dynamic-refresh@d9f3b97e`, now up to 16 commits stale — grep by
+symbol, not by line.**
 
 ### The gap
 
@@ -1770,10 +2089,16 @@ literally — "no `Score` in [six named functions]" — passes with it stale. §
   spend*. (3) The ceiling is on the **variant's target**, not on one iteration, and a picker that cannot
   grant the replica **skips the variant** rather than returning a zero cap — say why, because it is the
   non-obvious part: a zero cap collapses the model's utilization delta and breaks out of the whole
-  allocation loop, denying the *other* variants too. Add one line on ranking: with a per-replica capacity
-  of one, the cost-per-unit ordering degenerates to raw cost, and since measured capacities are far
-  larger than one the unpriced variant sorts behind every priced one — which is the intended
-  last-resort behavior, not an accident. *Modify (substantial).*
+  allocation loop, denying the *other* variants too. ⚠️ **The ranking line this row originally asked for
+  is FALSE and must not be written** — it claimed that with a per-replica capacity of one the cost-per-unit
+  ordering degenerates to raw cost, so an unpriced variant *sorts behind* every priced one as intended
+  last-resort behavior. It sorts **first**: a never-measured variant's `Cost` arrives as **0** from the same
+  zero-replica lookup that leaves its accelerator empty, so the ratio is `0/1` and it ties with every other
+  never-measured peer under an unstable sort. The shipped C9b prose says that instead, names the root as the
+  sat-v2 zero-replica `Cost = 0` bug (out of scope), and documents the one-replica ceiling as **the only**
+  guard rather than one of two. Also state that claim (1) — the sentinel itself — **does not ship**: C11
+  (D-a) is deferred (§1.1.1), so the section is titled as *built, not enabled*. *Modify (substantial) —
+  LANDED in `2ae440e3`.*
 - `### Data flow per optimize cycle` (~L16) — **C2** (note the anchor is re-derived per allocation
   iteration). *Modify (one line).*
 - `## Optimizer internals and helper composition` (~L534) — **C5** (rescale combined demand; N3
@@ -2193,14 +2518,17 @@ were deliberately moved into C6e/C6f/C11. Nothing new left PR-2's scope as a res
 **NOT in PR-2 — separable small PRs (PR-1 §12), each independent:**
 - **QM fold (F10)** — fold the queueing-model into the V2 multi-analyzer engine (PR-1 refuses QM with an
   explicit error; design § findings `N6`). Its own PR.
-- ~~**§2.4 partial scale-from-zero picker**~~ — **RETIRED as a separate scope item, 2026-08-07.** The
-  cheapest-variant partial-from-zero selector was deferred out of PR-1 because a never-measured variant was
-  invisible to the optimizer, so there was nothing for a picker to choose between. §2f's admission sentinel
-  plus its one-replica cap is what makes the choice exist, and the existing cost/fair-share ranking then
-  *is* the picker — a sentinel variant prices at raw cost and sorts behind every measured option. So this
-  is not "still deferred"; it is answered by C11 without a dedicated selector. Kept struck-through rather
-  than deleted because PR-1 §12 still lists it as deferred work, and a reader arriving from there needs to
-  land somewhere.
+- **§2.4 partial scale-from-zero picker** — ⚠️ **the 2026-08-07 "RETIRED as a separate scope item" ruling
+  is REVERSED by the freeze; it is DEFERRED again.** The retirement rested on two claims that both turned
+  out false. It argued that §2f's admission sentinel plus its one-replica cap makes the choice exist, so
+  the existing cost/fair-share ranking *is* the picker — *"a sentinel variant prices at raw cost and sorts
+  behind every measured option."* But **the sentinel does not ship** (C11 (D-a) deferred as a proven
+  regression, §1.1.1), so a never-measured variant is still invisible to the optimizer and there is still
+  nothing for a picker to choose between; and **the ranking claim is inverted** — a sentinel variant sorts
+  **first**, not last, because its `Cost` is 0. Neither half survives. Track it as deferred work alongside
+  the (D-a) sentinel it depends on: the picker cannot be revisited before the sentinel question (an `N8`
+  question, the Type-1 owner's) is answered. PR-1 §12's listing of it as deferred is therefore **correct
+  as written** and needs no reconciliation.
 - **`AnalyzerName` validation** — separate validation PR.
 - **sat `Cost=0`-for-zero-replica mis-ranking (N5, non-fallback half)** — reaches all three configs; a
   **separate saturation bug**, not fixed by N8 (N8 only removes the *fallback* half). File/fix
@@ -2219,6 +2547,38 @@ were deliberately moved into C6e/C6f/C11. Nothing new left PR-2's scope as a res
   either a relabel or a new series. Decided: **rename nothing, add nothing now.** What PR-2 ships instead
   is the *documented limitation* (C9, §5 `## Observability`), which is the whole deliverable for that item
   — there is no paired code change to look for.
+- **C11 (D-a) — the from-zero admission sentinel.** DEFERRED as a proven regression; full classification and
+  the reason an anchor-only sentinel cannot work are in §1.1.1. The open question is **whether the sentinel
+  may enter the voting set**, which is an `N8` question and therefore the **Type-1 owner's** — raised by
+  handoff, not answerable here. The **§2.4 partial from-zero picker** depends on it and is deferred with it
+  (see the separable-PRs list above, where the 2026-08-07 retirement is reversed).
+
+**NOT in PR-2 unless Dean places it there — `AD8`, the P/D prefill collapse. TWO items, never one:**
+
+Addendum 1 `AD8` is **DECIDED: repair the pricing** (Dean, 2026-08-08) — option (b), three sites; option
+(a) a liveness-aware refusal **rejected** (*"PD not SAT — DONT"*); option (c) documentation is additive;
+`MinReplicas` is not a fourth option. §0.0 carries the disposition, the severity history, and the
+withdrawn scoped exception. **Placement is Dean's open call** (Rev-6 ask 2: *"do not schedule it into PR-2
+on the strength of the old severity, and do not retire it either. Ask him."*).
+
+The one thing this plan fixes rather than leaves to judgment: **the two regimes are tracked as two
+items.** They share a cause but not a code path, so a fix verified on one says **nothing** about the
+other. Dispatch is a global OR over roles (`analyzer_helpers.go:709-718`) with mutually exclusive arms
+(`cost_aware_optimizer.go:62-67`), which is why one role captures the model.
+
+- **`AD8`-i — the freeze.** Decode `RC > 0` ⇒ `anyRoleNeedsScaleUp` ⇒ the scale-**up** arm ⇒ prefill
+  **freezes at its current count, including 0**. **No floor of any kind reaches this regime** — in
+  particular `MinReplicas` can preserve a scale-up but cannot originate one
+  (`greedy_saturation_algorithm.go:52-63`, `:80-83`). Verification is a scale-up fixture; the scale-down
+  fixtures cannot see it.
+- **`AD8`-ii — the drain.** Decode `RC == 0` with spare ⇒ the scale-**down** arm ⇒ prefill **drains to
+  1**. Two routes reach it: (A) `scaleDownRoleIterated → scaleDownVariantSet` (both role gates apply) and
+  (B) `reclaimRole → scaleDownVariantSet` (neither gate; needs rescale plus a contended group).
+  Verification is a scale-down fixture, and route (B) needs the rescale path specifically.
+  **Precondition to travel with the `#1237` positional-rule tidy-up wherever that is tracked:** *if the
+  positional rule is ever tidied, **floor every variant in the role first**.* Tidy-first re-opens this at
+  every height on **both** scale-down routes (measured: prefill → 0). It governs **regime (ii) only** —
+  everything it protects lives inside `scaleDownVariantSet`, which regime (i) never enters.
 
 <a id="7-1-what"></a>
 ### §7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered
