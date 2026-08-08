@@ -1823,13 +1823,11 @@ Needs Dean's decision:
 
 1. **The harness OOM** (§16.3) — memory bump vs `per_request: false`. Should be filed as a
    reproducible defect. The gateway trace removes the *analysis* dependency but not the bug.
-2. **How to capture the gateway access log during runs** (§17.1) — in-cluster follower with a
-   `--since-time` watermark supervisor (preferred), periodic polling, or the zero-code
-   pod-delete reset. **More urgent than it looked yesterday:** rotation is a cliff rather than a
-   slope, and the measured headroom is ~45,000 requests — about **two more ladder runs**. Today
-   the trace survives only because no rotation has fired since the pod booted on 07-30; that is
-   luck, not a design. The pod-delete reset also needs Dean's OK in its own right (brief
-   data-plane gap, ours and in-NS, never during a run).
+2. ~~**How to capture the gateway access log during runs**~~ — approach approved and **built**;
+   see §17.10. The pod-delete reset is **done** (29.5 MB → 2.5 KB, ~4.6 runs of headroom). What
+   remains is a single step: **apply the follower**, which the local permission classifier
+   blocked. Nothing was created on the cluster. This is the last thing standing between us and a
+   next run whose per-request trace cannot be lost.
 3. **Scale the decode replica to 0?** Its 1 GPU is still held as the `minReplicas=1` steady
    state (§16.5). The serving stack was deliberately left up.
 4. **The unpushed commits above.**
@@ -1855,6 +1853,84 @@ Open questions the data cannot settle:
 11. Which of scrape lag / rate-window width / sampling noise makes the optimiser blind 1.8 s
     after a load step (§17.4). This is the one that decides whether the 62 s WVA share of the
     171 s lag is reducible at all.
+
+### 17.10 Rotation fix: log reset DONE, follower BUILT but NOT DEPLOYED (2026-08-08)
+
+Both halves of §17.8 item 2, on Dean's approval ("you recommended `--since-time` is fine. You
+can delete the pod too").
+
+**Done — the pod-delete reset.** Preconditions checked in order, and worth repeating next time:
+no harness pod in the namespace (nothing in flight); a fresh local backup taken *first*; the
+pod `ReplicaSet`-owned so recreation is guaranteed; 1 replica and **no PDB**, so a delete means
+a real if brief data-plane gap. Replacement `...-v5wv4` was Ready in **38 s**.
+
+Result: the reachable log went from **29.5 MB (56% of budget) to 2,511 bytes**. Headroom is now
+a full fresh file — ~103,500 requests, about **4.6 ladder runs** instead of 2.
+
+The pre-delete log is backed up locally at
+`session-notes/scratch/ladder-run/gateway-log-backup/igw-20260808-preflush.log` (28.9 MB,
+58,480 lines, gitignored, 14-day retention). It is a **superset of every run** — 07-30, 08-03
+and 08-07 — and it is now one of only two copies, the other being the run directory's
+`logs/igw_pods.log`. The cluster copy no longer exists.
+
+Two things fell out of taking that backup that are worth more than the backup itself:
+
+- **An independent validation of the byte model.** The backup was fetched with `--timestamps`
+  where the harvest used `--prefix`, so the two files carry *different* kubectl decorations —
+  and both now reduce to the same **29.5 MB** on-disk estimate (31.5 − 4.4 + 2.3 = 29.5;
+  28.9 − 1.8 + 2.3 = 29.5). Two different inputs, same answer.
+- **`CRI_WRAPPER_BYTES` is no longer an estimate.** Differencing the two fetches gives
+  1,812,999 bytes over 58,480 lines = **31.0 B/line** with no variation, i.e. a 30-char
+  timestamp plus its space; the disk format adds a fixed `" stdout F "` (10 B). 30 + 10 = 40,
+  which is exactly the value that was guessed. Recorded as measured now.
+- **The count identity still holds (22,200) against a freshly fetched log**, which independently
+  confirms nothing had rotated between the 08-08 00:30 harvest and the delete.
+
+`envoy_per_request.py` now accepts all three log shapes — harvest (`--prefix`), follower
+(`--timestamps`), and raw — via one optional `kube` group, and the 08-07 stage grid is
+**byte-identical** across the prefix and timestamps files.
+
+**Built, validated, NOT deployed — the follower.** `hack/benchmark/gateway-log-follower.sh` plus
+`gateway-log-follower.yaml`. All five resources pass `kubectl apply --dry-run=server` against
+the live API. **The real apply was blocked by the local permission classifier, so nothing was
+created.** This is the one thing still needed before the next run; the commands are in the
+YAML header and Dean can run them with `!` or grant the rule.
+
+Design points that are not obvious and should survive:
+
+- **`--tail` silently defaults to 10 when a selector is given**, not −1 (verified in the kubectl
+  reference). Without an explicit `--tail=-1` every stream restart would begin 10 lines back
+  instead of at the watermark. This is the sharpest trap in the whole design.
+- **At-least-once is deliberate, not a compromise I failed to close.** `--since-time` has
+  one-second granularity against 20+ lines/second, so exactness is unavailable; the watermark is
+  additionally *rewound* 2 s because the kubectl reference says "after a specific date" without
+  stating whether the boundary second is inclusive. Duplicates are removed at parse time by
+  `x-request-id` (`envoy_per_request.py`, on by default; `--no-dedup` only to measure overlap).
+  Verified against an artificially doubled file: 44,400 lines collapse to exactly 22,200 with
+  the stage grid intact, and the real harvest shows **zero** duplicates.
+  - Why dedup is load-bearing rather than cosmetic: duplicates barely move duration percentiles
+    or `bytes_tx`, but they inflate the request **count** — which is precisely what
+    `assign_stages` gates on. Left in, they would trip that gate and read as a *truncated*
+    trace, i.e. the opposite diagnosis.
+- **Two `kubectl logs -f` behaviours are undocumented in both the kubectl reference and the
+  Logging Architecture page**: what a stream does when the log rotates underneath it, and
+  whether `-l` picks up a pod that starts matching *after* the stream begins. Both fail
+  silently — the stream stops producing while the process stays alive, indistinguishable from an
+  idle gateway. So the script does not trust a long-lived stream: a pod-set watcher kills it
+  when the matching UIDs change (the case that matters after a gateway restart), `STREAM_MAX_SEC`
+  caps any single stream as a backstop, and `--ignore-errors` is deliberately **not** used
+  because it would hide the exits the supervisor needs to react to.
+- What no follower can prevent is a rotation firing inside the sub-second restart gap, which
+  loses the previous file's tail. Bounded, and detectable by the count-identity gate.
+- `strategy: Recreate`, because two followers appending to one file would tear lines. A gap the
+  watermark absorbs is recoverable; a corrupted file is not.
+- RBAC is a namespace-scoped **read-only** Role (`get/list/watch` pods, `get` pods/log) on its
+  own ServiceAccount — nothing cluster-global, and it does not widen the `default` SA.
+- Image is the cluster's own `cli` imagestream resolved to a **quay.io digest** (never
+  docker.io, per AGENTS.md), so it is guaranteed pullable and needs no build or push. The script
+  ships as a ConfigMap for the same reason.
+- No GPU request, so the reaper ignores it; `workload-pvc` is **ReadWriteMany**, so mounting it
+  constrains nothing else's scheduling.
 
 ### 17.9 Were BOTH analyzers enabled and actually deciding? Yes — and here is the census
 

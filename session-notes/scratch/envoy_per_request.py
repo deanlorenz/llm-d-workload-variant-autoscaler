@@ -36,16 +36,22 @@ but the first request actually arrives at 20:41:44.330. Partitioning is self-val
 the observed rate within each derived window reproduces the configured ladder
 (1.95, 4.87, 7.76, 9.69, 11.66, 14.52, 19.32, 2.01 against 2, 5, 8, 10, 12, 15, 20, 2).
 
-THE DURABILITY CAVEAT, which decides whether this source can be relied on at all: the access
-log lives in the gateway container's stdout, subject to kubelet log rotation
-(`containerLogMaxSize` 10Mi x `containerLogMaxFiles` 5 by default, so ~50Mi retained). Access
-lines cost ~541 bytes each, i.e. ~19,400 requests per 10Mi file. The gateway pod is shared,
-long-lived infra that accumulates EVERY run: 5,002 lines on 07-30, 15,081 on 08-03, 38,093 on
-08-07, and it was already at 31.5 MB (~63% of retention) when this run was harvested.
+THE DURABILITY CAVEAT, which decides whether this source can be relied on at all: the access log
+lives in the gateway container's stdout, subject to kubelet log rotation. Verified on pokprod
+2026-08-08 (see ROT_MAX_SIZE below) -- NOT the 10Mi default this docstring originally assumed,
+and only ONE file is reachable, not five. The gateway pod is in OUR namespace but is long-lived,
+and accumulates EVERY run: 5,002 lines on 07-30, 15,081 on 08-03, 38,093 on 08-07, and it was
+already at ~56% of the reachable budget when this run was harvested. Run --rotation-budget for
+current numbers rather than trusting a figure quoted here.
 
-Rotation evicts oldest-first, so what goes first is the START of the run window -- the low-rate
-stages and the initial scale-up. `assign_stages` therefore hard-fails on the count identity
-rather than warning: a truncated series produces a silently SHIFTED grid, not a partial one.
+Rotation is a CLIFF, not a slope. It does not trim the front of one growing file; it starts a
+NEW file, and kubectl can read only that one. At the instant it fires the retrievable log drops
+to nearly nothing -- mid-run leaves the run's tail, just-after-run leaves essentially nothing.
+
+Either way the damage lands on the START of the run window -- the low-rate stages and the
+initial scale-up, which is the most valuable region for autoscaling analysis. `assign_stages`
+therefore hard-fails on the count identity rather than warning: a truncated series produces a
+silently SHIFTED grid, not a partial one.
 
 For this run the identity holds exactly (22,200 == 22,200) and the log begins at container boot,
 so nothing was evicted. Once harvested to disk the trace is safe; the exposure is entirely on
@@ -90,8 +96,17 @@ POD_BY_IP = {
 # Envoy's default access-log format. Anchored on the quoted groups rather than split on
 # whitespace, because the user-agent field ("Python/3.12 aiohttp/3.13.5") contains a space
 # and would shift every positional index after it.
+#
+# kubectl decorates each line two ways, both ADDED on read and neither present on disk:
+# `--prefix` emits `[pod/NAME/CONTAINER]` and `--timestamps` emits the CRI timestamp. Both are
+# optional here, and captured together as `kube`, so one parser reads all three shapes we
+# actually produce: the harness harvest (prefix, no timestamps -- see kube_helpers.py), a
+# follower capture (timestamps, needed for the --since-time watermark, no prefix), and a raw
+# access log. `rotation_budget` subtracts whichever are present. Envoy's own start time is
+# bracketed and the kubectl timestamp is not, so the two cannot be confused.
 LINE = re.compile(
-    r"^(?P<prefix>\[pod/(?P<gw>[^/]+)/[^\]]+\]\s+)"
+    r"^(?P<kube>(?:\[pod/(?P<gw>[^/]+)/[^\]]+\]\s+)?"
+    r"(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+)?)"
     r"\[(?P<start>[^\]]+)\]\s+"
     r'"(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<proto>[^"]*)"\s+'
     r"(?P<code>\d+)\s+(?P<flags>\S+)\s+(?P<details>\S+)\s+(?P<term>\S+)\s+"
@@ -108,9 +123,26 @@ WINDOW_LO = datetime(2026, 8, 7, 20, 30, tzinfo=timezone.utc)
 WINDOW_HI = datetime(2026, 8, 7, 21, 30, tzinfo=timezone.utc)
 
 
-def parse(path=LOG):
-    """Yield one dict per completion request inside the run window, sorted by arrival."""
+def parse(path=LOG, dedup=True):
+    """Return one dict per completion request inside the run window, sorted by arrival.
+
+    Deduplicates on Envoy's x-request-id, which is REQUIRED for anything captured by
+    gateway-log-follower.sh. That follower is deliberately at-least-once: its restart watermark
+    is `kubectl logs --since-time`, whose granularity is one second while this log carries 20+
+    lines/second, so exact resumption is not available and the watermark is rewound on purpose.
+    Duplicate lines are the intended cost, and this is where they are paid.
+
+    It matters because the duplicates are invisible in every aggregate that does not count:
+    duration percentiles and bytes_tx barely move, while the request COUNT inflates -- and the
+    count is exactly what assign_stages gates on. Left in, they would trip that gate and look
+    like a truncated trace, i.e. the opposite diagnosis.
+
+    Dedup is a no-op on a plain `kubectl logs` harvest, so it is on by default and there is no
+    reason to turn it off except to measure the duplication itself (--no-dedup).
+    """
     recs = []
+    seen = set()
+    dropped = 0
     for line in open(path, errors="replace"):
         m = LINE.match(line)
         if not m or m["path"] != "/v1/completions":
@@ -118,6 +150,15 @@ def parse(path=LOG):
         t = datetime.strptime(m["start"], "%Y-%m-%dT%H:%M:%S.%f%z")
         if not (WINDOW_LO <= t <= WINDOW_HI):
             continue
+        if dedup:
+            # Fall back to the whole line when x-request-id is absent, so a gateway configured
+            # without request-id propagation degrades to line-identity rather than silently
+            # collapsing distinct requests into one.
+            key = m["reqid"] or line
+            if key in seen:
+                dropped += 1
+                continue
+            seen.add(key)
         ip = m["upstream"].rsplit(":", 1)[0]
         recs.append({
             "arrival_utc": t.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
@@ -132,6 +173,11 @@ def parse(path=LOG):
             "upstream_ip": ip,
             "pod": POD_BY_IP.get(ip, ip),
         })
+    if dropped:
+        print(f"deduplicated {dropped} repeated request-ids "
+              f"({100 * dropped / (dropped + len(recs)):.2f}% of parsed lines) -- expected for a "
+              f"gateway-log-follower.sh capture, unexpected for a plain kubectl harvest",
+              file=sys.stderr)
     recs.sort(key=lambda r: r["arrival_epoch"])
     return recs
 
@@ -211,8 +257,13 @@ ROT_MAX_SIZE = 50 * 1024 * 1024
 ROT_MAX_FILES_ON_DISK = 5
 
 # The kubelet/CRI wrapper each line carries on disk -- an RFC3339Nano timestamp plus
-# " stdout F ". kubectl strips it, so it is invisible in the harvested file yet counts against
-# the on-disk cap. An estimate, unlike everything else here, which is measured.
+# " stdout F ". Plain kubectl strips it, so it is invisible in the harvested file yet counts
+# against the on-disk cap.
+#
+# Measured 2026-08-08, no longer an estimate: differencing `kubectl logs --timestamps` against
+# plain `kubectl logs` on the same 58,480-line log gives 1,812,999 bytes = 31.0 B/line, i.e. a
+# 30-char timestamp plus its separating space, with no variation. The stream field that follows
+# it on disk is a fixed " stdout F " (10 bytes). 30 + 10 = 40.
 CRI_WRAPPER_BYTES = 40
 
 
@@ -222,8 +273,9 @@ def rotation_budget(path=LOG):
     Byte accounting needs two corrections in opposite directions, because the harvested file
     and the file on the node are not the same bytes:
 
-      - kubectl's --prefix string is in the harvest but NOT on disk (measured per line).
-      - the CRI wrapper is on disk but NOT in the harvest (estimated, CRI_WRAPPER_BYTES).
+      - kubectl's own decorations (--prefix, --timestamps) are in the harvest but NOT on disk
+        (measured per line, whichever of the two the file happens to carry).
+      - the CRI wrapper is on disk but NOT in a plain harvest (CRI_WRAPPER_BYTES).
 
     Getting one of these right and not the other is worse than getting both wrong, since they
     partly cancel. Both are applied below and reported separately.
@@ -236,10 +288,10 @@ def rotation_budget(path=LOG):
         lines += 1
         m = LINE.match(line)
         if m:
-            pfx += len(m["prefix"])
+            pfx += len(m["kube"])
             if m["path"] == "/v1/completions":
                 n += 1
-                acc += len(line) - len(m["prefix"])
+                acc += len(line) - len(m["kube"])
     if not n:
         print(f"no completion requests in {path}", file=sys.stderr)
         return 1
@@ -277,12 +329,15 @@ def main():
                     help="report container-log eviction headroom for the next run")
     ap.add_argument("--allow-partial", action="store_true",
                     help="proceed despite a failed count identity; grid becomes UNVERIFIED")
+    ap.add_argument("--no-dedup", action="store_true",
+                    help="keep repeated x-request-ids; only useful to measure follower overlap")
     a = ap.parse_args()
 
     if a.rotation_budget:
         return rotation_budget(a.log)
 
-    recs = assign_stages(parse(a.log), allow_partial=a.allow_partial)
+    recs = assign_stages(parse(a.log, dedup=not a.no_dedup),
+                         allow_partial=a.allow_partial)
     if not recs:
         print(f"no completion requests parsed from {a.log}", file=sys.stderr)
         return 1

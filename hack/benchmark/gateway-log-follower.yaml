@@ -1,0 +1,137 @@
+# SCRATCH — in-cluster follower that mirrors the inference gateway's access log to the PVC, so
+# a per-request trace survives kubelet log rotation. Rationale, the at-least-once watermark
+# design, and the two undocumented `kubectl logs -f` behaviours it guards against are all in
+# gateway-log-follower.sh; read that first.
+#
+# SAFETY NOTES for the shared pokprod cluster:
+#   * Everything here is namespace-scoped to dhl-wva-209. No ClusterRole, no ClusterRoleBinding,
+#     nothing cluster-global.
+#   * The Role is READ-ONLY and minimal: get/list/watch on pods (the pod-set watcher needs to
+#     see UIDs) and get on pods/log. It cannot create, delete or mutate anything.
+#   * Its own ServiceAccount, so it does not widen the `default` SA that other pods use.
+#   * No GPU request, so it is invisible to the GPU reaper and never competes for accelerators.
+#   * workload-pvc is ReadWriteMany, so mounting it here does not constrain where the harness
+#     or the access pod can be scheduled.
+#
+# The script is delivered via ConfigMap rather than a built image on purpose: no image to
+# build, pin, or push, and editing the script is `kubectl apply` + `rollout restart`.
+#
+# Deploy:
+#   kubectl create configmap gateway-log-follower-script -n dhl-wva-209 \
+#       --from-file=gateway-log-follower.sh=hack/benchmark/gateway-log-follower.sh \
+#       --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f hack/benchmark/gateway-log-follower.yaml
+#
+# Check:
+#   kubectl logs -n dhl-wva-209 deploy/gateway-log-follower --tail=20
+#   kubectl exec -n dhl-wva-209 deploy/gateway-log-follower -- \
+#       wc -l /requests/gateway-logs/igw-access.log
+#
+# Stop (the capture on the PVC is retained):
+#   kubectl delete -f hack/benchmark/gateway-log-follower.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway-log-follower
+  namespace: dhl-wva-209
+  labels:
+    app: gateway-log-follower
+    purpose: ta-benchmark-log-capture
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-log-follower
+  namespace: dhl-wva-209
+  labels:
+    app: gateway-log-follower
+    purpose: ta-benchmark-log-capture
+rules:
+  # list/watch are what `kubectl logs -l` and the pod-set watcher need; get is for the pod
+  # object itself. Read-only, and scoped to this namespace only.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-log-follower
+  namespace: dhl-wva-209
+  labels:
+    app: gateway-log-follower
+    purpose: ta-benchmark-log-capture
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gateway-log-follower
+subjects:
+  - kind: ServiceAccount
+    name: gateway-log-follower
+    namespace: dhl-wva-209
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-log-follower
+  namespace: dhl-wva-209
+  labels:
+    app: gateway-log-follower
+    purpose: ta-benchmark-log-capture
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: two followers appending to the same file would interleave
+  # writes and produce torn lines. A brief gap during a restart is absorbed by the watermark;
+  # a corrupted file is not recoverable.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway-log-follower
+  template:
+    metadata:
+      labels:
+        app: gateway-log-follower
+        purpose: ta-benchmark-log-capture
+    spec:
+      serviceAccountName: gateway-log-follower
+      # The cluster's own release-payload CLI image, resolved from the `cli` imagestream in the
+      # openshift namespace and pinned by digest. quay.io, never docker.io (AGENTS.md), and it
+      # is guaranteed pullable here because the cluster already runs this payload.
+      containers:
+        - name: follower
+          image: quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:890ded20c72f81acaba090d483e20f5c9171ee8c336aa00d70492443336ae79a
+          command: ["/bin/bash", "/opt/follower/gateway-log-follower.sh"]
+          env:
+            # Explicit, never defaulted -- the script hard-fails without it.
+            - name: NAMESPACE
+              value: dhl-wva-209
+            - name: SELECTOR
+              value: app.kubernetes.io/component=inference-gateway
+            - name: OUT_DIR
+              value: /requests/gateway-logs
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: requests
+              mountPath: /requests
+            - name: script
+              mountPath: /opt/follower
+              readOnly: true
+      volumes:
+        - name: requests
+          persistentVolumeClaim:
+            claimName: workload-pvc
+        - name: script
+          configMap:
+            name: gateway-log-follower-script
+            defaultMode: 0555
