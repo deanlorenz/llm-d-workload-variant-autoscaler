@@ -570,8 +570,9 @@ point predates all three moves.
 | 26 | `6d55fbd7` | — | the one authorized §4a residual: "Type-1 owner" → "analyzer-design owner" |
 | 27 | `136a214a` | C12 | abstain a role with no demand model instead of voting it as zero (`AD8` (b)) |
 
-**Reviewer reviewing `136a214a` as of 2026-08-08** (Dean: *"coder is done. reviewer finishing"*) — no
-Finding filed yet for `C12`; treat as in-progress, not signed off.
+**Reviewer confirmed `136a214a` — Finding 77, `60c061fd`: matches `§2g` exactly, no defects.**
+Independently verified the same C10-precedent import-cycle reasoning for the constant-duplication
+deviation. PR-2's code and review are both complete; only the rebase onto `main` remains before push.
 
 **Five deviations from the map, all deliberate and all recorded in the commits themselves — the fifth
 is `C12`'s own, see `§2g`'s "Shipped differently" note for the reason constant's actual home:**
