@@ -28,6 +28,7 @@ There are deliberately no line numbers.
 - [Roles](#roles)
 - [Flows](#flows)
 - [Rules the naming exposes](#rules-the-naming-exposes)
+- [Checkpointing and the session digest](#checkpointing-and-the-session-digest)
 - [Skill surface](#skill-surface)
 - [Audit evidence](#audit-evidence)
 - [Adoption](#adoption)
@@ -83,6 +84,7 @@ prefix. A `sync`-versus-`plan` conflation already caused 16 handoffs to be consu
 | **session state** | Type 5 | `session/CURRENT.md`, `session/history.md` | sync |
 | **policy** | — | `conventions/`, `roles/` | policy-writer |
 | **channel** | — | `session/status/`, `session/handoffs/` | each sender owns its own |
+| **session digest** | — | `session/digests/` | every role, for its own session |
 
 Definitions where the rename changes the meaning:
 
@@ -210,6 +212,111 @@ conversation ──▶ design ──▶ epic plan ──▶ code spec ──▶ 
 
 ---
 
+## Checkpointing and the session digest
+
+Sessions must survive being killed. The CLI is usually fine; a VSC webview session is sometimes lost,
+and Claude's own resumption there is not trusted. Today "prepare to close" is asked for explicitly and
+takes minutes — precisely when the machine needs to sleep and there are no minutes to give.
+
+### Writing is the save; committing is durability
+
+A crash loses only what was never written to disk. The file itself survives, uncommitted. So:
+
+| Layer | Protects against | Cost | Cadence |
+|---|---|---|---|
+| **transcript** (`~/.claude/projects/<slug>/*.jsonl`) | everything, but raw and undistilled | free, automatic | continuous — measured at **8 s** lag |
+| **Write** to the role's owned document | crash, session loss | free | **often** — this is the real save |
+| **commit** | worktree reset; gives history | touches the shared index | occasional |
+| **memory** | a *future* session not finding the work | tiny | once early, updated on pivots |
+
+Frequent Writes and occasional commits is the right split. Reversing it buys nothing and creates
+contention.
+
+### Why closing is slow, and the fix
+
+The delay is not the commit — it is composing hours of accumulated synthesis into prose at the worst
+possible moment. The fix is **amortization**, not a faster flush. A session that has been writing all
+along closes in seconds.
+
+### Triggers
+
+| Role | Checkpoint on |
+|---|---|
+| coder | every commit (already true — status file plus step log) |
+| spec | every spec commit, and materially more often than today |
+| epic, designer | every decision recorded, every section settled |
+| confirm, verify, pr, triage | every finding, as found — not at the end of the review |
+| sync | every fold-in |
+
+**The gap is discussion.** A design or brainstorm session has no natural event and holds the most
+irreplaceable state. This document's companion design ran roughly fifteen exchanges of decisions,
+rejections and verbatim rulings before anything reached disk; a crash at exchange fourteen would have
+lost all of it. So event triggers where they exist, plus a **fallback idle tick** for discussion —
+a session-scoped timer that fires only when the session is idle, so it lands in reading pauses and
+costs no perceptible time.
+
+### Save in order of irreplaceability
+
+A panic-save has to know what to write first:
+
+1. **Dean's verbatim rulings** — cannot be reconstructed, and they carry the authority
+2. **Decisions and rejections with rationale** — the "do not re-litigate" set
+3. **Open questions** raised but unanswered
+4. Synthesized analysis — expensive, but re-derivable
+5. Mechanical findings — greps, counts, measurements: re-gatherable, so last
+
+### Two modes, not one
+
+- **Checkpoint** — organized, incremental, into the role's owned document. The routine case.
+- **Panic-save** — append raw to the end of the digest, in seconds, tidy later. Correctness is
+  "nothing lost", not "nicely written".
+
+Treating every close as the first kind is why closing is slow.
+
+### The session digest
+
+A per-session document whose audience is Dean or a successor session — distinct from the role's owned
+document, which serves the *project*. It carries:
+
+- key findings
+- Dean's decisions
+- steps or tasks listed but **not yet complete**
+- a recap, and what comes next
+
+And deliberately **not**: full history, clarifications that turned out moot or have already been folded
+into a document, edit history, or superseded suggestions.
+
+Two ways to produce the same artifact:
+
+- **written as you go** — the accumulated checkpoints *are* the digest
+- **reconstructed afterwards** from the transcript, which is why a crashed session is un-distilled
+  rather than lost
+
+The rescue path is cheap because the highest-value content is the easiest to extract: filtering a
+transcript to its user turns yields Dean's verbatim rulings in a tiny fraction of the bytes, without
+loading a 24 MB file into context.
+
+### Subagent output must be incremental
+
+A background fact-finder that reports only at the end loses everything if the session closes. Its
+brief must require appending findings to a file **as they are found**, with the final summary as a
+convenience rather than the deliverable. (Coders do not spawn subagents at all.)
+
+### Hazards
+
+- **Shared index.** Many sessions share the plans worktree, so periodic auto-commits will collide on
+  `.git/index.lock`. Git fails rather than corrupting — which means a fire-and-forget background commit
+  that fails is a **silent** non-save, indistinguishable from success. Verify and retry; never
+  fire-and-forget. Frequent-Write / occasional-commit avoids most of this.
+- **Do not edit a file while its commit runs.** Write, commit, then resume editing that path.
+- **Transcript findability.** 82 transcripts exist for the plans project alone, named by UUID with no
+  visible subject. Rescue depends on identifying the right one — by modification time, by a title
+  recorded inside the file, or by an index. Unsolved; see § Open.
+
+[↑ Contents](#contents)
+
+---
+
 ## Skill surface
 
 One skill per role, `r-` prefix separating roles from `s-` utilities:
@@ -284,6 +391,15 @@ surfaces. Dean does not watch coders by design, so a halt can sit unnoticed inde
 auto mode a halted coder is silent rather than obviously stuck. Candidates: the coder raises a
 notification, or halted state is made visible in `session/status/` and polled. **Needs a decision
 before auto-mode coders run unattended.**
+
+**Transcript findability.** Rescuing a crashed session means finding its transcript among 82
+UUID-named files with no visible subject. Candidates: modification time, a title recorded inside the
+file, or a maintained index. There may already be partial material here — a session-naming hook exists
+— but nothing that maps a subject to a transcript path. Needed before transcript-based rescue is
+practical rather than theoretical.
+
+**Checkpoint cadence for discussion sessions** — an idle tick is proposed (§ Checkpointing); the
+interval is not chosen.
 
 **`s-design-review`'s true role** — confirm or verify (§ Skill surface).
 
