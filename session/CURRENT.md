@@ -22,6 +22,13 @@
   **only copies**, flag before any worktree reset; (b) goldens **#1513 is a no-op** (its content rode
   #1516's squash; diff vs `main` is empty) needing only a close call — GitHub write, Dean's;
   (c) superseded `ta-anchor-refactor@34055d77` unpushed, for `git boidem` at leisure.
+  ⚠️ **The PR-2 facts below are STALE — do not act on the tip, the push state, or the PR state.**
+  They were folded from two `sync__` handoffs that predate 11 newer commits on `plans` (C12 landed,
+  Findings 77/78 reviewed clean, a rebase onto `main`, a reword, and *"PR #1523 opened"*). Verified
+  2026-08-09: the branch is at **`14a5d6cc`**, identical on local and origin, i.e. **pushed**. The
+  planner is checking #1523 and will send a `sync__` handoff; this entry is rewritten from that, not
+  from here. Everything else in the entry (the review verdict, `AD8` (b) being the open decision, the
+  `ceil`/`floor` retraction, `B2`) is unaffected.
   **PR-2 `ta-anchor-dynamic-refresh` — CODE-COMPLETE AND REVIEWED, NO DEFECTS.** Tip **`6d55fbd7`**
   (26 commits on `075a208e`), tree clean, **nothing pushed**. Reviewer ran a full diff-vs-plan review at
   the freeze — **Finding 76**, `planning/ta-anchor-dynamic-refresh-review.md`, commit `052b6792`:

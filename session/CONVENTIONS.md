@@ -186,6 +186,36 @@ gaps, NTH items, and confirmed-correct items. Scoped to a branch or design doc. 
 docs are ready for consumption by the plan agent. Never write to a `*-review.md` file unless
 you are acting as the review agent.
 
+#### Review pipeline — four stages, with a pluggable checker slot
+
+The stages are fixed; **stage 1 is a set, so new capabilities plug in without changing the pipeline.**
+
+| Stage | What |
+|---|---|
+| **0 — scope** | Read the Type 3, the commit list, and the diff boundaries. Establishes what the PR *claims*. |
+| **1 — check the code** | Run every available **checker** (see contract). Produces defect *candidates* with no knowledge of intent. |
+| **2 — understand intent** | Plan-vs-diff, commit-message-vs-diff integrity, §4a token scan, DCO, gate results, golden-file scope, deletion classification. Only the review agent can do this. |
+| **3 — merge and rule** | For each stage-1 candidate decide: real and in scope, real but backlog-not-blocking, or refuted. Survivors become numbered Findings in the Type 6 doc. |
+
+**Checker contract** — anything satisfying this may be added to stage 1, and adding one changes
+nothing in stages 0, 2 or 3:
+
+- **read-only**: no working-tree writes, no GitHub writes, no git write-verbs
+- emits findings as *(file, line, claim, concrete failure scenario, verdict)* — a claim with no
+  failure scenario is speculation and does not enter stage 3
+- independently skippable: an unavailable checker degrades coverage, never blocks the review
+- carries no authority: a checker reports, the review agent rules
+
+Current checkers: the built-in **`/code-review`** skill, run at `high` or `max`. Breadth is wanted
+here — it admits uncertain findings, which is correct precisely because stage 2 filters on intent that
+the checker cannot see. **Never pass `--comment`** (posts to GitHub) or **`--fix`** (writes the working
+tree); either breaks the review agent's read-only boundary. Candidates for later: Go pitfall and
+idiom checks, reuse/duplication against imported modules and the standard library, security review.
+
+The coder may run the same checkers on itself before signalling push-ready, and *may* use `--fix`
+there since it owns its worktree — see `CODER-CONVENTIONS.md` §5.4. That is a self-check, not a
+review; it does not substitute for stages 2–3.
+
 ### Plan document authoring (Type 3 task plans)
 
 New task plan documents follow the micro-rules structure (see `planning/micro-rules-design.md`):

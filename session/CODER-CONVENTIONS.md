@@ -412,6 +412,20 @@ This applies to all PRs, including rebases that produce a materially
 different diff. Routine rebase-only pushes (no logic change, no new
 commits) are exempt.
 
+**Self-check before you signal.** Before writing the review trigger, run the
+stage-1 checkers on your own diff — currently the built-in `/code-review`
+skill (see `CONVENTIONS.md` § Review pipeline). You own your worktree, so
+you **may** use `--fix` here; the review agent may not. Two rules:
+
+- **Never pass `--comment`** — it posts to GitHub, which no coder may do.
+- **Fix or account for every finding before signalling.** If you disagree
+  with one, say so in the trigger's note or your status file with the reason.
+  Silently leaving a known finding for the reviewer wastes the round.
+
+This is a self-check, not a review. It cannot see your plan, so it says
+nothing about whether the diff matches it — that is stages 2–3, and it is the
+review agent's job. Passing the checkers is not push-readiness.
+
 ---
 
 ## 6. WIP until Dean reviews — don't mark work "complete"
