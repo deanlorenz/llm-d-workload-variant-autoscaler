@@ -10,8 +10,8 @@
 
 **Active (full abstracts) — live WIP only:**
 
-- **2026-08-07/09 — Anchor-refactor mission. PR-1 MERGED; PR-2 CODE-COMPLETE + REVIEWED, awaiting
-  ONE decision from Dean.**
+- **2026-08-07/09 — Anchor-refactor mission. PR-1 MERGED; PR-2 = #1523 OPEN, green, awaiting external
+  review.**
   **PR-1 `ta-anchor-refactor-v2` = [#1516](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1516)
   MERGED** 2026-08-07 17:48:05Z, squash **`57f3fe64`** on `main` (29 files, +2077/−166). Full mission
   detail — the Aug-5 redesign, both review rounds, the C1–C5 close-out, ev-shindin's pre-merge
@@ -22,47 +22,39 @@
   **only copies**, flag before any worktree reset; (b) goldens **#1513 is a no-op** (its content rode
   #1516's squash; diff vs `main` is empty) needing only a close call — GitHub write, Dean's;
   (c) superseded `ta-anchor-refactor@34055d77` unpushed, for `git boidem` at leisure.
-  ⚠️ **The PR-2 facts below are STALE — do not act on the tip, the push state, or the PR state.**
-  They were folded from two `sync__` handoffs that predate 11 newer commits on `plans` (C12 landed,
-  Findings 77/78 reviewed clean, a rebase onto `main`, a reword, and *"PR #1523 opened"*). Verified
-  2026-08-09: the branch is at **`14a5d6cc`**, identical on local and origin, i.e. **pushed**. The
-  planner is checking #1523 and will send a `sync__` handoff; this entry is rewritten from that, not
-  from here. Everything else in the entry (the review verdict, `AD8` (b) being the open decision, the
-  `ceil`/`floor` retraction, `B2`) is unaffected.
-  **PR-2 `ta-anchor-dynamic-refresh` — CODE-COMPLETE AND REVIEWED, NO DEFECTS.** Tip **`6d55fbd7`**
-  (26 commits on `075a208e`), tree clean, **nothing pushed**. Reviewer ran a full diff-vs-plan review at
-  the freeze — **Finding 76**, `planning/ta-anchor-dynamic-refresh-review.md`, commit `052b6792`:
-  commit-list integrity holds (26 match the ledger), spot-checked claims check out, golden scope matches,
-  C11's (D-a) deferral is genuinely built-not-enabled. Explicitly *"a push-readiness signal for Dean, not
-  a push."* Dean's resume go-ahead was relayed 2026-08-08 (trigger `c6ea7ee9`); the last authorized §4a
-  fix landed as `6d55fbd7`. Gates green (`make test` 94.1% coverage on `internal/engines/pipeline`,
-  `make lint` 0 issues, `gofmt`/`go build`/`go vet`).
-  **⚠️ ONE open item, Dean's: `AD8` option (b) placement** — the per-role pricing repair is *approved*;
-  whether it lands in PR-2 or a follow-up is open (adds three code sites if placed here).
-  **`ceil`/`floor` is NOT open** — retracted as a planner mis-scoping (`1cca5563`): `capN =
-  min(replicasToCover(share, gpusPR), gpusAvail/gpusPR)` rounds its two terms in opposite directions *on
-  purpose*, and the Type 1's `floor` mandate covers the pool term only, which the shipped code already
-  satisfies. Do not re-raise. **Still the planner's:** `B2`, a discriminating spec for
-  `fairShareRolePick`'s per-role budget (the reviewer found both shipped specs pass under clamp-only).
-  **Push mechanics when authorized:** first push since PR-1 merged, no PR open yet, and
-  `origin/ta-anchor-dynamic-refresh@f6485980` is orphaned ⇒ needs `--force-with-lease`.
-  **New incident to record** (Finding 76 §7, self-disclosed): two `cd`-into-coder's-worktree slips by the
-  reviewer during gate verification — both read-only, `git status --porcelain` clean after each, no
-  code/plan/git state touched; flagged by the reviewer itself as worse than a one-off because the second
-  followed the disclosure of the first.
-  **Backlog, unaffected by the review and not blocking push:** `AD7`/`N5` (sat `Cost=0` for zero-replica),
-  `AD5`'s hold-predicate, and the claim-pricing distortion (`537b0153`, dormant `PIt` spec) — all per
-  frozen plan §7. **Doc taxonomy (Dean, 2026-08-07):** `planning/multi-analyzer-dataflow-map.md` and
-  `ta-anchor-refactor-review.md` Part 2 are **source traces, not authorities** — cite for per-site line
-  evidence only; the Type 1 governs on disagreement.
-  **Authorities:** Type 1 [`combined-analyzer-optimizer-design.md`](../planning/combined-analyzer-optimizer-design.md)
-  **FINAL, frozen @ `8c2a9b04`**, amended by
-  [`…-addendum-1.md`](../planning/combined-analyzer-optimizer-design-addendum-1.md) **Rev 7 @ `43f20c65`**
-  (additive; governs where they overlap). Type 3
-  [`ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) **FROZEN @ `4fa91b7e`**
-  — carries the C6c/C10/C11 detail, the GPU-space unit table, and the `W1`–`W5` dispositions folded in
-  from ~30 handoffs and a 417-line ledger. PR-1 plan
-  [`ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md) (FINAL).
+  **PR-2 = [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) — OPEN, PUSHED,
+  FULLY GREEN. Nothing blocked, nothing outstanding to push.** Tip **`14a5d6cc`**, **28 commits** on
+  `main@a6b39809`; local ≡ origin ≡ PR head. `MERGEABLE` / `REVIEW_REQUIRED` — no *external* review
+  submitted yet; internal review is complete and clean (Findings **76/77/78**). CI all pass — `gate`,
+  `DCO`, `signed-commits`, `lint-and-test`, `kustomize-build`, `check-code-changes`, `e2e-tests-full`,
+  `e2e-tests-smoke`; all 28 commits DCO- **and** crypto-signed.
+  **Every previously-open decision is closed:** `AD8` (b) placement → **in this PR**, landed as `C12`
+  (`4e5bbf12`, pre-rebase `136a214a`), reviewed defect-free (Finding 77); `ceil`/`floor` → **retracted,
+  never a fork** (`1cca5563`); the §4a commit-message reword → **executed** during the rebase; the plan
+  freeze → done; the rebase onto `main` → reviewed clean (Finding 78) and independently re-verified for
+  dropped hunks (none).
+  **No planner is standing by — deliberate, not abandonment;** the thread is fully resumable from its plan
+  doc alone. **Live forward work, all released, none blocking merge:** `B2` (a discriminating spec for
+  `fairShareRolePick`'s per-role budget) is **UNCLAIMED** — recommended as its own small test-only PR after
+  #1523 merges; it pins existing-correct-but-under-tested behavior rather than fixing a defect.
+  **Dean's, none blocking merge:** (a) two PR-*body* claims run ahead of the code — "partial proactive
+  from-zero admission" is **built-not-enabled** (C11 (D-a) deferred), and the body omits that regime (i),
+  the freeze, survives (`C12` closes only the drain); (b) **PR-2's 0.9 inclusion — open by design, his call
+  after merge**; (c) requesting an external review on #1523.
+  **⚠️ Armed footguns, carry verbatim:** (1) #1523 shows a **stale `github-actions` comment "Unsigned
+  commits detected!"** — posted 9 s after the PR opened against the pre-re-sign push; the bot never
+  retracts and `signed-commits` **passes**. Do not read it as a live failure and do not re-sign.
+  (2) **Do NOT record PR-2 as in-or-out of 0.9** — the tag-is-freeze-marker /
+  `release-0.9`-branch-is-actual-content distinction was about **PR-1**. (3) Plan **§1.1.0's ledger SHAs
+  are pre-rebase and no longer resolve**, kept deliberately as history. (4) **`AD8` (b)'s "third site" is
+  not a gap** — it is reached via the same abstain predicate at `votesFromTotalDemand`; do not schedule it.
+  **State:** [`session/status/planner-ta-anchor-pr2.md`](status/planner-ta-anchor-pr2.md) (**CLOSED** —
+  carries the handoff inventory + footgun list) · Type 3
+  [`ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) § *Where the branch
+  actually is* + § *Open items and next steps* (**claim from that owner table**) · review doc
+  `planning/ta-anchor-dynamic-refresh-review.md` Findings 76/77/78 · Type 1
+  [`combined-analyzer-optimizer-design.md`](../planning/combined-analyzer-optimizer-design.md) FINAL
+  @ `8c2a9b04` + Addendum **Rev 7 @ `43f20c65`** (governs where they overlap).
 - **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own `autoscaling-viz`
   branch/worktree.** *WIP — no session running; resumable from its plan.* Four-command chain; 12 PASS / 4 FAIL on our 2026-08-03 staircase
   run, capacity model within **0.6%** of the observed ceiling with zero free parameters. All four FAILs
@@ -132,7 +124,7 @@ rows stay here.
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
 | wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack; needs F1 "pre-analysis extraction" to solve `VariantCapacities` sourcing; unscoped). Dean spawning a **separate planner** to scope the real sat_v2-disable fix; awaiting his call: carve Half-A-only vs scope Half-B/F1 vs hold. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 | ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN but now a NO-OP — needs only a close call (Dean's; GitHub write).** Characterization "golden" gate (test-only, +409/−0, 1 file: `internal/engines/pipeline/optimizer_characterization_test.go`) freezing the saturation-only optimizer decision SET keyed by VariantName; was the land-first ship gate for the anchor refactor. **Its content is already in `main`:** PR-1 #1516 was rebased onto this branch's tip before opening, and #1516's **squash** merge (`57f3fe64`, 2026-08-07 17:48:05Z) therefore landed the file — `git diff 57f3fe64 a2f49ccf -- <that file>` is **empty**, so the PR has nothing left to contribute and its purpose was served. No code action; the coder must still **NOT** rewrite the goldens commits. Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note, carried into PR-1 and landed there). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
-| ta-anchor-dynamic-refresh | — | **CODE-COMPLETE + REVIEWED, no defects found** (Finding 76, `052b6792`). 26 commits on `075a208e`, tree clean, **nothing pushed**; push needs `--force-with-lease` (`origin@f6485980` orphaned, no PR open yet). Open: **`AD8` (b) placement** (Dean's) + `B2` spec (planner's); `ceil`/`floor` retracted, not open. Abstract in § Recent activity; detail in [`ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) (FROZEN @ `4fa91b7e`). | `6d55fbd7` |
+| ta-anchor-dynamic-refresh | [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) | **OPEN, pushed, CI all-green.** Tip `14a5d6cc`, 28 commits on `main@a6b39809`; local ≡ origin ≡ PR head. `MERGEABLE` / `REVIEW_REQUIRED` — internal review clean (Findings 76/77/78), **no external review yet**. All decisions closed (`AD8` (b) → `C12`; `ceil`/`floor` retracted; §4a reword executed; rebase clean). Open, none blocking merge: `B2` (**UNCLAIMED**), and Dean's PR-body accuracy + 0.9 call + review request. ⚠️ The **"Unsigned commits detected!"** bot comment is stale — `signed-commits` passes. Detail: [`session/status/planner-ta-anchor-pr2.md`](status/planner-ta-anchor-pr2.md) (CLOSED). | `14a5d6cc` |
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | (upstream) rate-anchored k2 | #1501 | **Reviewed 2026-07-30 — COMMENTED posted** (deanlorenz, 15:54:47Z) — rate-anchored `k2` estimator for saturation-v2 (fixes #1500 shed-to-one on prefill-heavy traffic). 2 non-blocking asks: (1) gate `RegisterRateCapacityQueries` on `EnableRateAnchoredK2` (unconditional registration adds per-cycle Prometheus load in the default TA-off config — load-only, no correctness impact); (2) rebase onto current `main` (#1486 touches the same `NewEngine`). Estimator/tests sound, no blockers. Incoming PR — no worktree. Review FINAL: [`planning/PR1501-review.md`](../planning/PR1501-review.md). | (incoming) |
 
@@ -189,8 +181,8 @@ rows stay here.
   `ci-pr-checks` / `ci-e2e-openshift` lint action + Dockerfile + CONTRIBUTING + `docs/developer-guide/development.md`
   + `.claude/agents/go-reuse-checker.md`; 8 files, +9/−9). Two practical consequences: (1) **a green
   `make lint` from before this commit does not carry forward** — 2.8→2.10 is two minor releases of linter
-  changes, so any branch whose gates were verified under 2.8.0 (notably **PR-2 `ta-anchor-dynamic-refresh`
-  @ `d9f3b97e`**, and `optimizer-pd-role-ceiling` @ `0c33a3eb`) must re-run `make lint` after rebasing, and
+  changes, so any branch whose gates were verified under 2.8.0 (now only `optimizer-pd-role-ceiling` @ `0c33a3eb` — **PR-2 is clear: #1523's
+  `lint-and-test` passes under 2.10.0**) must re-run `make lint` after rebasing, and
   new findings there are the bump's, not a regression; (2) **no stale-binary hazard** — the Makefile rule is
   version-keyed (`bin/golangci-lint-$(GOLANGCI_LINT_VERSION)` + `ln -sf`), so `make lint` fetches 2.10.0 and
   re-points the symlink on its own. Local `go` is **already 1.26.0**, so there is no toolchain gap to close.
@@ -240,16 +232,19 @@ rows stay here.
   [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). Supersedes the
   `PR1266-fixup-effectiveEnabled.md` stopgap.
 - **anchor-refactor mission — forward work only.** State and detail live in § Recent activity and
-  the Type 3; not restated here. **Dean's:** (a) **`AD8` option (b) placement** — in PR-2 or a
-  follow-up; the one open decision gating push; (b) authorize the PR-2 push (`--force-with-lease`,
-  first since PR-1 merged, no PR open yet); (c) close goldens **#1513** (no-op — GitHub write);
-  (d) `git boidem` the superseded `ta-anchor-refactor@34055d77` (unpushed); (e) file, or decline, the
-  two GitHub issues — QM multi-analyzer-contract work, and the sat-v2 zero-replica `Cost=0` bug
-  (`AD7`/`N5`). **Reviewer's:** commit the still-uncommitted `ta-anchor-refactor-v2-code-review.md`
-  and `ta-anchor-refactor-review.md` Part 3/Round 2, then mark them FINAL — **these are the only
-  copies.** **Planner's:** the `B2` discriminating spec for `fairShareRolePick`'s per-role budget;
-  and `plan__ta-anchor-dataflow-map-pr1-delta.md` remains an open planner-task (optional §9 addition
-  to the dataflow map, deferred by Dean — **not sync's to consume**).
+  the Type 3's owner table; not restated here. **Dean's, none blocking merge:** (a) request an
+  **external review on #1523** (`REVIEW_REQUIRED`); (b) two PR-*body* claims run ahead of the code —
+  "partial proactive from-zero admission" is built-not-enabled, and the body omits that regime (i), the
+  freeze, survives; (c) **PR-2's 0.9 inclusion — open by design, decide after merge**; (d) close goldens
+  **#1513** (no-op — GitHub write); (e) `git boidem` the superseded `ta-anchor-refactor@34055d77`
+  (unpushed); (f) file, or decline, the two GitHub issues — QM multi-analyzer-contract work, and the
+  sat-v2 zero-replica `Cost=0` bug (`AD7`/`N5`). **Reviewer's:** commit the still-uncommitted
+  `ta-anchor-refactor-v2-code-review.md` and `ta-anchor-refactor-review.md` Part 3/Round 2, then mark
+  them FINAL — **these are the only copies.** **Unclaimed, for a new planner:** `B2` (discriminating
+  `fairShareRolePick` spec) as its own small test-only PR after #1523 merges; re-validating
+  `optimizer-pd-role-ceiling` against the landed refactor
+  (`plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md`); and
+  `plan__ta-anchor-dataflow-map-pr1-delta.md`, still open and deferred by Dean — **not sync's to consume**.
 - **optimizer-pd-role-ceiling (RESUME 2026-07-16 — clean-design discussion):** code + all 10 tests done (tip `0c33a3eb`); dev-guide edits made-but-UNCOMMITTED in the worktree. Active thread is Dean's clean-design effort in [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md): **(1)** answer the 2 Phase-2 framing questions (see that doc's § Resume), **(2)** lock the clean logical/data-flow, **(3)** Phase 3 — verify code vs. the clean model and resolve open issues 1–4 (notably the suspected anticipated-supply-in-denominator bug), **(4)** restructure the dev-guide into clean-design + implementation sections. Only after that: commit the dev-guide, act on the pending code-review trigger, propose the push. Do NOT commit/push until Dean directs. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 - **analyzer-metric-interface (PR #1444 MERGED → issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)):** enhancement tracked (Phase 1 metric exposure → Phase 2 external PromQL wrapper → Phase 3 polish). **Implementation deprioritized** — do NOT start until higher-priority work clears and Dean scopes Phase 1. **Archive `analyzer-metric-proposal` branch/worktree ~2026-08-13** (`git boidem`), after confirming Evgeny has no further commits.
 - **Issues to file (at Dean's direction — do not file without confirmation):** Q1+Q2 from
