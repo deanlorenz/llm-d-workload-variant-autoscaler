@@ -56,127 +56,55 @@
   — carries the C6c/C10/C11 detail, the GPU-space unit table, and the `W1`–`W5` dispositions folded in
   from ~30 handoffs and a 417-line ledger. PR-1 plan
   [`ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md) (FINAL).
-- **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own branch + worktree,
-  near path is our own runs.** Four-command chain `fetch_run.sh` → `extract_real_trace.py` →
-  `render_real_trace.py` → `publish_result.sh` (≈2 k lines of Python + a `README.md`; `publish_result.sh`
-  never pushes), exercised end-to-end on our own 2026-08-03 staircase run
-  (`real-trace/staircase-20260803/`): **12 PASS / 4 FAIL** coverage, capacity model within **0.6%** of the
-  observed concurrency ceiling with **zero free parameters**, measured ITL knee agreeing with the
-  prefill-heavy prediction, 94 s boot lag cleanly captured (`desired` 1→2 at t+454 s, `ready` at t+548 s).
-  **Migration EXECUTED** (Dean's go-ahead; branch name is **`autoscaling-viz`**, *not* `viz-tools`) —
-  `git subtree split -P scratch/autoscaling-viz`, worktree at container top level, **orphan lineage
-  verified** by set-intersecting `rev-list` (0 commits shared with `plans`), 145 tracked files, clean.
-  Home had to move before the tools could be shared at all: `plans` is an orphan branch of internal
-  state, so cloning it to hand over a plotting script hands over CURRENT.md and every planning/review
-  doc. **The split nearly lost the one irreplaceable input** — `metrics/raw/` (217 Prometheus scrape
-  files, 20 MB, the only time-resolved metrics source) was hidden from `subtree split`'s tracked-files-only
-  semantics by a **nested** `.gitignore`; now durable as `metrics-raw.tar.gz` (**1,935,604 bytes**,
-  ≈10.5:1). `per_request_head.json` (2.4 MB) deliberately stayed out on the **no-prompt-text rule**
-  (plan §15.2 — 50 records embed 0.86 MB of prompt + SSE text, so it is a rule, not a size budget); cost
-  measured via a simulated fresh clone: **8 PASS / 7 FAIL** from a clone vs 12/4 locally (the gap is
-  exactly the per-request-derived rows + panels 1/4) — future fix is a text-stripped numeric-only head,
-  not committing the file. Completeness verified **by content**: preserve copy
-  `~/viz-migration-preserve-20260807` (419 files, 51 MB), every file `cmp`-compared, bijection closed
-  exactly (145 split + 274 copied = 419); recommend **not** deleting it yet — it is the only copy of
-  `per_request_head.json` outside the worktree. `results/` is now tracked. **Prose reproducibility
-  verified** (Dean asked): no prose is hand-authored into `out/` — every phrase resolves to a string
-  literal in tracked Python (`stability.py` / `run.py` / `sweep.py` / `report.py`), regeneration is
-  `python run.py && python report.py`, seeded `random.Random(1)`, deterministic; the HTML is a build
-  artifact, safely. **Dean's originals policy (new, load-bearing):** *"no need to keep GB originals. They
-  live where they were born … I don't copy over and never commit."* → the durable artifact is the
-  processed form plus a provenance ref; this is what invalidated "regenerable via `fetch_run.sh`".
-  **Near path is our own runs, not Ofer's** (he is out this weekend): re-fetch the full per-request file
-  (the committed demand trace is a 50-record head covering **9.19 s of a 1276 s run**, time anchor
-  `refused-short-trace`, and `post_run_analyze.sh` output was never captured), and re-design the run to
-  hold at saturation then step down with requests in flight — all four FAILs collapse to that one run-design
-  change. Panel 4 stays **deferred by Dean** (his order: finalise the fetch plan → fetch other runs →
-  *then* panel 4). Still open on the design side: preemption modelling, first-cut scope (plan §12.2
-  items 1–2), and a `runs/<label>/` + `provenance.json` restructure (deliberately kept out of the
-  migration so completeness verification stayed clean). Plan + cold-resume entry point is
-  `autoscaling-viz/real-trace-viz-plan.md` **in its own worktree** — do *not* link the `plans`-relative
-  `scratch/` path, which is dead by design (`git rm -r scratch/autoscaling-viz` landed as `9ccd5e23`,
-  145 files / −21702; the 227 MB `.venv`/leftover reclaim item is therefore moot).
-  `viz-results` retired (tag `archive/viz-results`). No PR Status row — no code branch, no PR, not headed
-  upstream.
-- **2026-08-08 — autoscaling-viz: a simulation driven *from* a real benchmark run; calibration gate
-  PASSES on both arms.** Dean's task: *"drive a simulation from the benchmark results — the benchmark
-  defines the demand shape and the supply capacities. We compare actual behavior (the scale decisions
-  used in the benchmark) to the various algorithm."* Type 3 plan
-  `autoscaling-viz/planning/sim-from-benchmark-plan.md` — 12 sections, TOC-refreshed, on the code branch
-  by the earlier deliberate decision, **not** under `plans/planning/`.
-  **C1 `run_inputs.py`** → `real-trace/ladder-20260807/run_inputs.json` (1.1 MB): 22,200 real arrival
-  timestamps, 8-stage segmentation, replica desired/ready series, the engine ITL line, and the 87 WVA
-  decision cycles. **The WVA decision rule verified 87/87.** Saturation never binds on this run
-  (`rc == 0` all 87 cycles, util peak 0.811). **C2 `sim_from_run.py`** + `C2-GATE-REPORT.md` →
-  **the gate PASSES on both arms, exit 0**. Two arms: **A0r** (observed *ready* steps, no boot model —
-  isolates the queueing + service model) and **A0d** (observed *desired*, paying the 110 s `setup` lag —
-  the reference the future control arms compare against). A0r: per-stage p50 within 8.0%, p95 within
-  12.5%, pooled decode throughput within 2.3%, 2462/2462 replica-trajectory samples within 1 replica,
-  queueing immaterial in both. **Nothing was tuned** — the one number fit from data is the ITL line
-  (`itl = 0.1847·run + 9.265 ms`, r² = 0.942, n = 411), fit once before any comparison.
-  **The fourth gate criterion was changed after it had been observed to fail — Dean's call, on the
-  record.** As originally written, `queue_onset` demanded sim and run show queueing in the *same set of
-  stages*; unpassable by construction (the real 0.266%-of-request-seconds signal comes from vLLM's
-  per-step token budget plus mid-transition routing, neither of which `sim.py` models). Dean resolved
-  it 2026-08-08 in favor of `queue_material` (queued request-seconds < 1% of in-system request-seconds
-  in both, and max per-pod concurrency below the admission ceiling in both) — scale-free, still bites on
-  future arms that genuinely queue. `queue_onset` is retained and still evaluated every run under
-  `superseded_checks` so its FAIL never disappears. **Still Dean's, still open:** the 15%/15%/1-replica
-  tolerances and the 1% queue share — all proposed by the coder, not derived; he resolved the
-  *criterion*, not the numbers. **Next, Dean's stated priority:** call the viz tools as the last step of
-  a benchmark run, writing reports/graphs/HTML into the benchmark's own experiment dir (plan §7.1,
-  `viz_experiment.sh` — explicit `--run`/`--controller-log`/`--out`, no path discovery, one invocation
-  per run id). Needs Dean's approval first: `report.py` and `run.py` both hardcode `OUT = "out"` and
-  must take an output directory instead (substantial single-file edits to pre-existing files).
-  Pushed: `origin/autoscaling-viz` @ `4b263d73`, local tip **`5a0c607f`** (six commits ahead — push
-  needs Dean's explicit OK). Status: `session/status/autoscaling-viz.md`.
-- **2026-08-08 — Pokprod TA benchmark: dwell run EXECUTED — the system does not dwell, it
-  limit-cycles.** Dwell run `dean-20260808-051912-230` (Dean-approved) ran to completion. It did
-  **not** produce the intended dwell in kv 0.3–0.85 — the system **limit-cycles** with a ~9 min
-  period (replica target `1→4→7→10→…→1→2→6→9→10→…→2→9`, two full cycles then floor). Mechanism
-  identified from the controller's own 33-tick decision trace: per-replica capacity `prc` is read
-  from a rolling-average history **keyed on a discretized output-length bucket**, and both
-  excursions to `maxReplicas` are `prc` collapsing 10–13× rather than real demand — at the second
-  peak `util` rose 3.1× while demand was *falling*. Also found: dispatch rate missing for **100%**
-  of ticks (label mismatch), demand is backlog-shaped not rate-shaped (2 rps offered → 9 replicas
-  provisioned), the two analyzers contradicting each other outright, and capacity history
-  **contaminated across runs** (controller up 6 h, never invalidated). Full findings + 5 prioritized
-  asks sent to the planner as `plan__benchmark-dwell-run-findings.md`; **supersedes** the
-  rate-invariance hypothesis in the earlier `plan__benchmark-dwell-operating-point.md`. GPUs released
-  after the run per Dean's standing rule. **Nothing pushed** — `benchmark` 11 ahead of
-  `origin/benchmark`, fork `wva-ta-benchmark` 1 ahead, both awaiting Dean's per-push confirmation.
-  Cold-resume: `benchmark/session-notes/status/benchmark.md` §18 (§17.12 now historical).
-- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap); Dean spawning a separate planner.**
-  Root-caused (not a regression): `saturation/engine_v2.go` unconditionally prepends the saturation result
-  and `effectiveEnabled` skips it by name, so `saturation:{enabled:false}` is a silent no-op — traced to
-  deferred design item F1 "Pre-analysis extraction" ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511).
-  The existing `planning/wva-analyzer-lifecycle-plan.md` Commit-2c "zero-signal" design is **REJECTED by
-  Dean** ("risky hack"; warnings added to the plan, commit `663a9624`) — a real fix must solve
-  `VariantCapacities` sourcing, not fake a neutral result. Dean is spawning a dedicated planner to
-  scope/design it (possibly still in 0.9 — freeze was delayed). Surfaced while the **benchmark TA-lead
-  experiment** coder is holding, blocked on separate planner deliverables (two-phase calibration+trigger
-  workload + a "faster" methodology) plus an open feasibility question (does TA raise RC ahead of
-  `k_sat=0.85`, or key off the same threshold?) — independent thread, do not conflate.
-- **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan; the
-  mid-band dwell turns out to be a controller-configuration decision, not a workload one.**
-  `planning/ta-pokprod-testing-plan.md` → 1457 lines, four new sections. Dean's **guards-only fork
-  split** is now contractual (§2b: harness fork = guards; tools/Makefile/`hack/` = WVA; 2 of the
-  fork's 4 commits violate it and migrate out, leaving 2 commits / 3 files). The `.env` contract is
-  **fail-closed and kube-context-keyed** with a `WVA_ENV_*` assertion triple, arm-derived
-  refs, a wizard + on-branch skill, and preflight spread from **one** call site to six (§2c) — Dean's
-  constraint: *"safely running in a shared cluster is the most important thing."* Doc surface
-  collapses to **one runbook** (§5.5 item 4). The **KEDA arm is present but unrunnable** — three
-  verified blockers, a prerequisite rather than a task (§5.7). **§7.6 is the substantive finding:**
-  steady-state KV under a tracking controller is a *controlled* variable, so §7.4.1's dwell cannot be
-  reached by raising the offered rate — the 08-07 ladder's kv 0.67 and arm B's kv 0.99 are facts about
-  configuration (TA provisioning ahead of saturation; a 2-replica cap), not rate. **Dean owes one
-  decision:** (a) saturation-alone-uncapped *(recommended by coder and planner)* vs (b) a deliberate
-  replica cap — or defer both behind the already-staged quantization-sawtooth run (20 + 26 RPS ×
-  360 s, 20 RPS retained as a control, informative either way). Nothing launched, no cluster contact,
-  nothing pushed. Cold resume: **§7.6.1** (staged status, four preconditions, ordered next steps) and
-  **§9.1** (T1–T11 with owners).
-- **2026-07-15 — optimizer-pd-role-ceiling: code+tests complete; dev-guide edits UNCOMMITTED; clean-design discussion in progress.** All 10 planned tests landed (6 commits, tip `0c33a3eb`, all gates green). **⚠️ Uncommitted state:** the planner (authorized by Dean; coder done) edited the Type 4 dev-guide directly in the worktree — saturation single-source note + worked example + edge-case→test table + why-coupled paragraph — **`M multi-analyzer-pipeline.md`, NOT committed** (pending Dean's review). Separately, Dean opened a design discussion on making the optimizer's data-flow/algorithm doc *clean* (analyzers→utilization desired/achieved; optimizer coordinates AND/OR; constraints); captured in new Type 1 doc [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) — **Phase 1 (discussion) done, Phase 2 (clean design) drafted & awaiting Dean's review of 2 framing questions, Phase 3 (verify code vs. clean model) not started.** Suspected real bug surfaced: anticipated supply is in the denominator, not counted toward achieved (see design doc § Open issues #2 — needs a trace). **Resume 2026-07-16:** answer the 2 Phase-2 questions, lock clean design, do Phase 3, then restructure dev-guide. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
-
+- **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own `autoscaling-viz`
+  branch/worktree.** *Open, not live.* Four-command chain; 12 PASS / 4 FAIL on our 2026-08-03 staircase
+  run, capacity model within **0.6%** of the observed ceiling with zero free parameters. All four FAILs
+  collapse to one run-design change (hold at saturation, then step down with requests in flight).
+  Panel 4 deferred by Dean. ⚠️ The preserve copy `~/viz-migration-preserve-20260807` is the **only**
+  copy of `per_request_head.json` outside the worktree — do not delete yet. State + cold resume:
+  `autoscaling-viz/real-trace-viz-plan.md` **in that worktree** (the old `scratch/autoscaling-viz/`
+  paths are dead by design). No PR, not headed upstream.
+- **2026-08-08 — autoscaling-viz: simulation driven from a real benchmark run; calibration gate PASSES
+  both arms.** *Live.* C1 `run_inputs.py` + C2 `sim_from_run.py` landed; the WVA decision rule verified
+  87/87; nothing tuned except the ITL line, fit once before any comparison. **Owed by Dean:** approval
+  for the `report.py`/`run.py` out-dir edits that C5 needs, and the four tolerance numbers
+  (15% / 15% / 1-replica / 1% queue share) — he resolved the *criterion*, not the numbers. ⚠️ The 4th
+  gate criterion was replaced *after* it had failed (his call) and the original is deliberately retained
+  and still evaluated — do not "clean it up". State:
+  `autoscaling-viz/planning/sim-from-benchmark-plan.md` + `real-trace/ladder-20260807/C2-GATE-REPORT.md`.
+- **2026-08-08 — Pokprod TA benchmark: dwell run executed — the system does not dwell, it
+  limit-cycles** (~9 min period; `prc` collapses 10–13× from a bucket-keyed capacity history, so it is
+  a mechanism, not a tuning problem). *Live.* Findings + 5 prioritized asks sent to the planner
+  (`plan__benchmark-dwell-run-findings.md`); **supersedes** the earlier rate-invariance hypothesis.
+  🚨 **GPUs were released by PAUSING the ScaledObject — un-pausing is a mandatory first step of the next
+  run**, or you get a flat 0-replica trace that reads as a legitimate no-scaling result. Restart the
+  controller before each run (capacity history contaminates across runs). Nothing pushed. State:
+  `benchmark/session-notes/status/benchmark.md` §18.
+- **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan.**
+  *Blocked on Dean.* §7.6 is the substantive finding: steady-state KV under a tracking controller is a
+  *controlled* variable, so §7.4.1's dwell cannot be reached by raising the offered rate — it is a
+  configuration decision, not a workload one. Guards-only fork split now contractual; the `.env`
+  contract is fail-closed and kube-context-keyed; the KEDA arm is present but unrunnable (3 verified
+  blockers). **Owed by Dean:** (a) saturation-alone-uncapped *(recommended by coder and planner)* vs
+  (b) a deliberate replica cap — or defer both behind the already-staged quantization-sawtooth run; and
+  **T9**, applying the gateway access-log follower personally. Nothing launched, no cluster contact,
+  nothing pushed. State: `planning/ta-pokprod-testing-plan.md` §7.6.1 (cold resume) + §9.1 (T1–T11 owners).
+- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap).** *Blocked on Dean.* Not a regression:
+  `saturation/engine_v2.go` unconditionally prepends the saturation result and `effectiveEnabled` only
+  skips it by name, so `saturation:{enabled:false}` is a silent no-op. The lifecycle plan's Commit-2c
+  "zero-signal" design is **REJECTED** ("risky hack", warnings committed `663a9624`); a real fix needs
+  the F1 pre-analysis extraction so `VariantCapacities` is sourced independently of the saturation
+  contribution. **Owed by Dean:** spawn the dedicated planner and scope it — do not start before that.
+  Keep separate from the TA-lead benchmark thread, which runs TA+SAT combined and does **not** need
+  sat_v2 disabled. State: `planning/wva-analyzer-lifecycle-plan.md` +
+  [`multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511.
+- **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.**
+  *Open, not live* — untouched for ~3½ weeks. ⚠️ Dev-guide edits the planner made directly are still
+  **UNCOMMITTED** in the worktree (`M multi-analyzer-pipeline.md`). The active thread is Dean's
+  clean-design effort: 2 Phase-2 framing questions unanswered, Phase 3 (verify code vs the clean model)
+  not started, and a suspected real bug flagged — anticipated supply sits in the denominator rather than
+  counting toward achieved. Nothing pushed. State: `planning/optimizer-pd-role-ceiling-plan.md` +
+  [`optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) § Resume.
 **Recently landed (1-liners; fuller entries in [`session/history.md`](history.md) → *Activity log*):**
 
 - 2026-07-30 — `ta-testing` refreshed → `6bfb73e1`; signed tag `ta-0.9-test-20260730` + quay image `:ta-0.9` (registry digest `sha256:80dec0e9728f…`) both pushed (executes the §4.1 refresh trigger).

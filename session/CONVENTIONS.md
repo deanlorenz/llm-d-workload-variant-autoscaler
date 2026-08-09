@@ -122,7 +122,13 @@ agents via handoff files.
   it is the **only auto-loaded** file, while Type-3 plans and history.md are both fetch-on-demand.
   So **the planner captures state and reasoning in the Type 3 as the work proceeds** — that is where
   WIP state lives, written down as it is learned rather than reconstructed later. **CURRENT.md then
-  points back to the plan: an abstract plus a pointer. It is not a state store.** A WIP entry exists
+  points back to the plan: an abstract plus a pointer. It is not a state store.**
+  **Per-session duty:** every planner session documents *its own* progress in *its own* plan doc, as
+  it goes — not in CURRENT.md, and not on another thread's behalf. **"Open" is not the same as
+  "live":** an entry stays verbose here only while it is *actual* live WIP — being worked right now,
+  or blocked on a named decision. Once a thread's state is documented in its plan, its CURRENT.md
+  entry reduces to a one-or-two-line abstract plus the ref even though the thread remains open. Most
+  long-lived threads are open-but-not-live and belong in that reduced form. A WIP entry exists
   for **state, recoverability and disambiguation — not brevity**, which makes the ordering strictly
   one-way: **the state must already exist in its Type 3 (or Type 1) home before any text here is
   reduced.** Never trim a WIP entry to hit a length. A length target would reward deleting state that
