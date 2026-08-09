@@ -116,6 +116,19 @@ agents via handoff files.
   doc, move it out of CURRENT.md into `session/history.md` → *Activity log* (as a dated 1-liner or
   fuller entry carrying a PR#/commit-SHA/doc ref) — do not leave a compressed tail accreting in
   CURRENT.md.
+- **In-flight work has a permanent home too — its Type 3 plan doc.** The rule above only fires once
+  an item has *landed*, so while work is in flight nothing is ever eligible to move, and CURRENT.md
+  silently becomes the de-facto permanent home for WIP state. That is the one thing it must not be:
+  it is the **only auto-loaded** file, while Type-3 plans and history.md are both fetch-on-demand.
+  So **write detail down into the Type 3 as it is learned** and keep an abstract plus a pointer
+  here. A WIP entry exists for **state, recoverability and disambiguation — not brevity**, which
+  makes the ordering strictly one-way: **the state must already exist in its Type 3 (or Type 1) home
+  before any text here is reduced.** Never trim a WIP entry to hit a length — if detail has no home
+  yet, write the home first, or leave the entry long. A length target would reward deleting state
+  that has nowhere to go, which is the same loss mode the editing discipline below guards against.
+  (Diagnosed 2026-08-09, after CURRENT.md went 22.9KB → 71.2KB in eight days while remaining
+  technically compliant with the landed-item rule above — the gap was routing, not size. See
+  [`planning/context-cost-reduction-plan.md`](../planning/context-cost-reduction-plan.md).)
 - **PR Status** in CURRENT.md lists **open / in-flight / actionable rows only**. When a PR merges or
   closes, move its row to `session/history.md` → *PR Status* sections and re-run toc-refresh.sh.
 - **Completed missions** (landed multi-PR efforts) live as blocks in `session/history.md` →
