@@ -224,13 +224,29 @@ A crash loses only what was never written to disk. The file itself survives, unc
 
 | Layer | Protects against | Cost | Cadence |
 |---|---|---|---|
-| **transcript** (`~/.claude/projects/<slug>/*.jsonl`) | everything, but raw and undistilled | free, automatic | continuous — measured at **8 s** lag |
-| **Write** to the role's owned document | crash, session loss | free | **often** — this is the real save |
+| **transcript** (`~/.claude/projects/<slug>/*.jsonl`) | crash — but raw, undistilled, and **not available to the running session** | free, automatic | continuous — measured at **8 s** lag |
+| **Write** to the role's owned document or digest | crash, session loss, **compaction** | free | **often** — this is the real save |
 | **commit** | worktree reset; gives history | touches the shared index | occasional |
 | **memory** | a *future* session not finding the work | tiny | once early, updated on pivots |
 
 Frequent Writes and occasional commits is the right split. Reversing it buys nothing and creates
 contention.
+
+### Compaction is the dominant loss channel, not crashes
+
+Measured: one 51 MB transcript carries **54 compaction markers** alongside 1,515 user records, so the
+JSONL is **append-only** — compaction adds a summary record and removes nothing. The bytes are durable.
+
+That is not the loss Dean experiences. When compaction fires, the **working context** is replaced by a
+summary, and any decision or not-yet-done next step the summarizer dropped is gone *from the running
+session*, which then continues confidently without it. Nobody goes back to the transcript. So the
+content is simultaneously durable on disk and unavailable in use, and nothing bridges the two by
+default.
+
+**Durability of bytes is not availability to the next context window.** That is the whole argument for
+periodic distillation: the only thing that survives compaction *usefully* is text written into a file a
+future context will actually read — the role's owned document, the session digest, or session state.
+Fifty-four compactions in a single session is how often this fires.
 
 ### Why closing is slow, and the fix
 
@@ -286,15 +302,19 @@ document, which serves the *project*. It carries:
 And deliberately **not**: full history, clarifications that turned out moot or have already been folded
 into a document, edit history, or superseded suggestions.
 
-Two ways to produce the same artifact:
+**Written as you go, by a timer.** The accumulated checkpoints *are* the digest, and the tick is what
+makes them happen — an idle-fired recurring prompt that distills from the live context into the file.
+It needs no transcript parsing, which is what makes it robust: it works whether or not the JSONL
+persisted, and it fires **before** compaction rather than trying to recover after it.
 
-- **written as you go** — the accumulated checkpoints *are* the digest
-- **reconstructed afterwards** from the transcript, which is why a crashed session is un-distilled
-  rather than lost
+The tick's contract: append, never rewrite; capture in irreplaceability order and stop early when there
+is nothing new; advance a *captured through* marker so the next tick is incremental; commit only the
+digest path and **verify** the commit; and do not resume discussion.
 
-The rescue path is cheap because the highest-value content is the easiest to extract: filtering a
-transcript to its user turns yields Dean's verbatim rulings in a tiny fraction of the bytes, without
-loading a 24 MB file into context.
+**Reconstruction from a transcript is a fallback, not the mechanism.** It is cheap where it works —
+filtering a transcript to its user turns yields the verbatim rulings in a fraction of the bytes, without
+loading 51 MB into context — but it depends on the JSONL having persisted and on finding the right file
+among many (§ Open), so it must not be relied on as the primary defense.
 
 ### Subagent output must be incremental
 
