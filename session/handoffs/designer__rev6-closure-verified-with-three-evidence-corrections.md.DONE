@@ -1,0 +1,96 @@
+from: review (ta-anchor-dynamic-refresh internal reviewer)
+to: designer
+session: Addendum 1 Rev 6 — reviewer half of the § verification checklist `AD8` row
+
+Rev 6's § checklist `AD8` row asks the reviewer to settle the closure **by counter-example**: find a
+single-fault story in which saturation stamps `no-data` on every variant while TA emits a `T-sfz`
+capacity. This is that answer. Full write-up: `planning/ta-anchor-dynamic-refresh-review.md`
+**Finding 75**, commit `cbb17457`. Everything below is a source read at `a9afb740`; I ran no build
+and no test.
+
+## Verdict: closure CONFIRMED, no single-fault story exists
+
+Four candidates, all fail:
+
+1. **Metrics vanish model-wide** — `saturation/engine.go:1540-1545` returns `nil, nil` on
+   `len(replicaMetrics) == 0`, skipping the model before any analyzer runs. TA emits nothing either.
+2. **Scale-target fetch fails for every variant** — `engine.go:1500-1507` `continue`s *before* the
+   variant enters `scaleTargets`/`variantAutoscalings` (`:1519-1524`), so the collector gets empty maps
+   and the model lands in (1). Your residual resolves to "no model", not "all-NoData model".
+3. **Engine args unparseable** — no such path. `resolveEffectiveMaxBatchedTokens` precedes every return
+   of both parsers (`deployment_parser.go:76,82,110`; `sglang_parser.go:48,54,65`), `ParseEngineArgs:14-19`
+   has exactly two branches, terminal line is an unconditional `= 2048`.
+4. **Variant-name mismatch, collector vs `BuildVariantStates`** — the only promising one, since sat's
+   result loop keys off `variantStates` (`saturation_v2/analyzer.go:367-368`) while TA's *memory* keys
+   off metric-row names (`throughput/analyzer.go:86,96-99`). It fails because TA's *emission* also keys
+   off `input.VariantStates` (`:426`) and looks its memory up by that name (`:430-431`) — miss,
+   `continue`, nothing emitted. Both analyzers go blind on the same input for the same reason.
+
+## The implication holds for a tighter reason than Rev 6 gives
+
+Rev 6 derives `TA warm ⟹ sat warm` from a **retention asymmetry** (7 d vs 1 h). The conclusion is
+right, but the argument makes it hostage to two durations that can move independently. The tight form:
+**the two memories are written by the same event.** `saturation_v2/analyzer.go:198-207` writes a
+`learnedFromLive` record for *every* replica metric row, keyed by that row's `VariantName`; TA's
+`lastPerReplicaSupply` (`throughput/analyzer.go:346`) can only go positive from rows in the same key
+space. Same cycle, same rows, no duration involved. `capacity_store.go:99-101` (no overwrite of a live
+record) and the absent eviction (below) make it permanent rather than merely simultaneous.
+
+That is why the counter-example search closes in one line instead of four: TA's `T-sfz` emission
+*requires* a prior live sighting, and the prior live sighting *is* sat's warm record.
+
+## Three corrections to cited evidence
+
+**(a) Retention is not 7 days — capacity eviction never runs.** `EvictStale` (`capacity_store.go:137`)
+and `EvictStaleHistory` (`saturation_v2/analyzer.go:50`) have **zero callers tree-wide, tests
+included**; `CapacityEvictionTimeout` (`constants.go:19`) and `HistoryEvictionTimeout` (`:25`) are
+referenced nowhere but their own declarations. Records live for the process lifetime. So the conclusion
+is *stronger* than Rev 6 states, but the cited mechanism is **dormant** — Rev 6's stated form describes
+what would become true if eviction were wired up at the declared 7 days. Also:
+`capacity_store.go:135`'s doc comment cites `EvictionTimeout = 24h`, a constant that does not exist;
+the real 24 h constant is the *k2 history*, not capacity. (That comment is where my own earlier 24 h
+figure came from.)
+
+**(b) TA's 1-hour expiry keys on the variant *appearing* in the metrics slice, not on usable metrics.**
+`throughput/analyzer.go:92` iterates `groupByVariant(metrics)` and sets `lastObservedAt = now` at
+`:99` — **before** the `SanityIssueNoReplicas` `continue` at `:101-108` and before the `!report.OK()`
+branch. A "rows present but unusable" gap keeps TA warm indefinitely; only a rows-absent gap reaches
+the `2*DefaultObservationMaxAge` eviction at `:159-163` (`30 * time.Minute`, `throughput/constants.go:24`
+⇒ 1 h is right for that flavor). Does not reopen the cell — under the tight form, sat is warm from the
+same rows either way — but the asymmetry as stated is narrower than it reads.
+
+**(c) The store branch is unreachable while any row is present.** It is guarded by `len(replicas) > 0`
+failing (`saturation_v2/analyzer.go:390`): a variant with any metric row takes the first branch and gets
+`k2SourceLabel(replicas)`, non-NoData, whatever its capacity arithmetic yields. Both Rev 6's chain and
+my Finding 74 lean on the store branch without stating that it only ever governs zero-row variants —
+which is what makes the residual below narrow rather than broad.
+
+## Two closures Rev 6 does not cite
+
+`engine.go:1540-1545` (model-level skip on empty metrics) and `engine.go:1500-1507` (pre-analyzer
+`continue` on a failed fetch). Both point the same way as Rev 6. They matter because they are robust to
+the fragile link Finding 74 §4 flagged: if `EffectiveMaxBatchedTokens` stopped producing a positive
+floor tomorrow, these two would still hold.
+
+## One residual predicate I could not close by reading
+
+For the cell to open, **every** variant must reach `satReasonNoData`. Given the tight form, a variant TA
+can size has a live record, so its store branch fails only if that record's `EffectiveCapacity` is
+non-positive — and that is `min(k1, k2)` from `saturation_v2/analyzer.go:185-188`. I did not establish
+whether `min(k1, k2) <= 0` is reachable on a live row. Residual predicate:
+
+> on the last cycle with rows, `min(k1, k2) <= 0` for **every** variant of the model, while TA computed a
+> positive `perReplicaSupply` from those same rows — and `lookupCompatibleCapacity` also misses for
+> every variant.
+
+Not claimed reachable. Recorded so that "closed" is not read as "closed by exhaustive proof". Testing it
+needs a k1/k2 fixture, not a liveness fixture; your caution against faked stale timestamps applies here
+too.
+
+## What I did not do
+
+I have not proposed which side of the structural asymmetry moves (liveness reads per-variant `Reason`;
+RC comes from `RoleCapacities`; no predicate relates them). That remains yours and Dean's. My standing
+note is unchanged from Finding 74 §5: the protection now rests on two incidental mechanisms — the
+conservative sizing floor and a never-called eviction path — plus two that are structural and robust.
+The first pair is what I would still surface; the second pair is why I would not call it urgent.

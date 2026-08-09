@@ -1,0 +1,82 @@
+to: planner (owner of ta-anchor-dynamic-refresh-plan.md + PENDING-EDITS)
+cc: reviewer (ta-anchor-dynamic-refresh-review.md), designer (Type 1 + Addendum 1)
+from: ta-anchor-dynamic-refresh (coder)
+reason: close a channel
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md (Findings 73, 74)
+  - planning/ta-anchor-dynamic-refresh-PENDING-EDITS.md
+  - session/status/ta-anchor-dynamic-refresh.md
+
+## 0. Why this is short
+
+**Dean, 2026-08-08: "stop running anymore tests and check. We freeze the plan then finish coding."**
+
+So this closes my side of the finding-by-finding round rather than continuing it. I am not filing
+another verification essay, and I am not opening a new question. The remaining items below are
+recorded once, flatly, and then I stop.
+
+## 1. Finding 73 — the two citation relocations: accepted, both mine
+
+Accepted without qualification. In `saturation_v2/analyzer.go`, `activeRoles` (`:104-107`) and
+`hasDisaggregation` (`:471-478`) iterate **`variantCapacities`**, not `VariantStates`; my handoff said
+"derived from `VariantStates`" and that was wrong at both sites. The substance survives only at one
+remove — `Role: vs.Role` is copied into each `VariantCapacity` at `:444-445` — and the genuinely
+load-bearing line is the reviewer's, not mine: the `satReasonNoData` branch (`:430-432`) **falls
+through to the append** at `:441-453` rather than skipping the variant, so a blind variant still
+arrives carrying its role. Verified at HEAD before writing this: there is no `continue` between the
+label assignment and the append.
+
+Also confirmed by reading, at HEAD, the two other claims I had queued to check:
+
+- **`enforcer.go:150-174` is role-blind.** The zero-total fallback selects by `d.Cost` with a
+  `VariantName` tie-break and contains no `Role` reference; it sets exactly one variant to 1. So it
+  cannot restore a per-role zero even in principle, in either regime. Review's strengthening of my
+  own weaker "does not rescue it" is correct.
+- **`greedy_saturation_algorithm.go:114-115`'s "MinReplicas is a hard floor" is unreachable for a
+  variant that is never granted anything** — `filterScaleUpCandidates` (`:52-63`) admits only
+  `d.TargetReplicas > d.CurrentReplicas`, and `allocateForDecision` returns at `:81-83` on
+  `replicasNeeded <= 0`. It can preserve a scale-up, never originate one. This is the sharpest form of
+  review's necessary condition and I have nothing to add to it.
+
+## 2. Finding 74 — retraction accepted; my measured half is separate and unchanged
+
+Finding 74 retracts Finding 73 §3 (reachable-by-construction) via the capacity store's
+pre-population, and severity drops accordingly. I accept that and I am not re-litigating the
+frequency question from either direction — my own earlier "only a hand-built ballot reaches
+`deadRC > 0`" was already retracted by me, and Finding 74 moves the answer a third time. The
+frequency line is now the planner's and the designer's to write, not mine.
+
+What is unaffected, and is the only thing I am asking be carried forward verbatim, because it was
+**measured** rather than argued: the **two-regime split**. Regime (i) `decode RC > 0` →
+`anyRoleNeedsScaleUp` true → scale-up branch → prefill **frozen at current, including 0**; regime
+(ii) `decode RC == 0 with spare` → scale-down branch → prefill **drains to 1**. Both measured at HEAD
+and at base `075a208e`, both optimizers, with the dispatch predicate printed rather than inferred.
+Frequency arguments move; the split does not.
+
+## 3. What I am doing now
+
+- **Verification loop: stopped.** No further diagnostic fixtures, no further base-worktree runs, no
+  further per-finding handoffs. The four review triggers (Findings 70–74) are all `.DONE`.
+- **PR-2 stays code-complete and untouched at `a9afb740`** — 25 commits on base `075a208e`, working
+  tree clean, nothing pushed, gates green as of C9e.
+- **I am not reading scope from PENDING-EDITS.** It says so itself in its own header, and I agree with
+  the rule. I will code from the Type 3 once the batch is applied and the plan is frozen.
+- **What I expect "finish coding" to consist of**, so the freeze can be checked against it rather than
+  re-derived — every one of these is currently *proposed* and none is authorized: `A29` (two §4a
+  token edits in `k_sat_test.go:163`, `rescale_test.go:186`), `A30` (`max :=` builtin shadowing at
+  `rescale_test.go:239,:248` → `maxRep`), `A28`'s two surviving §4a violations in
+  `analyzer_helpers.go:88` and `:642`, `B5`/`B7`/`B10`'s single collapsed rounding decision
+  (`ceil` vs `floor` in `replicasToCover`, three-site per `A16`), `B2`'s discriminating
+  `fairShareRolePick` spec, and — if Dean places it in PR-2 rather than a follow-up — `AD8` option
+  (b)'s **three-site** per-role pricing repair. If the frozen plan's git order differs from that
+  list, the plan wins and I code the plan.
+
+## 4. Standing
+
+Nothing here needs an answer. One thing does need a decision before I can move, and it is already in
+front of Dean rather than in front of me: **whether `AD8` (b) lands in PR-2 or a follow-up**, since it
+is the only queued item that changes production behavior and it is three sites on a code-complete
+branch. Per plan §7.1 the site list is a plan step, not coder latitude, so I will not choose it.
+
+Hygiene: nothing committed since `a9afb740`, no push at any point, no history rewritten, no golden
+moved, no `sed -i`, no scratch file left behind (`git status --porcelain` empty, no stray worktrees).

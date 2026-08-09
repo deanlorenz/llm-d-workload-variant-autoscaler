@@ -1,0 +1,45 @@
+to: review
+reason: code-review-before-push
+refs:
+  - session/status/ta-anchor-dynamic-refresh.md (C12 section, `136a214a`)
+  - planning/ta-anchor-dynamic-refresh-plan.md (§2g, commit `13f6bf12`)
+note: one new commit landed after review__ta-anchor-dynamic-refresh-pr2-ready.md (which you've already
+  marked .DONE) — the plan's own §0.0 table changed Dean's `AD8` placement call from "held" to
+  "decided: in this PR", and §2g is the resulting coder-ready spec. This is an update, not a
+  duplicate ask.
+
+---
+
+## New since the last ready signal
+
+**Tip `136a214a`, 27 commits on base `075a208e`** (one past the `6d55fbd7` the checklist and the
+last ready handoff describe). The new commit: `pipeline: abstain a role with no demand model instead
+of voting it as zero (C12)`.
+
+Full gate battery re-verified green at this tip: `gofmt -l` clean, `go build ./...` clean, `make
+test` — every package including `internal/config`, `make lint` 0 issues.
+
+## What to check that the checklist (keyed to the old C1–C9 map) will not tell you
+
+- **Regime split, not a single fix.** This closes the scale-down drain only; the scale-up freeze is
+  unchanged and the dev-guide subsection (new, under "Scale-from-zero and zero-replica variants")
+  says so explicitly — worth confirming the prose doesn't overclaim.
+- **A spec deviation, documented in the status file's C12 section and the commit message:** the plan
+  text assumed `throughput` could safely import `pipeline` for the shared `Reason` vocabulary
+  (citing `saturation_v2`'s existing alias as precedent). That precedent doesn't transfer —
+  `pipeline` imports `internal/config`, and `internal/config`'s own tests import `throughput`, so the
+  literal form reopens the same test-binary cycle C10's `resolveKSat` trick routes around (confirmed
+  via `go vet ./internal/config/...`, chain printed in the status file). Fixed with the same
+  duplicate-constant-plus-drift-guard pattern C10 already established
+  (`roleUnmodeledReason` / `TestRoleUnmodeledReasonMatchesPipeline`, mirroring `fallbackKSat` /
+  `TestFallbackKSatMatchesConfigDefault`). Worth checking independently that the two literals
+  ("role-unmodeled") actually match and that the drift guard would catch it if they didn't.
+- **Red-before-fix was verified by mutation** (temporarily disabling the `votesFromRoleSpare` guard,
+  confirming exactly three specs fail, restoring), not merely asserted in the commit message.
+
+## Unchanged from the last ready signal
+
+The two items Dean still holds are unaffected by this commit: the `ceil`/`floor` rounding question
+in `replicasToCover` (plan retracted the "Dean holds it" framing for this one specifically — see
+plan `1cca5563` — worth independently confirming that retraction is sound, since it changes what's
+outstanding) and `B2`'s discriminating `fairShareRolePick` spec (planner's, not landed).

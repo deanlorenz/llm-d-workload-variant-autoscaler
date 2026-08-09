@@ -1,0 +1,5 @@
+to: ta-anchor-dynamic-refresh
+reason: re-read plan
+refs:
+  - planning/ta-anchor-dynamic-refresh-review.md (Finding 73, commit 8d4e96e0)
+note: frequency handoff scored; two citations relocated, and Findings 71-72 are now bounded to AD5 regime (ii)

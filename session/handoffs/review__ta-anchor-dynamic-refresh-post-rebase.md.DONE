@@ -1,0 +1,48 @@
+to: review
+reason: code-review-before-push
+refs:
+  - session/status/ta-anchor-dynamic-refresh.md ("REBASED ONTO main, VERIFIED" section)
+  - planning/ta-anchor-dynamic-refresh-rebase-main.md (the pre-rebase plan)
+note: Findings 76/77 covered the branch pre-rebase (`6d55fbd7`/`136a214a`, based on PR-1's pre-squash
+  tip). This rebase changes the base, not PR-2's own content — but two of the three touched files got
+  new content from `main` itself, which is worth a second look before any push.
+
+---
+
+## What moved and why
+
+`git rebase --onto main 075a208e` — tip now `8c335893`, 28 commits on `main@a6b39809` (was 27 on
+`075a208e`). PR-2's own 27 commits' diffs are unchanged in every file `main` didn't also touch
+(verified: PR-2's diff-against-its-own-base is identical pre- and post-rebase for 25 of 34 touched
+files). The 9 that differ are exactly the ones `git merge-tree` flagged as touched by both branches —
+expected, not a regression.
+
+## Where to look
+
+- **`internal/engines/pipeline/rescale.go`**: conflict, resolved by keeping one `anchor == nil` guard
+  (both branches added the identical guard independently). Verify: `git diff 136a214a 8c335893 --
+  internal/engines/pipeline/rescale.go` — should be empty (it is, on my read; worth your own check).
+- **`internal/engines/pipeline/analyzer_helpers.go`**: conflict, resolved to main's `buildCapacityMap`
+  call + our own comment wording. `git diff 136a214a 8c335893 -- <file>` should show exactly one hunk.
+- **`internal/engines/pipeline/rescale_test.go`**: an *unconflicted-in-the-final-diff-but-conflicting-
+  mid-replay* case — main added a `Describe("rescaleModelDecisions", ...)` test right where our own
+  `Describe("fillRole", ...)` (C11 follow-up) landed. Kept both. Worth confirming both blocks are intact
+  and neither shadows or duplicates the other.
+- **28th commit, `8c335893`**: a post-rebase fixup, not part of PR-2's original plan. Threads
+  `fallbackKSat` through three main-side test call sites that used pre-C10 signatures
+  (`resolveITLModel`, `computeVariantSupply`, `validITLModel`). Worth confirming the substitution is
+  mechanical (matching each call's already-correct sibling test) and doesn't quietly change what's
+  being asserted beyond the constant name (`DefaultKSat` → `fallbackKSat`, the same 0.85→0.80 correction
+  C10 already made everywhere else).
+
+## Full verification already run, not re-described here
+
+Gate battery (gofmt/build/vet/test/-race/lint), DCO count, and the reasoning for why the two other
+conflicts happened despite the plan's merge-tree analysis only predicting two files — all in the status
+file section linked above. One disclosed, out-of-scope item also recorded there: `make test`'s
+coverage-instrumented run fails on this machine from a local go1.25.6-base-vs-go1.26.0-go.mod toolchain
+mismatch, confirmed pre-existing on `main` itself (reproduced in a throwaway worktree) and unrelated to
+this branch — every check that doesn't hit that specific artifact (build, vet, test-without-coverage,
+race, lint) is green.
+
+Nothing pushed. Push needs Dean's explicit confirmation, not requested here.

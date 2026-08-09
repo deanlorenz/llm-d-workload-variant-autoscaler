@@ -1,0 +1,55 @@
+to: review
+reason: code-review-before-push
+refs:
+  - planning/ta-anchor-dynamic-refresh-plan.md (§0.0 FREEZE RECORD, §1.1.0 LANDED LEDGER, §1.1.1)
+  - review__ta-anchor-dynamic-refresh-checklist.md (armed alongside this handoff — see the staleness
+    note below before using it as the map)
+  - combined-analyzer-optimizer-design.md (FINAL, frozen `8c2a9b04`)
+  - combined-analyzer-optimizer-design-addendum-1.md (Rev 7, `43f20c65`)
+note: PR-2 is code-complete and gate-verified at HEAD. Signaling push-ready per the checklist's own
+  arming instruction — this is a review signal, not a push; push still needs Dean's explicit
+  per-push confirmation separately.
+
+---
+
+## State at hand-off
+
+**Tip `6d55fbd7`, 26 commits on base `075a208e`, working tree clean, nothing pushed.**
+
+Full gate battery run at this tip, all green: `gofmt -l` clean, `go build ./...` clean, `make test`
+— every package passing (`internal/engines/pipeline` 94.1% coverage), `make lint` — 0 issues.
+
+25 of the 26 commits are the plan's own work (C1–C11 map, decomposed in git as C1–C5, C7, C8,
+C6a–C6f, C11(D-b only), C10, C9a–C9e, plus four unlabelled §4a/hygiene commits — full table in
+plan §1.1.0). The 26th, `6d55fbd7`, is a one-line docs fix authorized by the freeze itself (§0.0's
+table): `multi-analyzer-pipeline.md:858` named an internal plans-branch taxonomy token
+("Type-1 owner") in a Type 4 doc; now reads "analyzer-design owner", same referent, no token.
+
+## Use §1.1.0, not the old checklist, as the commit map
+
+The armed checklist (`review__ta-anchor-dynamic-refresh-checklist.md`) predates the freeze and is
+keyed to a 9-item map (C1–C9) written before C6 and C9 each decomposed while being coded. The plan's
+own §1.1.0 LANDED LEDGER is the current source of truth for what git actually contains — read that
+table first. Two things the checklist's structure will not tell you: C11 shipped as (D-b), the
+one-replica ceiling, only — the (D-a) admission sentinel is **DEFERRED** as a proven regression
+(§1.1.1, verified by mutation, not a skipped step); and rows 14–17 in the ledger (the dormant
+claim-pricing spec, the §4a hygiene pass, the shared-balance pin, the mis-routed-label fix) have no
+corresponding checklist row at all.
+
+## What is deliberately NOT in this diff, and why that is not a gap
+
+Plan §0.0 names two items this freeze declines to decide, both Dean's:
+
+- **Rounding** (`ceil` vs `floor` in `replicasToCover`, three sites: `greedy_score_optimizer.go:458-460`,
+  `:694`, `:822`). Not implemented either direction — "the ceil/floor we discuss later."
+- **`AD8` (b) placement** — the approved three-site per-role pricing repair, PR-2 or a follow-up. The
+  mechanism is decided (repair the pricing); only placement is open.
+
+Neither should read as unfinished coding. Per plan §7.1, a site list is a plan step, not coder
+latitude, and both are recorded rather than actioned on purpose.
+
+## Hygiene
+
+No golden moved outside what C6c/C9c/C9d already document and attribute. No history rewritten. No
+`sed -i`. No scratch files or worktrees left (`git worktree list` clean, `git status --porcelain`
+empty). DCO sign-off present on every commit.
