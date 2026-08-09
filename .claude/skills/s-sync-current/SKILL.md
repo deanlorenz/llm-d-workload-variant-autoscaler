@@ -8,7 +8,9 @@ allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Bas
 # Sync CURRENT.md
 
 Read all pending `sync__*.md` handoffs, apply their updates to CURRENT.md, mark each
-consumed file `.DONE`, `git rm` the .DONE files, and commit. No arguments.
+consumed file `.DONE`, remove them, and commit. **Preserve the batch first (Step 1a) — a
+handoff may exist only in the working tree, and consuming one that was never committed
+destroys it permanently.** No arguments.
 
 **Consume `sync__*.md` only — never `plan__*.md`.** `sync__` handoffs are CURRENT-update
 requests addressed to this session; `plan__` handoffs are tasks/decisions for a **working
@@ -34,6 +36,32 @@ processed), never `plan__*.md` (planner-tasks — see the warning above), and ne
 `<other>__*.md` (triggers addressed to other agents).
 
 If nothing matches, report "No pending sync-handoffs" and stop.
+
+---
+
+## Step 1a: Preserve the batch as received, before touching anything
+
+Senders are permitted to leave handoffs uncommitted (CONVENTIONS: *"Handoffs need not be
+committed by the submitting session"*), so a handoff may exist **only** in the working tree.
+Commit the batch before reading or applying any of it:
+
+```bash
+git -C plans add session/handoffs/sync__*.md
+git -C plans commit -m "session: preserve sync handoff batch as received"
+```
+
+This must be its **own commit, strictly earlier than the commit that removes the files.** A
+single commit that both adds and deletes a path leaves the content in no tree at all, so the
+handoff would be exactly as unrecoverable as before. With this commit in place, recovery is:
+
+```bash
+git -C plans log --diff-filter=D -- session/handoffs/     # find the removing commit
+git -C plans show <commit>^:session/handoffs/sync__<topic>.md
+```
+
+Preserving at intake rather than at consume time also means a session that dies mid-sync
+loses nothing. If `git add` finds nothing to stage, every handoff in the batch was already
+committed by its sender — proceed.
 
 ---
 
@@ -129,19 +157,23 @@ commit step removes it.
 git -C plans add session/CURRENT.md
 ```
 
-For each `.md.DONE` produced this run, remove it from the working tree and the index.
-Determine whether the file is currently tracked:
+The `.DONE` suffix is a signalling marker for concurrent sessions, not an artifact worth
+keeping. Its content is already preserved by Step 1a's commit, so remove it and stage the
+deletion of the original path:
 
 ```bash
-git -C plans ls-files --error-unmatch session/handoffs/sync__<topic>.md.DONE
+rm plans/session/handoffs/sync__<topic>.md.DONE
+git -C plans add -A session/handoffs/
 ```
 
-- Exit 0 → tracked. Use `git -C plans rm session/handoffs/sync__<topic>.md.DONE`.
-- Non-zero → untracked (was a new handoff that never got committed). Use
-  `rm plans/session/handoffs/sync__<topic>.md.DONE`.
+`git add -A` stages the deletion of each original tracked path, which Step 4 renamed away.
+Removing the `.DONE` copy first is what keeps it from being staged as a new file.
 
-Tracked source files (the originals before the rename) are removed automatically by
-`git rm` since the path no longer exists.
+**Never resolve an untracked handoff with a bare `rm`.** That was this skill's previous
+behavior and it destroyed content that had never entered git — the "handoff deleted, we no
+longer know what happened and cannot recover" failure. Step 1a exists precisely so that no
+handoff is still untracked by the time you reach this step; if one is, go back and preserve
+it rather than deleting it.
 
 ---
 
@@ -163,8 +195,8 @@ Print the commit SHA or the up-to-date message when done.
 - **Invoked only from the dedicated sync session.** Per CONVENTIONS "single-writer model,"
   only one designated session runs this skill; every other session (planner instances and
   auto-mode included) submits handoffs instead of syncing. Handoffs need not be committed by
-  their sender — this skill reads uncommitted handoff files directly, and Step 5 already
-  removes untracked `.DONE` files via `rm` rather than `git rm`.
+  their sender — this skill reads uncommitted handoff files directly, which is exactly why
+  **Step 1a commits the batch as received before anything else touches it.**
 - Planner-tasks and triggers (`<recipient>__*.md` where recipient ≠ `sync` — i.e.
   `plan__*.md`, coder-branch triggers, `review__*.md`) are not the sync skill's business.
   Leave them alone; their recipients process them.
