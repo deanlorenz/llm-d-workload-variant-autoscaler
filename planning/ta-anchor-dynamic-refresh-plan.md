@@ -84,55 +84,55 @@ here records the answers rather than pointing at open questions.
 
 ## TOC
 
-- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L137:450
+- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L137:464
   - [Where the branch actually is](#where-the-branch-actually-is) L146:201
   - [What is genuinely left](#what-is-genuinely-left) L202:244
   - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L245:266
   - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L267:379
   - [Premises to stop carrying](#premises-to-stop-carrying) L380:396
   - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L397:407
-  - [Open items and next steps — 2026-08-09 {#open-next}](#open-items-and-next-steps--2026-08-09-open-next) L408:450
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L451:556
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L557:813
-  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L599:813
-    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L604:719
-    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L720:770
-    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L771:813
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L814:1125
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L1126:1212
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1213:1242
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1243:1639
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1250:1269
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1270:1317
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1318:1380
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1381:1454
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1455:1581
-    - [Sat-only invariance](#sat-only-invariance) L1520:1561
-    - [Goldens](#goldens) L1562:1581
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1582:1620
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1621:1639
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1640:1801
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1649:1684
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1685:1740
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1741:1801
-- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1802:1957
-  - [The gap](#the-gap) L1825:1847
-  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1848:1890
-  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1891:1933
-  - [Scope](#scope) L1934:1957
-- [§2g `AD8` option (b) — the per-role pricing repair — lands in C12](#2g-ad8-option-b--the-per-role-pricing-repair--lands-in-c12) L1958:2117
-  - [The gap, restated precisely](#the-gap-restated-precisely) L1966:1987
-  - [Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled](#mechanism--abstain-dont-vote-when-a-roles-demand-is-structurally-unmodeled) L1988:2053
-  - [What this closes, and what it does not — traced through `combineVotes`, not asserted](#what-this-closes-and-what-it-does-not--traced-through-combinevotes-not-asserted) L2054:2078
-  - [Tests](#tests) L2079:2098
-  - [Dev-guide](#dev-guide) L2099:2108
-  - [Deletion/behavior classification](#deletionbehavior-classification) L2109:2117
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L2118:2152
-- [§4 Ship gate & tests](#4-ship-gate--tests) L2153:2442
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2443:2706
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2707:2940
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2941:3148
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L3089:3148
+  - [Open items and next steps — 2026-08-09 {#open-next}](#open-items-and-next-steps--2026-08-09-open-next) L408:464
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L465:570
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L571:827
+  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L613:827
+    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L618:733
+    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L734:784
+    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L785:827
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L828:1139
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L1140:1226
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1227:1256
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1257:1653
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1264:1283
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1284:1331
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1332:1394
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1395:1468
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1469:1595
+    - [Sat-only invariance](#sat-only-invariance) L1534:1575
+    - [Goldens](#goldens) L1576:1595
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1596:1634
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1635:1653
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1654:1815
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1663:1698
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1699:1754
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1755:1815
+- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1816:1971
+  - [The gap](#the-gap) L1839:1861
+  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1862:1904
+  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1905:1947
+  - [Scope](#scope) L1948:1971
+- [§2g `AD8` option (b) — the per-role pricing repair — lands in C12](#2g-ad8-option-b--the-per-role-pricing-repair--lands-in-c12) L1972:2131
+  - [The gap, restated precisely](#the-gap-restated-precisely) L1980:2001
+  - [Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled](#mechanism--abstain-dont-vote-when-a-roles-demand-is-structurally-unmodeled) L2002:2067
+  - [What this closes, and what it does not — traced through `combineVotes`, not asserted](#what-this-closes-and-what-it-does-not--traced-through-combinevotes-not-asserted) L2068:2092
+  - [Tests](#tests) L2093:2112
+  - [Dev-guide](#dev-guide) L2113:2122
+  - [Deletion/behavior classification](#deletionbehavior-classification) L2123:2131
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L2132:2166
+- [§4 Ship gate & tests](#4-ship-gate--tests) L2167:2456
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2457:2720
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2721:2954
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2955:3162
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L3103:3162
 
 ## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
 
@@ -410,12 +410,26 @@ predicate in the optimizer). No ask attached.
 **Everything that was a decision is now decided.** `AD8` (b) placement → in this PR, landed as `C12`.
 Rounding → retracted, never a fork. The §4a reword → executed. The plan freeze → done. What remains:
 
+⚠️ **This plan's authoring session is CLOSED (2026-08-09).** No planner is standing by. Per Dean's
+direction at closure: **outstanding work belongs in new PRs, taken up by new planners** — nothing below is
+waiting on the session that wrote it, and a new planner should claim from this table rather than assume a
+predecessor is mid-task. This plan doc plus
+[`session/status/planner-ta-anchor-pr2.md`](../session/status/planner-ta-anchor-pr2.md) are the whole
+handover.
+
 | # | Item | Owner | Blocking merge? |
 |---|---|---|---|
-| 1 | **`B2`** — a discriminating spec for `fairShareRolePick`'s per-role budget | **planner (me)** | **No** — a test-coverage gap, not a defect |
+| 1 | **`B2`** — a discriminating spec for `fairShareRolePick`'s per-role budget | **UNCLAIMED — a new planner, in a follow-up PR** (was this session's; released at closure) | **No** — a test-coverage gap, not a defect |
 | 2 | **PR body accuracy** — two claims run ahead of the code (below) | **Dean** (GitHub write) | No |
 | 3 | **PR-2's 0.9 inclusion** | **Dean** — explicitly *decide after merge* | No |
 | 4 | An **external review** on #1523 (`REVIEW_REQUIRED`; internal review is complete and clean) | **Dean** to request | Yes, procedurally |
+
+**Why `B2` is safe to leave for a follow-up rather than holding #1523.** It pins existing, *correct*
+behavior that is currently under-tested — it is not a fix, so landing it later costs nothing but the
+window in which a future refactor could silently break `committed0` / `reserved` / the per-draw holdback /
+`firstDraw` unnoticed. Adding it to #1523 now would mean another push to an open, green PR for a
+test-only change. **Recommended shape for whoever takes it:** its own small test-only PR against `main`
+after #1523 merges, so its own red-before/green-after is attributable.
 
 **1 — `B2`, the one open work item, and why it is not urgent.** The reviewer found that *clamp-only*
 passes **both** shipped `fairShareRolePick` specs, so `committed0`, `reserved`, the per-draw holdback and
