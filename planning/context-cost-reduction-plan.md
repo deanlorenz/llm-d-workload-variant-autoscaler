@@ -20,13 +20,13 @@ token work entirely and are captured here so they are not lost: § Defect 1 and 
 - [Measurements](#measurements) L58:88
 - [Defect 1 — the sync protocol destroys unrecoverable handoffs](#defect-1--the-sync-protocol-destroys-unrecoverable-handoffs) L89:116
 - [Defect 2 — coders load no coder conventions](#defect-2--coders-load-no-coder-conventions) L117:154
-- [CURRENT.md drift — a routing problem, not a size problem](#currentmd-drift--a-routing-problem-not-a-size-problem) L155:198
-- [Triage of the 8 candidate proposals](#triage-of-the-8-candidate-proposals) L199:218
-- [Tier 1 — the approved four tracks](#tier-1--the-approved-four-tracks) L219:273
-- [Tier 2 — round-trip reduction](#tier-2--round-trip-reduction) L274:291
-- [Tier 3 — per-result volume](#tier-3--per-result-volume) L292:309
-- [Verification](#verification) L310:326
-- [Status and resume](#status-and-resume) L327:336
+- [CURRENT.md drift — a routing problem, not a size problem](#currentmd-drift--a-routing-problem-not-a-size-problem) L155:215
+- [Triage of the 8 candidate proposals](#triage-of-the-8-candidate-proposals) L216:235
+- [Tier 1 — the approved four tracks](#tier-1--the-approved-four-tracks) L236:290
+- [Tier 2 — round-trip reduction](#tier-2--round-trip-reduction) L291:308
+- [Tier 3 — per-result volume](#tier-3--per-result-volume) L309:326
+- [Verification](#verification) L327:343
+- [Status and resume](#status-and-resume) L344:353
 
 ## Cost model — what actually costs bytes
 
@@ -181,6 +181,14 @@ disambiguation; brevity is not its purpose. A line cap would actively reward del
 nowhere else to live — the very loss mode `CONVENTIONS.md` guards against with
 verify-or-copy-then-delete.
 
+**Dean's third framing (2026-08-09), which names the causal chain:** *"Planner should document their
+state as they go and capture their thoughts in the plan. State and updates to CURRENT are meant to
+point back to the plan. Not as a state store."* So the drift is a **planner-discipline** failure
+upstream of any sync-time tidying: state that should have been written into the Type 3 as it was
+learned accumulated in CURRENT.md instead, as prose rather than as references. Sync-time compression
+is only the symptom-side remedy; the durable fix is that the planner writes the plan as it goes and
+CURRENT.md carries pointers.
+
 The actual gap: today's Type-5 text says compress an item *"once its substance is in git or a
 permanent doc."* For **in-flight** work nothing has landed, so that condition is never satisfied and
 nothing is ever eligible. CURRENT.md therefore became the de-facto permanent home for WIP state —
@@ -188,9 +196,18 @@ which is the one thing it must not be, since it is the only auto-loaded file of 
 Type 3 plan doc and `history.md` are both fetch-on-demand. Triplication then multiplied it by three.
 
 **Rule to add (Track 1c):** for in-flight work the permanent home is the Type 3 plan doc; CURRENT.md
-carries an abstract plus a pointer; detail is written *down into the Type 3 as it is learned*; and no
-text is compressed in CURRENT.md until its home exists. Size becomes an outcome of correct routing
-rather than a target.
+carries an abstract plus a pointer; **the item's owner** writes detail down into the Type 3 as it is
+learned; and no text is compressed in CURRENT.md until its home exists. Size becomes an outcome of
+correct routing rather than a target.
+
+**Second half of the rule (Dean, 2026-08-09) — compression is validate-only.** Every in-flight
+Type 3 / Type 1 has an owner who may be editing it at that moment, so a session tidying CURRENT.md
+may only *check* that the content is present there. It must **never edit someone else's plan doc to
+make room.** If a detail has no home yet, the correct action is to leave the CURRENT.md text
+uncompressed and send a `plan__<topic>.md` handoff asking the owner to fold it in — compression of
+that item waits. `session/history.md` is the one exception, being sync-owned. This is the same
+boundary as the reviewer-writes-in-a-coder's-tree incident: a concurrent owner's uncommitted work is
+invisible to you, so "I'll just add it for them" can silently clobber or duplicate.
 
 [↑ TOC](#toc)
 

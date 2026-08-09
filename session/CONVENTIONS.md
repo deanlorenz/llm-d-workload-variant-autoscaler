@@ -120,12 +120,21 @@ agents via handoff files.
   an item has *landed*, so while work is in flight nothing is ever eligible to move, and CURRENT.md
   silently becomes the de-facto permanent home for WIP state. That is the one thing it must not be:
   it is the **only auto-loaded** file, while Type-3 plans and history.md are both fetch-on-demand.
-  So **write detail down into the Type 3 as it is learned** and keep an abstract plus a pointer
-  here. A WIP entry exists for **state, recoverability and disambiguation — not brevity**, which
-  makes the ordering strictly one-way: **the state must already exist in its Type 3 (or Type 1) home
-  before any text here is reduced.** Never trim a WIP entry to hit a length — if detail has no home
-  yet, write the home first, or leave the entry long. A length target would reward deleting state
-  that has nowhere to go, which is the same loss mode the editing discipline below guards against.
+  So **the planner captures state and reasoning in the Type 3 as the work proceeds** — that is where
+  WIP state lives, written down as it is learned rather than reconstructed later. **CURRENT.md then
+  points back to the plan: an abstract plus a pointer. It is not a state store.** A WIP entry exists
+  for **state, recoverability and disambiguation — not brevity**, which makes the ordering strictly
+  one-way: **the state must already exist in its Type 3 (or Type 1) home before any text here is
+  reduced.** Never trim a WIP entry to hit a length. A length target would reward deleting state that
+  has nowhere to go, which is the same loss mode the editing discipline below guards against.
+- **Compressing CURRENT.md is validate-only — never edit someone else's plan doc to make room.**
+  Every in-flight Type 3 / Type 1 has an owner who may be editing it right now, so the sync session
+  (or anyone tidying CURRENT.md) may **only check that the content is present** in that doc. If a
+  detail turns out to have **no home yet, do not write it into the plan doc**: leave the CURRENT.md
+  text uncompressed and send a `plan__<topic>.md` handoff asking the owner to fold it in. Compression
+  of that item waits for the owner. `session/history.md` is the one exception — it is sync-owned, so
+  copy-then-verify into it directly. (Same boundary as the reviewer-writes-in-a-coder's-tree
+  incident: a concurrent owner's uncommitted work is invisible to you.)
   (Diagnosed 2026-08-09, after CURRENT.md went 22.9KB → 71.2KB in eight days while remaining
   technically compliant with the landed-item rule above — the gap was routing, not size. See
   [`planning/context-cost-reduction-plan.md`](../planning/context-cost-reduction-plan.md).)

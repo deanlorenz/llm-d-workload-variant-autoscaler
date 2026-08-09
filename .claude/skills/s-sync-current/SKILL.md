@@ -135,6 +135,13 @@ fetch-on-demand — see CONVENTIONS Type 5).
    **stop and surface it** to the user rather than deleting. When moving items to
    `session/history.md`, copy + verify the content is present there **before** deleting from
    CURRENT.md, then run `bash plans/scripts/toc-refresh.sh session/history.md` to re-index.
+6. **Plan docs are validate-only — never edit them from here.** Every in-flight Type 3 / Type 1 has
+   an owner who may be editing it at this moment, so this skill may only *check* that content is
+   present in that doc. If an item's detail has no home yet, **do not add it to the plan doc**:
+   leave the CURRENT.md text uncompressed and write a `plan__<topic>.md` handoff asking the owner to
+   fold it in, then move on. Compression of that item waits for the owner. `session/history.md` is
+   the sole exception, being sync-owned. The underlying model: the planner captures state in the
+   Type 3 as the work proceeds, and **CURRENT.md points back to the plan rather than storing state.**
 
 ---
 
