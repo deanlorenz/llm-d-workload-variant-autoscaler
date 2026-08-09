@@ -84,54 +84,55 @@ here records the answers rather than pointing at open questions.
 
 ## TOC
 
-- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L136:376
-  - [Where the branch actually is](#where-the-branch-actually-is) L145:168
-  - [What is genuinely left](#what-is-genuinely-left) L169:211
-  - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L212:233
-  - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L234:346
-  - [Premises to stop carrying](#premises-to-stop-carrying) L347:363
-  - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L364:376
-- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L377:482
-- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L483:690
-  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L525:690
-    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L530:596
-    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L597:647
-    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L648:690
-- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L691:1002
-- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L1003:1089
-- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1090:1119
-- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1120:1516
-  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1127:1146
-  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1147:1194
-  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1195:1257
-  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1258:1331
-  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1332:1458
-    - [Sat-only invariance](#sat-only-invariance) L1397:1438
-    - [Goldens](#goldens) L1439:1458
-  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1459:1497
-  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1498:1516
-- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1517:1678
-  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1526:1561
-  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1562:1617
-  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1618:1678
-- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1679:1834
-  - [The gap](#the-gap) L1702:1724
-  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1725:1767
-  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1768:1810
-  - [Scope](#scope) L1811:1834
-- [§2g `AD8` option (b) — the per-role pricing repair — lands in C12](#2g-ad8-option-b--the-per-role-pricing-repair--lands-in-c12) L1835:1983
-  - [The gap, restated precisely](#the-gap-restated-precisely) L1843:1864
-  - [Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled](#mechanism--abstain-dont-vote-when-a-roles-demand-is-structurally-unmodeled) L1865:1919
-  - [What this closes, and what it does not — traced through `combineVotes`, not asserted](#what-this-closes-and-what-it-does-not--traced-through-combinevotes-not-asserted) L1920:1944
-  - [Tests](#tests) L1945:1964
-  - [Dev-guide](#dev-guide) L1965:1974
-  - [Deletion/behavior classification](#deletionbehavior-classification) L1975:1983
-- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L1984:2018
-- [§4 Ship gate & tests](#4-ship-gate--tests) L2019:2308
-- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2309:2572
-- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2573:2806
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2807:3014
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L2955:3014
+- [§0.0 FREEZE RECORD — 2026-08-08 {#freeze}](#00-freeze-record--2026-08-08-freeze) L137:450
+  - [Where the branch actually is](#where-the-branch-actually-is) L146:201
+  - [What is genuinely left](#what-is-genuinely-left) L202:244
+  - [What this freeze deliberately does NOT decide](#what-this-freeze-deliberately-does-not-decide) L245:266
+  - [`AD5`/`AD8` — the disposition the freeze carries](#ad5ad8--the-disposition-the-freeze-carries) L267:379
+  - [Premises to stop carrying](#premises-to-stop-carrying) L380:396
+  - [Latent, not live — recorded without an ask](#latent-not-live--recorded-without-an-ask) L397:407
+  - [Open items and next steps — 2026-08-09 {#open-next}](#open-items-and-next-steps--2026-08-09-open-next) L408:450
+- [§0 Status — scope & the indivisible-PR decision](#0-status--scope--the-indivisible-pr-decision) L451:556
+- [§1 Scope — the both-enabled dynamic case + commit map](#1-scope--the-both-enabled-dynamic-case--commit-map) L557:813
+  - [§1.1 Commit map (C1–C11)](#11-commit-map-c1c11) L599:813
+    - [§1.1.0 LANDED LEDGER — what git actually contains (freeze, 2026-08-08)](#110-landed-ledger--what-git-actually-contains-freeze-2026-08-08) L604:719
+    - [§1.1.1 C11 (D-a) — DEFERRED, and why it is not a missed feature](#111-c11-d-a--deferred-and-why-it-is-not-a-missed-feature) L720:770
+    - [§1.1.2 Original intent table (the spec each commit was written against)](#112-original-intent-table-the-spec-each-commit-was-written-against) L771:813
+- [§2 The four combine-arithmetic bugs](#2-the-four-combine-arithmetic-bugs) L814:1125
+- [§2b Live-gate the combine input (VG-up + N8 + N7) — lands in C7](#2b-live-gate-the-combine-input-vg-up--n8--n7--lands-in-c7) L1126:1212
+- [§2c (a)/(b) → plain-prose notation cleanup — lands in C8](#2c-ab--plain-prose-notation-cleanup--lands-in-c8) L1213:1242
+- [§2d Score semantics — the dominance rule, one combine helper, four call sites — lands in C6a–C6d](#2d-score-semantics--the-dominance-rule-one-combine-helper-four-call-sites--lands-in-c6ac6d) L1243:1639
+  - [§2d.1 What Score means (decided)](#2d1-what-score-means-decided) L1250:1269
+  - [§2d.2 The combine rule (dominance weighting)](#2d2-the-combine-rule-dominance-weighting) L1270:1317
+  - [§2d.3 The helper — one function, and the duplicate loop that must die](#2d3-the-helper--one-function-and-the-duplicate-loop-that-must-die) L1318:1380
+  - [§2d.4 Missing / non-participating entries](#2d4-missing--non-participating-entries) L1381:1454
+  - [§2d.5 Fair share (Bug #5) — currency](#2d5-fair-share-bug-5--currency) L1455:1581
+    - [Sat-only invariance](#sat-only-invariance) L1520:1561
+    - [Goldens](#goldens) L1562:1581
+  - [§2d.6 T1.4 — the existing Score test (rewrite; do not retire)](#2d6-t14--the-existing-score-test-rewrite-do-not-retire) L1582:1620
+  - [§2d.7 Why this is safe to land here](#2d7-why-this-is-safe-to-land-here) L1621:1639
+- [§2e k_sat is not a threshold — TA must use saturation's target — lands in C10](#2e-ksat-is-not-a-threshold--ta-must-use-saturations-target--lands-in-c10) L1640:1801
+  - [§2e.1 Three constants; TA mirrored the wrong one](#2e1-three-constants-ta-mirrored-the-wrong-one) L1649:1684
+  - [§2e.2 The fix — resolve once, thread to four sites](#2e2-the-fix--resolve-once-thread-to-four-sites) L1685:1740
+  - [§2e.3 Effect, churn, ordering](#2e3-effect-churn-ordering) L1741:1801
+- [§2f Proactive from-zero admission — lands in C11](#2f-proactive-from-zero-admission--lands-in-c11) L1802:1957
+  - [The gap](#the-gap) L1825:1847
+  - [(D-a) Mechanism — the sentinel lives in `PerReplicaCapacity`, tagged by its own `Reason`](#d-a-mechanism--the-sentinel-lives-in-perreplicacapacity-tagged-by-its-own-reason) L1848:1890
+  - [(D-b) Cap — a one-replica ceiling on the variant's *target*, at the three sites that grant](#d-b-cap--a-one-replica-ceiling-on-the-variants-target-at-the-three-sites-that-grant) L1891:1933
+  - [Scope](#scope) L1934:1957
+- [§2g `AD8` option (b) — the per-role pricing repair — lands in C12](#2g-ad8-option-b--the-per-role-pricing-repair--lands-in-c12) L1958:2117
+  - [The gap, restated precisely](#the-gap-restated-precisely) L1966:1987
+  - [Mechanism — abstain, don't vote, when a role's demand is structurally unmodeled](#mechanism--abstain-dont-vote-when-a-roles-demand-is-structurally-unmodeled) L1988:2053
+  - [What this closes, and what it does not — traced through `combineVotes`, not asserted](#what-this-closes-and-what-it-does-not--traced-through-combinevotes-not-asserted) L2054:2078
+  - [Tests](#tests) L2079:2098
+  - [Dev-guide](#dev-guide) L2099:2108
+  - [Deletion/behavior classification](#deletionbehavior-classification) L2109:2117
+- [§3 Per-iteration dynamic refresh — lands in C2](#3-per-iteration-dynamic-refresh--lands-in-c2) L2118:2152
+- [§4 Ship gate & tests](#4-ship-gate--tests) L2153:2442
+- [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2443:2706
+- [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2707:2940
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2941:3148
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L3089:3148
 
 ## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
 
@@ -144,25 +145,57 @@ both gates fired and this is the resulting freeze.
 
 ### Where the branch actually is
 
-**Code-complete at `a9afb740`** — 25 commits on base `075a208e`, working tree clean, **nothing pushed**,
-gates green as of C9e. The labelled commit map in §1.1 reads C1–C11; the *git* history is longer because
-C6 and C9 each decomposed while being coded (C6a–C6f, C9a–C9e). **Where the two disagree, the git history
-is the fact and the map is the intent.**
+> **VERIFIED 2026-08-09. PR IS OPEN, PUSHED, AND FULLY GREEN.** Planner's own cold-resume record:
+> [`session/status/planner-ta-anchor-pr2.md`](../session/status/planner-ta-anchor-pr2.md). CURRENT.md
+> points at that file rather than storing this state.
+
+**PR [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) — OPEN**, created
+2026-08-08T07:23:01Z, base **`main`**, head `ta-anchor-dynamic-refresh`. Tip **`14a5d6cc`**, **28 commits**
+on `main@a6b39809`. Local ≡ `origin` ≡ PR head, so **the branch is pushed and there is nothing outstanding
+to push.** `MERGEABLE`, `REVIEW_REQUIRED` (no external review submitted yet).
+
+**CI fully green:** `gate` · `DCO` · `signed-commits` · `lint-and-test` · `kustomize-build` ·
+`check-code-changes` · `e2e-tests-full` (13m20s) · `e2e-tests-smoke` (9m47s). Conditionally skipped:
+`build-image`, `report-status`, `e2e-openshift`. All 28 commits carry a `Signed-off-by` trailer **and** a
+good cryptographic signature (`%G?` = `G` ×28), single author. **`lint-and-test` green also retires the
+golangci-lint 2.8.0 → 2.10.0 concern** this section used to carry — no separate re-run is owed.
+
+⚠️ **The `github-actions` comment on the PR reading *"Unsigned commits detected!"* is STALE — do not act on
+it.** Posted `07:23:10Z`, nine seconds after the PR opened, against the pre-re-sign push; the bot comments
+but never retracts. Two distinct gates are easy to conflate here: `DCO` checks the `Signed-off-by`
+trailer, `signed-commits` checks the crypto signature. **Both pass at current head.**
+
+**The branch was rebased onto `main`** (`git rebase --onto main 075a208e`), so **every SHA in §1.1.0's
+ledger changed** — read that table as the pre-rebase record; its SHAs no longer resolve on the branch.
+The rebase was reviewed clean (**Finding 78**) and its integrity independently re-verified here: the
+branch's own delta pre-rebase (`075a208e..6d55fbd7`) vs post-rebase (`a6b39809..bdaf4bc6`) covers an
+**identical 30-file set**, and every content difference traces to a `main`-side change the three-way merge
+correctly absorbed (`buildCapacityMap` from #1516's squash; the `anchor == nil` guard comment arriving from
+`main`; an added `rejects Inf B` spec; an added no-anchor assertion). **No hunks were silently dropped** —
+the specific failure mode a cross-base rebase risks, and the reason CONVENTIONS mandates this check.
+
+**The §4a commit-message reword is DONE, executed during the rebase** — every subject is clean of
+plans-branch tokens (`(N2)`, `(Bug #2)`, `(C6f)`, `(C10)`, `(C11 D-b)`, and even `Type-1`). That closes by
+execution the decision §4 held open as schedule-bound, and it landed inside the cheap window, before the
+PR opened. §4's recount prose is retained as history — **do not re-quote its 22-of-25 figure as current.**
+
+**The 28th commit (`14a5d6cc`) is rebase fallout, not a signing artifact.** `main`'s #1511 added three
+tests calling `resolveITLModel` / `computeVariantSupply` / `validITLModel` at the **pre-`kSat` arity**;
+they merged cleanly (untouched regions) and then did not compile. It threads `fallbackKSat` through each —
+two test files, no assertion value changed beyond `DefaultKSat` (0.85, deleted) → `fallbackKSat` (0.80).
+Reviewed as part of Finding 78.
 
 ⚠️ **One map row did not ship as written: C11's (D-a) admission sentinel is DEFERRED** — a *proven*
 regression, verified by mutation, not a skipped step. C11 ships as the (D-b) ceiling only, i.e. **built,
 not enabled**. §1.1.1 carries the full classification and the reason the sentinel cannot work
 anchor-only. That deferral needs a backlog entry outside this plan; it is not a coder action.
 
-Two consequences the freeze fixes rather than restates:
-
-- **`origin/ta-anchor-dynamic-refresh@f6485980` is orphaned** by PR-1's reword and needs a force-push
-  (`--force-with-lease`) to reach `a9afb740`. Dean's, not the coder's.
-- **The rebase target changed.** This plan's setup step targets PR-1's *branch tip*; PR-1 **merged** as
-  squash `57f3fe64`, so the target is now plain **`main`**, and PR-2's diff will no longer carry PR-1's
-  commits. Re-run **`make lint`** after that rebase regardless of its result here: `main` moved
-  golangci-lint **2.8.0 → 2.10.0** (PR #1512), so a green run from before that bump does not carry
-  forward, and new findings are the bump's, not a regression.
+**Release positioning — PR-2's is OPEN and deliberately so (Dean, 2026-08-09): it will be decided after
+merge.** Do not record PR-2 as in-or-out of 0.9. What *is* settled is the mechanism, and only for PR-1:
+the `v0.9.0` **tag** (`aadaa596`) is a **code-freeze marker**, while the `release-0.9` **branch**
+(`d5d58640`, which does contain PR-1 #1516) is the actual release content and **will be cut later —
+probably not even RC1 yet**. The two differing is by design, not a discrepancy to reconcile. PR-2's base
+is `main`, so absent a decision it lands in 0.10 by default; that default is not the decision.
 
 [↑ TOC](#toc)
 
@@ -181,8 +214,8 @@ on it** — the C9 sweep moved every one.
 | `A30` | `max :=` shadows the builtin at `rescale_test.go:239,:248` → `maxRep` | ✅ **DONE**; renamed |
 | `A28` | Two claimed §4a violations at `analyzer_helpers.go:88`, `:642` | ✅ **DONE**; no token at either line |
 | **§4a residual** | `docs/developer-guide/multi-analyzer-pipeline.md:858` — *"open with the **Type-1** owner"* | ✅ **DONE** — `6d55fbd7`, reworded to *"analyzer-design owner"*, no token |
-| `B2` | Discriminating `fairShareRolePick` spec | **Planner's to write; not coder latitude** — still outstanding |
-| `C12` (`AD8` (b)) | Three-site per-role pricing repair — **decided: in this PR** (Dean, 2026-08-08) | **In scope, spec written** — §2g, coder-ready |
+| `B2` | Discriminating `fairShareRolePick` spec | ⏳ **THE ONLY OPEN WORK ITEM. Planner's to write; not coder latitude.** See § Next steps |
+| `C12` (`AD8` (b)) | Three-site per-role pricing repair — **decided: in this PR** (Dean, 2026-08-08) | ✅ **DONE** — landed as `4e5bbf12` (pre-rebase `136a214a`), reviewed defect-free (**Finding 77**) |
 
 ⚠️ **The "rounding — `ceil` vs `floor`, Dean holds it" row above earlier revisions carried is RETRACTED
 (designer correction, 2026-08-08) — it mis-scoped two different quantities as one fork.** `capN =
@@ -369,6 +402,47 @@ The reviewer's seam is real and survives Rev 6: informativeness reads per-varian
 `VariantCapacities`. Aligning the two predicates is a **Type-1 design question, not PR-2 work**, and it is
 **not** a revival of rejected option (a) — different site (the liveness computation, not a second refusal
 predicate in the optimizer). No ask attached.
+
+[↑ TOC](#toc)
+
+### Open items and next steps — 2026-08-09 {#open-next}
+
+**Everything that was a decision is now decided.** `AD8` (b) placement → in this PR, landed as `C12`.
+Rounding → retracted, never a fork. The §4a reword → executed. The plan freeze → done. What remains:
+
+| # | Item | Owner | Blocking merge? |
+|---|---|---|---|
+| 1 | **`B2`** — a discriminating spec for `fairShareRolePick`'s per-role budget | **planner (me)** | **No** — a test-coverage gap, not a defect |
+| 2 | **PR body accuracy** — two claims run ahead of the code (below) | **Dean** (GitHub write) | No |
+| 3 | **PR-2's 0.9 inclusion** | **Dean** — explicitly *decide after merge* | No |
+| 4 | An **external review** on #1523 (`REVIEW_REQUIRED`; internal review is complete and clean) | **Dean** to request | Yes, procedurally |
+
+**1 — `B2`, the one open work item, and why it is not urgent.** The reviewer found that *clamp-only*
+passes **both** shipped `fairShareRolePick` specs, so `committed0`, `reserved`, the per-draw holdback and
+the `firstDraw` floor are pinned by **nothing**. §C6e asked for a fixture where *"roles would each
+individually fit but jointly overrun"*; the shipped one has both roles individually exceeding `target`,
+which is exactly what lets clamp-only pass. Technique is already established in-tree — call the returned
+pick closure directly, as `34b18bc5`/`40d17878` does. This is **Finding 20's shape recurring**, so it is
+worth closing before the mechanism is relied on further, but it guards against a *future* regression
+rather than a present defect: the shipped behavior is correct, only under-pinned. Writing the spec is
+mine; landing it is a coder action once written.
+
+**2 — two PR-body claims are ahead of the code** (body text only; the code is right and CI is green):
+- *"Partial proactive from-zero admission, capped at 1 replica/grant"* — C11 (D-a) is **deferred** and
+  nothing in production writes the tag, so this is **built, not enabled** (§1.1.1). As written it claims a
+  live capability.
+- *"Two internal code review passes, zero defects"* — accurate as of Finding 76's tip, and Findings 77/78
+  have since cleared `C12` and the rebase too, so the *substance* now holds; the count is just stale.
+- The body also does not mention that **regime (i), the freeze, survives** — `C12` closes only the drain,
+  which the commit message itself states plainly. Worth a line so a reader does not infer `AD8` is fully
+  closed.
+
+**Not open, recorded so they are not re-raised.** `AD8` (b)'s **third site** is *not* a gap: `CapGPUs`/
+`Demand` in `rescaleInputsForGroup:540-546` is reached **via the same abstain predicate** at
+`votesFromTotalDemand`, which `C12` patches — `rescale.go` needs no direct reference to the tag, and the
+residual (a model hard-capped at its understated demand) is one §2g **names rather than closes**, by
+design. `AD5`'s hold predicate, `AD7`/`N5`'s field pair, and the claim-pricing distortion (`03658753`'s
+dormant `PIt` spec) all remain backlog per §7 — none blocks merge.
 
 [↑ TOC](#toc)
 
