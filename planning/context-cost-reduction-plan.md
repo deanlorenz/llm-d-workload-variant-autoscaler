@@ -22,11 +22,11 @@ token work entirely and are captured here so they are not lost: § Defect 1 and 
 - [Defect 2 — coders load no coder conventions](#defect-2--coders-load-no-coder-conventions) L117:154
 - [CURRENT.md drift — a routing problem, not a size problem](#currentmd-drift--a-routing-problem-not-a-size-problem) L155:215
 - [Triage of the 8 candidate proposals](#triage-of-the-8-candidate-proposals) L216:235
-- [Tier 1 — the approved four tracks](#tier-1--the-approved-four-tracks) L236:290
-- [Tier 2 — round-trip reduction](#tier-2--round-trip-reduction) L291:308
-- [Tier 3 — per-result volume](#tier-3--per-result-volume) L309:326
-- [Verification](#verification) L327:343
-- [Status and resume](#status-and-resume) L344:353
+- [Tier 1 — the approved four tracks](#tier-1--the-approved-four-tracks) L236:295
+- [Tier 2 — round-trip reduction](#tier-2--round-trip-reduction) L296:313
+- [Tier 3 — per-result volume](#tier-3--per-result-volume) L314:331
+- [Verification](#verification) L332:348
+- [Status and resume](#status-and-resume) L349:358
 
 ## Cost model — what actually costs bytes
 
@@ -278,11 +278,16 @@ at near-full length in Recent activity **and** PR Status **and** Next steps, whi
 text is literally repeated — **3c** move landed content into existing `history.md` sections then
 `bash scripts/toc-refresh.sh session/history.md`, **3d** re-validate refs, CURRENT.md written last.
 
-**Track 4 — skill listing:** **4a** diagnose why 5 of 9 `s-*` skills are absent from the session
-listing (`s-design-review`, `s-note`, `s-plan`, `s-pre-push`, `s-sync-current`) while four generic
-skills with long descriptions are present — this is a prerequisite for 1d, because if `s-coder` is
-dropped the same way the mechanism fails silently. **4b** trim via `skillOverrides`
-(`name-only` / `user-invocable-only`) and possibly `skillListingMaxDescChars` (default 1536).
+**Track 4 — skill listing:** **4a RESOLVED 2026-08-09 — not a defect.** The 5 `s-*` skills absent
+from the model's listing (`s-design-review`, `s-note`, `s-plan`, `s-pre-push`, `s-sync-current`) are
+*exactly* the 5 carrying `disable-model-invocation: true` in their frontmatter; the 4 that appear
+(`s-pr-triage`, `s-session-done`, `s-session-name`, `s-sync-main`) do not. They are deliberately
+user-invocable-only (`/plan`, `/sync-current`, …) and hidden from the model on purpose — no
+truncation, no budget exhaustion, nothing lost. The earlier "5 of 9 missing, undiagnosed" framing was
+wrong. Consequence for 1d, which this gated: `s-coder` must **omit** that flag so the model can invoke
+it when Dean declares the role. **4b** remains open — trim the listing via `skillOverrides`
+(`name-only` / `user-invocable-only`) for `dataviz`, `claude-api`, `artifact-design`,
+`artifact-diagramming`, and consider lowering `skillListingMaxDescChars` (default 1536).
 
 [↑ TOC](#toc)
 

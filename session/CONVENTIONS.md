@@ -216,6 +216,15 @@ other agents communicate changes via handoffs.** **Coders read only plan docs (T
 scope** — handoffs and triggers from siblings or the planner are signals to re-read the plan,
 never new instructions in their own right.
 
+**Coder sessions: invoke `/s-coder` before touching any file.** `session/CODER-CONVENTIONS.md` is
+**not** auto-loaded — it used to be imported by `plans/CLAUDE.md`, which meant every planner, chat and
+sync session paid for it while the sessions that actually needed it did not get it: code worktrees
+carry only the upstream `CLAUDE.md` (`see @AGENTS.md`), and `EnterWorktree` re-roots the chain, so a
+coder launched in a worktree — or one that moved into it — loaded none of its rules. The `s-coder`
+skill loads it on demand and is reachable from every worktree via the container `.claude/skills/`
+symlink. This applies to both launch paths: started in `plans` then `EnterWorktree`, or started
+directly in the worktree.
+
 ### Quick rule
 
 Before writing anything into the session state (Type 5, CURRENT.md), ask: does this belong in
