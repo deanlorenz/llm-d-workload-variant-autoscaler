@@ -57,7 +57,7 @@
   from ~30 handoffs and a 417-line ledger. PR-1 plan
   [`ta-anchor-refactor-v2-plan.md`](../planning/ta-anchor-refactor-v2-plan.md) (FINAL).
 - **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own `autoscaling-viz`
-  branch/worktree.** *Open, not live.* Four-command chain; 12 PASS / 4 FAIL on our 2026-08-03 staircase
+  branch/worktree.** *WIP — no session running; resumable from its plan.* Four-command chain; 12 PASS / 4 FAIL on our 2026-08-03 staircase
   run, capacity model within **0.6%** of the observed ceiling with zero free parameters. All four FAILs
   collapse to one run-design change (hold at saturation, then step down with requests in flight).
   Panel 4 deferred by Dean. ⚠️ The preserve copy `~/viz-migration-preserve-20260807` is the **only**
@@ -99,7 +99,7 @@
   sat_v2 disabled. State: `planning/wva-analyzer-lifecycle-plan.md` +
   [`multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511.
 - **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.**
-  *Open, not live* — untouched for ~3½ weeks. ⚠️ Dev-guide edits the planner made directly are still
+  *WIP — no session running; resumable from its plan. Untouched ~3½ weeks.* ⚠️ Dev-guide edits the planner made directly are still
   **UNCOMMITTED** in the worktree (`M multi-analyzer-pipeline.md`). The active thread is Dean's
   clean-design effort: 2 Phase-2 framing questions unanswered, Phase 3 (verify code vs the clean model)
   not started, and a suspected real bug flagged — anticipated supply sits in the denominator rather than

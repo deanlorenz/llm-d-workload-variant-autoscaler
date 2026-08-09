@@ -124,11 +124,14 @@ agents via handoff files.
   WIP state lives, written down as it is learned rather than reconstructed later. **CURRENT.md then
   points back to the plan: an abstract plus a pointer. It is not a state store.**
   **Per-session duty:** every planner session documents *its own* progress in *its own* plan doc, as
-  it goes — not in CURRENT.md, and not on another thread's behalf. **"Open" is not the same as
-  "live":** an entry stays verbose here only while it is *actual* live WIP — being worked right now,
-  or blocked on a named decision. Once a thread's state is documented in its plan, its CURRENT.md
-  entry reduces to a one-or-two-line abstract plus the ref even though the thread remains open. Most
-  long-lived threads are open-but-not-live and belong in that reduced form. A WIP entry exists
+  it goes — not in CURRENT.md, and not on another thread's behalf. **Verbosity here tracks whether a
+  thread needs its state re-stated, not whether it is still WIP.** An entry stays verbose only while
+  it is being actively worked or is blocked on a named decision; once its state is documented in its
+  plan, it reduces to a one-or-two-line abstract plus the ref. **A thread with no session running is
+  still WIP** — so long as its plan docs and memories live, it is fully resumable, by the same session
+  or a new one, and reducing its entry says nothing about whether the work is alive. Never let a
+  reduced entry imply an abandoned thread: keep the ref exact, name what is owed and by whom, and
+  leave any armed footgun verbose. A WIP entry exists
   for **state, recoverability and disambiguation — not brevity**, which makes the ordering strictly
   one-way: **the state must already exist in its Type 3 (or Type 1) home before any text here is
   reduced.** Never trim a WIP entry to hit a length. A length target would reward deleting state that
@@ -334,6 +337,15 @@ blocked state, at session end. Read-only for everyone else. Never absorbed into
 CURRENT.md, never deleted by the planner — dropped when the worktree is removed. Status
 is operational/ephemeral; CURRENT.md is canonical project state.
 
+**Every agent keeps its own state, and commits it.** This applies to coders, planners, reviewers —
+everyone. State normally lives under `plans/` (your `session/status/<branch>.md`, your Type 3 in
+`planning/`); write it there, and **`git commit` it** rather than leaving it in a working tree. An
+uncommitted state file is one `checkout` away from gone and is invisible to every other session. If a
+tool or permission boundary blocks you from writing the canonical location, write it where you can,
+say so in your handoff, and flag the cleanup — do not silently keep state in a second place. A
+duplicate that nobody has declared is worse than an awkward path, because the next session cannot tell
+which copy leads.
+
 Suggested format (loose; expand as needed):
 ```
 last_update: <ISO timestamp>
@@ -382,6 +394,20 @@ session: <short topic name>
 pending handoffs to add or remove, blockers to clear, next steps to record. Be
 complete — the sync agent applies exactly what the handoff describes.>
 ```
+
+**A `sync__` handoff must carry two things: the ref and the resume prose.**
+
+1. **A ref to the full, committed state file** — the authoritative path (`session/status/<branch>.md`,
+   your Type 3 plus its section, a commit SHA), so CURRENT.md can point instead of storing.
+2. **Short WIP prose sufficient for a cold resume** — enough that a brand-new session reading only
+   CURRENT.md knows what is in flight, what is owed and by whom, and which footguns are armed, without
+   opening the plan. You cannot write CURRENT.md yourself, so if you omit this the sync session either
+   invents it or drops it; both are worse than you writing three accurate sentences.
+
+A ref with no prose leaves CURRENT.md useless for triage; prose with no ref recreates the state-store
+problem. Include both. Keep armed footguns verbose even when the rest is compressed — a paused
+autoscaler, a sole surviving copy of a file, uncommitted edits in a worktree — those are
+recoverability content, not narrative.
 
 *Triggers — "go re-read X" notifications.* When one agent (planner, coder, or review
 agent) wants another to look at something, it writes a trigger at
