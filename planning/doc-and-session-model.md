@@ -302,19 +302,37 @@ document, which serves the *project*. It carries:
 And deliberately **not**: full history, clarifications that turned out moot or have already been folded
 into a document, edit history, or superseded suggestions.
 
-**Written as you go, by a timer.** The accumulated checkpoints *are* the digest, and the tick is what
-makes them happen — an idle-fired recurring prompt that distills from the live context into the file.
-It needs no transcript parsing, which is what makes it robust: it works whether or not the JSONL
-persisted, and it fires **before** compaction rather than trying to recover after it.
+**Produced by a periodic transcript-versus-document check.** A recurring, idle-fired tick reads the
+**transcript on disk**, diffs it against the digest, and appends what was never captured.
 
-The tick's contract: append, never rewrite; capture in irreplaceability order and stop early when there
-is nothing new; advance a *captured through* marker so the next tick is incremental; commit only the
-digest path and **verify** the commit; and do not resume discussion.
+Reading the transcript rather than the live context is the load-bearing choice, and it is not merely a
+fallback: **the transcript retains the turns a prior compaction already removed from context.** A tick
+that distilled from context could only ever save what is still there, so it is structurally blind to
+exactly the loss being defended against. The bytes on disk are the only source that sees past a
+compaction.
 
-**Reconstruction from a transcript is a fallback, not the mechanism.** It is cheap where it works —
-filtering a transcript to its user turns yields the verbatim rulings in a fraction of the bytes, without
-loading 51 MB into context — but it depends on the JSONL having persisted and on finding the right file
-among many (§ Open), so it must not be relied on as the primary defense.
+The mechanical half is a script — `scripts/session-extract.sh` — because the highest-value content is
+also the cheapest to isolate: genuine user turns are the transcript records whose content is a plain
+string (tool results are also typed `user` but carry structured blocks). Measured on this session, that
+filter yields **25 turns / 17 KB from a 1.7 MB transcript** — a hundredfold reduction that keeps the
+least reconstructible material. The script also lists transcripts with their opening prompt, which is
+what makes a UUID-named file identifiable at all.
+
+The tick's contract: diff, do not re-summarize; append, never rewrite or delete; capture in
+irreplaceability order and stop early when nothing new remains; advance a **UTC** *captured through*
+marker so each tick is incremental; commit only the digest path and **verify** it; and do not resume
+discussion.
+
+*Transcript timestamps are UTC.* A local-time marker silently skips turns or re-reads them — a trap
+worth stating because it fails quietly in both directions.
+
+### The digest is not session state
+
+Persisting decisions into `CURRENT.md` is a **separate channel** that already works: a session raises a
+`sync__` handoff when a major event or decision lands, and sync folds it in. The digest does not feed
+it, duplicate it, or wait on it. The digest serves a *successor session*; session state serves the
+*project*. Conflating them would put the same content in two places with two owners, which is the
+triplication failure `CONVENTIONS.md` already forbids.
 
 ### Subagent output must be incremental
 
@@ -412,14 +430,13 @@ auto mode a halted coder is silent rather than obviously stuck. Candidates: the 
 notification, or halted state is made visible in `session/status/` and polled. **Needs a decision
 before auto-mode coders run unattended.**
 
-**Transcript findability.** Rescuing a crashed session means finding its transcript among 82
-UUID-named files with no visible subject. Candidates: modification time, a title recorded inside the
-file, or a maintained index. There may already be partial material here — a session-naming hook exists
-— but nothing that maps a subject to a transcript path. Needed before transcript-based rescue is
-practical rather than theoretical.
+**Checkpoint cadence** — the tick runs every 15 minutes at off-minutes, chosen not measured. Whether
+that is too frequent (context cost per tick) or too sparse (a compaction between ticks) is unknown until
+it has run for a while.
 
-**Checkpoint cadence for discussion sessions** — an idle tick is proposed (§ Checkpointing); the
-interval is not chosen.
+**Where the tick should run.** It currently runs in the main session, so each tick spends a few turns of
+the very context it is protecting — mildly self-defeating. Delegating the diff to a subagent would keep
+the main context clean. Not done, because spawning agents is not something a session does unasked.
 
 **`s-design-review`'s true role** — confirm or verify (§ Skill surface).
 
