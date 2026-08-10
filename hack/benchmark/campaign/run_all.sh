@@ -34,15 +34,9 @@ free_gpus() {
 }
 trap free_gpus EXIT INT TERM
 
-CELLS=(
-  b-satta-staircase
-  m-satta-staircase
-  m-sat-staircase
-  m-ta-staircase
-  m-satta-dwell
-  m-sat-dwell
-  m-ta-dwell
-)
+# Override with CELLS="a b c" to run a subset (e.g. to resume a campaign).
+DEFAULT_CELLS="b-satta-staircase m-satta-staircase m-sat-staircase m-ta-staircase m-satta-dwell m-sat-dwell m-ta-dwell"
+read -r -a CELLS <<< "${CELLS:-$DEFAULT_CELLS}"
 
 echo "CAMPAIGN START $(date -u +%FT%TZ) -- ${#CELLS[@]} cells" | tee -a "$LOG"
 n=0
