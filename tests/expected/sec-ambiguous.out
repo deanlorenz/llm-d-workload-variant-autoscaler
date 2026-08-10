@@ -1,0 +1,6 @@
+exit: 5
+--- stdout ---
+--- stderr ---
+sec: ambiguous id in tests/fixtures/doc-a.md: set-up matches 2 headings
+sec:   line 26: ## Set Up
+sec:   line 30: ## set-up

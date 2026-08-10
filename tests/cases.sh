@@ -14,3 +14,9 @@ case_register sec-level2            ./scripts/sec.sh tests/fixtures/doc-a.md alp
 case_register sec-level3            ./scripts/sec.sh tests/fixtures/doc-a.md alpha-child
 case_register sec-deeper-subsection ./scripts/sec.sh tests/fixtures/doc-a.md beta
 case_register sec-end-of-file       ./scripts/sec.sh tests/fixtures/doc-a.md omega
+
+# sec — multiple ids and error paths.
+case_register sec-two-ids           ./scripts/sec.sh tests/fixtures/doc-a.md alpha omega
+case_register sec-three-ids         ./scripts/sec.sh tests/fixtures/doc-a.md beta alpha-child omega
+case_register sec-bad-among-good    ./scripts/sec.sh tests/fixtures/doc-a.md alpha no-such-id
+case_register sec-ambiguous         ./scripts/sec.sh tests/fixtures/doc-a.md set-up

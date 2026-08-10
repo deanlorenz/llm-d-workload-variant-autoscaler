@@ -1,0 +1,4 @@
+exit: 4
+--- stdout ---
+--- stderr ---
+sec: no heading in tests/fixtures/doc-a.md matches id: no-such-id

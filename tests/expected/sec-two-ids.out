@@ -9,4 +9,11 @@ Alpha body line two.
 
 A level-3 section nested under Alpha. Fetching `alpha` must include this
 heading and its body; fetching `alpha-child` must return only this part.
+
+## Omega
+
+Omega runs to the end of the file with no heading after it. Fetching `omega`
+must return everything from here down.
+
+Last line of the document.
 --- stderr ---

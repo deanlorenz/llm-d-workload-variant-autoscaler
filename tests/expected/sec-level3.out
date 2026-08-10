@@ -4,5 +4,4 @@ exit: 0
 
 A level-3 section nested under Alpha. Fetching `alpha` must include this
 heading and its body; fetching `alpha-child` must return only this part.
-
 --- stderr ---

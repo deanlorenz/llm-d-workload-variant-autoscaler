@@ -1,0 +1,25 @@
+exit: 0
+--- stdout ---
+## Beta
+
+Beta body before the subsection.
+
+#### Beta deep
+
+A level-4 subsection. Fetching `beta` must absorb it — a deeper heading is
+part of the section, not a terminator.
+
+More Beta body after the level-4 subsection.
+
+### Alpha child
+
+A level-3 section nested under Alpha. Fetching `alpha` must include this
+heading and its body; fetching `alpha-child` must return only this part.
+
+## Omega
+
+Omega runs to the end of the file with no heading after it. Fetching `omega`
+must return everything from here down.
+
+Last line of the document.
+--- stderr ---
