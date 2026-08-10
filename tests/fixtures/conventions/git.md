@@ -22,6 +22,9 @@ origin: silent wrong-branch commits
 A commit issued from the wrong working directory lands on the wrong branch with
 no error, so the check has to precede the commit rather than follow it.
 
+This body cites `scripts/sec.sh`, a path that does resolve, so the linter's
+referenced-path check has an accepting case and not only a rejecting one.
+
 ### convention: archive-never-delete
 description: Archive a finished branch instead of deleting it.
 scope: local branch cleanup

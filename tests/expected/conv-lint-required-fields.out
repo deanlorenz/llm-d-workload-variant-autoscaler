@@ -1,0 +1,4 @@
+exit: 12
+--- stdout ---
+--- stderr ---
+conv-lint: [12] tests/fixtures/bad/fields/fields.md:5: convention missing-two-fields is missing required field(s): trigger origin

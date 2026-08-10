@@ -1,0 +1,4 @@
+exit: 10
+--- stdout ---
+--- stderr ---
+conv-lint: [10] tests/fixtures/bad/marker/marker.md:5: marker is not '### convention: <name>' with name matching [a-z0-9-]+: ### convention: Bad_Name

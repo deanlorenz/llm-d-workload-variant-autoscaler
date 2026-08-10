@@ -30,3 +30,12 @@ case_register conv-duplicate-name ./scripts/conv.sh --dir tests/fixtures/convent
 # conv-list — the computed index.
 case_register conv-list-topic-files ./scripts/conv-list.sh --dir tests/fixtures/conventions
 case_register conv-list-no-description ./scripts/conv-list.sh --dir tests/fixtures/conventions-nodesc
+
+# conv-lint — one clean run, then one fixture directory per violation class.
+case_register conv-lint-clean          ./scripts/conv-lint.sh --dir tests/fixtures/conventions
+case_register conv-lint-marker-format  ./scripts/conv-lint.sh --dir tests/fixtures/bad/marker
+case_register conv-lint-name-uniqueness ./scripts/conv-lint.sh --dir tests/fixtures/bad/duplicate
+case_register conv-lint-required-fields ./scripts/conv-lint.sh --dir tests/fixtures/bad/fields
+case_register conv-lint-status-value   ./scripts/conv-lint.sh --dir tests/fixtures/bad/status
+case_register conv-lint-heading-level  ./scripts/conv-lint.sh --dir tests/fixtures/bad/levels
+case_register conv-lint-referenced-path ./scripts/conv-lint.sh --dir tests/fixtures/bad/paths

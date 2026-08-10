@@ -1,0 +1,4 @@
+exit: 15
+--- stdout ---
+--- stderr ---
+conv-lint: [15] tests/fixtures/bad/paths/paths.md:12: convention cites-a-missing-path references a path that does not resolve: docs/does-not-exist.md

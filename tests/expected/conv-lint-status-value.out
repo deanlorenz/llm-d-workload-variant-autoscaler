@@ -1,0 +1,4 @@
+exit: 13
+--- stdout ---
+--- stderr ---
+conv-lint: [13] tests/fixtures/bad/status/status.md:5: convention retired-status has status 'retired'; allowed values are active and probation

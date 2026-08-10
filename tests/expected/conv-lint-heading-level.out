@@ -1,0 +1,4 @@
+exit: 14
+--- stdout ---
+--- stderr ---
+conv-lint: [14] tests/fixtures/bad/levels/levels.md:15: heading at level 2 or shallower after the first convention marker truncates the convention above it: ## An interloping level-two heading

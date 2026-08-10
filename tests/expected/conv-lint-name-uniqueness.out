@@ -1,0 +1,4 @@
+exit: 11
+--- stdout ---
+--- stderr ---
+conv-lint: [11] convention duplicated-name is declared 2 times: tests/fixtures/bad/duplicate/one.md:5 tests/fixtures/bad/duplicate/two.md:5
