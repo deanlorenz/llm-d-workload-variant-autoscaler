@@ -2,14 +2,15 @@
 
 **Status:** DRAFT
 **Reviewer role:** design-review agent
-**Date:** 2026-08-03 (Part 1 — review of the old plan); 2026-08-04 (Part 2 — redesign spec)
+**Date:** 2026-08-03 (Part 1 — review of the old plan); 2026-08-04 (Part 2 — redesign spec); 2026-08-05 (Part 3 — review of the new v2 plan)
 **Base code:** `main @ 9906dac5` (the plans' stated base — confirmed live).
 
 ## Document structure — read this first
 
-This document has two clearly separated halves, per Dean's direction (2026-08-04) to *"separate the
-review of the old plan from the recommended course of change"* and to make the discussion *"a spec
-for the planner to create a new Type-3 coding plan to fix TA issues — explicit and clear."*
+This document has three clearly separated parts. The first two, per Dean's direction (2026-08-04),
+*"separate the review of the old plan from the recommended course of change"* and make the discussion
+*"a spec for the planner to create a new Type-3 coding plan to fix TA issues — explicit and clear."*
+The third reviews the plan the planner then authored against that spec.
 
 - **[Part 1 — Review of the superseded plan](#part-1--review-of-the-superseded-ta-anchor-refactor-planmd).**
   The original Type-6 review of `ta-anchor-refactor-plan.md` as drafted: verdict, correctness
@@ -23,7 +24,11 @@ for the planner to create a new Type-3 coding plan to fix TA issues — explicit
   explicit, self-contained specification. **This is the authoritative input** the planner authors
   the new coding plan against; Part 1's per-finding "Fix (planner)" directions are **not** — they
   describe how to patch the abandoned plan. Where a Part-1 finding still matters, §2.2 maps it
-  forward. Upon completion of the new plan doc, it gets its own review.
+  forward.
+- **[Part 3 — Review of the new `ta-anchor-refactor-v2-plan.md`](#part-3--review-of-the-new-ta-anchor-refactor-v2-planmd).**
+  The Type-6 review of the plan the planner authored against the Part-2 spec: verdict, a
+  spec-fidelity matrix, code-claim verification against `Main @ 9906dac5`, and five non-blocking
+  notes (V1–V5). Verdict: **APPROVE** — faithful and coder-executable, no MAJOR findings.
 
 ## Scope (Part 1 — the old plan)
 
@@ -969,3 +974,358 @@ what the planner actually received:
   something this redesign introduces or is blocked on fixing.
 - **Partial-zero interim recommendation** — still stands as "the near-term answer," now on firmer
   footing given the flapping-risk finding is fully characterized rather than an open unknown.
+
+---
+
+# Part 3 — Review of the new `ta-anchor-refactor-v2-plan.md`
+
+**Reviewed:** [`planning/ta-anchor-refactor-v2-plan.md`](ta-anchor-refactor-v2-plan.md) (planner-authored,
+committed `b95b2e35` on branch `ta-anchor-refactor-v2` off goldens tip `a2f49ccf`; Status DRAFT, 896 lines).
+**Against:** the Part 2 spec (§2.1–§2.7) of this document — the authoritative input the planner was
+directed to author against.
+**Base code:** re-verified against `Main @ 9906dac5` (the plan's cited base; live-confirmed).
+**Method.** Full read of the new plan, then file:line re-verification of every load-bearing code
+claim against `Main/` — dispatch switch, `saturationEntry`/`prcForVariant`, `costEfficiency`, the
+Phase-1 `runAnalyzersAndScore` loop + `updateLivenessAndSetLive`, `ApplyDefaults` empty-list
+injection, the cost-optimizer read sites, the throughput analyzer struct/loop, and the §8 dev-guide
+target strings.
+
+## Verdict (of the new plan)
+
+**APPROVE — faithful to the Part-2 spec and coder-executable, with five minor non-blocking notes
+(V1–V5) and zero MAJOR findings.** No correctness defect was found. Every load-bearing code
+reference the plan makes is verified accurate against `9906dac5`. All eight spec tests (§2.6) are
+present and mapped to commits. The scope fences (§2.7) are correctly held. The plan resolves the
+Part-1 findings it inherits — in particular it does **not** reintroduce the abandoned plan's stored
+`.Anchor` field (E1/E2/E3/E5), routes fields from the correct struct (E4), and its §8 dev-guide
+section names are **real headings** (resolving F8). This is a clean, materially better plan than the
+superseded one.
+
+The five notes below are polish/verification items a coder or Dean should see, not blockers.
+
+## Fidelity to the Part-2 spec
+
+| Spec (§) | New-plan location | Verdict |
+|---|---|---|
+| **§2.1** two-phase mechanism; **no stored `.Anchor`**; per-variant merge keyed by `VariantName`; fallback **before** prune; no analyzer-level sort | §1, §2 (Tables 1/2 + merge), §5 (Commit 1 Phase-1 tag), §6 (Commit 2 `bindingAnchor` getter + `votingResults` prune) | **PASS** — anchor derived on demand; merge is per-`VariantName`; §7b/§6 keep the sat self-fallback ahead of the `votingResults` prune. |
+| **§2.2** resolves Part-1 findings | Embedded, not a dedicated map: E2 made moot (no fixture touches `Anchor`); E5→test 1; E4→test 4 (empty-ballot guard retained); E3→test 3 (no stored-result mutation); F11→test 6; F10/F11 deferred in §3/§12 | **PASS** — a Type-3 plan must *do* the resolutions, not bookkeep them; it does. |
+| **§2.3** QM=error / liveness=do-nothing / AnalyzerName-validation=separate PR / scale-from-zero=orthogonal | §7a (`refuseQueueingModel`) / §7b (`emitSafetyNetMetrics` + `applySaturationDecisions` re-affirm) / §3 + §12 / §7c + §3 | **PASS** (see V4 for a QM-activation clarification). |
+| **§2.4** partial scale-from-zero — **UNDER DISCUSSION** | §7c documentation-only; §3 explicitly excludes picker changes; §12 defers | **PASS** with **V2** caveat — plan correctly writes *no code*; the dev-guide wording is provisional on Dean finalizing §2.4. |
+| **§2.5** TA-side self-fallback + Cost/AcceleratorName fallback-together guard | §7b (Commit 4): struct adds `lastCost`/`lastAcceleratorName`; second loop over `input.VariantStates`; Cost/AcceleratorName fall back **together** with `PerReplicaCapacity` | **PASS** with **V1** source-note. |
+| **§2.6** eight tests | Tests 1–8 mapped across Commits 1/2/3/4 (§6/§7/§7b) + goldens (§4) | **PASS** — all eight present. |
+| **§2.7** scope fences | §3 (in-scope / non-goals) + §12 (deferrals + deletion classification) | **PASS**. |
+
+## Code-claim verification (against `Main @ 9906dac5`)
+
+All verified **accurate**:
+
+- **Dispatch switch** `engine.go:553-558` (QM→`optimizeQueueingModel`, Sat→`optimizeV2`, default→`optimizeV1`); QM gated by `hasQMAnalyzerConfig` :523-525; `applySaturationDecisions` unconditional at :571. → §7a/§7b targets correct.
+- **`saturationEntry`** at `analyzer_helpers.go:91` (scans sat name, returns `e.Result`); `prcForVariant` :100; **`ResultIsInformative` :53** (the binding rule's third predicate — real, callable). → §6 rename/getter target correct.
+- **`costEfficiency`** at `cost_aware_optimizer.go:234` = `vc.Cost / vc.PerReplicaCapacity`, `MaxFloat64` only when `PerReplicaCapacity <= 0` :236 → confirms the ranking-inversion mechanism §7b guards against (Cost=0 with PRC>0 ranks cheapest).
+- **Cost-optimizer read sites**: `satEntry := saturationEntry(...)` :48; nil-guard→continue(hold) :49-51; `buildCapacityMap(satEntry.VariantCapacities)` :54; `s := req.AnalyzerResults` :59 (combine input → repoint to `votingResults`); `allocateForModelPaired(ctx, s, satEntry.VariantCapacities, …)` :62; `scaleDownRoleIterated(…)` :65. → §2c/§10 inventory correct; the plan correctly distinguishes the **selection** view (`satEntry.VariantCapacities`→`anchor`) from the **combine** view (`s`→`votingResults`).
+- **Phase-1 loop** `engine_v2.go:runAnalyzersAndScore` — sat first via `runV2AnalysisOnly`; non-sat loop with the three `continue`s (sat-name reuse, `!effectiveEnabled`, `result == nil`); **`updateLivenessAndSetLive` (:187) loops `for i := range namedResults` and sets `nr.Live` on every entry including sat (index 0)** → the new binding rule's `satNR.Live` is populated in the default path (see V3).
+- **`ApplyDefaults`** `saturation_scaling.go:271` injects the sat-only single-entry list when `analyzers:` is empty → confirms the `satVotes := len(config.Analyzers) == 0 || effectiveEnabled(SaturationAnalyzerName, config)` predicate.
+- **Throughput analyzer** `analyzer.go`: `variantState` :29, `lastFittedB` :37-41, `lastPerReplicaSupply` :50 (set :320, read :475), `byVariant` loop :263, `input.VariantStates` already iterated at :216/:224. → §7b feasibility confirmed.
+- **§8 dev-guide passages are REAL** (not notional — resolves old **F8**): `multi-analyzer-pipeline.md` — "exempt from this gate" :164, "carry `Cost`" :237, "no name-based exemption" :286, "keeper of per-variant metadata" :330; `saturation-scaling-config.md` — "drives every scaling decision" :254, "always runs and drives" :266, `### Saturation Always Runs` :456.
+
+## Findings (V-series — new plan)
+
+### V1 (NON-BLOCKING, executability) — §7b persists `lastCost`/`lastAcceleratorName` but does not name the source
+
+§7b (Commit 4) sets the new `lastCost`/`lastAcceleratorName` fields "at the same success site
+(~:319-322) from that cycle's live values," but the plan does not cite **where TA obtains a
+variant's Cost/AcceleratorName**. Today TA persists `lastPerReplicaSupply` (throughput-fitted); Cost
+and AcceleratorName are not currently among the fields TA reads. Per spec §2.5 these come from
+`input.ReplicaMetrics`. If TA does not already read them there, the coder must add that read — this
+is the "1.C4" prerequisite the spec alludes to. **Consequence if skipped:** the self-fallback would
+persist zero Cost with a positive PRC → `costEfficiency == 0` → re-triggers the exact
+ranking-inversion the guard exists to prevent. Test 7 (§7b) asserts the Cost guard + eviction, so a
+zero-Cost regression is caught, but the plan should add an explicit sub-step: *"for each variant,
+read Cost + AcceleratorName from `input.ReplicaMetrics` at the success site."* Naming the source
+closes the only real executability gap in the plan.
+
+### V2 (NON-BLOCKING, process/scope) — §8 dev-guide bakes the §2.4 recommendation while the spec marks it UNDER DISCUSSION
+
+§7c + §8 write the partial-scale-from-zero *"rely on `scalefromzero`"* recommendation into the
+dev-guide as adopted. Spec **§2.4 is explicitly STILL UNDER DISCUSSION** ("almost agree," not final)
+pending Dean's confirmation. The plan does the right thing on **code** — §3 excludes picker changes,
+§7c is documentation-only — so the risk is confined to *doc wording*. Recommendation: either gate
+the §8 scale-from-zero paragraph on Dean's explicit sign-off, or mark it **interim** in the
+dev-guide text itself, so the Type-4 doc doesn't assert a not-yet-final design as settled.
+
+### V3 (VERIFICATION-NOTE, confirmed-safe) — the binding rule's `satNR.Live` dependency
+
+Commit 2's binding rule `satNR.Enabled && satNR.Live && ResultIsInformative(satNR)` depends on
+`Live` being set on the **sat** entry. **Confirmed safe:** `updateLivenessAndSetLive` sets `nr.Live`
+for *every* `namedResults` entry (sat is index 0), and `ResultIsInformative` exists. So in the
+default path sat binds and the goldens (test 8) enforce it — a broken liveness assumption would turn
+the goldens red, not fail silently. No action required; suggest the plan add a one-line note in
+Commit 1/2 that sat's `Live` is set by the existing liveness pass, so a future reader does not
+assume sat is exempt from liveness.
+
+### V4 (NON-BLOCKING, clarification) — QM is activated by ConfigMap presence, not the `analyzers:` list
+
+§7a reads as though the `analyzers:` list selects the QM path. In fact QM is activated by
+**ConfigMap presence** via `hasQMAnalyzerConfig` (engine.go:523-525), independent of the `analyzers:`
+list. This does **not** change the plan's correctness — `refuseQueueingModel` replacing the
+`:553-554` dispatch **case body** fires regardless of how QM was activated, which is exactly why the
+case-body mechanism is the right lever. Recommendation: §7a should state the activation source
+explicitly so the coder does not attempt to gate the refusal on the `analyzers:` list.
+
+### V5 (NTH, test hardening) — no regression test for the `[sat,TA]` combine path
+
+The goldens (test 8) freeze only the **default sat-only** path. The plan's claim that `[sat,TA]`
+combine is bit-identical (because `votingResults` returns both enabled entries → no prune) is
+**correct**, but untested. Since `[sat,TA]` is a supported config (§1 table), a small
+characterization test asserting `[sat,TA]` decisions are unchanged would harden the "no combine
+arithmetic change" guarantee beyond the sat-only goldens. This is **beyond** the §2.6 floor —
+optional.
+
+## Convention compliance
+
+- **Deletion classification (§12)** — QM optimize path is classified **DEFERRED** (design intent
+  preserved: fold queueing-model into the V2 engine; §12 flags whether to file a GitHub issue). ✔
+- **Semantic-pivot grep (§9)** — present; covers the `saturationEntry`→`bindingAnchor` rename and the
+  stale dev-guide narrative strings (which §8 also names). ✔ Satisfies the plan-authoring grep rule.
+- **Dev-guide sections named + real (§8)** — specific passages named per file, all grep-confirmed to
+  exist (resolves old F8). ✔
+- **No plans-branch identifiers in code-side artifacts** — the plan directs prose, not `Fnn`/`Enn`
+  tokens, into comments/commits. ✔ (Coder must still expand any shorthand — standard.)
+- **Branch/push handling (§11)** — worktree off `a2f49ccf` interim base, rebases onto `main` after
+  #1513; no `git push` verb placed in coder scope (resolves old **C1**). ✔
+
+## Recommended disposition
+
+**Ready for coding, pending Dean's disposition of the two doc-level notes:**
+
+1. **V1** — planner adds one sub-step to §7b naming `input.ReplicaMetrics` as the Cost/AcceleratorName
+   source (the only real executability gap; everything else is verified buildable).
+2. **V2** — Dean confirms §2.4, or the §8 dev-guide paragraph is marked interim.
+
+V3/V4 are one-line clarifications the planner can fold in for reader-safety; V5 is an optional
+test-hardening NTH. None blocks the coder from starting Commits 1–3 (which are §2.4-independent).
+No MAJOR findings; no correctness defects; fidelity to the Part-2 spec is complete.
+
+## Follow-up notes from post-review discussion (2026-08-05) — for the next plan-review round
+
+Two items surfaced with Dean after the APPROVE verdict. Both are **for the next round of plan
+review** (Dean's call, 2026-08-05) — neither changes the verdict; V6 qualifies the per-variant
+fallback's reachability, V7 evaluates and declines an additional safety net in favour of a contract.
+
+### V6 (reachability of the per-variant fallback — narrow but live, not dead code)
+
+The §2.1 per-variant fallback (binding analyzer lacks a variant → take sat's (b)) is reachable in
+**exactly one configuration and state**, verified against the two producers at `Main @ 9906dac5`:
+
+- **Sat enumerates all declared variants.** `saturation_v2/analyzer.go:367` loops
+  `for _, vs := range variantStates` and appends a `VariantCapacity` for **every** variant (:441) —
+  when `readyCount == 0` it still emits one, sourced from the capacity store, a compatible-variant
+  estimate, or a `satReasonNoData` placeholder.
+- **TA enumerates only live-replica variants.** `throughput/analyzer.go:234` builds
+  `byVariant := groupByVariant(input.ReplicaMetrics)` and the producer loop (:263 → append :372)
+  covers only variants with live `ReplicaMetrics`.
+- Therefore `keys(sat) ⊇ keys(TA)`, and the set difference is exactly **zero-ready-replica variants**.
+
+**The fallback fires only when all three hold:** (1) config is **`[TA]`-only** (in *default* and
+`[sat,TA]`, binding = sat, so (b) already comes from sat for every variant — the fallback branch is
+structurally unreachable and harmless); (2) a variant is at **zero ready replicas**; and (3) TA's own
+§2.5 self-fallback (the `lastPerReplicaSupply` memory) does **not** already cover it. The residual it
+actually catches is a **cold, never-observed zero-replica variant** — freshly declared / never scaled
+up, or evicted from TA's memory. Call-stack: inside the `bindingAnchor` getter's per-variant merge,
+before the `votingResults` prune.
+
+Two implications for the next plan revision:
+
+1. **§2.1 vs §2.5 — complementary or redundant, and which way does it point architecturally?** This
+   hinges on whether TA's §7b self-fallback *skips* never-seen variants (→ anchor fallback fires; sat
+   supplies (b)) or *hold-emits* an entry for every `VariantState` (→ TA covers the full declared set;
+   anchor fallback never fires). The plan should state which. **Test 2 can only exercise the anchor
+   fallback if §7b skips** — so its fixture must be a `[TA]`-only config with a zero-replica variant
+   TA has *never* seen, else the test passes without hitting the branch. **But the choice is bigger
+   than test reachability** (see V7): *hold-emit* is the direction that moves TA's ballot toward
+   **list-completeness** — the property that would let the engine eventually read TA's entry directly
+   and retire the anchor. And it has a near-term consumer: the partial-scale-from-zero path iterates
+   over **all** variants (Dean, 2026-08-05) and so needs the complete list, not just the live subset —
+   today that completeness comes from sat (the anchor's list = sat's declared set); a self-sufficient
+   TA ballot would have to supply it itself.
+2. **The fallback is only as good as sat's zero-replica metadata.** For a cold variant sat may carry
+   only `satReasonNoData` (PRC = 0 → unselectable — which *matches sat-only-today* and satisfies the
+   "not worse than current" bar), or, via the stored-capacity path, PRC > 0 with the pre-existing
+   `aggregateByVariant` Cost = 0 / AcceleratorName = "" gap → sat-side `costEfficiency = 0` → the
+   **same ranking-inversion** V1/§2.5's guard prevents on the TA side. The guard should logically
+   cover the anchor-fallback path too, not just TA's self-fallback.
+
+### V7 (evaluated: copy sat's (a) into every analyzer's entries — a forward-enabling step toward retiring the anchor, best pinned by a contract)
+
+**Proposal (Dean, 2026-08-05):** as an extra safety net, have the engine (or each analyzer) copy
+sat's entire (a) block into every other analyzer's per-variant entries, so (a) — including Cost — is
+never missing. Dean's own caveats: it does *not* guarantee (b)/fallback PRC (handled by §2.1 + §2.5),
+and it does *not* make the per-variant list match sat's.
+
+**Corrected framing (this replaces my first pass, which asked the wrong question).** The right lens is
+architectural, not "does it fix a current read." **The anchor is a workaround for ballot entries that
+aren't self-sufficient.** Almost every (a)-consuming site was hardcoded to `saturationEntry` and this
+plan re-hardcodes it to the dynamically-merged `anchor`; the anchor exists precisely *because* a
+single analyzer's entry can't be trusted to carry complete, correct per-variant data. **If TA's ballot
+entry carried all the correct data, the engine could read TA's entry directly and the anchor could be
+deleted** (Dean, 2026-08-05) — and, a step further, the sat entry itself could be dropped from a
+`[TA]`-only run. The copy safety net is a *down-payment on that future*, not a fix for today.
+
+Because the plan populates the anchor **dynamically from multiple sources**, the real question is
+per-`(field, variant)`: *when the source is TA, what data does TA carry, and is it complete?* Concrete
+case Dean named: in `[TA]` with the sat entry removed, the anchor's (a) (which comes from sat) would
+have nowhere to come from — so TA would have to carry (a) itself. Retiring the anchor therefore needs
+**two** independent completeness properties, and the copy only supplies one:
+
+- **(a)-completeness** — every entry carries correct identity fields. *This is what the copy provides.*
+- **list-completeness** — the entry enumerates *all* declared variants, including zero-replica ones.
+  *The copy does NOT provide this* (Dean's second caveat). It is the V6-impl-(1) `hold-emit` half of
+  TA's §7b self-fallback, and it already has a near-term consumer: **partial-scale-from-zero iterates
+  over all variants and needs the correct list**, which today only sat's declared set provides.
+
+**Supporting fact (why the copy isn't *required* for PR-1 correctness).** At `9906dac5` nothing yet
+reads (a) off a non-sat entry: the combine path reads only (b) — `initRoleState` (:127)
+`RoleCapacities`/`Remaining`/`Spare`, `roleBottleneckReplicas` (:182) `prcForVariant` + RC state,
+`roleAggRemaining` (:201) RC state; the only `vc.Role` reads (`rolesOf` :21, `variantsForRole` :229)
+are on the anchor/candidate (selection) side, where the merge already injects sat's (a). So the copy
+changes no decision today and is **goldens-neutral** — which is also why it's a *low-risk* thing to
+plant early if the direction is agreed.
+
+**Recommendation (Dean's call — this is a direction decision, not a correctness gate):**
+
+1. **The copy is not required for PR-1 correctness** (nothing reads (a) off the ballot; the merge
+   covers selection; test 1/test 3 guard the anchor's (a)-from-sat and no-mutation). If it *is* done
+   in PR-1, it must be a **fresh-ballot copy**, never in-place mutation, or it violates the
+   no-stored-mutation invariant (E3 / test 3).
+2. **Regardless of the copy, pin the direction as an analyzer-contract invariant** (Type-1 design +
+   dev-guide — zero runtime cost, and the real future-proofing):
+   - **(a) identity is saturation-authoritative** — the engine sources identity fields
+     (AcceleratorName / Cost / Role / ReplicaCount / PendingReplicas) from sat when building the
+     anchor; the *target* end-state is that each analyzer's entry is self-sufficient so the engine
+     need not special-case sat.
+   - **(b) sizing must have a per-variant fallback** — *add fallback-PRC to the contract so future
+     analyzers inherit it* (Dean's explicit ask).
+   - **variant-list completeness** — the authoritative variant set is the full declared set (today:
+     sat's; the anchor carries it). An analyzer that aspires to be usable *without* the anchor must
+     enumerate all declared variants, not just the live subset — this is the `hold-emit` choice in
+     V6-impl-(1), and partial-scale-from-zero depends on it.
+3. **If keeping the door open to retiring the anchor is a goal, the highest-leverage move is the §7b
+   `hold-emit` decision** (list-completeness), *then* the (a)-copy. The copy without list-completeness
+   still can't retire the anchor; list-completeness without the copy still can't either. The contract
+   above states both so a later "delete the anchor, read TA directly" PR has an explicit spec to meet.
+
+---
+
+## Review Round 2 (2026-08-05) — reconciled against plan tip `2e83c7fe`
+
+**Status: DRAFT** (only Dean finalizes). This round re-derives Part 3's follow-up thread against the
+planner's 2026-08-05 cost/PRC redesign (`2e83c7fe`), which — folding in Dean's decisions Q1/Q2 —
+**removed** the `fallbackVariantCost` MAX sentinel and TA-side `lastCost`/`lastAcceleratorName`
+persistence, made §7b **PRC-only**, and **enablement-gated** the §2 per-variant (b) fallback. Discussion
+record: `ta-anchor-refactor-v2-scale-from-zero-note.md`. Verified against `Main @ 9906dac5`.
+
+**Net verdict unchanged: APPROVE.** The redesign **resolves the correctness concern** that the earlier
+working-draft flagged; what remains are two doc consistencies on the load-bearing merge rule (V8 doc-accuracy,
+V9 executability-before-coding) plus two minors (V10, V11). All are documentation fixes — no mechanism
+change, no correctness defect.
+
+### Resolved by `2e83c7fe` (no longer open)
+
+- **Old core-correctness concern — `[sat,TA]` scale-from-zero "silently not delivered while docs claim it
+  is."** RESOLVED at the design level. Both TA-enabling configs now actually deliver scale-from-zero:
+  `[TA]`-only via §7b's persisted `lastPerReplicaSupply` (real TA PRC); `[sat,TA]` via **sat's own binding**
+  (binding = sat ⇒ the anchor's (b) comes from sat's own zero-replica emission — the plan's own V6 note
+  L1129–1131 confirms "in default and `[sat,TA]`, binding = sat, so (b) already comes from sat for every
+  variant"). No code-correctness defect remains; the residual is purely how §7c/§3 *describe* the `[sat,TA]`
+  mechanism (→ V8).
+- **Bit-identity concern.** Addressed by §7b's **previously-live-only** emission (a **never-seen** variant
+  emits nothing — plan L695–704, L713–714) plus Test 9's all-live fixture requirement. The `[sat,TA]`
+  combine bit-identity is backstopped by Test 9 (L697–704). RESOLVED.
+
+### V8 (should-fix — doc accuracy): §7c / §3 over-attribute `[sat,TA]` scale-from-zero to §7b
+
+The §7c heading (plan L729), §7c body (L731–734), and §3 (L262–263) state scale-from-zero is delivered
+**via §7b** for **both** `[TA]`-only and `[sat,TA]`. That mis-describes the `[sat,TA]` mechanism:
+
+- In `[sat,TA]`, **binding = sat** (§6 step 2a rule, L399–401), so the anchor's (b) — which drives the
+  cost picker's **selectability** of a candidate (`costGreedyRolePick`/`costEfficiency` rank
+  `bindingAnchor.VariantCapacities`) — comes from **sat's own** zero-replica emission
+  (`aggregateByVariant`: `capacityStore.Get`/`estimateStoredCapacity` → PRC>0, else `satReasonNoData` →
+  PRC=0), **not** from §7b's TA PRC. §7b's contribution under `[sat,TA]` is only to the **combine demand**
+  side (TA votes, so its emitted zero-replica entry enters the RC/SC math), not to picker selectability.
+- Consequence: the load-bearing "returning variant is selectable" path in `[sat,TA]` is **sat's own
+  stored-capacity estimate** (pre-existing `aggregateByVariant`), which the plan elsewhere already
+  acknowledges (V6). §7b is the **proactive selectability complement for `[TA]`-only only**.
+- Minor wording sub-note: "all-variants fallback" (L262) is stale terminology from the pre-`2e83c7fe`
+  sentinel design; §7b now iterates all `VariantStates` but **emits only** for previously-live-now-zero
+  variants (L736–738). Rephrase as "previously-live PRC-only emission," not "all-variants fallback."
+
+**Fix (planner-doc):** scope the "covered via §7b" claim (heading L729; L732–734; §3 L262) to `[TA]`-only
+for the *proactive-selectability* statement, and state §7b's `[sat,TA]` role precisely (feeds the combine;
+the returning variant's selectability there rides sat's own binding). Not a coder-executability blocker —
+the coder's §7b code is identical either way — but a doc-honesty fix so a reader/coder doesn't reason about
+`[sat,TA]` cold variants via the wrong path.
+
+### V9 (should-fix before coding — executability; Dean's verify-item): §6 states the (b)-fallback UNGATED, §2 gates it
+
+The load-bearing merge rule is stated two contradictory ways:
+
+- **§2 (L195–211):** the per-variant (b) fallback is **enablement-gated** — valid only when saturation is
+  enabled; under `[TA]`-only a variant with no TA (b) entry (and no persisted TA PRC) gets **PRC = 0**
+  (suppressed), *not* sat's (b).
+- **§6 step 3 (L409–412), the implementation section the coder builds from:** "…merging (a) from sat + (b)
+  from binding per `VariantName`, **with the per-variant fallback to sat's own (b) when binding lacks that
+  variant**." Stated **unconditionally** — no enablement gate.
+
+A coder implementing §6 literally would always fall back to sat's (b), including under `[TA]`-only,
+contradicting §2's decided behavior. **Test 2 (L218–220) is a backstop** (it asserts PRC=0 under
+`[TA]`-only, so a literal §6 build goes red) — but the plan should make §6 self-consistent with §2 so the
+coder builds it right the first time rather than relying on a red test to discover the gap.
+
+**Fix (planner-doc):** §6 step 3 → "per-variant fallback to sat's (b) **only when saturation is enabled**
+(per the §2 table); under `[TA]`-only a variant the binding analyzer omits (and with no persisted TA PRC)
+gets **PRC = 0**, not sat's (b)." This is precisely the reviewer-verify item Dean flagged, and the getter
+already has `satNR.Enabled` in scope (§6 step 2a), so the gate is cleanly expressible.
+
+### V10 (minor — executability): Test 7 / Test 10 don't name the concrete test harness/layer
+
+Test 7 (L710–716) and Test 10 (L717–723) describe behavior precisely but neither names the concrete test
+package/harness. Test 10 is an **optimizer-selection-layer** test (the pipeline cost picker —
+`cost_aware_optimizer`); Test 7 is an **analyzer-layer** test (`throughput` emission). Given the plan is
+otherwise exact about file paths, naming the harness per test removes a small coder-orientation ambiguity.
+Minor; not blocking.
+
+### V11 (minor — doc completeness): §12 sat-`Cost=0` blast radius omits `[sat,TA]`
+
+§12 (L999–1001) scopes the sat `Cost=0`-for-zero-replica blast radius to "`[saturation]`-only always, and
+now `[TA]`-only too." It omits **`[sat,TA]`**. But `[sat,TA]` binds sat, so a returning zero-replica variant
+there has `Cost=0` (sat's (a)) + PRC>0 (sat's stored estimate) → `costEfficiency=0` → the **same**
+mis-ranking. The blast radius is **all three** sat/TA configs — `[sat,TA]` behaves like `[saturation]`-only
+here because both bind sat.
+
+**Fix (planner-doc):** add `[sat,TA]` to the L1001 enumeration (consistent with V8: `[sat,TA]` rides sat's
+binding, so it inherits sat's Cost=0 behavior exactly like `[saturation]`-only).
+
+### Confirmations (verified correct in `2e83c7fe`)
+
+- **Sentinel removal is correctness-safe and well-justified.** `Cost`/`AcceleratorName` are (a)-identity
+  fields sourced from sat; TA re-emitting them (old `fallbackVariantCost` MAX + `lastCost`/`lastAcceleratorName`)
+  was TA compensating for a saturation bug that Dean ruled out of TA's scope. §7b PRC-only (`lastPerReplicaSupply`,
+  the existing field) is the honest design. ✅
+- **never-seen → emit-nothing is the honest no-hardcoding choice.** Fabricating a baseline PRC for a
+  never-observed variant is exactly the "hack to bypass an existing bug" Dean flagged; leaving it PRC=0 and
+  letting the reactive `scalefromzero` engine own genuine cold-starts is correct. ✅
+- **Known-limitation analysis is sound (§7c L742–758).** The `[TA]`-only "now behaves like `[sat]`-only"
+  mis-ranking, and both the *flap* and *stuck-suboptimal* sub-outcomes, trace to the sat `Cost=0` bug and are
+  resolved by the separate sat PR. "Document, don't gate" is the right call per Dean; scale-from-zero
+  *functions* regardless (selection intact, only cost-priority affected). ✅
+- **§12 deletion/deferral discipline is good.** QM = DEFERRED (explicit-error dispatch, no silent fallback);
+  stored-`.Anchor` recorded as superseded-not-deleted with traceability; sat `Cost=0` → separate PR with
+  rationale; CRD-cost plumbing rejected *with* the VA-deprecation context so it isn't re-proposed. ✅
+
+### Optional forward note (PR-2, not a PR-1 concern)
+
+Under `[sat,TA]`, §7b's persisted TA PRC is emitted into TA's ballot entry and enters the combine, but the
+anchor's (b) is sat's (binding = sat) — so TA's PRC is **not** the picker-selectability source there. Using
+TA's (b) directly even when sat is present is a **per-analyzer-binding** change (dynamic re-binding across
+cycles), which is `ta-anchor-dynamic-refresh` (PR-2) territory. Flagged for continuity; nothing for PR-1.
