@@ -87,9 +87,17 @@ BENCHMARK_WORKSPACE  ?= $(CURDIR)
 # Precedence: command line > hack/benchmark/.env > scenario > llmdbenchmark's own
 # default (inference-perf).
 ifeq ($(origin BENCHMARK_HARNESS),undefined)
-BENCHMARK_HARNESS := $(shell python3 $(CURDIR)/hack/benchmark/sync_workloads.py \
-	--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
-	--print-harness 2>/dev/null || echo inference-perf)
+# Runs before BENCHMARK_VENV is defined, so it cannot use YAML_PYTHON. It is
+# error-suppressed and falls back to inference-perf, so a missing PyYAML costs a
+# wrong default here rather than a failed run -- try the venv interpreter first
+# anyway, so the default is right when the venv exists.
+BENCHMARK_HARNESS := $(shell \
+	{ $(BENCHMARK_REPO_DIR)/.venv/bin/python $(CURDIR)/hack/benchmark/sync_workloads.py \
+		--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
+		--print-harness 2>/dev/null \
+	  || python3 $(CURDIR)/hack/benchmark/sync_workloads.py \
+		--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
+		--print-harness 2>/dev/null; } || echo inference-perf)
 endif
 # Empty by default: the scenario's own harness.experimentProfile is authoritative.
 # Set BENCHMARK_WORKLOAD=<name> only to override it on the command line.
@@ -425,6 +433,13 @@ LLMDBENCHMARK        = $(shell command -v llmdbenchmark 2>/dev/null || echo $(BE
 # benchmark-plot-two-variant fail with ModuleNotFoundError. Prefer the venv,
 # fall back to python3 so the target still runs outside a prepared workspace.
 PLOT_PYTHON          ?= $(shell [ -x $(BENCHMARK_VENV)/bin/python ] && echo $(BENCHMARK_VENV)/bin/python || echo python3)
+# Interpreter for helpers that need PyYAML (sync_workloads.py reads the scenario).
+# Same reasoning as PLOT_PYTHON: the benchmark venv carries PyYAML and the system
+# python3 often does not, which makes a run abort with "PyYAML is not available to
+# this interpreter" after the controller has already been restarted for it. Prefer
+# whichever interpreter can actually import yaml, so the choice is driven by the
+# capability rather than by the path.
+YAML_PYTHON          ?= $(shell $(BENCHMARK_VENV)/bin/python -c 'import yaml' 2>/dev/null && echo $(BENCHMARK_VENV)/bin/python || echo python3)
 
 # Common llmdbenchmark flags (spec + workspace + base dir for config resolution)
 BENCHMARK_CLI_FLAGS = --spec $(BENCHMARK_SPEC) --workspace $(BENCHMARK_WORKSPACE) --base-dir $(BENCHMARK_REPO_DIR)
@@ -757,7 +772,7 @@ benchmark-run: benchmark-guard ## Run a single benchmark workload (set BENCHMARK
 	@# (cache). The scenario selects one by name via harness.experimentProfile, so
 	@# sync the whole harness directory and let the scenario pick -- then assert the
 	@# named profile is actually reproducible, not a hand-placed clone leftover.
-	@python3 $(CURDIR)/hack/benchmark/sync_workloads.py \
+	@$(YAML_PYTHON) $(CURDIR)/hack/benchmark/sync_workloads.py \
 		--scenario $(CURDIR)/hack/benchmark/scenarios/$(BENCHMARK_SPEC).yaml \
 		--workloads-dir $(BENCHMARK_WORKLOADS_DIR) \
 		--repo-dir $(BENCHMARK_REPO_DIR) \
@@ -904,7 +919,7 @@ benchmark-configure-variants: benchmark-guard ## Configure the WVA variant set f
 		echo "ERROR: required benchmark .env value ACCELERATOR_NAME unset (see hack/benchmark/.env.sample)"; \
 		exit 1; \
 	fi
-	python3 $(CURDIR)/hack/benchmark/configure_variants.py \
+	$(YAML_PYTHON) $(CURDIR)/hack/benchmark/configure_variants.py \
 		-n $(BENCHMARK_NAMESPACE) \
 		--config $(VARIANT_CONFIG) \
 		--prometheus-url $(PROMETHEUS_URL) \

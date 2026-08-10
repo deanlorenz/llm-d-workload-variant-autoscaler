@@ -26,13 +26,26 @@ SUFFIX="${3:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Some of these helpers need PyYAML, which the system python3 often lacks while
+# the benchmark venv has it. Pick the interpreter by whether it can actually
+# import yaml rather than by path, so a missing module does not surface as a
+# confusing mid-analysis abort. PY is used for every helper below, so they all
+# agree on one interpreter.
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VENV_PY="$REPO_ROOT/llm-d-benchmark/.venv/bin/python"
+if [ -x "$VENV_PY" ] && "$VENV_PY" -c 'import yaml' 2>/dev/null; then
+    PY="$VENV_PY"
+else
+    PY=python3
+fi
+
 echo "[1/5] dump_wva_target_timeseries.py (decisions + saturation analyzer numbers)"
 # Deliberately non-fatal: the remaining steps read raw scrapes and are still
 # useful without the controller-log timeseries. But do not let the failure pass
 # quietly -- a stale log pattern here once produced an all-null file that read as
 # a success, so flag it in a way an operator scanning this output will notice.
 WVA_DUMP_RC=0
-python3 "$SCRIPT_DIR/dump_wva_target_timeseries.py" "$RESULTS_DIR" -n "$NS" || WVA_DUMP_RC=$?
+"$PY" "$SCRIPT_DIR/dump_wva_target_timeseries.py" "$RESULTS_DIR" -n "$NS" || WVA_DUMP_RC=$?
 if [ "$WVA_DUMP_RC" -ne 0 ]; then
     echo "  !! WVA timeseries dump FAILED (rc=$WVA_DUMP_RC) -- wva_target_timeseries.json"
     echo "  !! is missing or carries no analysis fields. Later steps still render from"
@@ -43,19 +56,19 @@ if [ "$WVA_DUMP_RC" -ne 0 ]; then
 fi
 
 echo "[2/5] dump_capacity_demand_estimate.py (raw scrape estimate)"
-python3 "$SCRIPT_DIR/dump_capacity_demand_estimate.py" "$RESULTS_DIR"
+"$PY" "$SCRIPT_DIR/dump_capacity_demand_estimate.py" "$RESULTS_DIR"
 
 echo "[3/5] dump_epp_throughput.py (request rate from EPP counters)"
-python3 "$SCRIPT_DIR/dump_epp_throughput.py" "$RESULTS_DIR" || true
+"$PY" "$SCRIPT_DIR/dump_epp_throughput.py" "$RESULTS_DIR" || true
 
 echo "[4/5] dump_wva_full_timeseries.py (WVA Prometheus metrics — empty if collect_metrics.sh predates the WVA scrape patch)"
-python3 "$SCRIPT_DIR/dump_wva_full_timeseries.py" "$RESULTS_DIR" || true
+"$PY" "$SCRIPT_DIR/dump_wva_full_timeseries.py" "$RESULTS_DIR" || true
 
 echo "[5/5] plot_two_variant_pipeline.py"
 if [ -n "$SUFFIX" ]; then
-    python3 "$SCRIPT_DIR/plot_two_variant_pipeline.py" "$RESULTS_DIR" --suffix "$SUFFIX"
+    "$PY" "$SCRIPT_DIR/plot_two_variant_pipeline.py" "$RESULTS_DIR" --suffix "$SUFFIX"
 else
-    python3 "$SCRIPT_DIR/plot_two_variant_pipeline.py" "$RESULTS_DIR"
+    "$PY" "$SCRIPT_DIR/plot_two_variant_pipeline.py" "$RESULTS_DIR"
 fi
 
 echo "Done. Outputs:"
