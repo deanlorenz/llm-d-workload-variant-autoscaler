@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T01:52:12Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T02:18:00Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -84,6 +84,9 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   within ~8 s and the snapshot loop mirrors it every 120 s, so an unannounced sleep costs at most the
   distillation since the last tick, which is recoverable from the transcript. Saying "checkpoint" is the
   explicit fast path.
+- **All remaining code specs written up for review** — *"write up all the type 3 docs. I will review
+  tomorrow when I wake up."* Four specs landed as `161fb27b`; **his review is pending and nothing should
+  be launched against them until it happens.**
 
   ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
   absent from an extract spanning its arrival). They are recorded here from session context, not from the
@@ -104,6 +107,11 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   on the 10th is 23:51 UTC on the 9th.
 - **Transcript findability is solved** by `scripts/session-extract.sh --list`, which prints each
   transcript with its opening prompt.
+- **System task-notifications are extracted as mid-turn "user" turns.** A background-task completion
+  notice is enqueued exactly like a real mid-turn message, so it arrives in the extract marked
+  `(mid-turn)` and counts toward the tick's non-zero count. Nobody said it. This pollutes the digest's
+  highest-value class — Dean's verbatim words — and inflates the count that decides whether a tick does
+  work. Needs the same content-prefix filter as the `CHECKPOINT TICK` prompt.
 - **Two defects in the checkpoint tick, found by its first real run (2026-08-10T00:17Z):**
   1. **The tick's own cron prompt is extracted as a user turn.** It is a plain-string user record like
      any other, so every tick re-reads its own instructions and the extract grows with tick count. The
