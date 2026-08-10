@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-09T23:49:24Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T00:17:02Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -72,6 +72,15 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   on the 10th is 23:51 UTC on the 9th.
 - **Transcript findability is solved** by `scripts/session-extract.sh --list`, which prints each
   transcript with its opening prompt.
+- **Two defects in the checkpoint tick, found by its first real run (2026-08-10T00:17Z):**
+  1. **The tick's own cron prompt is extracted as a user turn.** It is a plain-string user record like
+     any other, so every tick re-reads its own instructions and the extract grows with tick count. The
+     filter must exclude cron-injected prompts.
+  2. **A mid-turn user message was silently missed.** "ready to finalize?" arrived mid-turn at roughly
+     00:14Z and does **not** appear in an extract bounded at 23:49Z — so mid-turn injections are not
+     plain-string user records. This is the exact failure class the mechanism exists to prevent: a
+     silent omission that looks identical to "nothing new". Needs the record shape confirmed and the
+     filter widened before the tick can be trusted.
 - **Writing is the save; committing is durability.** A crash loses only what was never written.
 - **`plan` carries 146 of 302 handoffs (48%); `sync` carries 0.** One token absorbed several roles.
 - **26 of 91 planning documents matched no naming pattern** — nine kinds we had never named.
