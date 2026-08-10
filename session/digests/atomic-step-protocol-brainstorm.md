@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T05:52Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T09:27:03Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -172,7 +172,20 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
      plans session became newest as soon as it wrote — so the sidecar would have mirrored the wrong
      conversation while missing this one. **mtime is not identity.** The loop is pinned with `--file`; the
      extractor warns when resolving by mtime with several transcripts present.
-- ~~Pin the tick's transcript too~~ — **done**, job `070a4709` carries the pinned path.
+- ~~Pin the tick's transcript too~~ — **done**; now job `c9a58666`, which also reports SKIPPED on a
+  failed check and ignores system task-notifications.
+- **Install `shellcheck`** — *"install spellcheck"* (the shell linter, not a prose one). Blocked: `sudo`
+  requires a password here, so Dean must run `sudo apt install -y shellcheck` himself; candidate is
+  `0.9.0-1`. Until then that gate is **unmet, not passed**, on every script the tooling coder wrote.
+- **Decide the halt rule** — his question *"the current coder still uses the old hult rule?"* Answer:
+  unchanged, nothing softened. So the next coder launched against the remaining specs will very likely
+  repeat the four judgment calls. Two levers, neither chosen: tighten the specs so nothing is left to
+  decide (the S5 self-contradiction was mine), or give the rule a mechanical gate rather than trusting
+  instruction. **A pending decision, not a resolved finding.**
+- **Advance the marker from the extract, never by hand.** The overnight catch-up set it to a guessed
+  `05:52Z` while the real turns were at `07:56Z` and `09:13Z`, so the next tick re-surfaced two already
+  captured turns. Harmless here — appending is idempotent by diffing — but the marker must always come
+  from the newest extracted timestamp.
 - **Coder running on the tooling spec** — `plans-tooling` orphan worktree created, background coder
   launched under `--permission-mode auto` (task `bxykv31hw`, log `/tmp/coder-plans-tooling.log`).
   Progress lands in `session/status/plans-tooling.md`. The spec is still DRAFT; the launch authorization
