@@ -77,6 +77,12 @@ fork-local-uncommitted-*.patch
 # Python bytecode from the hack/benchmark and session-notes analysis scripts
 __pycache__/
 
+# Per-cell artifacts from hack/benchmark/campaign/run_all.sh: raw controller logs,
+# run logs, recorded config. Run-scoped and large, like the dean-*/ directories --
+# whatever is worth keeping from a campaign gets copied out deliberately (the
+# analysis that survives a run belongs in session-notes/ proper).
+session-notes/campaign-runs/
+
 # Scratch working copy of the status file. The Write/Edit tools cannot reach
 # plans/session/status/ from inside this worktree (harness isolation blocks the
 # shared-checkout path), so edits are made here and copied over with `cp` on save.

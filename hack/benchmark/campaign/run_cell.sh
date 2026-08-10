@@ -67,7 +67,13 @@ echo "  analyzers seen in the log:"
 grep -o '"analyzer": "[a-z]*"' "$OUT/controller.log" | sort | uniq -c | sed 's/^/    /'
 
 echo "--- [6/6] analyse ---"
-RESULTS=$(ls -dt "$HOME"/data/wva-benchmark/*/results/*_1 2>/dev/null | head -1)
+# The harness writes its workspace into the repo root as dean-<date>-<time>-<pid>/,
+# not under WVA_WORKDIR -- so look there. Newest first, since each cell creates one.
+RESULTS=$(ls -dt dean-*/results/*_1 2>/dev/null | head -1)
+if [ -z "$RESULTS" ]; then
+  # Fall back to the configured workdir in case a future harness honours it.
+  RESULTS=$(ls -dt "$HOME"/data/wva-benchmark/*/results/*_1 2>/dev/null | head -1)
+fi
 if [ -n "$RESULTS" ]; then
   echo "results dir: $RESULTS"
   echo "$RESULTS" > "$OUT/results-dir.txt"
