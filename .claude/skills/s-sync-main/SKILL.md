@@ -1,7 +1,7 @@
 ---
 name: s-sync-main
 description: Fast-forward local main from upstream/main and push to origin/main. No-arg = interactive (check status, ask what to do). watch/status/stop/sync args skip the menu and act directly. Invoke with /s-sync-main [watch|status|stop|sync].
-allowed-tools: Bash(cd:*), Bash(claude -p:*), Bash(bash plans/scripts/sync-main-watch.sh:*), Bash(cat:*), Bash(kill:*), Bash(date:*), Read, Monitor, TaskStop, AskUserQuestion
+allowed-tools: Bash(bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-status.sh), Bash(bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-watch.sh), Bash(( cd /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/Main && bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-once.sh )), Bash(cat:*), Bash(grep:*), Bash(kill:*), Read, Monitor, TaskStop, AskUserQuestion
 ---
 
 # Sync Main from Upstream
@@ -10,10 +10,14 @@ Fast-forward `local main` to `upstream/main` and push to `origin/main`. One skil
 file (`plans/session/status/main.md`), four things it can do:
 
 - **status** — read-only check: is the background watcher alive, what's the current tip.
-- **watch** — start the background watcher (Monitor tool) if not already running. Keeps `main`
-  continuously synced for as long as this session stays open.
+- **watch** — start the background watcher (Monitor tool) if not already running, so sync events
+  arrive as conversation notifications. Usually unnecessary — see *Auto-start* below.
 - **stop** — stop the watcher.
-- **sync** — one-shot blocking fetch/ff-merge/push, regardless of watcher state.
+- **sync** — one-shot fetch/ff-merge/push in the background, regardless of watcher state.
+
+**A watcher is normally already running without anyone asking**: the `SessionStart` hook
+auto-starts one in this worktree on every startup/resume. See *Auto-start* below for what that
+implies about notifications and stopping.
 
 ## No-arg invocation — interactive
 
@@ -48,9 +52,25 @@ gives `current_step`, the tip under `## Branch`, and any push failure under `## 
 
 This check has no side effects — safe to run any time, from any worktree.
 
-## watch — starting the background poller
+## Auto-start (no invocation needed)
 
-Only if the check above says not running:
+The `plans` worktree **is** the designated sync-main session, so a live watcher is its normal
+steady state. The `SessionStart` hook (`scripts/sync-main-session-start.sh`, registered on
+`startup|resume` in the container settings) checks the heartbeat and, if no watcher is alive,
+**starts one itself — detached, with no prompt.** So on every reload/resume of this session the
+watcher comes back automatically; you do not need to run `/s-sync-main watch`.
+
+**One consequence to know:** a hook-started watcher is a detached `setsid nohup` process, **not
+a harness-tracked task.** `TaskStop` cannot reach it, and its sync events do **not** arrive as
+conversation notifications — read `session/status/main.md` (or `/s-sync-main status`) to see what
+it has done, and use `stop` below (the PID path) to end it. A watcher started in-session via
+`watch` below *is* harness-tracked and does notify. Both keep `main` synced identically; they
+differ only in observability and how you stop them.
+
+## watch — starting the background poller in-session
+
+Use when you want sync events as **conversation notifications** (the auto-started watcher is
+silent). Only if the check above says not running:
 
 ```
 Monitor({
@@ -71,10 +91,10 @@ If the check says already running, report that instead of starting a second one.
 
 ## stop — stopping the watcher
 
-If this is the same session that started the watcher: `TaskStop` with that task's ID.
+If this session started it **via the Monitor tool** (`watch` above): `TaskStop` with that task's ID.
 
-If not (a fresh/different session, or the task ID was lost) — fall back to killing the PID
-recorded in the status file:
+Otherwise — a **hook-auto-started** watcher (the common case; not harness-tracked), a different
+session, or a lost task ID — kill the PID recorded in the status file:
 
 ```bash
 pid=$(grep '^watcher_pid:' /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/session/status/main.md | awk '{print $2}')
@@ -85,17 +105,33 @@ The script traps its own exit and rewrites the status file to `current_step: sto
 re-check the status file afterward to confirm. `main` stays wherever it last landed; no more
 auto-sync until `watch` runs again.
 
-## sync — one-shot blocking sync
+## sync — one-shot sync
 
 Runs regardless of whether the watcher is active (harmless overlap — both just do
 fetch/ff-merge/push, idempotently).
 
-```bash
-cd /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/Main
+**Never `cd` in the calling shell.** Bash-tool CWD persists across every later call in the
+session, so a bare `cd` silently relocates subsequent commits and `git add`s into the wrong
+worktree. Put the `cd` inside a **subshell** so it dies with the command, and run it in the
+**background** so the sync never blocks the session:
+
+```
+Bash({
+  command: "( cd /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/Main && bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-once.sh )",
+  run_in_background: true,
+  description: "one-shot sync of main from upstream"
+})
 ```
 
-```bash
-claude -p "Run each as a separate Bash call in order: (1) git branch --show-current (2) git fetch upstream (3) git merge --ff-only upstream/main — if this fails stop and report, do not run step 4 (4) git push origin main. Report what was fetched (new commits or already up to date) and whether the push succeeded." --allowed-tools "Bash(git branch --show-current),Bash(git fetch upstream),Bash(git merge --ff-only upstream/main),Bash(git push origin main)" --no-session-persistence
-```
+The parentheses are load-bearing: the `cd` applies only inside the subshell, so the session's
+CWD is untouched no matter how the script exits. `run_in_background: true` returns immediately
+and re-invokes you with the result when it finishes.
 
-Report the output to Dean.
+`sync-main-once.sh` does the whole sequence itself (branch check → fetch → `merge --ff-only` →
+push, aborting before the push if the merge is not a fast-forward) and rewrites
+`plans/session/status/main.md` the same way the watcher does. No `claude -p` subprocess and no
+model turn is involved — this is four git commands, so spawning a nested agent to run them was
+pure overhead.
+
+Report the outcome once the background task reports back: what was fetched (new commits or
+already up to date), the resulting tip, and whether the push succeeded.
