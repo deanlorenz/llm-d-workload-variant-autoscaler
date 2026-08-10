@@ -10,6 +10,43 @@ MAIN_WORKTREE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../Main" && pwd)"
 STATUS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/session/status/main.md"
 POLL_SECONDS=60
 STALE_AFTER_SECONDS=150 # ~2.5x poll interval; used by callers checking last_check, not by this script
+LOCK="/tmp/sync-main-watch.lock"
+
+# Single-instance guard, enforced HERE rather than in the callers.
+#
+# Callers previously inferred "is one already running?" from the last_check
+# timestamp in the status file. That is racy: the heartbeat is 60s and the
+# staleness threshold 150s, so a session starting inside that window reads
+# "stale" and launches a duplicate — and because both instances then write the
+# same status file, the heartbeat looks healthy and neither notices the other.
+# (Observed 2026-08-10: two live watchers, pids 91394 and 124820.)
+#
+# flock on a dedicated file is authoritative: the lock is held by the kernel for
+# as long as the process lives and is released automatically if it is killed, so
+# no stale-pidfile cleanup is needed. Every start path — hook auto-start, the
+# Monitor tool, a manual run — funnels through this same check.
+# Read the incumbent's pid BEFORE opening fd 9: `>` truncates on open, so
+# reading after would always report an empty file ("pid unknown").
+holder=$(cat "$LOCK" 2>/dev/null | tr -d '[:space:]')
+exec 9>>"$LOCK" || { echo "FAIL: cannot open $LOCK"; exit 1; }
+if ! flock -n 9; then
+  echo "sync-main watcher already running (pid ${holder:-unknown}) — this instance is exiting, not starting a second poller"
+  # Exit 0: "one is already running" is success from the caller's point of view,
+  # and a nonzero here would surface as a spurious failure in the hook output.
+  exit 0
+fi
+# Record our pid in the lock file for diagnostics.
+#
+# Do NOT truncate via a second redirection (`: >"$LOCK"`): that opens a separate
+# fd with its own offset, so fd 9's subsequent write lands past the truncation
+# point and the file reads back empty. Truncate fd 9 in place instead, then write
+# through the same fd.
+truncate -s 0 /dev/fd/9 2>/dev/null || truncate -s 0 "$LOCK" 2>/dev/null || true
+printf '%s\n' "$$" >&9
+
+# NOTE: the EXIT trap that rewrites the status file to "stopped" is installed
+# further down, deliberately AFTER this guard — so a duplicate instance exiting
+# here never touches the status file of the watcher that actually holds the lock.
 
 cd "$MAIN_WORKTREE"
 last_sync="never"

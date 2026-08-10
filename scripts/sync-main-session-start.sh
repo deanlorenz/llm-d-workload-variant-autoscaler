@@ -28,6 +28,15 @@ else
   # a live watcher is its normal steady state. Detached with setsid + nohup so it
   # outlives this hook process and is not killed when the hook returns.
   #
+  # The heartbeat check above is only a cheap early-out, NOT the duplicate guard —
+  # it is racy (60s heartbeat vs 150s threshold, so a session starting in that
+  # window reads "stale" and launches a second poller, which then shares the same
+  # status file and hides the duplication; observed 2026-08-10 with two live
+  # watchers). The authoritative single-instance guard is an flock inside
+  # sync-main-watch.sh itself, so it is safe to reach this line spuriously: a
+  # redundant instance refuses the lock and exits 0 without touching the status
+  # file. Do not "optimize" by removing either check.
+  #
   # Note the tradeoff vs the Monitor-tool path (/s-sync-main watch): a watcher
   # started here is NOT a harness-tracked task, so TaskStop cannot reach it and
   # sync events do NOT arrive as conversation notifications. Stop it via the PID

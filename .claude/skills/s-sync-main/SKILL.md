@@ -60,6 +60,18 @@ steady state. The `SessionStart` hook (`scripts/sync-main-session-start.sh`, reg
 **starts one itself — detached, with no prompt.** So on every reload/resume of this session the
 watcher comes back automatically; you do not need to run `/s-sync-main watch`.
 
+**Exactly one watcher can ever run**, regardless of how many sessions start or resume: the watch
+script holds an `flock` on `/tmp/sync-main-watch.lock` for its whole life, and any redundant
+instance reports the incumbent's pid and exits 0 without touching the status file. The lock is
+released by the kernel if the holder is killed, so there is no stale-pidfile cleanup. (The
+heartbeat check in the hook is only a cheap early-out — it is racy on its own, which is how two
+watchers came to be running on 2026-08-10.)
+
+Because it lives in WSL under `/init` rather than under Claude, it **outlives the session**: a
+reload/resume finds it already running and starts nothing. It is bound to this worktree twice
+over — the script hardcodes the `Main` worktree as its git target, and the hook fires only when
+session CWD is exactly the `plans` path.
+
 **One consequence to know:** a hook-started watcher is a detached `setsid nohup` process, **not
 a harness-tracked task.** `TaskStop` cannot reach it, and its sync events do **not** arrive as
 conversation notifications — read `session/status/main.md` (or `/s-sync-main status`) to see what
