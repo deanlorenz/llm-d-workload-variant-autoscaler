@@ -15,6 +15,29 @@ project. Read it alongside `CURRENT.md` at the start of every session.
 > content migrates to `conventions/` and `roles/` under that design's Migration 1, where **nothing is
 > removed** — relocation is not removal, and removal needs long probation plus Dean's approval.
 
+## Checkpoint tick — every session, scheduled at session start
+
+**Required of every session** (Dean, 2026-08-10). At session start, schedule a recurring checkpoint —
+roughly every 15 minutes, on off-minutes, firing only while idle so it lands in reading pauses. Each
+tick reads this session's **transcript on disk**, diffs it against the document this session owns or its
+digest at `session/digests/<topic>.md`, and appends whatever was never captured: **Dean's verbatim
+rulings first**, then decisions and rejections with rationale, open questions, incomplete tasks,
+findings. Append only; advance a UTC *captured through* marker; commit only the digest and **verify** the
+commit.
+
+`scripts/session-extract.sh` does the mechanical half (`--since <UTC>`; `--list` identifies transcripts
+by their opening prompt). Full contract and rationale:
+[`planning/doc-and-session-model.md`](../planning/doc-and-session-model.md) § Checkpointing.
+
+**Why it is not optional.** Compaction — not crashes — is the loss channel. It replaces the working
+context, so a decision or a not-yet-done next step the summarizer dropped is gone from the running
+session while sitting unread on disk. One measured session compacted **54 times**. Nothing bridges disk
+and context except text written into a file the next context window will actually read.
+
+**Two known defects — a tick is not yet fully trustworthy.** The tick's own prompt is captured as a user
+turn (filtered by content for now), and a **mid-turn user message was silently missed**, which is the
+failure class the mechanism exists to prevent. Do not treat "0 new turns" as proof nothing was said.
+
 ---
 
 ## Repository Layout

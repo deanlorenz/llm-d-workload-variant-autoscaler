@@ -88,6 +88,9 @@ out=$(jq -r --arg since "$since" '
     select(.type=="user")
   | select(.message.content | type == "string")
   | select($since == "" or (.timestamp > $since))
+  # A scheduled checkpoint prompt is itself a plain-string user record, so without this
+  # every tick re-reads its own instructions and the extract grows with tick count.
+  | select(.message.content | startswith("CHECKPOINT TICK") | not)
   | "## " + .timestamp + "\n" + .message.content + "\n"
 ' "$file") || die "jq failed on $file" 3
 

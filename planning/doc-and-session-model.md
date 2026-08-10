@@ -1,6 +1,9 @@
 # Document and Session Model
 
-**Status: DRAFT** — written 2026-08-10 from a brainstorm with Dean. Awaiting his finalization.
+**design** · **Status: FINAL — frozen 2026-08-10 by Dean.**
+
+The names and roles here are binding: use them in conversation, handoffs, triggers and commit messages.
+Amend by addendum, not by editing. Items in § Open are genuinely open — freezing does not close them.
 
 Names every artifact this workspace produces and every session role that owns one, and describes how
 they connect. Replaces the `Type 1 … Type 6` numbering, which is opaque and — worse — implies a single
@@ -305,6 +308,13 @@ into a document, edit history, or superseded suggestions.
 **Produced by a periodic transcript-versus-document check.** A recurring, idle-fired tick reads the
 **transcript on disk**, diffs it against the digest, and appends what was never captured.
 
+**Required of every session, scheduled at session start** (Dean, 2026-08-10) — not just design or
+discussion sessions. The reload-safe path is the always-loaded chain, so the instruction lives in
+`session/CONVENTIONS.md` § Checkpoint tick; after Migration 1 it belongs in each role kernel, and it is
+a harvest candidate as a convention (`checkpoint-tick`). A scheduled tick is session-scoped and dies with
+its session, which is precisely why scheduling it must be a start-of-session action rather than something
+set up once.
+
 Reading the transcript rather than the live context is the load-bearing choice, and it is not merely a
 fallback: **the transcript retains the turns a prior compaction already removed from context.** A tick
 that distilled from context could only ever save what is still there, so it is structurally blind to
@@ -429,6 +439,18 @@ surfaces. Dean does not watch coders by design, so a halt can sit unnoticed inde
 auto mode a halted coder is silent rather than obviously stuck. Candidates: the coder raises a
 notification, or halted state is made visible in `session/status/` and polled. **Needs a decision
 before auto-mode coders run unattended.**
+
+**Two defects found by the tick's first real run (2026-08-10T00:17Z)** — it is not yet fully
+trustworthy:
+
+1. **The tick's own prompt is extracted as a user turn**, since a scheduled prompt is a plain-string user
+   record like any other. Filtered by content prefix for now; a structural field would be better if one
+   distinguishes scheduled prompts.
+2. **A mid-turn user message was silently missed.** "ready to finalize?" arrived mid-turn and does not
+   appear in an extract spanning that time, so mid-turn injections are not plain-string user records.
+   This is exactly the failure class the mechanism exists to prevent — an omission indistinguishable
+   from "nothing new". The record shape needs confirming and the filter widening. Until then, **"0 new
+   turns" is not proof nothing was said.**
 
 **Checkpoint cadence** — the tick runs every 15 minutes at off-minutes, chosen not measured. Whether
 that is too frequent (context cost per tick) or too sparse (a compaction between ticks) is unknown until

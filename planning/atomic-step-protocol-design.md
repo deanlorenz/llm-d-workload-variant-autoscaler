@@ -1,7 +1,14 @@
 # Atomic-Step Execution Protocol
 
-**Type:** 1 (design) · **Status: DRAFT** — captured from a brainstorm with Dean 2026-08-09.
-Awaiting Dean's finalization. **No implementation has started; nothing outside this file was written.**
+**design** · **Status: FINAL — frozen 2026-08-10 by Dean.**
+
+Frozen means the design is settled and governs: reopen only for architectural replanning, and amend
+through an explicit addendum rather than editing. § Decided, do not re-litigate is binding. Open items
+in § Open and parked are genuinely open — freezing the design does not close them.
+
+Implementation has **not** started. What exists: this design, its companion
+[`doc-and-session-model.md`](doc-and-session-model.md), and `scripts/session-extract.sh` with the
+checkpoint mechanism. Migration 1 — the tooling, the harvest, the coverage audit — is unbuilt.
 
 Supersedes the **repeating-rules half** of [`micro-rules-design.md`](micro-rules-design.md) (the
 `rules/` + `INDEX.md` mechanism, never built). That document's **fetch-protocol half** — Reading
