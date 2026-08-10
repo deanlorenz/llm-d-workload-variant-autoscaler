@@ -1,0 +1,88 @@
+{
+  "rows": [
+    {
+      "capability": "Calibrate A",
+      "verdict": "PASS",
+      "detail": "n=152 bands=5 kv_span=0.43"
+    },
+    {
+      "capability": "Trust B",
+      "verdict": "PASS",
+      "detail": "y_lo=0.0 B_fit=9.638442523217284 B_meas=11.150468794131019 n_low=55"
+    },
+    {
+      "capability": "Characterize saturation",
+      "verdict": "FAIL",
+      "detail": "n=0"
+    },
+    {
+      "capability": "Exercise the 0.85 ceiling",
+      "verdict": "FAIL",
+      "detail": "n_0.80_0.90=0"
+    },
+    {
+      "capability": "Locate the throughput knee",
+      "verdict": "PASS",
+      "detail": "n=152 left=146 right=4"
+    },
+    {
+      "capability": "Scale-down present",
+      "verdict": "PASS",
+      "detail": "drain_events=1"
+    },
+    {
+      "capability": "Drain-vs-kill measurable",
+      "verdict": "PASS",
+      "detail": "needs a scale-down and a per-request trace"
+    },
+    {
+      "capability": "Queue (a) material",
+      "verdict": "PASS",
+      "detail": "p95=5.0 max=6 (vs engine queue max=0)"
+    },
+    {
+      "capability": "Queue (c) material",
+      "verdict": "FAIL",
+      "detail": "max=0.0"
+    },
+    {
+      "capability": "Router imbalance measurable",
+      "verdict": "PASS",
+      "detail": "pods=3 disp_p95=0.2692307692307692 flips=39 n=61 (boot samples excluded: 2)"
+    },
+    {
+      "capability": "rho model valid at top",
+      "verdict": "PASS",
+      "detail": "preempt/s=None"
+    },
+    {
+      "capability": "Capacity model checkable",
+      "verdict": "PASS",
+      "detail": "pred=212.35186262314858 obs=78.0"
+    },
+    {
+      "capability": "Boot lag measured",
+      "verdict": "PASS",
+      "detail": "n=2 mean=70.5"
+    },
+    {
+      "capability": "Signal completeness",
+      "verdict": "PASS",
+      "detail": "l4hqk=74; r2tnh=29; thggq=82"
+    },
+    {
+      "capability": "Per-request trace present",
+      "verdict": "PASS",
+      "detail": "n=7920"
+    },
+    {
+      "capability": "Knee matches shape prediction",
+      "verdict": "FAIL",
+      "detail": "in=2050 out=512 out/in=0.25 (prefill-heavy -> expect y>0); fitted y_lo=0.0"
+    }
+  ],
+  "n_pass": 12,
+  "n_fail": 4,
+  "saturation_threshold": 0.85,
+  "warnings": []
+}

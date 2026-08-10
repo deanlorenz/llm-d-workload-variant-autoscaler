@@ -1,0 +1,88 @@
+{
+  "rows": [
+    {
+      "capability": "Calibrate A",
+      "verdict": "PASS",
+      "detail": "n=122 bands=6 kv_span=0.55"
+    },
+    {
+      "capability": "Trust B",
+      "verdict": "PASS",
+      "detail": "y_lo=0.0 B_fit=9.609986995661853 B_meas=11.797367030015657 n_low=30"
+    },
+    {
+      "capability": "Characterize saturation",
+      "verdict": "FAIL",
+      "detail": "n=0"
+    },
+    {
+      "capability": "Exercise the 0.85 ceiling",
+      "verdict": "FAIL",
+      "detail": "n_0.80_0.90=0"
+    },
+    {
+      "capability": "Locate the throughput knee",
+      "verdict": "PASS",
+      "detail": "n=122 left=99 right=21"
+    },
+    {
+      "capability": "Scale-down present",
+      "verdict": "FAIL",
+      "detail": "drain_events=0"
+    },
+    {
+      "capability": "Drain-vs-kill measurable",
+      "verdict": "FAIL",
+      "detail": "needs a scale-down and a per-request trace"
+    },
+    {
+      "capability": "Queue (a) material",
+      "verdict": "PASS",
+      "detail": "p95=2.0 max=5 (vs engine queue max=0)"
+    },
+    {
+      "capability": "Queue (c) material",
+      "verdict": "FAIL",
+      "detail": "max=0.0"
+    },
+    {
+      "capability": "Router imbalance measurable",
+      "verdict": "PASS",
+      "detail": "pods=2 disp_p95=0.2727272727272727 flips=30 n=62 (boot samples excluded: 3)"
+    },
+    {
+      "capability": "rho model valid at top",
+      "verdict": "PASS",
+      "detail": "preempt/s=None"
+    },
+    {
+      "capability": "Capacity model checkable",
+      "verdict": "PASS",
+      "detail": "pred=209.12030541485004 obs=99.0"
+    },
+    {
+      "capability": "Boot lag measured",
+      "verdict": "PASS",
+      "detail": "n=1 mean=95.0"
+    },
+    {
+      "capability": "Signal completeness",
+      "verdict": "PASS",
+      "detail": "mwqc8=82; p9zhh=75"
+    },
+    {
+      "capability": "Per-request trace present",
+      "verdict": "PASS",
+      "detail": "n=7920"
+    },
+    {
+      "capability": "Knee matches shape prediction",
+      "verdict": "FAIL",
+      "detail": "in=2049 out=512 out/in=0.25 (prefill-heavy -> expect y>0); fitted y_lo=0.0"
+    }
+  ],
+  "n_pass": 10,
+  "n_fail": 6,
+  "saturation_threshold": 0.85,
+  "warnings": []
+}
