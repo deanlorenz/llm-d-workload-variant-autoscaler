@@ -86,6 +86,14 @@ if [ -z "$file" ]; then
   [ -d "$project_dir" ] || die "no project directory: $project_dir"
   file=$(ls -t "$project_dir"/*.jsonl 2>/dev/null | head -1)
   [ -n "$file" ] || die "no transcripts in $project_dir"
+  # newest-by-mtime is a convenience for interactive use and is WRONG whenever two
+  # sessions share a project directory: the other session's file becomes newest the
+  # moment it writes, and this silently starts extracting its turns instead of yours.
+  # Any automated caller must pin --file.
+  if [ "$(ls -t "$project_dir"/*.jsonl 2>/dev/null | wc -l)" -gt 1 ]; then
+    printf '%s: WARNING resolved by mtime among %s transcripts — pin --file for automation\n' \
+      "${0##*/}" "$(ls "$project_dir"/*.jsonl 2>/dev/null | wc -l)" >&2
+  fi
 fi
 [ -r "$file" ] || die "cannot read transcript: $file"
 
@@ -106,6 +114,8 @@ out=$(jq -r --arg since "$since" '
        and ((.message.content|type)=="string")
     then {ts: .timestamp, mid: false, text: .message.content}
     elif .type=="queue-operation" and .operation=="enqueue"
+         and ((.content|type)=="string")   # some carry a null content; without this
+                                           # guard startswith() below aborts the run
     then {ts: .timestamp, mid: true,  text: .content}
     else empty
     end

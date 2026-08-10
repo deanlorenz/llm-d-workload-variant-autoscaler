@@ -380,9 +380,23 @@ convenience rather than the deliverable. (Coders do not spawn subagents at all.)
   that fails is a **silent** non-save, indistinguishable from success. Verify and retry; never
   fire-and-forget. Frequent-Write / occasional-commit avoids most of this.
 - **Do not edit a file while its commit runs.** Write, commit, then resume editing that path.
-- **Transcript findability.** 82 transcripts exist for the plans project alone, named by UUID with no
-  visible subject. Rescue depends on identifying the right one — by modification time, by a title
-  recorded inside the file, or by an index. Unsolved; see § Open.
+- **Transcript findability.** Transcripts are named by UUID with no visible subject.
+  `session-extract.sh --list` prints each one with its opening prompt, which makes them identifiable.
+- **mtime is not identity — pin the transcript.** Resolving "my transcript" as newest-by-mtime is wrong
+  whenever two sessions share a project directory: the other session's file becomes newest the instant
+  it writes, and the mechanism then mirrors **someone else's conversation** while missing yours. Observed
+  live. Every automated caller must pass `--file`; mtime resolution is an interactive convenience and now
+  warns when more than one transcript is present.
+- **A checkpoint loop that discards stderr goes quietly dead.** Observed: a `queue-operation` record with
+  a **null** `content` aborted `jq`, and because the loop redirected stderr to `/dev/null` the failure was
+  indistinguishable from "no new turns" — it had been dead for 18 minutes while appearing healthy. The
+  loop now records stderr to a log beside its output and checks the exit code. This is the same
+  silence-looks-like-success failure the design warns about for background commits; it recurred in the
+  code written to prevent it.
+- **Growth is bounded, and was checked rather than assumed.** Each turn is appended exactly once — 38
+  turns, zero duplicate headers, ~19 KB — so the sidecar grows linearly with conversation length, not
+  without limit. The real risks are a lost marker (which would re-append the whole session) and the
+  file-switching hazard above, not size.
 
 [↑ Contents](#contents)
 

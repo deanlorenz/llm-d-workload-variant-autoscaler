@@ -139,9 +139,18 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 - ~~Memory: full-names-in-conversation preference~~ — **done**: `feedback_doc_names_not_numbers`.
 - Not ready to build, and why: `conv-rename` (no step manifests to scan yet), `plan-lint` (would
   validate a shape no document uses yet).
-- **Bound the raw sidecar's growth** — *"verify file does not grow forever."* `session-snapshot.sh`
-  appends without any cap, so a long session grows it without limit. Needs a bound (rotation, a size
-  ceiling, or trimming to the last N turns) and a check that a stale marker cannot cause re-appending.
+- ~~Bound the raw sidecar's growth~~ — *"verify file does not grow forever."* **Checked: growth is
+  bounded** (each turn appended exactly once; 38 turns, 0 duplicate headers, ~19 KB — linear in
+  conversation length). No cap needed. But the check found **two real bugs**, both fixed:
+  1. **The loop had been silently dead for 18 minutes.** A `queue-operation` record with a **null**
+     `content` aborted `jq`, and `2>/dev/null` in the loop made the failure identical to "no new turns".
+     Same silence-looks-like-success failure the design warns about, recurring inside the code written to
+     prevent it. Now type-guarded, with stderr logged and the exit code checked.
+  2. **It was reading another session's transcript.** `ls -t` picks newest-by-mtime, and a concurrent
+     plans session became newest as soon as it wrote — so the sidecar would have mirrored the wrong
+     conversation while missing this one. **mtime is not identity.** The loop is pinned with `--file`; the
+     extractor warns when resolving by mtime with several transcripts present.
+- **Pin the tick's transcript too** — the cron tick still resolves by mtime, so it carries bug 2.
 
 ## Open questions
 

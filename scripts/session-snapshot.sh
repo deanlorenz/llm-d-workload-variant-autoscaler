@@ -31,6 +31,7 @@ set -uo pipefail
 out=""
 interval=120
 once=0
+tfile=""
 
 here="$(cd "$(dirname "$0")" && pwd)"
 extract="$here/session-extract.sh"
@@ -41,6 +42,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out)      out="${2:-}";      [ -n "$out" ]      || die "--out needs a value";      shift 2 ;;
     --interval) interval="${2:-}"; [ -n "$interval" ] || die "--interval needs a value"; shift 2 ;;
+    --file)     tfile="${2:-}";    [ -n "$tfile" ]    || die "--file needs a value";     shift 2 ;;
     --once)     once=1; shift ;;
     -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)          die "unknown argument: $1" ;;
@@ -52,7 +54,14 @@ done
 case "$interval" in ''|*[!0-9]*) die "--interval must be a whole number of seconds" ;; esac
 
 mark="$(dirname "$out")/.$(basename "$out").mark"
+log="$(dirname "$out")/.$(basename "$out").log"
 mkdir -p "$(dirname "$out")" || die "cannot create $(dirname "$out")"
+
+# Pinning the transcript is strongly advised: session-extract.sh otherwise resolves it by
+# mtime, and a second session sharing this project directory becomes "newest" as soon as it
+# writes — at which point this loop starts mirroring the wrong conversation.
+[ -n "$tfile" ] || printf '%s: WARNING no --file; transcript resolved by mtime each pass\n' \
+  "${0##*/}" >&2
 
 if [ ! -f "$out" ]; then
   {
@@ -66,13 +75,17 @@ if [ ! -f "$out" ]; then
 fi
 
 pass() {
-  local since="" new
+  local since="" new rc
   [ -f "$mark" ] && since="$(cat "$mark" 2>/dev/null)"
 
-  if [ -n "$since" ]; then
-    new="$("$extract" --since "$since" 2>/dev/null)"
-  else
-    new="$("$extract" 2>/dev/null)"
+  # Never discard stderr: an extractor failure would otherwise look exactly like
+  # "no new turns" and this loop would go quietly dead. It already did once, when a
+  # queue-operation record with a null content aborted jq.
+  set -- ${tfile:+--file "$tfile"} ${since:+--since "$since"}
+  new="$("$extract" "$@" 2>>"$log")"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '[%s] extract failed rc=%s — see %s\n' "$(date -u +%FT%TZ)" "$rc" "$log" >> "$log"
+    return 0
   fi
 
   # No new turns: touch nothing at all, so the file's mtime stays meaningful.
