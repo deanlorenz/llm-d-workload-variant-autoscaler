@@ -15,27 +15,28 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L47:98
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L100:261
-  - 2a. pokprod shared-cluster safety invariants — L132:167
-  - 2b. Two-fork contract — what lives where — L169:206
-  - 2c. Configuration contract — fail-closed, per kube context — L208:261
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L263:291
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L293:432
-  - 4.1 Refresh trigger — ARMED 2026-07-30 — L353:382
-  - 4.2 Tier-A image currency — three tags exist — L384:432
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L434:650
-  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L545:591
-  - 5.7 The KEDA arm is present but unrunnable — L608:650
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L652:864
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L866:1372
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1168:1235
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1237:1266
-  - **7.6 The dwell is a controller-configuration lever, not a workload lever — L1268:1372**
-  - 7.6.1 Cold-resume state (2026-08-08) — L1341:1372
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1374:1397
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1399:end
-  - 9.1 Tooling track (T1–T11) — L1430:end
+- [1. Where we are (findings)](#1-where-we-are-findings) — L48:99
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L101:333
+  - 2a. pokprod shared-cluster safety invariants — L133:167
+  - 2b. Two-fork contract — what lives where — L170:206
+  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L209:277**
+  - 2c. Configuration contract — fail-closed, per kube context — L280:332
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L335:362
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L365:503
+  - 4.1 Refresh trigger — ARMED 2026-07-30 — L425:453
+  - 4.2 Tier-A image currency — three tags exist — L456:503
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L506:721
+  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L617:662
+  - 5.7 The KEDA arm is present but unrunnable — L680:721
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L724:935
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L938:1443
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1240:1306
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1309:1337
+  - **7.6 The dwell is a controller-configuration lever, not a workload lever — L1340:1443**
+  - 7.6.1 Cold-resume state (2026-08-08) — L1413:1443
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1446:1468
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1471:end
+  - 9.1 Tooling track (T1–T11) — L1502:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -204,6 +205,77 @@ separately, from defaulting `BENCHMARK_REPO_URL` to Dean's fork (§2c) — under
 contract the fork carries no tooling for anyone to extend, so Ofer never needs a harness fork of his
 own and there is exactly one correct value. **The default supplies the right answer; the gate
 catches a wrong one.**
+
+### 2b-bis. Artifact tree — one root, results persisted in git (Dean, 2026-08-10)
+
+**Problem.** Benchmarking artifacts are spread across five unrelated trees, so "is this preserved?"
+needs five separate answers: `hack/benchmark/` (tools, `.env`s, scenarios, workloads — tracked),
+`test/benchmark/` (Go scenarios — tracked), `session-notes/` (scratch, handoffs, issues, status —
+tracked **with two mid-tree ignore carve-outs**), `dean-*/` (raw run output — fully ignored), and
+`docs/developer-guide/benchmark-panels/` (five PNGs from #947 — tracked but **orphaned**, see below).
+
+**Target layout** — one root, lifecycle visible in the directory name:
+
+```
+benchmark/                        NEW tree, the single root
+├── tools/ → ../hack/benchmark    SYMLINK — nothing moves (Dean: "let's not move hack/benchmark for now")
+├── campaigns/<YYYYMMDD>/         curated + permanent           TRACKED
+│   ├── README.md                 summary + <details> figure embeds
+│   └── <cell>/panels.png, coverage.json
+└── runs/$USER-<ts>-<pid>/        all machine-generated output   not tracked
+```
+
+**Decisions, all Dean's, 2026-08-10:**
+
+1. **All results live on the `benchmark` branch** — not a separate results branch, not `plans`.
+2. **`hack/benchmark/` does not move.** `benchmark/tools` is a **symlink** to it. Zero churn: no
+   Makefile path edits, no script moves, no `__file__` breakage.
+3. **`session-notes/campaign-runs/` → `benchmark/campaigns/`, and it becomes TRACKED** (today it is
+   ignored at `.gitignore:84`). Dean: *"I don't want to gitignore the results as a whole anyway."*
+   The campaign **drivers** stay at `hack/benchmark/campaign/` — those are tooling, reached via the
+   symlink.
+4. **`BENCHMARK_WORKSPACE` moves to `benchmark/runs/`.**
+
+**Why (4) is load-bearing and not cosmetic.** Run output lands in `$(BENCHMARK_WORKSPACE)/$${USER}-*/`
+(`Makefile:845,881,893`), and the ignore rule is the literal glob **`dean-*/`** (`.gitignore:43`).
+The glob only matches *Dean's* username: **Ofer's runs land as `ofer-*/` and are not ignored at all**,
+surfacing as untracked clutter in his `git status` on a fresh clone. Relocating the workspace fixes it
+for every user with one rule, and satisfies Dean's *"in normal operation a user just calls the
+benchmark make targets — results should be uploaded into their worktree"* by default rather than by
+configuration.
+
+**Raw runs stay out of git even though results are tracked.** `benchmark/runs/` is GB-scale per
+campaign and — critically — **token-bearing** (see the hazard below). Tracked persistence is
+`benchmark/campaigns/`: curated figures, coverage, and the summary, ~2 MB/cell. If raw runs should be
+tracked too, that is a separate size decision and is **not** assumed here.
+
+**Convention adopted for the campaign README** — from **`cde8646c`** (#947, kahilam, 2026-04-10),
+which is upstream on `main`: a short metrics table, then a `<details><summary>Dashboard Panels
+(N)</summary>` block wrapping relative-path image embeds, with figures in a sibling directory.
+
+**Convention rejected — placement under `docs/`.** #947 filed its results as
+`docs/developer-guide/benchmark-summary.md` + `BENCHMARK_PHASE_1_AND_2.md`. **Both were deleted five
+months later** by #1053 and #1054, each titled *"Remove outdated …"*, leaving the five PNGs tracked and
+referenced by nothing. That is the precedent's own verdict: a dated results snapshot filed as Type-4
+developer-guide material **rots**, because Type 4 must reflect current code while a campaign result is
+inherently historical. A dated `benchmark/campaigns/<YYYYMMDD>/` is self-evidently historical and
+cannot accrue that pressure. Dean, independently: *"I don't think it should be under docs."*
+
+🚨 **BLOCKER on committing anything from the results tree — a live credential.** Every cell's
+`run/inference-perf-*.yaml` carries `LLMDBENCH_BASE64_CONTEXT_CONTENTS`, which base64-decodes to a
+kubeconfig holding a live `sha256~…` OpenShift bearer token for `DEAN@il.ibm.com` on
+`api.pokprod001.ete14.res.ibm.com` — **7 copies**. `benchmark/campaigns/` is pushed to the
+`deanlorenz` fork, so committing as-is **publishes it**. Required before the first campaign commit:
+the token is **rotated** (Dean's), and `run/*.yaml` is **excluded** from whatever gets committed —
+rotation alone is not sufficient, since a rotated-but-committed token still leaks the cluster
+endpoint, username, and the manifest shape. Scrubbing is not the same as excluding; prefer excluding.
+
+**Ownership.** The whole change is the **benchmark coder's** — `benchmark/`, `session-notes/`,
+`.gitignore`, and the `Makefile` are all outside planner write scope. The planner's contribution is
+this section, the campaign write-up
+([`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md)), and the
+figures currently mirrored at `plans/scratch/campaign-20260810-viz/` (a **mirror**, not the canonical
+home — supersede it once `benchmark/campaigns/20260810/` exists).
 
 ### 2c. Configuration contract — fail-closed, keyed per kube context (Dean, 2026-08-07/08)
 
