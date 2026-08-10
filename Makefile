@@ -655,7 +655,7 @@ benchmark-standup: benchmark-guard ## Stand up the benchmark environment (set BE
 		-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
 		-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
 		-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
-		-e 's|__BENCHMARK_PROFILE__|$(BENCHMARK_PROFILE)|g' \
+		-e 's|^\( *experimentProfile:\) .*|\1 $(BENCHMARK_PROFILE)|' \
 		$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml
 	@rm -f $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak
 	@if grep -qE '__[A-Z_]+__' $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml; then \
@@ -753,7 +753,7 @@ benchmark-run: benchmark-guard ## Run a single benchmark workload (set BENCHMARK
 			-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
 			-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
 			-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
-			-e 's|__BENCHMARK_PROFILE__|$(BENCHMARK_PROFILE)|g' \
+			-e 's|^\( *experimentProfile:\) .*|\1 $(BENCHMARK_PROFILE)|' \
 			"$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
 		rm -f "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak"; \
 		if grep -qE '__[A-Z_]+__' "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; then \
