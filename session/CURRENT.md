@@ -18,8 +18,9 @@
   `a38d7b73` (Finding 12 fixed, plus three further real defects in the newly opt-in TA path), and the
   DEPRECATED/DEFERRED classes — is archived in [`session/history.md`](history.md) → *Activity log — 2026-08*.
   **PR-1 residuals still live:** (a) review docs `planning/ta-anchor-refactor-v2-code-review.md` +
-  `ta-anchor-refactor-review.md` Part 3/Round 2 remain **DRAFT and uncommitted** — reviewer-owned, the
-  **only copies**, flag before any worktree reset; (b) goldens **#1513 is a no-op** (its content rode
+  `ta-anchor-refactor-review.md` Part 3/Round 2 are **committed `fe372ce8`** (1237 insertions, incl.
+  the definitive push-ready APPROVE section; the sole-copy hazard is **gone** — no worktree-reset
+  warning needed), and remain **`Status: DRAFT` pending Dean's FINAL call**; (b) goldens **#1513 is a no-op** (its content rode
   #1516's squash; diff vs `main` is empty) needing only a close call — GitHub write, Dean's;
   (c) superseded `ta-anchor-refactor@34055d77` unpushed, for `git boidem` at leisure.
   **PR-2 = [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) — OPEN, PUSHED,
@@ -71,14 +72,41 @@
   gate criterion was replaced *after* it had failed (his call) and the original is deliberately retained
   and still evaluated — do not "clean it up". State:
   `autoscaling-viz/planning/sim-from-benchmark-plan.md` + `real-trace/ladder-20260807/C2-GATE-REPORT.md`.
-- **2026-08-08 — Pokprod TA benchmark: dwell run executed — the system does not dwell, it
-  limit-cycles** (~9 min period; `prc` collapses 10–13× from a bucket-keyed capacity history, so it is
-  a mechanism, not a tuning problem). *Live.* Findings + 5 prioritized asks sent to the planner
-  (`plan__benchmark-dwell-run-findings.md`); **supersedes** the earlier rate-invariance hypothesis.
-  🚨 **GPUs were released by PAUSING the ScaledObject — un-pausing is a mandatory first step of the next
-  run**, or you get a flat 0-replica trace that reads as a legitimate no-scaling result. Restart the
-  controller before each run (capacity history contaminates across runs). Nothing pushed. State:
-  `benchmark/session-notes/status/benchmark.md` §18.
+- **2026-08-10 — pokprod benchmark: tooling round; extractor fixed, our own guide started.** *WIP —
+  no cluster contact this session.* Three local commits on `benchmark` (tip **`13845aaf`**), DCO-signed,
+  tree clean, **nothing pushed**. The §18 extractor defect is **fixed and verified** (`add1d400`):
+  `dump_wva_target_timeseries.py` now yields **54/54 hydrated** rows from the committed dwell log
+  against 41/**0** before, and **independently reproduces §18's headline** — per-replica capacity
+  25,348 → 329,011, ratio **13.0×**, matching the 10–13× collapse found by hand. Two deeper defects
+  fixed alongside the stale pattern: the guard only refused to overwrite on *zero* rows (so an
+  all-null parse could replace good data — it protected against rotation, not drift), and
+  `post_run_analyze.sh` downgraded the failure to a soft note in exactly the output an operator reads.
+  New `--log-file/--no-window` allows offline re-parse with no cluster. **New, ours:**
+  `docs/wva-benchmark-guide.md` — a portable guide standing **alongside** the upstream one (Dean:
+  *"we do not diverge from upstream… we just add another guide"*); an edit to the shared
+  `docs/developer-guide/two-variant-wva-benchmark.md` was **reverted** and the branch touches zero
+  files there. **The 08-08 dwell finding stands** (the system limit-cycles, ~9 min period; `prc`
+  collapse is a mechanism, not a tuning problem) — §18 remains the live *findings* section.
+  **Owed by Dean / open, none the coder's to close:** (a) the **clean-refresh test** is the new
+  guide's stated acceptance criterion and is **unperformed** — needs a GPU cluster; until it passes
+  the guide is provisional *and says so in its own text*; (b) the planner should amend §7.6.1 — "run
+  `post_run_analyze.sh` immediately" is **necessary but not sufficient**, since promptness defends
+  against rotation but not format drift; the durable form is *save the raw controller log, then
+  parse*; (c) the **observability/dashboard** item is **parked, not dead** (Dean 2026-08-10: lower
+  priority, needs more work; intent = a dashboard alongside the test so results can be captured).
+  ⚠️ **Armed footguns, carry verbatim:** (1) **the ScaledObject is still PAUSED** (that is how the GPUs
+  were released after the 08-08 run) — **un-pausing is a mandatory first step of the next run**, or you
+  get a flat 0-replica trace that reads as a legitimate no-scaling result; (2) **restart the controller
+  before each run** — in-memory capacity history contaminates across runs, making run 2 a function of
+  run 1's load; (3) **the image under test moved to `ta-0.9-anchor-pr2-20260809`** (was `ta-0.9`) and is
+  **unverified against the parser** — a tag change can move the analyzer log format with it, which is
+  exactly how the parse broke before; the failure is now loud rather than silent, but that is a
+  backstop, so short run → confirm analysis fields populate → only then a long run. A read-only
+  pre-check of the PR-2 branch's `engine_v2.go` log lines is cheaper and has **not** been done.
+  State: [`session/status/benchmark.md`](status/benchmark.md) **§19** (live state; §18 = live findings)
+  — now the **sole authority**, maintained directly by the coder at Dean's direction (the tracked
+  benchmark-branch copy was removed, with a README recording why). Planner-side items in
+  `plan__benchmark-tooling-round-and-own-guide.md`.
 - **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan.**
   *Blocked on Dean.* §7.6 is the substantive finding: steady-state KV under a tracking controller is a
   *controlled* variable, so §7.4.1's dwell cannot be reached by raising the offered rate — it is a
@@ -238,9 +266,9 @@ rows stay here.
   freeze, survives; (c) **PR-2's 0.9 inclusion — open by design, decide after merge**; (d) close goldens
   **#1513** (no-op — GitHub write); (e) `git boidem` the superseded `ta-anchor-refactor@34055d77`
   (unpushed); (f) file, or decline, the two GitHub issues — QM multi-analyzer-contract work, and the
-  sat-v2 zero-replica `Cost=0` bug (`AD7`/`N5`). **Reviewer's:** commit the still-uncommitted
-  `ta-anchor-refactor-v2-code-review.md` and `ta-anchor-refactor-review.md` Part 3/Round 2, then mark
-  them FINAL — **these are the only copies.** **Unclaimed, for a new planner:** `B2` (discriminating
+  sat-v2 zero-replica `Cost=0` bug (`AD7`/`N5`); (g) mark the PR-1 review docs **FINAL** — the
+  reviewer's commit half is **DONE** (`fe372ce8`), both remain `Status: DRAFT` and only Dean's FINAL
+  call is left. **Unclaimed, for a new planner:** `B2` (discriminating
   `fairShareRolePick` spec) as its own small test-only PR after #1523 merges; re-validating
   `optimizer-pd-role-ceiling` against the landed refactor
   (`plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md`); and
