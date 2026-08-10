@@ -1,0 +1,32 @@
+exit: 0
+--- stdout ---
+### convention: no-dco-on-plans
+description: The plans lineage takes no DCO sign-off.
+scope: plans and plans-tooling branches
+trigger: committing on a plans-lineage branch
+status: probation
+origin: observed practice, not yet ratified
+
+Code branches contributing upstream require a sign-off. The plans lineage is
+internal state and never leaves this repository, so it does not.
+
+### convention: archive-never-delete
+description: Archive a finished branch instead of deleting it.
+scope: local branch cleanup
+trigger: finishing with a branch
+status: active
+origin: git alias convention
+
+An archived branch keeps its history reachable by tag. A deleted one is
+recoverable only by reflog, and only for a while.
+
+### convention: one-commit-per-step
+description: Each spec step lands as exactly one commit.
+scope: spec-driven coding sessions
+trigger: finishing a step
+status: active
+origin: atomic-step protocol design
+
+One commit per step keeps the step boundary reviewable. A step that needs two
+commits is two steps.
+--- stderr ---

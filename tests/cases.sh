@@ -20,3 +20,9 @@ case_register sec-two-ids           ./scripts/sec.sh tests/fixtures/doc-a.md alp
 case_register sec-three-ids         ./scripts/sec.sh tests/fixtures/doc-a.md beta alpha-child omega
 case_register sec-bad-among-good    ./scripts/sec.sh tests/fixtures/doc-a.md alpha no-such-id
 case_register sec-ambiguous         ./scripts/sec.sh tests/fixtures/doc-a.md set-up
+
+# conv — name-to-file discovery, then delegation to sec.
+case_register conv-one-name       ./scripts/conv.sh --dir tests/fixtures/conventions commit-message-shape
+case_register conv-three-names    ./scripts/conv.sh --dir tests/fixtures/conventions no-dco-on-plans archive-never-delete one-commit-per-step
+case_register conv-unknown-name   ./scripts/conv.sh --dir tests/fixtures/conventions commit-message
+case_register conv-duplicate-name ./scripts/conv.sh --dir tests/fixtures/conventions-dup doubly-defined

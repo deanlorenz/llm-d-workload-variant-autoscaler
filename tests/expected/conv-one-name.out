@@ -1,0 +1,12 @@
+exit: 0
+--- stdout ---
+### convention: commit-message-shape
+description: Subject line is imperative, under 72 characters, no trailing period.
+scope: every commit on every branch
+trigger: writing a commit message
+status: active
+origin: long-standing practice in the plans lineage
+
+A commit subject names the change, not the act of changing. The body carries
+the why; the subject carries the what.
+--- stderr ---

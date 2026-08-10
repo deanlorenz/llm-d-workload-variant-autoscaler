@@ -1,0 +1,6 @@
+exit: 5
+--- stdout ---
+--- stderr ---
+conv: convention doubly-defined is defined in 2 files
+conv:   tests/fixtures/conventions-dup/first.md
+conv:   tests/fixtures/conventions-dup/second.md
