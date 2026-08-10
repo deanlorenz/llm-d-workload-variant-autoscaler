@@ -440,17 +440,26 @@ auto mode a halted coder is silent rather than obviously stuck. Candidates: the 
 notification, or halted state is made visible in `session/status/` and polled. **Needs a decision
 before auto-mode coders run unattended.**
 
-**Two defects found by the tick's first real run (2026-08-10T00:17Z)** — it is not yet fully
-trustworthy:
+**Two defects found by the tick's first runs, both now FIXED** (2026-08-10):
 
-1. **The tick's own prompt is extracted as a user turn**, since a scheduled prompt is a plain-string user
-   record like any other. Filtered by content prefix for now; a structural field would be better if one
-   distinguishes scheduled prompts.
-2. **A mid-turn user message was silently missed.** "ready to finalize?" arrived mid-turn and does not
-   appear in an extract spanning that time, so mid-turn injections are not plain-string user records.
-   This is exactly the failure class the mechanism exists to prevent — an omission indistinguishable
-   from "nothing new". The record shape needs confirming and the filter widening. Until then, **"0 new
-   turns" is not proof nothing was said.**
+1. **The tick's own prompt was extracted as a user turn**, since a scheduled prompt is an ordinary
+   record. Filtered by content prefix; a structural field would be better if one exists.
+2. **Mid-turn messages were silently missed** — the serious one, because it dropped decisions.
+   Root cause: a message sent while a turn is running is recorded as
+   **`type: "queue-operation"`, `operation: "enqueue"`** — never as a `type: "user"` record. A filter
+   looking only at `user` records therefore returned nothing and looked identical to "nothing was said".
+   Three of Dean's rulings were lost this way before it was found. The filter now reads both shapes and
+   marks the second `(mid-turn)`.
+
+   Two details that matter for anyone touching this filter:
+   - **`enqueue` only.** `dequeue` and `remove` carry the same `content` field: the first duplicates the
+     enqueue, and the second is a message that was cancelled and therefore never said.
+   - **Deduplicate on the text.** A queued message that drains *after* the turn ends is recorded
+     **twice** — as the enqueue, then as the resulting user turn about 30 s later — while one injected
+     mid-turn is recorded only once. Keep the earliest occurrence and restore chronological order.
+
+   Measured effect on this session: **25 → 34 turns**, eleven mid-turn messages recovered, two
+   duplicates removed.
 
 **Checkpoint cadence** — the tick runs every 15 minutes at off-minutes, chosen not measured. Whether
 that is too frequent (context cost per tick) or too sparse (a compaction between ticks) is unknown until

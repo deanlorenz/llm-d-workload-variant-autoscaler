@@ -9,9 +9,15 @@
 # multi-megabyte JSONL — so a checkpoint tick can diff it against a working
 # document and append what was never captured.
 #
-# Genuine user turns are the records whose message.content is a plain string.
-# Tool results are also type "user" but carry structured content blocks, so they
-# are skipped.
+# Two record shapes carry what the user said, and both are required:
+#   * type "user" with plain-string content — a normal turn. (Tool results are also
+#     type "user" but carry structured content blocks, so they are skipped.)
+#   * type "queue-operation" with operation "enqueue" — a MID-TURN message, sent
+#     while a turn was still running. These never appear as "user" records, so a
+#     filter that only looks at type "user" drops them silently. That was a real
+#     defect: three of Dean's rulings arrived this way and went uncaptured, and the
+#     empty result was indistinguishable from "nothing was said".
+# Mid-turn entries are marked "(mid-turn)" in the output.
 #
 # Usage:
 #   session-extract.sh [--since <ISO8601>] [--file <transcript.jsonl>]
@@ -85,14 +91,39 @@ printf 'transcript: %s\n' "$file" >&2
 [ -n "$since" ] && printf 'since: %s\n' "$since" >&2
 
 out=$(jq -r --arg since "$since" '
-    select(.type=="user")
-  | select(.message.content | type == "string")
-  | select($since == "" or (.timestamp > $since))
-  # A scheduled checkpoint prompt is itself a plain-string user record, so without this
-  # every tick re-reads its own instructions and the extract grows with tick count.
-  | select(.message.content | startswith("CHECKPOINT TICK") | not)
-  | "## " + .timestamp + "\n" + .message.content + "\n"
-' "$file") || die "jq failed on $file" 3
+  # Two record shapes carry what the user actually said, and missing the second one
+  # silently drops whole decisions:
+  #   type=="user" with a plain-string content  -> a normal turn
+  #     (tool results are also type "user" but carry structured content blocks)
+  #   type=="queue-operation", operation=="enqueue" -> a MID-TURN message, sent while a
+  #     turn was still running. It never appears as a "user" record at all.
+  # Guard .message with a type test: some records carry a string there and an
+  # unguarded .message.content aborts the whole jq run.
+    if .type=="user"
+       and ((.message|type)=="object")
+       and ((.message.content|type)=="string")
+    then {ts: .timestamp, mid: false, text: .message.content}
+    elif .type=="queue-operation" and .operation=="enqueue"
+    then {ts: .timestamp, mid: true,  text: .content}
+    else empty
+    end
+  # "dequeue" and "remove" also carry content: dequeue would duplicate the enqueue,
+  # and remove is a message that was cancelled and therefore never said.
+  | select(($since == "") or (.ts > $since))
+  # A scheduled checkpoint prompt is itself one of these records (and is enqueued when
+  # it fires mid-turn), so without this every tick re-reads its own instructions.
+  | select(.text | startswith("CHECKPOINT TICK") | not)
+' "$file" \
+  | jq -s -r '
+  # A queued message that drains AFTER the turn ends is recorded twice — once as the
+  # enqueue, once as the resulting user turn ~30 s later. One injected mid-turn is
+  # recorded only as the enqueue. So deduplicate on the text, keeping the earliest
+  # occurrence, and restore chronological order (group_by sorts).
+  # Two-stage on purpose: the stream above filters the multi-megabyte transcript, and
+  # only the handful of surviving records is slurped here.
+    group_by(.text) | map(min_by(.ts)) | sort_by(.ts) | .[]
+  | "## " + .ts + (if .mid then "  (mid-turn)" else "" end) + "\n" + .text + "\n"
+') || die "jq failed on $file" 3
 
 printf '%s\n' "$out"
 printf 'turns: %s\n' "$(printf '%s' "$out" | grep -c '^## ' || true)" >&2

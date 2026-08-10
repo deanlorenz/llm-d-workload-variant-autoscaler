@@ -34,9 +34,11 @@ context, so a decision or a not-yet-done next step the summarizer dropped is gon
 session while sitting unread on disk. One measured session compacted **54 times**. Nothing bridges disk
 and context except text written into a file the next context window will actually read.
 
-**Two known defects — a tick is not yet fully trustworthy.** The tick's own prompt is captured as a user
-turn (filtered by content for now), and a **mid-turn user message was silently missed**, which is the
-failure class the mechanism exists to prevent. Do not treat "0 new turns" as proof nothing was said.
+**Two early defects, both fixed 2026-08-10.** The tick's own prompt was captured as a turn, and — the
+serious one — **mid-turn messages were silently missed**: a message sent while a turn is running is
+recorded as `type: "queue-operation"` / `operation: "enqueue"`, never as a `user` record, so a
+`user`-only filter returned nothing and looked exactly like "nothing was said". Three rulings were lost
+that way before it was caught. Both shapes are now read, `enqueue` only, deduplicated on text.
 
 ---
 

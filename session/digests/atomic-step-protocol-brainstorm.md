@@ -63,6 +63,9 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   is session-scoped and dies with its session, scheduling it is a start-of-session action, placed in the
   always-loaded `CONVENTIONS.md` for reload safety.
 - **Push authorized** — *"push it."* `plans` → `origin/plans`, fast-forward.
+- **Fix the extractor before anything else** — *"fix the extractor first."* Done; see the defect entry
+  below. The tooling code spec is next.
+- **The reviewer's 941 uncommitted lines are off this session's plate** — *"I'll have the reviwer check."*
 
   ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
   absent from an extract spanning its arrival). They are recorded here from session context, not from the
@@ -93,7 +96,13 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
      silent omission that looks identical to "nothing new". Needs the record shape confirmed and the
      filter widened before the tick can be trusted. **Confirmed a second time at 00:20Z**, when a
      mid-turn message carrying three separate rulings was missed — so this is reproducible, not a
-     one-off, and it drops high-value content specifically.
+     one-off, and it drops high-value content specifically. **FIXED 2026-08-10** (Dean: *"fix the
+     extractor first"*): a mid-turn message is recorded as `type: "queue-operation"` /
+     `operation: "enqueue"` and **never** as a `user` record. Filter now reads both shapes, takes
+     `enqueue` only (`dequeue` duplicates it, `remove` was cancelled and never said), and deduplicates
+     on text because a message draining *after* a turn is recorded twice ~30 s apart while a mid-turn
+     one is recorded once. **25 → 34 turns** on this session: 11 mid-turn messages recovered, 2
+     duplicates removed.
 - **The push moved 13 commits, not the 12 announced.** `origin/plans` went `1020e7fa → 06b6c32e`; the
   extra commit (`06b6c32e`, a concurrent session's `s-sync-main` change) landed in the ~2-minute window
   between counting and pushing. Pushing a branch pushes its tip, so anything committed in that gap rides
