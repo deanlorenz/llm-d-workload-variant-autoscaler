@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T00:17:02Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T00:22:38Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -57,6 +57,17 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   history and edit suggestions.
 - **Use the doc names, never the numbers, when talking to him** (captured as memory
   `feedback_doc_names_not_numbers`).
+- **Both designs are FINAL** — *"finalize both docs."* Frozen 2026-08-10; amend by addendum, never by
+  editing; the open items remain open.
+- **The tick runs in every session** — *"the tick should run in every session."* Since a scheduled tick
+  is session-scoped and dies with its session, scheduling it is a start-of-session action, placed in the
+  always-loaded `CONVENTIONS.md` for reload safety.
+- **Push authorized** — *"push it."* `plans` → `origin/plans`, fast-forward.
+
+  ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
+  absent from an extract spanning its arrival). They are recorded here from session context, not from the
+  transcript — a second confirmed instance of digest defect 2 below, and evidence that a tick relying on
+  the extractor alone would have silently dropped three of Dean's decisions.*
 
 ## Key findings
 
@@ -80,7 +91,14 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
      00:14Z and does **not** appear in an extract bounded at 23:49Z — so mid-turn injections are not
      plain-string user records. This is the exact failure class the mechanism exists to prevent: a
      silent omission that looks identical to "nothing new". Needs the record shape confirmed and the
-     filter widened before the tick can be trusted.
+     filter widened before the tick can be trusted. **Confirmed a second time at 00:20Z**, when a
+     mid-turn message carrying three separate rulings was missed — so this is reproducible, not a
+     one-off, and it drops high-value content specifically.
+- **The push moved 13 commits, not the 12 announced.** `origin/plans` went `1020e7fa → 06b6c32e`; the
+  extra commit (`06b6c32e`, a concurrent session's `s-sync-main` change) landed in the ~2-minute window
+  between counting and pushing. Pushing a branch pushes its tip, so anything committed in that gap rides
+  along. On a shared worktree the range must be re-read immediately before the push, not before the
+  announcement.
 - **Writing is the save; committing is durability.** A crash loses only what was never written.
 - **`plan` carries 146 of 302 handoffs (48%); `sync` carries 0.** One token absorbed several roles.
 - **26 of 91 planning documents matched no naming pattern** — nine kinds we had never named.
