@@ -9,3 +9,4 @@ session/status/main.md
 # committed artifact is the digest beside it.
 session/digests/*.raw.md
 session/digests/.*.mark
+session/digests/.*.log
