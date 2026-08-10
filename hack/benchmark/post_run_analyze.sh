@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Post-run analyzer for two-variant WVA benchmarks.
-# Wraps the three steps that should always run after `make benchmark-run`:
-#   1. dump WVA controller decisions + V2 saturation analysis numbers from logs
+# Wraps the five steps that should always run after `make benchmark-run`:
+#   1. dump WVA controller decisions + saturation analyzer numbers from logs
 #      (must run while the controller pod's log buffer still covers the run
-#       window — kubectl rotates, so do this promptly after the benchmark)
+#       window — kubectl rotates, so do this promptly after the benchmark).
+#      Promptness is necessary but not sufficient: if the controller's log format
+#      has drifted, step 1 fails no matter how quickly it runs. Saving the raw
+#      controller log during the run and re-parsing it with --log-file is the
+#      durable answer, since it survives both rotation and drift.
 #   2. compute capacity & 3-component demand estimate from raw vLLM/EPP scrapes
 #   3. render the pipeline plot
 #
@@ -22,9 +26,21 @@ SUFFIX="${3:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "[1/5] dump_wva_target_timeseries.py (decisions + V2 analyzer numbers)"
-python3 "$SCRIPT_DIR/dump_wva_target_timeseries.py" "$RESULTS_DIR" -n "$NS" || \
-    echo "  (skipping: log dump failed; raw-scrape estimate will still render)"
+echo "[1/5] dump_wva_target_timeseries.py (decisions + saturation analyzer numbers)"
+# Deliberately non-fatal: the remaining steps read raw scrapes and are still
+# useful without the controller-log timeseries. But do not let the failure pass
+# quietly -- a stale log pattern here once produced an all-null file that read as
+# a success, so flag it in a way an operator scanning this output will notice.
+WVA_DUMP_RC=0
+python3 "$SCRIPT_DIR/dump_wva_target_timeseries.py" "$RESULTS_DIR" -n "$NS" || WVA_DUMP_RC=$?
+if [ "$WVA_DUMP_RC" -ne 0 ]; then
+    echo "  !! WVA timeseries dump FAILED (rc=$WVA_DUMP_RC) -- wva_target_timeseries.json"
+    echo "  !! is missing or carries no analysis fields. Later steps still render from"
+    echo "  !! raw scrapes, but anything reading supply/demand/utilization/prc is BLIND."
+    echo "  !! If the run window has passed, re-parse a saved controller log offline:"
+    echo "  !!   python3 hack/benchmark/dump_wva_target_timeseries.py $RESULTS_DIR \\"
+    echo "  !!       --log-file <saved-controller.log> --no-window"
+fi
 
 echo "[2/5] dump_capacity_demand_estimate.py (raw scrape estimate)"
 python3 "$SCRIPT_DIR/dump_capacity_demand_estimate.py" "$RESULTS_DIR"

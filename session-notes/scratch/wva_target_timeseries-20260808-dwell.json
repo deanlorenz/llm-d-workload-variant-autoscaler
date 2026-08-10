@@ -1,0 +1,1084 @@
+{
+  "samples": [
+    {
+      "timestamp": 1786155549,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 25348,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 25348,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 25348,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155609,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 25348,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 25348,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 25348,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155670,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 72843,
+      "utilization": 0.22139989240481323,
+      "requiredCapacity": 0,
+      "spareCapacity": 224949.57142857142,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P3-k2"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155730,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 101264,
+      "utilization": 0.30778302245213685,
+      "requiredCapacity": 0,
+      "spareCapacity": 184348.14285714284,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P3-k2"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155790,
+      "primary": 4,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 974024,
+      "utilization": 2.9604602885617806,
+      "requiredCapacity": 816899.5882352942,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155850,
+      "primary": 7,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 1882870,
+      "utilization": 5.722817778128999,
+      "requiredCapacity": 899097.1764705884,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155910,
+      "primary": 10,
+      "v2": null,
+      "totalSupply": 76044,
+      "totalDemand": 2682201,
+      "utilization": 35.27169796433644,
+      "requiredCapacity": 2952746.588235294,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 25348,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786155970,
+      "primary": 10,
+      "v2": null,
+      "totalSupply": 1645055,
+      "totalDemand": 3129212,
+      "utilization": 1.9021929357984992,
+      "requiredCapacity": 62304.882352941204,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156030,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 2303077,
+      "totalDemand": 1254016,
+      "utilization": 0.5444959069974648,
+      "requiredCapacity": 0,
+      "spareCapacity": 511625.57142857136,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156090,
+      "primary": 4,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 560002,
+      "utilization": 0.18911964780643944,
+      "requiredCapacity": 0,
+      "spareCapacity": 2161096.1428571427,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156150,
+      "primary": 2,
+      "v2": null,
+      "totalSupply": 3290110,
+      "totalDemand": 333172,
+      "utilization": 0.10126469935655646,
+      "requiredCapacity": 0,
+      "spareCapacity": 2814150,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156210,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 3290110,
+      "totalDemand": 340469,
+      "utilization": 0.10348255833391588,
+      "requiredCapacity": 0,
+      "spareCapacity": 2803725.714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156271,
+      "primary": 2,
+      "v2": null,
+      "totalSupply": 1316044,
+      "totalDemand": 474186,
+      "utilization": 0.36031166131223574,
+      "requiredCapacity": 0,
+      "spareCapacity": 638635.4285714285,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156331,
+      "primary": 6,
+      "v2": null,
+      "totalSupply": 658022,
+      "totalDemand": 1538533,
+      "utilization": 2.338117874478361,
+      "requiredCapacity": 1152016.8235294118,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156391,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 658022,
+      "totalDemand": 2349653,
+      "utilization": 3.5707818279631987,
+      "requiredCapacity": 790231.6470588236,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156451,
+      "primary": 10,
+      "v2": null,
+      "totalSupply": 206046,
+      "totalDemand": 2306010,
+      "utilization": 11.191724178096154,
+      "requiredCapacity": 2403883.941176471,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156511,
+      "primary": 6,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 919124,
+      "utilization": 0.3103996185200157,
+      "requiredCapacity": 0,
+      "spareCapacity": 1648064.714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156571,
+      "primary": 4,
+      "v2": null,
+      "totalSupply": 3290110,
+      "totalDemand": 701207,
+      "utilization": 0.21312570096440545,
+      "requiredCapacity": 0,
+      "spareCapacity": 2288385.714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156631,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 3290110,
+      "totalDemand": 461576,
+      "utilization": 0.14029196592211202,
+      "requiredCapacity": 0,
+      "spareCapacity": 2630715.714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156691,
+      "primary": 2,
+      "v2": null,
+      "totalSupply": 1974066,
+      "totalDemand": 604766,
+      "utilization": 0.30635551192310695,
+      "requiredCapacity": 0,
+      "spareCapacity": 1110114.5714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156751,
+      "primary": 2,
+      "v2": null,
+      "totalSupply": 1316044,
+      "totalDemand": 897095,
+      "utilization": 0.6816603396239032,
+      "requiredCapacity": 0,
+      "spareCapacity": 34479.71428571432,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156811,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 658022,
+      "totalDemand": 2247803,
+      "utilization": 3.4159997690046837,
+      "requiredCapacity": 1986452.1176470588,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156872,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 658022,
+      "totalDemand": 2184613,
+      "utilization": 3.3199695450911975,
+      "requiredCapacity": 0,
+      "spareCapacity": 0,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P1-obs"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156932,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 53639,
+      "utilization": 0.018114558142095217,
+      "requiredCapacity": 0,
+      "spareCapacity": 2884471.8571428573,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786156992,
+      "primary": 9,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 45256,
+      "utilization": 0.015283514668033727,
+      "requiredCapacity": 0,
+      "spareCapacity": 2896447.5714285714,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157052,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 49609,
+      "utilization": 0.016753576965849504,
+      "requiredCapacity": 0,
+      "spareCapacity": 2890229,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157112,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 41222,
+      "utilization": 0.01392118264198529,
+      "requiredCapacity": 0,
+      "spareCapacity": 2902210.4285714286,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157172,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 2961099,
+      "totalDemand": 38407,
+      "utilization": 0.01297052209331738,
+      "requiredCapacity": 0,
+      "spareCapacity": 2906231.8571428573,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157232,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 52424,
+      "utilization": 0.1593381376306567,
+      "requiredCapacity": 0,
+      "spareCapacity": 254119.57142857142,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157292,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 46407,
+      "utilization": 0.14104999528891132,
+      "requiredCapacity": 0,
+      "spareCapacity": 262715.2857142857,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157353,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 36038,
+      "utilization": 0.10953433167888003,
+      "requiredCapacity": 0,
+      "spareCapacity": 277528.14285714284,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157413,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 35462,
+      "utilization": 0.10778363033454809,
+      "requiredCapacity": 0,
+      "spareCapacity": 278351,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157473,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 39686,
+      "utilization": 0.12062210685964907,
+      "requiredCapacity": 0,
+      "spareCapacity": 272316.71428571426,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157533,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 42055,
+      "utilization": 0.12782247402062544,
+      "requiredCapacity": 0,
+      "spareCapacity": 268932.4285714286,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157593,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 30277,
+      "utilization": 0.09202427882350438,
+      "requiredCapacity": 0,
+      "spareCapacity": 285758.14285714284,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157653,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 329011,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157713,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 329011,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157773,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 329011,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157833,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 329011,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 329011,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 329011,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157893,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786157953,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158014,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158074,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158134,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158194,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158254,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158314,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158374,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158434,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158494,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158554,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158615,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158675,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    },
+    {
+      "timestamp": 1786158735,
+      "primary": 1,
+      "v2": null,
+      "totalSupply": 34341,
+      "totalDemand": 0,
+      "utilization": 0,
+      "requiredCapacity": 0,
+      "spareCapacity": 34341,
+      "scaleUpThreshold": 0.85,
+      "scaleDownBoundary": 0.7,
+      "variants": [
+        {
+          "name": "unsloth--608e585a-instruct-decode-scaler",
+          "prc": 34341,
+          "role": "decode",
+          "reason": "P2-hist"
+        }
+      ]
+    }
+  ]
+}
