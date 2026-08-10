@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T00:52:56Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T01:24:30Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -66,6 +66,13 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 - **Fix the extractor before anything else** — *"fix the extractor first."* Done; see the defect entry
   below. The tooling code spec is next.
 - **The reviewer's 941 uncommitted lines are off this session's plate** — *"I'll have the reviwer check."*
+- **Checkpointing has two separate goals** — *"(a) write enough so can recover on a panic (that does not
+  involve the main session at all, no output); (b) identify that main session is missing some critical
+  info and making sure it gets it (or at least saving it as state)."* Only (b) needs judgment, so only
+  (b) costs context; (a) must be free.
+- **Smaller option first; the subagent is deferred, not rejected** — *"maybe start with the smaller
+  option. I don't have a problem with the tick only updating the session if new, uncaptured content
+  found."* Hence `--count` gating rather than delegation.
 
   ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
   absent from an extract spanning its arrival). They are recorded here from session context, not from the
@@ -132,6 +139,9 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 - ~~Memory: full-names-in-conversation preference~~ — **done**: `feedback_doc_names_not_numbers`.
 - Not ready to build, and why: `conv-rename` (no step manifests to scan yet), `plan-lint` (would
   validate a shape no document uses yet).
+- **Bound the raw sidecar's growth** — *"verify file does not grow forever."* `session-snapshot.sh`
+  appends without any cap, so a long session grows it without limit. Needs a bound (rotation, a size
+  ceiling, or trimming to the last N turns) and a check that a stale marker cannot cause re-appending.
 
 ## Open questions
 
