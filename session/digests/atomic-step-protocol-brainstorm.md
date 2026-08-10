@@ -45,13 +45,33 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   live session mid-stream and that produced the conflation.
 - **Harvest from conventions, memories, best practices and incidents** — not just the two files.
 - **CURRENT.md is a ledger and calendar, not a trigger for action.** Coders never read it.
+- **The checkpoint tick reads the saved transcripts, not live context** — *"It can be a periodic
+  background check -- checks the previous saved jsons, compare to working doc, add state."* He also
+  rejected my durability framing outright: *"not convinced. I often lose valuable decisions and next
+  steps (yet to be done) when a session compacts."*
+- **The digest is not session state** — *"persistence in git via CURRENT is not this — the main session
+  already creates a sync__ when major events/decision happen."* Two separate channels; neither feeds
+  the other.
+- **What a digest must contain** — *"key finding, my decisions, steps (tasks) listed but not yet
+  complete + recap + next"*; and must exclude full history, moot or already-folded clarifications, edit
+  history and edit suggestions.
+- **Use the doc names, never the numbers, when talking to him** (captured as memory
+  `feedback_doc_names_not_numbers`).
 
 ## Key findings
 
 - **Compaction, not crashes, is the dominant loss channel.** Transcripts are append-only and survive
   compaction (54 markers alongside 1,515 user records in one 51 MB file) — but the *working context* is
   replaced, so a dropped decision is durable on disk and unavailable to the session. Nothing bridges
-  the two.
+  the two. **Corollary that reversed the design:** a tick distilling from live context is structurally
+  blind to what a prior compaction dropped, so the tick must read the transcript.
+- **User turns extract cheaply and are the highest-value content**: they are the records whose
+  `message.content` is a plain string (tool results are also typed `user` but carry structured blocks).
+  **25 turns / 17 KB from a 1.7 MB transcript** — a hundredfold reduction.
+- **Transcript timestamps are UTC.** A local-time bound fails silently in both directions; local 02:51
+  on the 10th is 23:51 UTC on the 9th.
+- **Transcript findability is solved** by `scripts/session-extract.sh --list`, which prints each
+  transcript with its opening prompt.
 - **Writing is the save; committing is durability.** A crash loses only what was never written.
 - **`plan` carries 146 of 302 handoffs (48%); `sync` carries 0.** One token absorbed several roles.
 - **26 of 91 planning documents matched no naming pattern** — nine kinds we had never named.
@@ -71,8 +91,9 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 
 - **Code spec for the tooling slice** — `sec` + `conv` + `conv-list` + `conv-lint`. Next deliverable.
   Orphan worktree `plans-tooling`, golden tests against fixtures, no Go gates, no DCO.
-- **`CONVENTIONS.md` header pointer** — blocked: a concurrent session is editing that file.
-- **Memory: full-names-in-conversation preference** — blocked: same session owns that directory.
+- ~~`CONVENTIONS.md` header pointer~~ — **done**: superseded-by banner plus the dead
+  `plans/rules/INDEX.md` reference corrected in place. File stays frozen otherwise.
+- ~~Memory: full-names-in-conversation preference~~ — **done**: `feedback_doc_names_not_numbers`.
 - Not ready to build, and why: `conv-rename` (no step manifests to scan yet), `plan-lint` (would
   validate a shape no document uses yet).
 
@@ -98,6 +119,15 @@ tooling and all harvesting first, coverage machine-checked, then the old files s
 ## Next
 
 Write the code spec for the `sec`/`conv`/`conv-list`/`conv-lint` slice, on the orphan `plans-tooling`
-worktree. Then M1.1 skills. Unblock the two items above once the concurrent session closes.
+worktree. Then M1.1 skills.
 
-Reaching `CURRENT.md` requires a `sync__` handoff — a designer session cannot write it (single-writer).
+Two things a *successor* session must know:
+
+- **`plans` is 9 commits ahead of `origin/plans`** (4 from this session, 5 from a concurrent one). Push
+  needs Dean's explicit per-push confirmation; it has not been given.
+- **Both design documents are still `Status: DRAFT`.** Flipping either to FINAL is Dean's call alone —
+  plan finalization is the one review in the model that is not scriptable.
+- The checkpoint tick is **session-only** and dies with this session. A successor must schedule its own.
+
+Reaching `CURRENT.md` requires a `sync__` handoff — a designer session cannot write it (single-writer),
+and per Dean that channel is already served by handoffs at major decisions, not by this digest.

@@ -3,6 +3,18 @@
 This document orients any AI assistant (Claude, Copilot, etc.) to the working structure of this
 project. Read it alongside `CURRENT.md` at the start of every session.
 
+> **Being superseded (2026-08-10).** Document and session types are now named rather than numbered, in
+> [`planning/doc-and-session-model.md`](../planning/doc-and-session-model.md) — **design · epic plan ·
+> code spec · reference · review · session state · policy · channel**, with eleven roles and their
+> handoff tokens. Use the names in conversation, handoffs and triggers; the `Type N` labels below
+> survive as aliases for one migration cycle only. What "Type 3 / task plan" calls a task plan is a
+> **code spec**. How a coder executes one is
+> [`planning/atomic-step-protocol-design.md`](../planning/atomic-step-protocol-design.md).
+>
+> This file is **frozen**: it is not being restructured, and old sessions keep loading it unchanged. Its
+> content migrates to `conventions/` and `roles/` under that design's Migration 1, where **nothing is
+> removed** — relocation is not removal, and removal needs long probation plus Dean's approval.
+
 ---
 
 ## Repository Layout
@@ -237,7 +249,13 @@ bash plans/scripts/toc-refresh.sh <plan-file.md>
 This adds missing `[↑ TOC](#toc)` links and regenerates line ranges in the TOC. Idempotent — run
 again after any structural edit (section added, moved, or removed).
 
-The available rule files are listed in `plans/rules/INDEX.md` (added to CLAUDE.md; always in context).
+⚠️ **Corrected 2026-08-10.** This sentence used to claim the available rule files were listed in
+`plans/rules/INDEX.md`, "added to CLAUDE.md; always in context". Both halves were false — that path has
+never existed and `plans/CLAUDE.md` never imported it, so anyone following it hit a dead end. The
+replacement is `conventions/`, fetched by name with `conv <name>` and needing no index file; see
+[`planning/atomic-step-protocol-design.md`](../planning/atomic-step-protocol-design.md)
+§ Micro-conventions. It does not exist yet either — it is built in that design's Migration 1 — so until
+then there are no rule files to cite.
 
 ### Agent roles and document ownership
 
