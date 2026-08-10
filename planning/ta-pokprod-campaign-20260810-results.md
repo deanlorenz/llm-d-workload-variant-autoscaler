@@ -40,32 +40,47 @@ namespace, same 7920-request offered load per staircase cell.
 
 | cell | profile | analyzers (voting) | peak replicas | ITL fit | TTFT quality | figure |
 |---|---|---|---|---|---|---|
-| `b-satta-staircase` | staircase | sat+TA — **baseline** | 2 (no scale-down) | 0.170·k+9.6 (r²=0.92) | all green | [panels](../../../tmp/campaign-viz/b-satta-staircase/panels.png) |
-| `m-satta-staircase` | staircase | sat+TA | 3 | 0.178·k+9.5 (r²=0.94) | all green | [panels](../../../tmp/campaign-viz/m-satta-staircase/panels.png) |
-| `m-ta-staircase` | staircase | **TA only** (sat non-voting) | 3 | 0.169·k+9.6 (r²=0.93) | all green | [panels](../../../tmp/campaign-viz/m-ta-staircase/panels.png) |
-| `m-sat-staircase` | staircase | **sat only** (TA non-voting) | **9 desired / 8 ready** | 0.162·k+9.6 (r²=0.92) | **>60s / failed** | [panels](../../../tmp/campaign-viz/m-sat-staircase/panels.png) |
-| `m-satta-dwell` | dwell | sat+TA | **10 (cap), twice** | 0.172·k+9.4 (r²=0.87) | ❌ no per-request | [panels](../../../tmp/campaign-viz/m-satta-dwell/panels.png) |
-| `m-sat-dwell` | dwell | sat only | **10 (cap), twice** | 0.202·k+8.6 (r²=0.87) | ❌ no per-request | [panels](../../../tmp/campaign-viz/m-sat-dwell/panels.png) |
-| `m-ta-dwell` | dwell | TA only | 3 — **truncated ~10 of 40 min** | 0.051·k+13.5 (**r²=0.11**) | ❌ no per-request | [panels](../../../tmp/campaign-viz/m-ta-dwell/panels.png) |
+| `b-satta-staircase` | staircase | sat+TA — **baseline** | 2 (no scale-down) | 0.170·k+9.6 (r²=0.92) | all green | [panels](../scratch/campaign-20260810-viz/b-satta-staircase.png) · [coverage](../scratch/campaign-20260810-viz/b-satta-staircase-coverage.json) |
+| `m-satta-staircase` | staircase | sat+TA | 3 | 0.178·k+9.5 (r²=0.94) | all green | [panels](../scratch/campaign-20260810-viz/m-satta-staircase.png) · [coverage](../scratch/campaign-20260810-viz/m-satta-staircase-coverage.json) |
+| `m-ta-staircase` | staircase | **TA only** (sat non-voting) | 3 | 0.169·k+9.6 (r²=0.93) | all green | [panels](../scratch/campaign-20260810-viz/m-ta-staircase.png) · [coverage](../scratch/campaign-20260810-viz/m-ta-staircase-coverage.json) |
+| `m-sat-staircase` | staircase | **sat only** (TA non-voting) | **9 desired / 8 ready** | 0.162·k+9.6 (r²=0.92) | **>60s / failed** | [panels](../scratch/campaign-20260810-viz/m-sat-staircase.png) · [coverage](../scratch/campaign-20260810-viz/m-sat-staircase-coverage.json) |
+| `m-satta-dwell` | dwell | sat+TA | **10 (cap), twice** | 0.172·k+9.4 (r²=0.87) | ❌ no per-request | [panels](../scratch/campaign-20260810-viz/m-satta-dwell.png) · [coverage](../scratch/campaign-20260810-viz/m-satta-dwell-coverage.json) |
+| `m-sat-dwell` | dwell | sat only | **10 (cap), twice** | 0.202·k+8.6 (r²=0.87) | ❌ no per-request | [panels](../scratch/campaign-20260810-viz/m-sat-dwell.png) · [coverage](../scratch/campaign-20260810-viz/m-sat-dwell-coverage.json) |
+| `m-ta-dwell` | dwell | TA only | 3 — **truncated ~10 of 40 min** | 0.051·k+13.5 (**r²=0.11**) | ❌ no per-request | [panels](../scratch/campaign-20260810-viz/m-ta-dwell.png) · [coverage](../scratch/campaign-20260810-viz/m-ta-dwell-coverage.json) |
 
-> **⚠️ Figure links are EPHEMERAL.** The figures currently exist only under `/tmp/campaign-viz/<cell>/`
-> and will not survive a reboot. Moving them next to each results directory is a **benchmark-coder**
-> action (that tree is outside the planner's write scope) — Dean's instruction (1), still open pending
-> his choice of `results/<leaf>/viz/` vs a single `session-notes/campaign-viz/` tree. **Re-point these
-> links once the move lands.** Regeneration recipe in § *How the figures were produced*.
+### Where the figures live
 
-**Cell → results directory map** (the `dean-*` roots; `results-dir.txt` in each
-`session-notes/campaign-runs/<cell>/` stores only the leaf name):
+**Canonical (Dean's instruction, 2026-08-10): beside their own run data**, at
+`benchmark/<results-root>/results/inference-perf-*_1/viz/{panels.png,coverage.json,bundle.json}` — one
+`viz/` per cell, 276 KB–2.0 MB each. The `<results-root>` per cell is in the map below; the `viz` column
+above links the planner-scope mirror because a doc on the `plans` branch cannot resolve a relative path
+into a sibling worktree.
 
-| cell | results root |
-|---|---|
-| `b-satta-staircase` | `dean-20260810-072736-888` |
-| `m-satta-staircase` | `dean-20260810-064736-555` |
-| `m-sat-staircase` | `dean-20260810-080708-371` |
-| `m-ta-staircase` | `dean-20260810-084756-739` |
-| `m-satta-dwell` | `dean-20260810-092644-320` |
-| `m-sat-dwell` | `dean-20260810-100827-539` |
-| `m-ta-dwell` | `dean-20260810-105211-685` |
+> **⚠️ `dean-*/` IS GITIGNORED** (`benchmark/.gitignore:43`), with the rule's own comment stating *"whatever
+> survives a run belongs in `session-notes/`"*. So the canonical copies are **on disk but not preserved by
+> git** — deleting a `dean-*` directory takes its figures with it, and a fresh clone has none of them. If
+> these figures need to survive, a tracked location under `session-notes/` (which is *not* ignored, unlike
+> `session-notes/campaign-runs/` and `session-notes/scratch/ladder-run/`) is the only durable home. That
+> is a **benchmark-coder** decision on a **benchmark-coder** tree; flagged, not made.
+
+**Planner-scope mirror:** [`scratch/campaign-20260810-viz/`](../scratch/campaign-20260810-viz/) — the seven
+PNGs plus `coverage.json`, committed on `plans` (3.0 MB), so this doc's links resolve and the analysis is
+self-contained even if the ignored copies are cleaned up. Mirror, not source; `bundle.json` is not mirrored
+(1.5 MB × 4 staircase cells) — regenerate per § *How the figures were produced*.
+
+**Cell → results directory map.** Paths are relative to the `benchmark` worktree root. The canonical
+figures are at `<root>/results/<leaf>/viz/`. `results-dir.txt` in each `session-notes/campaign-runs/<cell>/`
+stores **only the leaf name**, not the root — which is why resolving a cell to its data takes both columns.
+
+| cell | results root | leaf (`results/<leaf>/viz/`) |
+|---|---|---|
+| `b-satta-staircase` | `dean-20260810-072736-888` | `inference-perf-1786336098-ofaw6f_1` |
+| `m-satta-staircase` | `dean-20260810-064736-555` | `inference-perf-1786333694-u86rqu_1` |
+| `m-sat-staircase` | `dean-20260810-080708-371` | `inference-perf-1786338510-g00qeo_1` |
+| `m-ta-staircase` | `dean-20260810-084756-739` | `inference-perf-1786340933-m9emm7_1` |
+| `m-satta-dwell` | `dean-20260810-092644-320` | `inference-perf-1786343242-zr01gi_1` |
+| `m-sat-dwell` | `dean-20260810-100827-539` | `inference-perf-1786345748-yivu77_1` |
+| `m-ta-dwell` | `dean-20260810-105211-685` | `inference-perf-1786348370-brv0r3_1` |
 
 ---
 
@@ -262,12 +277,14 @@ omit it if you want the PASS/FAIL table.
 | Raw results (7 cells) | `benchmark/dean-2026081*/` | ✅ on disk, ⚠️ **token-bearing** |
 | Cell metadata (`controller.log`, `analyzer-config.txt`, `scaledobject.yaml`, `images.txt`, `run.log`) | `benchmark/session-notes/campaign-runs/<cell>/` | ✅ |
 | Coder's live state | `plans/session/status/benchmark.md` §20 (§20.21 = the retraction) | ✅ committed |
-| **Bundles + figures** | `/tmp/campaign-viz/<cell>/` | ❌ **EPHEMERAL** |
+| **Bundles + figures — canonical** | `benchmark/dean-*/results/*_1/viz/` | ⚠️ on disk, **gitignored** |
+| Figures — planner mirror | `plans/scratch/campaign-20260810-viz/` | ✅ committed on `plans` |
 
 **Owed, and by whom:**
-- **Benchmark coder** — move bundles+figures next to the results dirs (Dean's instruction (1); target dir
-  is Dean's call); fix the `run_metadata.yaml` error-ordering bug; re-run `m-ta-dwell` and re-extract the
-  dwell cells.
+- **Benchmark coder** — decide whether the figures need a **tracked** home under `session-notes/` (the
+  canonical `viz/` copies are inside gitignored `dean-*/`, so they do not survive a cleanup or a fresh
+  clone); fix the `run_metadata.yaml` error-ordering bug; re-run `m-ta-dwell` and re-extract the dwell
+  cells.
 - **Dean** — **rotate the leaked bearer token**; choose the figure location; decide whether the campaign
   results fold into the Type 3 or stay a standalone doc (this doc is currently standalone).
 - **Planner** — audit the plans for any framing that assumed "removing saturation from the list isolates

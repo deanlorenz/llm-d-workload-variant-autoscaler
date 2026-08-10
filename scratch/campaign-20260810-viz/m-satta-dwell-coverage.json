@@ -1,0 +1,86 @@
+{
+  "rows": [
+    {
+      "capability": "Calibrate A",
+      "verdict": "PASS",
+      "detail": "n=420 bands=4 kv_span=1.00"
+    },
+    {
+      "capability": "Trust B",
+      "verdict": "PASS",
+      "detail": "y_lo=0.0 B_fit=9.448281044499092 B_meas=9.764295110558907 n_low=212"
+    },
+    {
+      "capability": "Characterize saturation",
+      "verdict": "FAIL",
+      "detail": "n=8"
+    },
+    {
+      "capability": "Exercise the 0.85 ceiling",
+      "verdict": "FAIL",
+      "detail": "n_0.80_0.90=0"
+    },
+    {
+      "capability": "Locate the throughput knee",
+      "verdict": "PASS",
+      "detail": "n=428 left=420 right=7"
+    },
+    {
+      "capability": "Scale-down present",
+      "verdict": "PASS",
+      "detail": "drain_events=7"
+    },
+    {
+      "capability": "Drain-vs-kill measurable",
+      "verdict": "FAIL",
+      "detail": "needs a scale-down and a per-request trace"
+    },
+    {
+      "capability": "Queue (a) material",
+      "verdict": "FAIL",
+      "detail": "no demand trace"
+    },
+    {
+      "capability": "Queue (c) material",
+      "verdict": "PASS",
+      "detail": "max=505.0"
+    },
+    {
+      "capability": "Router imbalance measurable",
+      "verdict": "PASS",
+      "detail": "pods=15 disp_p95=0.35714285714285715 flips=59 n=97 (boot samples excluded: 15)"
+    },
+    {
+      "capability": "rho model valid at top",
+      "verdict": "FAIL",
+      "detail": "preempt/s=1.4729166666666667"
+    },
+    {
+      "capability": "Capacity model checkable",
+      "verdict": "FAIL",
+      "detail": "pred=None obs=208.0"
+    },
+    {
+      "capability": "Boot lag measured",
+      "verdict": "PASS",
+      "detail": "n=9 mean=316.0"
+    },
+    {
+      "capability": "Signal completeness",
+      "verdict": "PASS",
+      "detail": "2qvfm=71; 2vxwj=6; 4q8ks=121; 6l685=6; 8xx2f=9; 9kb6w=21; bpz9c=63; gzvfj=6; j7r6t=5; l9s5k=93; ldc4p=108; mhrkh=6; njwp6=25; t5wt6=66; w2sm2=6"
+    },
+    {
+      "capability": "Per-request trace present",
+      "verdict": "FAIL",
+      "detail": "n=0"
+    }
+  ],
+  "n_pass": 8,
+  "n_fail": 7,
+  "saturation_threshold": 0.85,
+  "warnings": [
+    "harness_name absent; inferred inference-perf from directory contents",
+    "per-request file not found; panels 1 and 4 will be unavailable"
+  ]
+}
