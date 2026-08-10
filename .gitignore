@@ -76,3 +76,11 @@ fork-local-uncommitted-*.patch
 
 # Python bytecode from the hack/benchmark and session-notes analysis scripts
 __pycache__/
+
+# Scratch working copy of the status file. The Write/Edit tools cannot reach
+# plans/session/status/ from inside this worktree (harness isolation blocks the
+# shared-checkout path), so edits are made here and copied over with `cp` on save.
+# The authoritative copy is plans/session/status/benchmark.md -- this one is a
+# transient editing surface and is deliberately untracked, so that a stale copy can
+# never be mistaken for state. See session-notes/status/README.md.
+session-notes/local/
