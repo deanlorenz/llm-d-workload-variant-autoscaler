@@ -26,3 +26,7 @@ case_register conv-one-name       ./scripts/conv.sh --dir tests/fixtures/convent
 case_register conv-three-names    ./scripts/conv.sh --dir tests/fixtures/conventions no-dco-on-plans archive-never-delete one-commit-per-step
 case_register conv-unknown-name   ./scripts/conv.sh --dir tests/fixtures/conventions commit-message
 case_register conv-duplicate-name ./scripts/conv.sh --dir tests/fixtures/conventions-dup doubly-defined
+
+# conv-list — the computed index.
+case_register conv-list-topic-files ./scripts/conv-list.sh --dir tests/fixtures/conventions
+case_register conv-list-no-description ./scripts/conv-list.sh --dir tests/fixtures/conventions-nodesc

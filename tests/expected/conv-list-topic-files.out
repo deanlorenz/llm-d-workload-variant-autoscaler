@@ -1,0 +1,9 @@
+exit: 0
+--- stdout ---
+archive-never-delete | active | Archive a finished branch instead of deleting it.
+commit-message-shape | active | Subject line is imperative, under 72 characters, no trailing period.
+no-dco-on-plans | PROBATION | The plans lineage takes no DCO sign-off.
+no-push-without-confirmation | active | Never run git push without explicit confirmation for that push.
+one-commit-per-step | active | Each spec step lands as exactly one commit.
+verify-cwd-before-commit | active | Run pwd and git branch --show-current immediately before every commit.
+--- stderr ---

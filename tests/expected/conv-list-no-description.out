@@ -1,0 +1,5 @@
+exit: 0
+--- stdout ---
+has-a-description | active | A normal convention, present so the file is not all defect.
+missing-its-description | PROBATION | (NO DESCRIPTION)
+--- stderr ---
