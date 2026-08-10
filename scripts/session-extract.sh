@@ -41,6 +41,7 @@ since=""
 file=""
 project_dir=""
 do_list=0
+count_only=0
 
 die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
 
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
     --file)        file="${2:-}";  [ -n "$file" ]  || die "--file needs a value";  shift 2 ;;
     --project-dir) project_dir="${2:-}"; [ -n "$project_dir" ] || die "--project-dir needs a value"; shift 2 ;;
     --list)        do_list=1; shift ;;
+    --count)       count_only=1; shift ;;
     -h|--help)     sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             die "unknown argument: $1" ;;
   esac
@@ -125,5 +127,14 @@ out=$(jq -r --arg since "$since" '
   | "## " + .ts + (if .mid then "  (mid-turn)" else "" end) + "\n" + .text + "\n"
 ') || die "jq failed on $file" 3
 
+n=$(printf '%s' "$out" | grep -c '^## ' || true)
+
+# --count prints only the number, so a checkpoint tick can ask "is there anything new?"
+# without pulling the text into its context. A no-op tick then costs almost nothing.
+if [ "$count_only" -eq 1 ]; then
+  printf '%s\n' "$n"
+  exit 0
+fi
+
 printf '%s\n' "$out"
-printf 'turns: %s\n' "$(printf '%s' "$out" | grep -c '^## ' || true)" >&2
+printf 'turns: %s\n' "$n" >&2

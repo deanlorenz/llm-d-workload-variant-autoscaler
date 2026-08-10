@@ -284,11 +284,34 @@ A panic-save has to know what to write first:
 4. Synthesized analysis — expensive, but re-derivable
 5. Mechanical findings — greps, counts, measurements: re-gatherable, so last
 
-### Two modes, not one
+### Two goals, two mechanisms
+
+Dean's decomposition (2026-08-10), and the two need different machinery because only one of them
+requires judgment:
+
+**(a) Write enough to recover from a panic.** No judgment: append the user's own words, pre-extracted,
+to a file. It therefore needs **no model at all** — *"that does not involve the main session at all, no
+output"* — so it can be genuinely free and always on. Implemented as `scripts/session-snapshot.sh`, a
+detached loop that appends new turns to a raw sidecar every couple of minutes and advances its own
+marker, kept separate from the digest's so the two never race. It **does not commit**: a written file
+survives a crash or a sleeping machine, and committing on a loop would hammer the shared git index where
+a failed commit is a silent non-save. The sidecar is gitignored — regenerable, uncurated, per-machine.
+
+**(b) Notice that the session is missing something critical, and get it back in front of the session.**
+This is irreducibly a judgment — has this already been captured, does it still matter — so it costs
+context by nature. That cost is the point rather than waste, but only when something is actually
+missing, so the tick asks `session-extract.sh --count` first and pulls text only when the count is
+non-zero. A no-op tick is then nearly free.
+
+The distinction that makes this work: **(a) is about bytes reaching disk, (b) is about facts reaching a
+context window.** Conflating them produces a mechanism that is either too expensive to run often or too
+dumb to be useful.
+
+### Checkpoint versus panic-save
 
 - **Checkpoint** — organized, incremental, into the role's owned document. The routine case.
-- **Panic-save** — append raw to the end of the digest, in seconds, tidy later. Correctness is
-  "nothing lost", not "nicely written".
+- **Panic-save** — append raw, in seconds, tidy later. Correctness is "nothing lost", not "nicely
+  written". With (a) running continuously, this is mostly already done before it is needed.
 
 Treating every close as the first kind is why closing is slow.
 

@@ -2,3 +2,10 @@
 # The sync-main watcher rewrites this heartbeat file every 60s; it is
 # machine-local liveness, not shared project state, so keep it out of git.
 session/status/main.md
+
+# Raw per-session capture written continuously by scripts/session-snapshot.sh, plus its
+# marker. Regenerable from the session transcript, uncurated, and per-machine — it exists
+# so panic recovery is reading a small file rather than parsing a large one. The distilled,
+# committed artifact is the digest beside it.
+session/digests/*.raw.md
+session/digests/.*.mark
