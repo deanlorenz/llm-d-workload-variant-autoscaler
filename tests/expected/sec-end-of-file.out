@@ -1,0 +1,9 @@
+exit: 0
+--- stdout ---
+## Omega
+
+Omega runs to the end of the file with no heading after it. Fetching `omega`
+must return everything from here down.
+
+Last line of the document.
+--- stderr ---

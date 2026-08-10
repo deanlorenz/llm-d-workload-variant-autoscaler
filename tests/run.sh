@@ -31,7 +31,7 @@ esac
 [ "$#" -le 1 ] || die "too many arguments: expected at most 1, got $#"
 
 # Tools are found on PATH so a case can name one without knowing where it lives.
-PATH="$ROOT/bin:$PATH"
+PATH="$ROOT/scripts:$PATH"
 export PATH
 
 [ -f "$CASES_FILE" ] || die "missing case registry: $CASES_FILE"
