@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T02:18:00Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T05:52Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -87,6 +87,9 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 - **All remaining code specs written up for review** — *"write up all the type 3 docs. I will review
   tomorrow when I wake up."* Four specs landed as `161fb27b`; **his review is pending and nothing should
   be launched against them until it happens.**
+- **Tick stopped for the night** — *"stop the tick, I'm going to sleep."* Cron `070a4709` cancelled; the
+  snapshot loop was left running. Re-arming on resume is the session's own responsibility per the
+  every-session rule in `CONVENTIONS.md`.
 
   ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
   absent from an extract spanning its arrival). They are recorded here from session context, not from the
