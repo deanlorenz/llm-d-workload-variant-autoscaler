@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T11:09:49Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T15:54:26Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -182,6 +182,21 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
   repeat the four judgment calls. Two levers, neither chosen: tighten the specs so nothing is left to
   decide (the S5 self-contradiction was mine), or give the rule a mechanical gate rather than trusting
   instruction. **A pending decision, not a resolved finding.**
+- **The tick's cost, measured — and it inverts the assumption it was built on.** 55 ticks fired; **only
+  9 produced anything** (84% empty). Measurable per empty tick: ~610 tokens of prompt (2,450 chars) plus
+  ~200 of call/result/reply ≈ **800 tokens**, so ~45k across all 55. That is the small part. The dominant
+  cost is that **each tick is a separate API request 15 minutes apart against a 5-minute prompt-cache
+  TTL**, so every tick is a guaranteed cache miss that re-uploads the whole conversation — plausibly
+  100–200k input tokens each, i.e. millions in total (an estimate from the TTL and interval, not a
+  measurement; context size is not readable from inside a session).
+  **The design assumed idle time is free. It is the opposite:** idle is exactly when the cache has
+  expired, so an idle tick is the most expensive kind — which undercuts the reason `CronCreate` was
+  chosen (that it fires when idle). Note goal (a) is unaffected: the snapshot loop costs nothing.
+- **Whether to change the tick's cadence** — offered, unanswered. Options, cheapest first: a much longer
+  interval (hourly or on demand, harmless because the transcript retains everything meanwhile);
+  event-driven firing only after substantive turns; or delegating to a subagent, which pays its own
+  context instead of re-uploading this one. That last option had been judged weakened by `--count`; the
+  cache-miss cost revives it.
 - **Whether to add `plans-tooling` to `wva.code-workspace`** — offered, not answered. Creating a git
   worktree does **not** add it to VS Code: the workspace folders are an explicit list in that file, so
   every new worktree needs an entry (or *Add Folder to Workspace*) before it is visible in the editor.
