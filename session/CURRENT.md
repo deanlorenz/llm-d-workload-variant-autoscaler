@@ -72,41 +72,53 @@
   gate criterion was replaced *after* it had failed (his call) and the original is deliberately retained
   and still evaluated — do not "clean it up". State:
   `autoscaling-viz/planning/sim-from-benchmark-plan.md` + `real-trace/ladder-20260807/C2-GATE-REPORT.md`.
-- **2026-08-10 — pokprod benchmark: tooling round; extractor fixed, our own guide started.** *WIP —
-  no cluster contact this session.* Three local commits on `benchmark` (tip **`13845aaf`**), DCO-signed,
-  tree clean, **nothing pushed**. The §18 extractor defect is **fixed and verified** (`add1d400`):
-  `dump_wva_target_timeseries.py` now yields **54/54 hydrated** rows from the committed dwell log
-  against 41/**0** before, and **independently reproduces §18's headline** — per-replica capacity
-  25,348 → 329,011, ratio **13.0×**, matching the 10–13× collapse found by hand. Two deeper defects
-  fixed alongside the stale pattern: the guard only refused to overwrite on *zero* rows (so an
-  all-null parse could replace good data — it protected against rotation, not drift), and
-  `post_run_analyze.sh` downgraded the failure to a soft note in exactly the output an operator reads.
-  New `--log-file/--no-window` allows offline re-parse with no cluster. **New, ours:**
-  `docs/wva-benchmark-guide.md` — a portable guide standing **alongside** the upstream one (Dean:
-  *"we do not diverge from upstream… we just add another guide"*); an edit to the shared
-  `docs/developer-guide/two-variant-wva-benchmark.md` was **reverted** and the branch touches zero
-  files there. **The 08-08 dwell finding stands** (the system limit-cycles, ~9 min period; `prc`
-  collapse is a mechanism, not a tuning problem) — §18 remains the live *findings* section.
-  **Owed by Dean / open, none the coder's to close:** (a) the **clean-refresh test** is the new
-  guide's stated acceptance criterion and is **unperformed** — needs a GPU cluster; until it passes
-  the guide is provisional *and says so in its own text*; (b) the planner should amend §7.6.1 — "run
-  `post_run_analyze.sh` immediately" is **necessary but not sufficient**, since promptness defends
-  against rotation but not format drift; the durable form is *save the raw controller log, then
-  parse*; (c) the **observability/dashboard** item is **parked, not dead** (Dean 2026-08-10: lower
-  priority, needs more work; intent = a dashboard alongside the test so results can be captured).
-  ⚠️ **Armed footguns, carry verbatim:** (1) **the ScaledObject is still PAUSED** (that is how the GPUs
-  were released after the 08-08 run) — **un-pausing is a mandatory first step of the next run**, or you
-  get a flat 0-replica trace that reads as a legitimate no-scaling result; (2) **restart the controller
-  before each run** — in-memory capacity history contaminates across runs, making run 2 a function of
-  run 1's load; (3) **the image under test moved to `ta-0.9-anchor-pr2-20260809`** (was `ta-0.9`) and is
-  **unverified against the parser** — a tag change can move the analyzer log format with it, which is
-  exactly how the parse broke before; the failure is now loud rather than silent, but that is a
-  backstop, so short run → confirm analysis fields populate → only then a long run. A read-only
-  pre-check of the PR-2 branch's `engine_v2.go` log lines is cheaper and has **not** been done.
-  State: [`session/status/benchmark.md`](status/benchmark.md) **§19** (live state; §18 = live findings)
-  — now the **sole authority**, maintained directly by the coder at Dean's direction (the tracked
-  benchmark-branch copy was removed, with a README recording why). Planner-side items in
-  `plan__benchmark-tooling-round-and-own-guide.md`.
+- **2026-08-10 — pokprod benchmark: guard tooling + scenario matrix; autoscaling confirmed on the
+  PR-2 image; overnight campaign complete, GPUs freed.** *WIP.* Ten local commits on `benchmark`
+  (DCO-signed, nothing pushed). Built the env-guard contract Dean specified — a named `X.env`
+  carrying `KUBE_CONTEXT`, verified against the live context, guarding the **10 destructive**
+  targets only, `UNSAFE=confirm|once|silent` escape hatch, `make benchmark-init` wizard.
+  `benchmark-apply-images` closes a real gap (image pin previously reached the cluster only via
+  standup); verified working. **Autoscaling confirmed end-to-end on `ta-0.9-anchor-pr2-20260809`:**
+  controller scaled 1→2→3 replicas under generated load. Three previously-unknown harness blockers
+  found and fixed, each of which had been blocking *all* load generation (wrong workload-selection
+  var, missing PyYAML on system `python3`, a substitution-token ordering bug). Cluster used
+  **overnight with Dean's explicit approval** (including the un-pause), GPUs freed at the end per
+  his instruction; **campaign stopped early** ("putting the laptop to sleep") but all 7 cells have
+  data, 156 snapshots, every cell 100% hydrated (3 recovered offline from saved logs).
+  **Four results, one retracted:**
+  1. **RETRACTED — do not cite.** An initial reading ("saturation cannot be disabled on PR-2 — PR-2
+     does not fix it") was **wrong**: Dean corrected it — disabling saturation was never meant to
+     stop it computing/logging, only to stop it voting, and the code does exactly that
+     (`saturation/engine_v2.go:147-157`, `satVotes` — verified in `main`). Counting
+     `analyzer-result` log lines cannot answer that question. The **`saturation:{enabled:false}`
+     silent-no-op backlog item is unaffected — left exactly as it was**, and `enabled:false` is a
+     different mechanism from list-omission.
+  2. **The dwell limit cycle is analyzer-independent** (HIGH confidence, strengthened by the
+     retraction — the matrix is now a genuine 3-configuration comparison, not 2): both dwell
+     configs hit the replica cap (10) twice, no staircase config exceeded 9. Tracks the workload,
+     not the analyzer configuration — consistent with §18 and §7.6.
+  3. **`prc` collapse is a third, separate variable** (MEDIUM): present in 2 of 5 non-dwell cells
+     including one that did *not* limit-cycle, absent from others that did — so it is **not** the
+     limit-cycle's cause, reproducing §18's own "mechanism, not tuning" diagnosis.
+  4. **The replica target oscillates while `rc = 0` and util ≈ 0.2** — most interesting open
+     thread, points at the decision/optimizer path rather than the analyzer. Not investigated.
+  **Weakest link, carry verbatim:** one run per cell, no repeats, no noise floor; the image A/B
+  additionally started from different replica counts (1 vs 2) — **mechanism observations, not
+  benchmark results.** Also found: a harness reporting bug (an unconditional `if errors:` fails a
+  step on a log line already labelled non-fatal, so `run_metadata.yaml` is never written) —
+  candidate for the fork/upstream list. `m-ta-dwell` ran only ~10 of ~40 min; a clean re-run would
+  complete the matrix.
+  ⚠️ **Armed footguns, carry verbatim:** (1) **the ScaledObject is PAUSED at 0** (GPUs freed and
+  verified twice) — **un-pausing is a mandatory first step of the next run**, or the trace is flat
+  and reads as a legitimate no-scaling result; (2) **restart the controller between runs/cells** —
+  in-memory capacity history makes run N a function of run N-1's load; (3) the PR-2 image
+  (`ta-0.9-anchor-pr2-20260809`) is still **unverified against the parser** independent of this
+  campaign's own results — short run → confirm fields populate → only then a long run;
+  (4) `session-notes/local/` is **gitignored** — nothing there is preserved.
+  State: [`session/status/benchmark.md`](status/benchmark.md) **§20** (live state; §18 = dwell
+  findings, §19 = tooling round) — sole authority, coder-maintained. Planner-side items in
+  `plan__benchmark-overnight-campaign.md`, `plan__benchmark-env-guard-design.md`, and the now-retraction
+  notice `plan__benchmark-sat-disable-still-broken-on-pr2.md`.
 - **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan.**
   *Blocked on Dean.* §7.6 is the substantive finding: steady-state KV under a tracking controller is a
   *controlled* variable, so §7.4.1's dwell cannot be reached by raising the offered rate — it is a
