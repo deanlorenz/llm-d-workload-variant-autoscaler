@@ -420,18 +420,25 @@ def main() -> int:
     # Overrides: report, do not block. The env file stops being a complete
     # record the moment one is in effect, which is the thing worth saying out
     # loud rather than the thing worth preventing.
-    for key, file_val in sorted(env.items()):
-        eff_val = effective.get(key, file_val)
-        if eff_val != file_val:
+    #
+    # Only keys the file actually sets can be "overridden". A key the file omits
+    # is being *derived* -- BENCHMARK_HARNESS, for instance, is read from the
+    # scenario yaml when unset, because the scenario is authoritative for it.
+    # Treating a derived default as an override would cry wolf on every run.
+    def overridden(key: str) -> bool:
+        return key in env and effective.get(key, env[key]) != env[key]
+
+    for key in sorted(env):
+        if overridden(key):
             f.complain(
                 f"{key} overridden on the command line.\n"
-                f"      env file: {file_val or '(empty)'}\n"
-                f"      in use:   {eff_val or '(empty)'}"
+                f"      env file: {env[key] or '(empty)'}\n"
+                f"      in use:   {effective.get(key) or '(empty)'}"
             )
 
     for a, b in LINKED_PAIRS:
-        a_over = effective.get(a, env.get(a)) != env.get(a)
-        b_over = effective.get(b, env.get(b)) != env.get(b)
+        a_over = overridden(a)
+        b_over = overridden(b)
         if a_over != b_over:
             overridden, other = (a, b) if a_over else (b, a)
             f.complain(
