@@ -278,7 +278,13 @@ shared:
   workDir: "__WVA_WORKDIR__"
   harness:
     name: inference-perf
-    experimentProfile: shared_prefix_synthetic.yaml
+    # Substituted from BENCHMARK_PROFILE in the selected env file, so an A/B arm
+    # can choose its own load shape while everything else stays identical. The
+    # profile must exist under hack/benchmark/workloads/inference-perf/ -- those
+    # are synced into the harness before a run. Do NOT use BENCHMARK_WORKLOAD to
+    # select one of ours: that name is looked up in the upstream inference-perf
+    # workload-catalog and a local profile is not in it.
+    experimentProfile: __BENCHMARK_PROFILE__
 
   storage:
     modelPvc:

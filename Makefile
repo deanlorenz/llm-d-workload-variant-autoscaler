@@ -93,7 +93,18 @@ BENCHMARK_HARNESS := $(shell python3 $(CURDIR)/hack/benchmark/sync_workloads.py 
 endif
 # Empty by default: the scenario's own harness.experimentProfile is authoritative.
 # Set BENCHMARK_WORKLOAD=<name> only to override it on the command line.
+#
+# NOTE: BENCHMARK_WORKLOAD names a profile in the UPSTREAM inference-perf
+# workload-catalog (interactive-chat, code-generation, ...) and is fetched over
+# the network. It is NOT the way to select one of our own profiles under
+# hack/benchmark/workloads/ -- those are synced into the harness and chosen by
+# the scenario's harness.experimentProfile. Use BENCHMARK_PROFILE for those.
 BENCHMARK_WORKLOAD   ?=
+# Load shape for a run: the harness.experimentProfile the scenario will use,
+# substituted in as __BENCHMARK_PROFILE__. Lets an A/B arm pick its own load
+# shape from its env file while everything else stays identical. Must name a file
+# under hack/benchmark/workloads/$(BENCHMARK_HARNESS)/.
+BENCHMARK_PROFILE    ?= shared_prefix_synthetic.yaml
 BENCHMARK_FORCE      ?= true
 BENCHMARK_MONITORING ?= true
 # Pass --analyze so llmdbenchmark's step_12 runs host-side after the results are
@@ -629,6 +640,7 @@ benchmark-standup: benchmark-guard ## Stand up the benchmark environment (set BE
 		-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
 		-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
 		-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
+		-e 's|__BENCHMARK_PROFILE__|$(BENCHMARK_PROFILE)|g' \
 		$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml
 	@rm -f $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak
 	@if grep -qE '__[A-Z_]+__' $(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml; then \
@@ -726,6 +738,7 @@ benchmark-run: benchmark-guard ## Run a single benchmark workload (set BENCHMARK
 			-e 's|__BENCHMARK_MODEL_SHORTNAME__|$(BENCHMARK_MODEL_SHORTNAME)|g' \
 			-e 's|__PROM_RELEASE__|$(PROM_RELEASE_LABEL)|g' \
 			-e 's|__WVA_WORKDIR__|$(WVA_WORKDIR)|g' \
+			-e 's|__BENCHMARK_PROFILE__|$(BENCHMARK_PROFILE)|g' \
 			"$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; \
 		rm -f "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml.tokbak"; \
 		if grep -qE '__[A-Z_]+__' "$(BENCHMARK_REPO_DIR)/config/scenarios/$(BENCHMARK_SPEC).yaml"; then \
