@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T01:24:30Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-10T01:52:12Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -73,6 +73,17 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
 - **Smaller option first; the subagent is deferred, not rejected** — *"maybe start with the smaller
   option. I don't have a problem with the tick only updating the session if new, uncaptured content
   found."* Hence `--count` gating rather than delegation.
+- **Worktree creation and background auto-mode coders are authorized** — *"I allow you to create all the
+  needed worktrees. You can also launch background coder agents in auto mode inside those worktrees."*
+  Standing, not per-instance.
+- **One code spec per unit of work, one coder per spec** — his question *"so you are creating a type 3 per
+  spec and we will assign a coder for each?"* Answered: steps are the unit of atomicity **within** a
+  coder's run, not of assignment; parallelism comes from independent specs, not from splitting one spec's
+  steps.
+- **Nothing to invoke before sleeping the machine** — his question, answered: the transcript persists
+  within ~8 s and the snapshot loop mirrors it every 120 s, so an unannounced sleep costs at most the
+  distillation since the last tick, which is recoverable from the transcript. Saying "checkpoint" is the
+  explicit fast path.
 
   ⚠️ *The three rulings above arrived in a **mid-turn message the extractor did not capture** (it is
   absent from an extract spanning its arrival). They are recorded here from session context, not from the
@@ -150,7 +161,15 @@ Authoritative. Do not re-litigate — several were reversals of my proposals.
      plans session became newest as soon as it wrote — so the sidecar would have mirrored the wrong
      conversation while missing this one. **mtime is not identity.** The loop is pinned with `--file`; the
      extractor warns when resolving by mtime with several transcripts present.
-- **Pin the tick's transcript too** — the cron tick still resolves by mtime, so it carries bug 2.
+- ~~Pin the tick's transcript too~~ — **done**, job `070a4709` carries the pinned path.
+- **Coder running on the tooling spec** — `plans-tooling` orphan worktree created, background coder
+  launched under `--permission-mode auto` (task `bxykv31hw`, log `/tmp/coder-plans-tooling.log`).
+  Progress lands in `session/status/plans-tooling.md`. The spec is still DRAFT; the launch authorization
+  was treated as acceptance, and the work is reversible (orphan branch, unpushed, stoppable).
+- **`cd`-then-Agent is no longer viable** — shell CWD resets after every Bash call, so a subagent would
+  inherit `plans/` and the worktree confinement would be fiction. Use a `claude -p` subprocess, whose
+  `cd` lives inside the same invocation. Memory `feedback_subagent_cwd_pattern` and
+  `feedback_no_cd_sibling` describe the old pattern and are now stale on this point.
 
 ## Open questions
 
