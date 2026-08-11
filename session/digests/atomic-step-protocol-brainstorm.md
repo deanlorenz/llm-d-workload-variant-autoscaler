@@ -237,16 +237,31 @@ tooling and all harvesting first, coverage machine-checked, then the old files s
 
 ## Next
 
-Write the code spec for the `sec`/`conv`/`conv-list`/`conv-lint` slice, on the orphan `plans-tooling`
-worktree. Then M1.1 skills.
+**Parked 2026-08-11 ~20:15Z.** All five code specs are written and committed; the `sec`/`conv`/`conv-list`/
+`conv-lint` slice is **built and green** (7 commits on `plans-tooling`, 21 tests, 0 failed, shellcheck-clean).
 
-Two things a *successor* session must know:
+**Awaiting Dean, nothing blocked on an agent:**
 
-- **`plans` is 9 commits ahead of `origin/plans`** (4 from this session, 5 from a concurrent one). Push
-  needs Dean's explicit per-push confirmation; it has not been given.
-- **Both design documents are still `Status: DRAFT`.** Flipping either to FINAL is Dean's call alone —
-  plan finalization is the one review in the model that is not scriptable.
-- The checkpoint tick is **session-only** and dies with this session. A successor must schedule its own.
+- **Review the four remaining code specs** (`161fb27b`, plus `6a02f914` on step-gates). Nothing should be
+  launched against them until he has.
+- **`plans` is 8 commits ahead of `origin/plans`.** Push needs his explicit per-push confirmation.
+- **Kickoff copy of `plans-tooling` into `plans/`** — his single deliberate action; the tooling is
+  unpushed and uncopied. Development history stays on `plans-tooling`.
+- **Enforcement of the judgment mark** — Addendum 1 adopts tags; `step-gates-spec.md` S3/S6 specify the
+  checks, but neither is built, so all four obligations still rest on coder compliance.
+
+**State a successor needs:**
+
+- Designs are **FINAL, frozen 2026-08-10**, amended by
+  [`atomic-step-protocol-design-addendum-1.md`](../../planning/atomic-step-protocol-design-addendum-1.md)
+  (halt rule re-cut on **reversibility**, approved 2026-08-11).
+- The scheduled cron tick is **retired** — `session/.tick-disabled` makes `session-extract.sh` refuse and
+  tells any session still running one to cancel its own job. Replacement is the two-tier
+  `session-snapshot.sh` loop (free, model-free gate) plus `tick-consolidate.sh` (rare, `aws/claude-haiku-4-5`,
+  ~488-token prompt). Both die with the session; a successor starts its own loop.
+- `shellcheck` is now installed, so that gate is met rather than skipped.
+- Not this session's: `planning/multi-analyzer-dataflow-map.md` (modified) and
+  `planning/autoscaling-viz-design.md` (new, untracked) belong to other sessions — leave them alone.
 
 Reaching `CURRENT.md` requires a `sync__` handoff — a designer session cannot write it (single-writer),
 and per Dean that channel is already served by handoffs at major decisions, not by this digest.
