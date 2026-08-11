@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-10T15:54:26Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-11T16:11:26.120Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -250,3 +250,29 @@ Two things a *successor* session must know:
 
 Reaching `CURRENT.md` requires a `sync__` handoff — a designer session cannot write it (single-writer),
 and per Dean that channel is already served by handoffs at major decisions, not by this digest.
+
+---
+
+## Consolidated capture
+
+Appended by `scripts/tick-consolidate.sh`: turns selected by a small model, text spliced verbatim
+by the script. Uncurated — the sections above are the curated record.
+
+### 2026-08-11T16:11:26.120Z
+
+- **task** — Stop tick, estimate total tokens from yesterday
+  > stop the tick. Estimate total tokens from yesterday
+- **decision** — Tick optimization: cheap model, no-op idle, context limit, local ledger
+  > we need to reduce this effort.
+  > 1. use a cheap model for the tick work
+  > 2. tick should be no-op if there is no new data in the main session -- e.g., an idle session should not send any tick info to claude.
+  > 3. maximal context should only be until last compact
+  > 4. can keep local ledger and invoke the tick to update a local ledge only, once every X ticks to actually incorprate the info into conext/state
+- **decision** — Disable script; evaluate cheap models; tier 1,2 approved
+  > 1. lets disable the script so existing sessions cannot run it.
+  > 2. My remote litellm proxy also has a self hosted  rits/google/gemma-4-31B model -- is that enough?
+  > 3. Other cheap models are gemini-2.5-flash, got-5-nano-2025-08-07, gpt-5-mini-2025-08-07, gpt-oss-120b, gemin-3.5-flash-lite
+  > 4. Tier 1,2 OK
+- **ruling** — Focus discussion on tokens not latency; try claude or curl
+  > our latest discussion is about tokens, not latency
+  > can try using claude and move to curl if needed
