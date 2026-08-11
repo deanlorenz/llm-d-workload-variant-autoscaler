@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-11T19:56:49.311Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-11T20:15:26.944Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -297,3 +297,11 @@ by the script. Uncurated — the sections above are the curated record.
   > (d) is OK, however, it still overstepped given the current rule -- I don't like it. Rules are there to obay. I accept rule change suggestions -- that is fine. Everything coder did could have be proposed to me or to planner to fix or approve. 
   > I am willing to let the coder act on some of these ambiguous items, provided that it is reversible. Given that coder commit their work anyway it may be OK to continue and not block; however, the assumption/presummption/guess/etc should be surfaced, documented, brought back to decision AND reverted when needs to be. Not sure about the checkpoint mechanism, perhaps tags. That said, distructive non revertable action should halt (eg run a change on the cluster).
   > worksapce -- yes it should. need to refresh code-workspace
+
+### 2026-08-11T20:15:26.944Z
+
+- **question** — Explain difference between step-check and plan-lint
+  > explain step-check vs plan-lint
+- **task** — Add judgment-mark check to step-check spec
+  > add the judgment-mark check to step-check in the spec. 
+  > would I also need plan-lint to check those judgments?
