@@ -80,7 +80,13 @@ BENCHMARK_CLONE_FORCE_SYNC ?= false
 BENCHMARK_SPEC       ?= $(if $(filter true,$(BENCHMARK_DIRECT_KEDA)),guides/epp-keda-saturation,guides/workload-autoscaling)
 BENCHMARK_NAMESPACE  ?= # set via BENCHMARK_NAMESPACE=<namespace>
 BENCHMARK_GATEWAY_URL ?= http://infra-llmdbench-inference-gateway-istio.$(BENCHMARK_NAMESPACE).svc.cluster.local:80
-BENCHMARK_WORKSPACE  ?= $(CURDIR)
+BENCHMARK_WORKSPACE  ?= $(CURDIR)/runs
+# The harness names its own run directory $(USER)-<timestamp>-<pid>/ inside
+# whatever --workspace points to. Scoping the default under runs/ (rather than
+# the repo root) means every user's run lands at runs/<their-username>-*/,
+# fixing a real bug: the old root-level default only matched the literal glob
+# dean-*/ in .gitignore, so anyone other than Dean saw their own run
+# directories as untracked clutter in git status.
 # The harness belongs to the spec of a run, not to this Makefile: it is whatever
 # the scenario's harness.name declares. `-l` overrides harness.name inside
 # llmdbenchmark, so a hardcoded default here would silently override the scenario.

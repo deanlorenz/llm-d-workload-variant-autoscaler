@@ -67,9 +67,10 @@ echo "  analyzers seen in the log:"
 grep -o '"analyzer": "[a-z]*"' "$OUT/controller.log" | sort | uniq -c | sed 's/^/    /'
 
 echo "--- [6/6] analyse ---"
-# The harness writes its workspace into the repo root as dean-<date>-<time>-<pid>/,
-# not under WVA_WORKDIR -- so look there. Newest first, since each cell creates one.
-RESULTS=$(ls -dt dean-*/results/*_1 2>/dev/null | head -1)
+# BENCHMARK_WORKSPACE defaults to runs/ (Makefile), so the harness writes its
+# own $USER-<date>-<time>-<pid>/ directory there natively -- no copy or move.
+# Newest first, since each cell creates one.
+RESULTS=$(ls -dt runs/*/results/*_1 2>/dev/null | head -1)
 if [ -z "$RESULTS" ]; then
   # Fall back to the configured workdir in case a future harness honours it.
   RESULTS=$(ls -dt "$HOME"/data/wva-benchmark/*/results/*_1 2>/dev/null | head -1)
@@ -79,28 +80,18 @@ if [ -n "$RESULTS" ]; then
   bash hack/benchmark/post_run_analyze.sh "$RESULTS" "$NS" 2>&1 | tail -25
   cp "$OUT/controller.log" "$RESULTS/controller.log" 2>/dev/null
 
-  echo "--- relocating into runs/<run-id>/{config,raw,viz} ---"
-  # Run-id is the dean-*/ directory name itself (approved 2026-08-11): keep the
-  # harness's own naming, just relocate the tree so results live beside their
-  # own config/viz for the whole lifecycle instead of scattered across the repo
-  # root and session-notes/. config/ + viz/ are the reproducible/durable set and
-  # get committed; raw/ is the disposable harness output (see .gitignore).
-  RUN_ID=$(echo "$RESULTS" | cut -d/ -f1)
-  RUN_DIR="runs/$RUN_ID"
-  mkdir -p "$RUN_DIR/config" "$RUN_DIR/viz"
-  mv "$RUN_ID" "$RUN_DIR/raw"
-  # viz/ (panels.png, coverage.json, bundle.json) is produced separately by the
-  # autoscaling-viz toolchain, into the leaf results dir under raw/ -- pull it
-  # up beside config/ if it already exists at this point in the pipeline.
-  RAW_LEAF="$RUN_DIR/raw/$(echo "$RESULTS" | cut -d/ -f2-)"
-  if [ -d "$RAW_LEAF/viz" ]; then
-    mv "$RAW_LEAF"/viz/* "$RUN_DIR/viz/" 2>/dev/null
-    rmdir "$RAW_LEAF/viz" 2>/dev/null
-  fi
+  # Drop the reproducible/durable set (.env, analyzer config, image record,
+  # ScaledObject snapshot) into config/, a sibling of results/ inside the same
+  # run directory the harness already created -- tracked in git; everything
+  # else the harness wrote (results/, logs/, setup/, plan/, environment/)
+  # stays untracked via a .gitignore allowlist rather than a raw/ subfolder,
+  # so nothing here needs to move.
+  RUN_DIR=$(echo "$RESULTS" | cut -d/ -f1)
+  mkdir -p "$RUN_DIR/config"
   cp "hack/benchmark/${ENV_NAME}.env" "$RUN_DIR/config/" 2>/dev/null
   cp "$OUT/analyzer-config.txt" "$OUT/images.txt" "$OUT/scaledobject.yaml" "$RUN_DIR/config/" 2>/dev/null
   echo "$RUN_DIR" > "$OUT/results-dir.txt"
-  echo "relocated to $RUN_DIR (raw/ holds the full dean-*/ tree, config/ and viz/ split out)"
+  echo "config recorded at $RUN_DIR/config/ (harness output stays in place under $RUN_DIR)"
 else
   echo "WARNING: no results directory found; skipping analysis"
 fi

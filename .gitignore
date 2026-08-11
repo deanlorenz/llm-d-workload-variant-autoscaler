@@ -34,21 +34,32 @@ llm-d-benchmark/
 
 # Local benchmark environment overrides (copy hack/benchmark/.env.sample -> .env)
 hack/benchmark/.env
-# llmdbenchmark workspace directories (created by benchmark runs)
+# llmdbenchmark workspace directories: BENCHMARK_WORKSPACE (Makefile) now
+# points the harness CLI's --workspace flag at runs/, so new runs land at
+# runs/$USER-<date>-<time>-<pid>/ natively -- no copy, no move, and unlike the
+# old repo-root convention below this matches every user's run, not only
+# Dean's. See the runs/ rule further down for the config/viz/REPORT.md
+# allowlist that applies there.
 *-*-*-*-*-*/
 biran-*/
-# Our own run directories are dean-<date>-<time>-<pid>/, which is only three hyphens and so
-# is not matched by the pattern above. run_cell.sh relocates each one into
-# runs/<run-id>/ once the run completes (see the runs/ rule below); a dean-*/
-# directory lingering at the repo root means a run is still in flight or its
-# relocation step did not run -- either way it must never be committed.
+# Pre-existing run directories from before BENCHMARK_WORKSPACE moved to runs/
+# (2026-08-11) -- dean-<date>-<time>-<pid>/ at the repo root, three hyphens so
+# not matched by the glob above. Left in place until migrated or cleaned up;
+# still must never be committed.
 dean-*/
-# Each run gets one directory at runs/<run-id>/ (run-id = the harness's own
-# dean-<date>-<time>-<pid> string). config/, viz/, and REPORT.md are the
-# reproducible/durable set and ARE tracked; raw/ is the disposable harness
-# output (100+ MB of scrapes and per-stage summaries) and stays ignored, same
-# rationale as the old dean-*/ rule it replaces.
-runs/*/raw/
+# Ignore everything the harness writes under a run directory (results/, logs/,
+# setup/, plan/, environment/ -- 100+ MB of scrapes and per-stage summaries per
+# run) EXCEPT the reproducible/durable set that run_cell.sh copies alongside
+# it: config/ (the .env used, analyzer config, image record, ScaledObject
+# snapshot), viz/ (panels/coverage/bundle), and REPORT.md. Git requires each
+# ancestor directory re-included explicitly -- a `!` pattern cannot resurrect a
+# path whose parent is still excluded.
+runs/*/*
+!runs/*/config/
+!runs/*/config/**
+!runs/*/viz/
+!runs/*/viz/**
+!runs/*/REPORT.md
 # Harvested copies of run results, kept locally for re-analysis (14-day retention).
 session-notes/scratch/ladder-run/
 llmd/
