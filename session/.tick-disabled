@@ -1,0 +1,18 @@
+The scheduled per-session checkpoint tick is DISABLED as of 2026-08-11.
+
+Why: measured on 2026-08-10 it fired 71 times and produced 9 useful digest updates. Each firing
+was a separate API request that re-uploaded the whole session — roughly a third of that day's
+~406 requests, on the order of 9M input tokens. The per-tick text was never the cost; the
+context re-upload was. The premise was also wrong: idle time was assumed free, but idle is
+exactly when the prompt cache has expired, so an idle tick is the most expensive kind.
+
+Cron jobs are session-scoped and invisible to other sessions, so a tick armed yesterday cannot
+be cancelled from here. This file makes `scripts/session-extract.sh` refuse and tells that
+session to cancel its own job.
+
+What replaces it: `scripts/session-snapshot.sh` — a detached loop that gates on a shell-only
+count and involves no model at all, so an idle session costs nothing. Consolidation into the
+digest happens rarely, in a separate cheap-model process. See `session/CONVENTIONS.md`
+§ Checkpoint capture.
+
+Delete this file only to deliberately re-enable the old mechanism.

@@ -82,7 +82,10 @@ pass() {
   # "no new turns" and this loop would go quietly dead. It already did once, when a
   # queue-operation record with a null content aborted jq.
   set -- ${tfile:+--file "$tfile"} ${since:+--since "$since"}
-  new="$("$extract" "$@" 2>>"$log")"; rc=$?
+  # This loop is the replacement for the retired tick, not a caller of it, so it opts past
+  # the kill-switch. Gating happens here in shell: no model is involved at any point, which
+  # is what makes an idle session cost exactly nothing.
+  new="$(SESSION_EXTRACT_ALLOW=1 "$extract" "$@" 2>>"$log")"; rc=$?
   if [ "$rc" -ne 0 ]; then
     printf '[%s] extract failed rc=%s — see %s\n' "$(date -u +%FT%TZ)" "$rc" "$log" >> "$log"
     return 0

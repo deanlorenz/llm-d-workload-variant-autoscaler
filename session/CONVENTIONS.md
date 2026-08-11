@@ -15,15 +15,38 @@ project. Read it alongside `CURRENT.md` at the start of every session.
 > content migrates to `conventions/` and `roles/` under that design's Migration 1, where **nothing is
 > removed** — relocation is not removal, and removal needs long probation plus Dean's approval.
 
-## Checkpoint tick — every session, scheduled at session start
+## Checkpoint capture — a model-free loop, not a scheduled tick
 
-**Required of every session** (Dean, 2026-08-10). At session start, schedule a recurring checkpoint —
-roughly every 15 minutes, on off-minutes, firing only while idle so it lands in reading pauses. Each
-tick reads this session's **transcript on disk**, diffs it against the document this session owns or its
-digest at `session/digests/<topic>.md`, and appends whatever was never captured: **Dean's verbatim
-rulings first**, then decisions and rejections with rationale, open questions, incomplete tasks,
-findings. Append only; advance a UTC *captured through* marker; commit only the digest and **verify** the
-commit.
+> ⛔ **The scheduled cron "CHECKPOINT TICK" is RETIRED (2026-08-11). Do not schedule one.** If your
+> session already has one, **cancel it now**. `scripts/session-extract.sh` refuses while
+> `session/.tick-disabled` exists, so a tick from an older session does no work — but only that session
+> can cancel its own job, since cron jobs are session-scoped and invisible to everyone else.
+>
+> Measured 2026-08-10: **71 firings, 9 useful updates**, roughly a third of the day's ~406 API requests
+> and on the order of **9M input tokens**. The per-tick text was never the cost — each firing was a
+> separate request that re-uploaded the whole session. And the premise was wrong: idle time was assumed
+> free, but idle is exactly when the prompt cache has expired, so an *idle* tick is the most expensive
+> kind.
+
+**What every session does instead:** start the detached loop once, at session start.
+
+```
+nohup ./scripts/session-snapshot.sh --out session/digests/<topic>.raw.md \
+      --file <this session's transcript> --interval 120 &
+```
+
+Two tiers, and the split is the whole point:
+
+- **Tier 1 — free.** The loop gates on `session-extract.sh --count`, which is pure shell. Zero means it
+  does nothing: no request, no tokens, no model. New turns are appended to a local raw ledger beside the
+  digest. **An idle session costs exactly nothing.**
+- **Tier 2 — rare and cheap.** Only once the ledger has accumulated does consolidation into the digest
+  run, in a **separate small-model process** whose context is the extract alone rather than this
+  session's history. Text-in, text-out: the shell does all file and git work, so the model never needs
+  to drive tools.
+
+Pin the transcript with `--file`. Resolving it by mtime is wrong whenever sessions share a project
+directory — the other session's file becomes newest the moment it writes.
 
 `scripts/session-extract.sh` does the mechanical half (`--since <UTC>`; `--list` identifies transcripts
 by their opening prompt). Full contract and rationale:

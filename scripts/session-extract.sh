@@ -59,6 +59,29 @@ done
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
 
+# Kill-switch (2026-08-11). The per-session checkpoint tick is retired: it cost on the
+# order of 9M input tokens in one day for 9 useful digest updates, because every firing
+# was a separate request that re-uploaded the entire session. Cron jobs are session-scoped
+# and cannot be cancelled from outside the session that made them, so this is the only way
+# to reach a tick armed by an older session — the message below is read by that session.
+# scripts/session-snapshot.sh sets SESSION_EXTRACT_ALLOW=1, because the model-free loop is
+# the replacement, not the thing being disabled.
+here_dir="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$here_dir/../session/.tick-disabled" ] && [ "${SESSION_EXTRACT_ALLOW:-}" != "1" ]; then
+  cat >&2 <<'DISABLED'
+session-extract.sh: DISABLED — the scheduled checkpoint tick is retired.
+
+If you are a session executing a "CHECKPOINT TICK" prompt:
+  1. CANCEL that recurring cron job now (CronDelete) — it is yours, nobody else can.
+  2. Do NOT retry, and do NOT report "nothing new": nothing was checked.
+  3. Report that the tick is disabled and that you cancelled the job.
+
+Capture now runs without a model, in scripts/session-snapshot.sh. See
+session/CONVENTIONS.md § Checkpoint capture.
+DISABLED
+  exit 3
+fi
+
 # Claude Code stores transcripts under ~/.claude/projects/<cwd with / replaced by ->
 if [ -z "$project_dir" ]; then
   project_dir="$HOME/.claude/projects/$(pwd | sed 's|/|-|g')"
