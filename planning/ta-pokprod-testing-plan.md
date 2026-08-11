@@ -15,29 +15,29 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L48:99
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L101:333
-  - 2a. pokprod shared-cluster safety invariants — L133:167
-  - 2b. Two-fork contract — what lives where — L170:206
-  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L209:277**
-  - 2c. Configuration contract — fail-closed, per kube context — L280:332
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L335:362
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L365:503
-  - 4.1 Refresh trigger — ARMED 2026-07-30 — L425:453
-  - 4.2 Tier-A image currency — three tags exist — L456:503
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L506:721
-  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L617:662
-  - 5.7 The KEDA arm is present but unrunnable — L680:721
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L724:935
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L939:1498
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1241:1315
-  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1317:1350**
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1352:1380
-  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1383:1498**
-  - 7.6.1 Cold-resume state (2026-08-08) — L1467:1498
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1500:1523
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1525:end
-  - 9.1 Tooling track (T1–T11) — L1556:end
+- [1. Where we are (findings)](#1-where-we-are-findings) — L49:100
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L102:336
+  - 2a. pokprod shared-cluster safety invariants — L134:171
+  - 2b. Two-fork contract — what lives where — L173:210
+  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L212:280**
+  - 2c. Configuration contract — fail-closed, per kube context — L283:335
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L338:365
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L368:506
+  - 4.1 Refresh trigger — ARMED 2026-07-30 — L428:456
+  - 4.2 Tier-A image currency — three tags exist — L459:506
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L509:724
+  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L620:665
+  - 5.7 The KEDA arm is present but unrunnable — L683:724
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L727:938
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L941:1527
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1243:1331
+  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1333:1366**
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1368:1397
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1399:1527**
+  - 7.6.1 Cold-resume state (2026-08-08) — L1487:1527
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1529:1552
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1554:end
+  - 9.1 Tooling track (T1–T11) — L1585:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -140,9 +140,11 @@ mutate cluster-global state. These invariants bind every phase and must be resta
 
 - **Operate only in Dean's namespace** (`dhl-wva-209`, per Phase 3). Every `oc`/harness/helm/kustomize
   invocation carries an explicit `-n dhl-wva-209`; never rely on the current-context namespace.
+  > REVIEW: scope should be the b
 - **Every environment value comes from the explicit `.env`** — namespace, model, instance, image,
   accelerator, URLs. Never a harness default or inferred value: a default could resolve into Ofer's
-  namespace or a cluster-global object. This is *why* Dean uses a fully-populated `.env`.
+  namespace or a cluster-global object. This is *why* Dean uses a fully-populated `.env`. 
+  > REVIEW: anyone using the new benchmark MAkefile targets should not land mistakenly on the wrong branch. The rules is not scoped to Dean. 
 - **Any teardown on pokprod requires Dean's explicit approval** — no teardown/delete is initiated or
   directed by the plan-agent, and none runs (even by Ofer) without Dean signing off on that specific
   action. Never run a delete/teardown without an explicit namespace arg.
@@ -1269,6 +1271,20 @@ enough to be a dwell rather than a step. **The rate must be found by measurement
 the RPS↔KV relationship is the thing being characterized. The coder has offered a short probe run to
 locate it first, which needs Dean's approval like any other run.
 
+> **The exact no-action band, computed from the applied thresholds (Dean, 2026-08-11: "need to compute
+> exact expected band based on applied up/down thresholds").** Not a separate calculation — the band is
+> the direct definition of `saturation_v2`'s two universal thresholds
+> (`internal/config/saturation_scaling.go:54-64`):
+> `requiredCapacity = max(0, demand/ScaleUpThreshold − supply)` fires scale-up once
+> `demand/supply > 0.85`; `spareCapacity = max(0, supply − demand/ScaleDownBoundary)` allows scale-down
+> once `demand/supply < 0.70`. **So the no-action band is exactly `[0.70, 0.85]`** — narrower than the
+> `0.3–0.85` this section names, which was never the band implied by the thresholds, only a wide guess
+> at "somewhere mid-range." **0.67 is just below 0.70, outside the band on the low side** — close, and
+> consistent with this section's own "sub-saturation" framing, but not inside it. Restated for §7.6:
+> the test is whether steady state lands in `[0.70, 0.85]` (or the equivalent band for whichever
+> analyzer combination is under test — TA's own thresholds, and TA+SAT's combined behavior, are not
+> necessarily this same interval and have not been separately derived), not `[0.3, 0.85]`.
+
 **7.4.2 One short-output leg.** E.g. **2000 in / 100 out**, to probe the ITL lower knee. The
 arithmetic is the point: 4K-in/1K-out is still **decode**-dominated in time, so the current
 "long input" shapes are not prefill-heavy in any useful sense — **prefill-heavy needs short outputs,
@@ -1425,13 +1441,17 @@ coder explicitly has no standing to choose: both are analyzer/scenario changes, 
 
 Arm B was already configuration (a), and missed the band **only** because of the replica cap.
 
-**Recommendation — (a), reframed post-correction.** (a) still isolates SAT's own right-sizing from the
-combined optimizer's — that discrimination is unchanged and still useful. What changed is the reason to
-prefer it: not "(a) reaches the band without extra cost," but "(a) is the config that tells you whether
-*SAT alone* can reach and hold steady state, as a baseline before asking the same of any other
-combination." (b) remains legitimate only as a deliberate instrument (a known KV level with the
-autoscaler intentionally out of the loop), never as a default — unchanged from the original reasoning,
-just no longer motivated by "getting into the band faster."
+**Decision — (a). Dean, 2026-08-11: settled, and the test generalizes beyond SAT-alone.** *"For any
+analyzer combination (also for TA only, TA+sat) — we observe real band. Not force it with max/min."*
+(a) is the first instance of a general test, not a SAT-specific one: for **every** configuration under
+test — SAT-only, TA-only, TA+SAT — the question is whether that configuration's own steady state lands
+in the no-action band its own thresholds imply, observed rather than forced. (b)'s deliberate replica
+cap is not part of this test at all; it remains legitimate only as a separate, knowingly-chosen
+instrument (a known KV level with the autoscaler intentionally out of the loop), never as how the
+"does it land in-band" question gets answered. **Not yet derived:** TA's own no-action band, and the
+combined TA+SAT band, are not necessarily `[0.70, 0.85]` — that interval is SAT's specifically, from its
+two thresholds. Deriving the equivalent band for TA and for TA+SAT is a prerequisite for testing them,
+not yet done.
 
 **The sawtooth already ran — this is not a fallback still to try.** `ta_autoscale_dwell.yaml.in`'s two
 360 s rungs (20 and 26 RPS) executed in the 2026-08-10 campaign as all three `*-dwell` cells
@@ -1480,20 +1500,29 @@ rule holds: **no run without his explicit approval.**
   contaminated *across* runs; this is an adopted protocol, not a suggestion.
 - **GPU state:** the ladder run's GPUs are released; **one GPU remains held** by the decode replica's
   `minReplicas=1` steady state — a separate open question (coder's §17.8 item 3).
-- **T9 still gates the per-request trace.** Until Dean applies the gateway log-follower, every
-  per-request trace is a bet against log rotation (§9.1 T9) — and per §7.4 the routing oscillation is
-  invisible without it.
+- **T9 gates the per-request trace, applied per-test, not in advance.** Without the gateway log-follower
+  applied, every per-request trace is a bet against log rotation (§9.1 T9) — and per §7.4 the routing
+  oscillation is invisible without it. **Corrected 2026-08-11:** this is not a standing prerequisite to
+  clear ahead of the campaign; it applies as part of the test playbook when an actual test is about to
+  run, with no permission scope beyond that run.
 
 **Next steps, in order.**
 
-1. **Dean** — confirm §7.4's three asks, and answer (a)/(b), or explicitly defer (a)/(b) behind the
-   quantization run.
-2. **Dean** — apply the gateway log-follower (T9); otherwise step 4 may yield no per-request trace.
-3. **Coder** — satisfy the four preconditions; restart the controller.
-4. **Dean** — approve the run. **Coder** — run it, then `post_run_analyze.sh` **immediately**.
-5. **Planner** — read the two rungs. Both ≈ 0.67 ⇒ rate-invariance confirmed ⇒ (a)/(b) becomes
-   necessary; either rung in-band ⇒ the dwell is had and §7.4.1 is satisfied with no config change.
-6. **Only if both read low** — the 32 RPS follow-up run, which needs the PVC headroom first.
+1. **Dean** — confirm §7.4's three asks (still owed, separate from the (a)/(b) decision below).
+2. **(a)/(b) — DECIDED 2026-08-11.** (a), generalized to any analyzer combination, observed not forced.
+3. **Dean** — apply the gateway log-follower (T9) **as part of the test playbook when the run actually
+   fires**, not as an advance step; otherwise step 4 may yield no per-request trace.
+4. **Coder** — satisfy the four preconditions; restart the controller.
+5. **Dean** — approve the run. **Coder** — run it, then `post_run_analyze.sh` **immediately**.
+6. **SUPERSEDED — the two rungs already ran, and they did not read 0.67 or land in-band.** Both
+   sat-voting sawtooth cells hit the replica cap of 10 twice (a limit cycle, campaign 2026-08-10;
+   see [`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md) Finding 2)
+   — too short to reach steady state at all, not a clean read either direction. (a) is decided
+   regardless (step 2), so this step's original branch (confirm rate-invariance → make (a)/(b)
+   necessary) is moot; what the dwell deep-dive session actually needs to establish is run duration —
+   see `session/handoffs/dwell-deep-dive__handoff.md`.
+7. **Only if a longer dwell run still reads outside `[0.70, 0.85]`** (§7.4.1's corrected band, above) —
+   the 32 RPS follow-up run, which needs the PVC headroom first.
 
 ---
 
@@ -1569,7 +1598,7 @@ after review, per push. Dependency order matters only where stated.
 | **T6** | The one runbook `docs/developer-guide/benchmark-tooling-runbook.md`, its two link points in `benchmark-guide.md`, and the fold-in of `docs/two-variant-wva-pokprod-runbook.md` | benchmark coder | §5.5 item 4 |
 | **T7** | Close the three cross-arm contamination paths and the literal-match `awk` injection | benchmark coder | §7.5 |
 | **T8** | Pin `hack/benchmark` Python deps in a tracked requirements file; add a **fresh-checkout acceptance gate** — simulate a clean clone and confirm the documented flow works end to end. This is the technique that caught the `metrics/raw/` loss during the autoscaling-viz migration (8 PASS/7 FAIL from a clone vs 12/4 locally) | benchmark coder | §7.4 |
-| **T9** | `kubectl apply` the gateway access-log follower (`hack/benchmark/gateway-log-follower.{sh,yaml}`) — **Dean personally**; the coder's permission classifier blocks it, and until it is applied every per-request trace is a bet against log rotation | **Dean** | §7.4 |
+| **T9** | Apply the gateway access-log follower (`hack/benchmark/gateway-log-follower.{sh,yaml}`) — **CORRECTED 2026-08-11: not standing infrastructure, applied per-test.** Dean: *"T9 should only run with a test, part of the playbook, no extra permissions above an actual test."* The `kubectl apply` runs as **part of the test playbook**, gated to an actual test execution, needing no permission beyond what that run already needs — not a one-time cluster-admin action taken in advance. Still needs Dean applying it (the coder's permission classifier blocks the apply either way), but the *trigger* is "a real test is about to run," not a standing prerequisite to clear once | **Dean, per-test** | §7.4 |
 | **T10** | File upstream llm-d-benchmark issues for the two guards — **later**, Dean's call, after T2 has them isolated | **Dean** | §2b |
 | **T11** | Dwell-run preconditions for the staged `ta_autoscale_dwell` / `ta_prefill_knee` run: reclaim the results PVC to **≥14 GB** with `verify_pvc_vs_host.py` **gating** it, confirm the 96Gi harness pod schedules, set the 5-GPU footprint flag, **restart the controller** (capacity history is contaminated across runs), and run `post_run_analyze.sh` **immediately** after | benchmark coder | §7.6.1 |
 
