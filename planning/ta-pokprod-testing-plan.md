@@ -29,14 +29,15 @@
   - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L617:662
   - 5.7 The KEDA arm is present but unrunnable — L680:721
 - [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L724:935
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L938:1443
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1240:1306
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1309:1337
-  - **7.6 The dwell is a controller-configuration lever, not a workload lever — L1340:1443**
-  - 7.6.1 Cold-resume state (2026-08-08) — L1413:1443
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1446:1468
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1471:end
-  - 9.1 Tooling track (T1–T11) — L1502:end
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L939:1498
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1241:1315
+  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1317:1350**
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1352:1380
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1383:1498**
+  - 7.6.1 Cold-resume state (2026-08-08) — L1467:1498
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1500:1523
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1525:end
+  - 9.1 Tooling track (T1–T11) — L1556:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -1279,7 +1280,14 @@ buys **+0.236**. Prefill is a regime-specific term, so a shape that isolates it 
 never lands inside the measurement window. The closing 20→2 RPS step is already the right shape — it
 is the *collection window* that needs extending, not the load profile. A ramp-down is also the honest
 test of rescaling, because scale-down has no boot lag. Named next after these, per Dean: more noise in
-the input signal, and a change in request shape.
+the input signal, and a change in request shape. **Agreed, 2026-08-11**, with an addition: *"if we have
+[a] scenario that start[s] from more than 0 replicas, we need [to] cut the boot period out of the
+results (like we did in the simulations)."* Any cell whose scenario starts at `minReplicas > 0` (or
+whose ScaledObject is pre-warmed above 0 before the workload begins) must have its analysis window
+start **after** boot lag clears, the same convention the `autoscaling-viz` simulation work already
+applies. **Not yet implemented in the extractor** — `extract_real_trace.py` currently analyzes from
+t=0 regardless of starting replica count. Candidate for the viz Type 1's coverage-check / self-check
+section, or a dedicated extractor flag; not designed here.
 
 **Measurement constraint — restate this wherever the plan or the runbook specifies metrics
 collection.** The ladder run contains a **routing oscillation** with a period of **6–11 s**, tracking
@@ -1305,6 +1313,41 @@ gateway log-follower (built, **not yet applied** — see §9 T9) matters.
 (12–35 MB/run, compresses ~10×, and the only time-resolved source of KV / running / waiting / ITL /
 preemption). A blunt reading of "delete the big data" would take it — and did, once, during the
 autoscaling-viz migration, which is where the **fresh-checkout acceptance gate** (§9 T8) comes from.
+
+### 7.4.4 Workload coverage matrix + theory/simulation/real baseline (Dean, 2026-08-11)
+
+**Two new asks, neither built.** *"I need a coverage matrix on the workloads. We need a test plan that
+explains each workload and what we expect in principle."* Real gap: nothing today lists every
+`ta_autoscale_*.yaml`/`ta_prefill_knee.yaml` workload alongside its purpose and its expected outcome.
+This doc explains individual workloads inline as they're introduced (§7.4.1's mid-band ask, §7.4.2's
+short-output leg, §7.6's sawtooth) but there is no single table a cold reader can scan to see the whole
+set at once, or to notice a gap in coverage.
+
+**The second ask is a methodology, not a table:** *"we should have theory based on simulation + viz,
+simulation based on actual workload generated + viz. This will give us a synthetic baseline before we
+actually benchmark (can ref the results from the plan)."* Read precisely, this is **three** artifacts
+per workload, not one, in a specific order:
+1. **Theory** — a prediction from the analytical model alone (the capacity/ITL formulas the viz Type 1
+   states — see [`autoscaling-viz-design.md`](autoscaling-viz-design.md)), rendered through the
+   `autoscaling-viz` panel set on synthetic input.
+2. **Simulation from the actual generated workload** — the same panel set, but driven by the real
+   request stream the harness would generate for that workload spec (not the analytical idealization),
+   still before touching a cluster. `autoscaling-viz`'s existing `sim_from_run.py`/`run_inputs.py`
+   toolchain (see `autoscaling-viz/planning/sim-from-benchmark-plan.md`) is the closest existing
+   precedent for this step, though it was built for a different purpose (calibration against an
+   already-real run) and would need checking against this use (a synthetic baseline built *before* the
+   real run exists).
+3. **Real** — the actual benchmark result, compared against (1) and (2) rather than read cold.
+
+**Why this matters and is not just extra process:** it gives a way to tell, before spending cluster
+time, whether a workload is even capable of exercising what it's meant to test — e.g. this session's own
+sawtooth cells ran but were too short to reach steady state (§7.6, corrected), a fact a theory pass
+would likely have flagged before the run. **Not designed here.** Candidate homes: the coverage matrix
+and the theory/simulation legs are viz-side (`autoscaling-viz-design.md`, per Dean's own scoping — viz
+owns "synthetic simulation" and "simulation-following-a-test"); the workload-spec-to-purpose mapping
+itself may belong in the not-yet-written benchmark Type 1 instead, since it's about what benchmark
+*runs*, not what viz *computes*. Split TBD when both Type 1s exist. Added to the documentation drift
+checklist in [`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md).
 
 ### 7.5 Autoscaler-arm matrix + A/B hygiene (2026-08-08)
 
@@ -1361,6 +1404,17 @@ dwelt in 0.3–0.85" is a fact about *configuration*, not about rate:
 Neither number is really a fact about the offered rate. So §7.4.1 as written asks the *workload
 profile* to do something only the *analyzer configuration* can do.
 
+> **⚠ CORRECTED 2026-08-11 — the goal below was misstated. Not forcing a band; verifying arrival at
+> one.** Dean, 2026-08-11: *"we don't have a goal of forcing a band. One of the tests we want is that
+> in steady state autoscaling lands eventually with the right size, i.e. in the right band. We can
+> measure transition time, but we care more about eventual steady state. Runs must be long enough to
+> stabilize. This applies for sat only and for any other analyzer combination."* The (a)/(b) framing
+> below still names the real fork (an uncapped SAT-only config vs. a deliberate cap), but its purpose is
+> **not** "manufacture a dwell so a slope is fittable" — it is "run long enough, under whichever
+> analyzer combination is under test, that eventual steady state is observable at all," transition time
+> being a secondary measurement, not the target. Every rung run so far (§ *the sawtooth ran already*,
+> below) was too short to test this — that is the actual finding, not a failed dwell attempt.
+
 **The decision — OPEN, Dean's.** The lever is the operating point, and there are two candidates. The
 coder explicitly has no standing to choose: both are analyzer/scenario changes, not workload changes.
 
@@ -1371,23 +1425,23 @@ coder explicitly has no standing to choose: both are analyzer/scenario changes, 
 
 Arm B was already configuration (a), and missed the band **only** because of the replica cap.
 
-**Recommendation — (a).** Coder and planner read it the same way: (a) is right if the goal is *"does
-the autoscaler hold the service at the right size"*, which is Dean's stated forward direction
-(right-sizing and steady-state over transition speed). (b) is right **only** if the goal is
-specifically to characterize engine behavior at a known KV level with the autoscaler deliberately out
-of the loop — legitimate as an instrument when chosen knowingly, **not** legitimate as a default.
-That is precisely why the ladder rejected a cap.
+**Recommendation — (a), reframed post-correction.** (a) still isolates SAT's own right-sizing from the
+combined optimizer's — that discrimination is unchanged and still useful. What changed is the reason to
+prefer it: not "(a) reaches the band without extra cost," but "(a) is the config that tells you whether
+*SAT alone* can reach and hold steady state, as a baseline before asking the same of any other
+combination." (b) remains legitimate only as a deliberate instrument (a known KV level with the
+autoscaler intentionally out of the loop), never as a default — unchanged from the original reasoning,
+just no longer motivated by "getting into the band faster."
 
-**A fallback is already staged that needs no decision.** `ta_autoscale_dwell.yaml.in` exploits replica
-**quantization** instead of configuration: replica count is an integer, so per-replica load — and
-hence KV — peaks at rates just *below* the point where one more replica is warranted. The profile
-takes two long rungs **1.3× apart — 20 and 26 RPS at 360 s each** — as two independent samples of that
-sawtooth; whichever lands on its high side yields the dwell.
-
-The 20 RPS rung is **retained from the ladder as a control, deliberately and not by inertia**, and
-that is what makes the run informative either way: if **both** rungs come back at KV ≈ 0.67, that is a
-clean positive result for rate-invariance and settles the question the other way — at which point (a)
-or (b) becomes **necessary rather than optional**.
+**The sawtooth already ran — this is not a fallback still to try.** `ta_autoscale_dwell.yaml.in`'s two
+360 s rungs (20 and 26 RPS) executed in the 2026-08-10 campaign as all three `*-dwell` cells
+(`m-satta-dwell`, `m-sat-dwell`, `m-ta-dwell` — confirmed by reading each cell's actual workload spec,
+not inferred). **Neither sat-voting cell reached steady state at either rung** — both hit the replica
+cap of 10 **twice** (a limit cycle, analyzer-independent; campaign doc Finding 2), not a dwell.
+`m-ta-dwell` is unusable (truncated ~360 s of a ~40 min plan). So this result does **not** confirm (a) —
+read correctly post-correction, it shows the runs were **too short to test steady-state arrival at
+all**, which is the dwell deep-dive's actual starting question (how long is long enough), not evidence
+against (a) or (b) either way.
 
 **The same defect applies to §7.4.2, more sharply.** A knee is a property of load **per replica**, and
 the autoscaler's job is to keep load per replica *off* the knee. Sweeping offered rate under an active
