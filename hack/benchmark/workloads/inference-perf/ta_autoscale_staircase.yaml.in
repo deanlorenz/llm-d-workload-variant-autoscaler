@@ -78,7 +78,14 @@ report:
   request_lifecycle:
     summary: true
     per_stage: true
-    per_request: true
+    # Disabled: unreliable (borderline-OOMs the harness pod), collects per-packet
+    # rather than per-request despite the name, and the gateway access log is a
+    # validated substitute for arrival/departure/sojourn/concurrency (see the
+    # dwell profile's own comment for the validation numbers). Only TTFT and
+    # per-token timing are genuinely lost; both are already covered at
+    # scrape-interval resolution by the vllm:time_to_first_token_seconds and
+    # vllm:inter_token_latency_seconds histograms already being collected.
+    per_request: false
 storage:
   local_storage:
     path: /workspace

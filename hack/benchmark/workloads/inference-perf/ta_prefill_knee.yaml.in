@@ -120,8 +120,14 @@ report:
   request_lifecycle:
     summary: true
     per_stage: true
-    # Load-bearing here more than anywhere: per-request ITL IS the measurement.
-    # The gateway access log cannot substitute (no TTFT, no per-token timing).
+    # DELIBERATE EXCEPTION to per_request being disabled elsewhere (staircase,
+    # ladder, dwell, calibration probe): per-request ITL IS the measurement here,
+    # and the gateway access log cannot substitute (no TTFT, no per-token
+    # timing). Safe to keep because this run is short and comfortably sized --
+    # ~17 min wall clock, worst-case ~9.0 GB (see SIZING above) against a
+    # reclaimed 20Gi PVC, unlike the dwell profile's 11.3 GB collector that OOM'd
+    # against an ~11.9 GB harness pod boundary. If this profile's shape or
+    # duration changes, re-check the sizing math before assuming this still fits.
     per_request: true
 storage:
   local_storage:

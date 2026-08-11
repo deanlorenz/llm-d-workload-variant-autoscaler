@@ -158,13 +158,17 @@ report:
   request_lifecycle:
     summary: true
     per_stage: true
-    # Load-bearing: per-request TTFT/ITL is the only source for the ITL fits, and
-    # the gateway access log is NOT a substitute for it (it carries no TTFT and no
-    # per-token timing). The access log IS a validated substitute for arrival,
+    # Disabled: this collector is what OOM'd during the 2026-08-10 dwell cells
+    # (per-request trace sized ~11.3 GB against an ~11.9 GB harness pod OOM
+    # boundary), and it collects per-packet rather than per-request despite the
+    # name. The gateway access log is a validated substitute for arrival,
     # departure, sojourn and concurrency -- mean sojourn 0.23-0.42% low, p95
-    # within 0.08-0.93% on all eight stages of 08-07 -- so if this serialization
-    # OOMs again the run is degraded, not lost.
-    per_request: true
+    # within 0.08-0.93% on all eight stages of 08-07 -- and TTFT/ITL distribution
+    # (though not per-request) is already covered at scrape-interval resolution
+    # by the vllm:time_to_first_token_seconds and vllm:inter_token_latency_seconds
+    # histograms already being collected. What's genuinely lost is per-request
+    # TTFT/ITL and any signal needing exact token counts.
+    per_request: false
 storage:
   local_storage:
     path: /workspace
