@@ -19,12 +19,29 @@ primary artifact; this doc exists to say what each one shows and what it does **
 
 ## ⚠️ Two hazards before anything else
 
-**1. A live OpenShift bearer token is committed inside the results tree.** Every cell's
-`run/inference-perf-*.yaml` carries `LLMDBENCH_BASE64_CONTEXT_CONTENTS`, which base64-decodes to a
-kubeconfig containing a `sha256~…` bearer token for `DEAN@il.ibm.com` on
-`api.pokprod001.ete14.res.ibm.com`. **7 copies**, one per cell. The token must be **rotated**, and no
-copy/publish step (figures, overview, anything handed to Ofer) may carry those manifests along. Flagged
-to Dean 2026-08-10; not actioned by this doc.
+**1. RESOLVED 2026-08-10 — a live OpenShift bearer token was present in the results tree (never
+committed).** Every cell's `run/inference-perf-*.yaml` carried `LLMDBENCH_BASE64_CONTEXT_CONTENTS`,
+which base64-decodes to a kubeconfig containing a `sha256~…` bearer token for `DEAN@il.ibm.com` on
+`api.pokprod001.ete14.res.ibm.com`. It never reached git — those files live under gitignored `dean-*/`
+directories — but they were readable on disk, and every copy/mirror step made from that tree (the
+`plans/scratch/` mirror, the coder's tracked `session-notes/campaign-viz/`) had to be checked clean
+before use.
+
+**Mechanism, traced:** this is upstream `llm-d-benchmark` behavior, not something the WVA fork
+introduced. `setup/run.sh:183` captures the operator's active kube context to `context.ctx`;
+`build/llm-d-benchmark.sh:25-26` decodes it back into `~/.kube/config` **inside the harness pod**, so
+the harness can `kubectl`/`oc` from within the cluster it's benchmarking. Every run embeds whatever
+token is live in the operator's context at launch time.
+
+**Disposition, Dean's call:** all 7 files were **removed** (verified: 0 copies anywhere in either
+worktree, `sha256~…` pattern grepped clean tree-wide). pokprod itself rotates and forces a new token
+every few hours regardless, and **there is no need to persist a bearer token beyond the active session
+— the live k8s context is sufficient**; a saved token only creates a standing artifact with no
+corresponding need. This resolves the immediate exposure. It does **not** fix the mechanism above: the
+*next* campaign will embed whatever token is live in the context at that time, into fresh `dean-*/`
+directories, by the same upstream code path. A durable fix (e.g. a scoped service-account token
+injected via secret, rather than the operator's personal context) is upstream `llm-d-benchmark`
+engineering — tracked as a checklist item, not fixed here. See § *Documentation drift checklist* below.
 
 **2. The campaign's original headline finding was RETRACTED mid-flight.** The first report claimed
 "saturation cannot be disabled on the PR-2 image". That is **false** — see § *Finding 1*. Any external
@@ -352,6 +369,69 @@ discovery task below (prefix-hit rate, at minimum, no longer needs to be an aggr
 
 ---
 
+## Type 1 homes — where the missing designs go (Dean, 2026-08-10)
+
+**The `tput_knee()`/`capacity()` review has no doc to review against, because no Type 1 covers this
+material at all.** Checked directly: `planning/benchmark-observability-plan.md` is the nearest-sounding
+candidate and is a Type 3 for a *different* effort (WVA's own `k2`/saturation decision logging) — it
+never mentions `tput_knee`, `capacity()`, or concurrency estimation. The only place the estimation
+*design* lives is `autoscaling-viz/real-trace-viz-plan.md` §5.3/§6, a Type-3-shaped worktree
+implementation doc, not a Type 1. There was never a frozen design to check the code against — the gap
+predates this campaign.
+
+**Scoping, decided:** two Type 1s, split by **worktree responsibility**, cross-referenced where they
+touch rather than merged into one:
+
+- **Benchmark Type 1** — setup, runs, workload preparation, collection, results management, and calling
+  into viz. Owns: the `.env`/context contract (§2c of the testing plan already covers part of this and
+  should likely fold in or be superseded by this doc), the results-persistence tree (§ *Folder structure*
+  below), per-request collection policy (§ *Per-request data*, next section), the harness-credential
+  mechanism (§ *the bearer token*, above).
+- **Viz Type 1** — visualization, post-test analysis, synthetic simulation, and simulation-following-a-
+  test. Owns: the capacity/knee estimation model (`tput_knee()`, `capacity()`/`max_conc_pred`, and the
+  three open review questions above), the coverage-check specification (§ *Coverage checks —
+  undocumented*), panel design including the missing scaling-decision panel.
+
+**Not written yet.** This section records the scoping decision only. Creating the two docs, migrating
+the relevant material out of `real-trace-viz-plan.md` and `ta-pokprod-testing-plan.md`, and running
+Dean's actual review against the viz one are all separate, sequenced work — see the checklist below.
+
+---
+
+## Documentation drift checklist (Dean, 2026-08-10 — "we need a checklist, not resolve everything immediately")
+
+Checked what actually needs revisiting, rather than assuming everything referencing this campaign is
+stale. Listed, not fixed:
+
+- [ ] **Type 1 — benchmark.** Does not exist. Create per § *Type 1 homes* above. Candidate content:
+  §2b/§2b-bis/§2c of `ta-pokprod-testing-plan.md` (two-fork contract, artifact tree, config contract),
+  the per-request collection decision, the harness-credential mechanism.
+- [ ] **Type 1 — viz.** Does not exist. Create per § *Type 1 homes* above. Candidate content: §5–§8 of
+  `autoscaling-viz/real-trace-viz-plan.md` (ITL validity window, capacity model, coverage spec), the
+  `tput_knee()`/`capacity()` open review questions from this doc.
+- [ ] **`combined-analyzer-optimizer-design.md` (Type 1)** — spot-checked this session: its one reference
+  to "saturation cannot be disabled" cites the pre-existing gap by its established name, **not** the
+  retracted campaign claim. Clean on this pass. Worth a second look once the F1 sat-disable fix design
+  (the item this doc is actually tracking) exists.
+- [ ] **Epic** — whichever epic tracks the pokprod benchmark/TA validation work should be checked for any
+  claim inherited from the retracted Finding-1-predecessor or Finding 3's original misattribution. Not
+  checked this session — no epic doc was located in this pass; may need identifying first.
+- [ ] **Type 3, `ta-pokprod-testing-plan.md`, §7.6/§7.6.1** — written *predicting* what this campaign then
+  measured. Nobody has closed that loop: §7.6's (a)/(b) operating-point fork is still open, and §7.6.1's
+  cold-resume state predates the actual campaign results existing. Needs a pass reconciling prediction
+  against measurement.
+- [ ] **`session/CURRENT.md`** — spot-checked this session: already self-corrects with its own
+  "RETRACTED — do not cite" marker on the sat-disable claim. Clean.
+- [ ] **Upstream `llm-d-benchmark` mechanism fix** (bearer-token embedding, § *the bearer token* above) —
+  not a doc, but a real engineering item with no current home. File as an upstream issue candidate once
+  §9.1 T10's "later" arrives, or sooner if Dean wants it tracked separately.
+- [ ] **Full sweep** — this pass checked the obvious candidates (grep for cell names, the sat-disable
+  phrase, and this doc's own filename) across `planning/` and `session/CURRENT.md`. A thorough sweep
+  across every `planning/*.md` for `prc`/`k2Source`/`P1-obs` or other sat-v2-estimator-internals
+  references has **not** been run — flagged, not done.
+
+---
+
 ## Per-request data — disposition and discovery plan (Dean, 2026-08-10)
 
 **Decision: disable per-request collection in inference-perf. No benchmark Makefile target should
@@ -518,10 +598,12 @@ omit it if you want the PASS/FAIL table.
 | **Bundles + figures — canonical** | `benchmark/dean-*/results/*_1/viz/` | ⚠️ on disk, **gitignored** |
 | Figures — planner mirror | `plans/scratch/campaign-20260810-viz/` | ✅ committed on `plans` |
 
-**Owed, and by whom — updated 2026-08-10, second pass (per-request/capacity-model discussion):**
-- **Dean** — **rotate the leaked bearer token** (still the one blocking item with a clock on it); the
-  actual review of `tput_knee()` / `capacity()` (§ *never reviewed*, above) — three concrete design
-  questions are listed there and none are the planner's or coder's to decide.
+**Owed, and by whom — updated 2026-08-10, third pass (token resolved; Type 1 scoping; drift checklist):**
+- **Bearer token — RESOLVED.** All 7 files removed, verified clean tree-wide. No standing action; the
+  upstream mechanism fix is a checklist item (§ *Documentation drift checklist*), not a today task.
+- **Dean** — the actual review of `tput_knee()` / `capacity()`, once the new Type 1 section exists to
+  review it against (§ *Type 1 homes*, below) — three concrete design questions are listed in § *never
+  reviewed* above and none are the planner's or coder's to decide.
 - **Benchmark coder** — build the `benchmark/{tools→,campaigns/,runs/}` tree (§ *Folder structure*
   below); disable per-request collection in the benchmark Makefile targets (§ *Per-request data*);
   discard excessive per-run data per a to-be-written playbook keeping only the reproducible set; **run
