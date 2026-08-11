@@ -32,6 +32,9 @@ out=""
 interval=120
 once=0
 tfile=""
+digest=""
+consolidate_every=0
+passes=0   # deliberately not "pass": that is the function name below
 
 here="$(cd "$(dirname "$0")" && pwd)"
 extract="$here/session-extract.sh"
@@ -43,6 +46,9 @@ while [ $# -gt 0 ]; do
     --out)      out="${2:-}";      [ -n "$out" ]      || die "--out needs a value";      shift 2 ;;
     --interval) interval="${2:-}"; [ -n "$interval" ] || die "--interval needs a value"; shift 2 ;;
     --file)     tfile="${2:-}";    [ -n "$tfile" ]    || die "--file needs a value";     shift 2 ;;
+    --digest)   digest="${2:-}";   [ -n "$digest" ]   || die "--digest needs a value";   shift 2 ;;
+    --consolidate-every)
+                consolidate_every="${2:-}"; [ -n "$consolidate_every" ] || die "--consolidate-every needs a value"; shift 2 ;;
     --once)     once=1; shift ;;
     -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)          die "unknown argument: $1" ;;
@@ -105,12 +111,35 @@ pass() {
     | sed 's/^## //; s/  *(mid-turn)$//' > "$mark"
 }
 
+# Tier 2, invoked from Tier 1 rather than on a clock: consolidation is worth a (cheap) model
+# call only when turns have actually accumulated. The consolidator is itself gated on the
+# digest's marker, so calling it with nothing new is a no-op that costs zero tokens — but
+# counting passes keeps even that off the common path.
+consolidate() {
+  [ "$consolidate_every" -gt 0 ] || return 0
+  [ -n "$digest" ] || return 0
+  [ $(( passes % consolidate_every )) -eq 0 ] || return 0
+
+  local rc
+  "$here/tick-consolidate.sh" --digest "$digest" ${tfile:+--file "$tfile"} >>"$log" 2>&1
+  rc=$?
+  # Do not die: a consolidation failure must not take down free Tier-1 capture. Log it loudly
+  # so it cannot pass as success — the digest may be left modified-but-uncommitted, which the
+  # next successful run picks up.
+  [ "$rc" -eq 0 ] || printf '[%s] consolidate failed rc=%s\n' "$(date -u +%FT%TZ)" "$rc" >> "$log"
+  return 0
+}
+
 if [ "$once" -eq 1 ]; then
+  passes=1
   pass
+  consolidate
   exit 0
 fi
 
 while true; do
+  passes=$(( passes + 1 ))
   pass
+  consolidate
   sleep "$interval"
 done
