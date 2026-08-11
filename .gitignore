@@ -38,9 +38,17 @@ hack/benchmark/.env
 *-*-*-*-*-*/
 biran-*/
 # Our own run directories are dean-<date>-<time>-<pid>/, which is only three hyphens and so
-# is not matched by the pattern above. Each holds 100+ MB of results and must never be
-# committed; the analysis that survives a run lives in session-notes/ instead.
+# is not matched by the pattern above. run_cell.sh relocates each one into
+# runs/<run-id>/ once the run completes (see the runs/ rule below); a dean-*/
+# directory lingering at the repo root means a run is still in flight or its
+# relocation step did not run -- either way it must never be committed.
 dean-*/
+# Each run gets one directory at runs/<run-id>/ (run-id = the harness's own
+# dean-<date>-<time>-<pid> string). config/, viz/, and REPORT.md are the
+# reproducible/durable set and ARE tracked; raw/ is the disposable harness
+# output (100+ MB of scrapes and per-stage summaries) and stays ignored, same
+# rationale as the old dean-*/ rule it replaces.
+runs/*/raw/
 # Harvested copies of run results, kept locally for re-analysis (14-day retention).
 session-notes/scratch/ladder-run/
 llmd/

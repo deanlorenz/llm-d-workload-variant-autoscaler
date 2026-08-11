@@ -76,9 +76,31 @@ if [ -z "$RESULTS" ]; then
 fi
 if [ -n "$RESULTS" ]; then
   echo "results dir: $RESULTS"
-  echo "$RESULTS" > "$OUT/results-dir.txt"
   bash hack/benchmark/post_run_analyze.sh "$RESULTS" "$NS" 2>&1 | tail -25
   cp "$OUT/controller.log" "$RESULTS/controller.log" 2>/dev/null
+
+  echo "--- relocating into runs/<run-id>/{config,raw,viz} ---"
+  # Run-id is the dean-*/ directory name itself (approved 2026-08-11): keep the
+  # harness's own naming, just relocate the tree so results live beside their
+  # own config/viz for the whole lifecycle instead of scattered across the repo
+  # root and session-notes/. config/ + viz/ are the reproducible/durable set and
+  # get committed; raw/ is the disposable harness output (see .gitignore).
+  RUN_ID=$(echo "$RESULTS" | cut -d/ -f1)
+  RUN_DIR="runs/$RUN_ID"
+  mkdir -p "$RUN_DIR/config" "$RUN_DIR/viz"
+  mv "$RUN_ID" "$RUN_DIR/raw"
+  # viz/ (panels.png, coverage.json, bundle.json) is produced separately by the
+  # autoscaling-viz toolchain, into the leaf results dir under raw/ -- pull it
+  # up beside config/ if it already exists at this point in the pipeline.
+  RAW_LEAF="$RUN_DIR/raw/$(echo "$RESULTS" | cut -d/ -f2-)"
+  if [ -d "$RAW_LEAF/viz" ]; then
+    mv "$RAW_LEAF"/viz/* "$RUN_DIR/viz/" 2>/dev/null
+    rmdir "$RAW_LEAF/viz" 2>/dev/null
+  fi
+  cp "hack/benchmark/${ENV_NAME}.env" "$RUN_DIR/config/" 2>/dev/null
+  cp "$OUT/analyzer-config.txt" "$OUT/images.txt" "$OUT/scaledobject.yaml" "$RUN_DIR/config/" 2>/dev/null
+  echo "$RUN_DIR" > "$OUT/results-dir.txt"
+  echo "relocated to $RUN_DIR (raw/ holds the full dean-*/ tree, config/ and viz/ split out)"
 else
   echo "WARNING: no results directory found; skipping analysis"
 fi
