@@ -215,6 +215,8 @@ Read this before quoting any number above.
    What is unvalidated is the *concurrency* prediction (would-be panel-3 KV ceiling), whose footprint
    model (`I×(1-hit) + O/2`) is the actual suspect — worth checking against real per-request I/O length
    once that data exists (see § *Per-request data — inventory and plan*).
+   **⚠️ See § *`tput_knee()` and `capacity()` were never reviewed* below — this whole item explains what
+   the code does; it is not evidence the code's approach is the right one.**
 4. **`m-ta-dwell` is not a usable trace.** Truncated at ~360 s of a ~40-minute cell (campaign stopped —
    Dean: *"putting the laptop to sleep"*); ITL fit r²=0.11 on n=36; replicas fall to 0 at the end because
    the ScaledObject was paused. Its **analyzer counts are valid**; its replica path and ITL fit are not.
@@ -283,6 +285,73 @@ per-request collection generally (disable it; find fallback signals instead).
 
 ---
 
+## `tput_knee()` and `capacity()` were never reviewed (Dean, 2026-08-10)
+
+**Dean, on `tput_knee()`:** *"I don't remember discussing it / reviewing it, and making a decision."*
+Checked directly: correct. Both `tput_knee()` and `capacity()`/`max_conc_pred` were introduced in the
+toolchain's very first commit, **`ca7f2c74`** (2026-08-07, authored by Dean himself, in `autoscaling-viz`)
+— every "Dean approved" line in that worktree's plan doc is about the **migration** (branch/worktree
+moves, the name `autoscaling-viz`), never about these two functions' design. §6 of the plan does record
+Dean's memory-bound *formula* (`I·(1−pfx_hit) + O/2`, validated once to <1% against one run's peak) — but
+that is the shape of the model, not a review of `capacity()`/`max_conc_pred` as they exist in code today,
+and it says nothing about `tput_knee()` at all. **Anything in this doc citing either function's output
+should be read as "what the code currently does," not "a reviewed and agreed method."**
+
+**Dean's objection to `max_conc_pred`, stated precisely — and it survives inspection of the code:**
+`capacity()` computes ONE global number (`kv_tokens / footprint_tok`, memory-bound formula) and compares
+it against `max_conc_obs`, the single observed peak. There is no time window, no local-error tracking, no
+handling of regime transitions. Restated in Dean's terms: real `num_running(t)` has (at least) three
+distinct behaviors — **a(t)**, the pre-saturation trajectory, which is *not constant, not linear in
+load, and jumps* (replica boots, preemption events); **b**, the near-saturation value the model is
+actually trying to predict, which is *harder to track precisely because it's not a fixed point*; and
+**c**, the fully-saturated ceiling, which is just `max()` and "does not mean much" on its own — it's a
+ceiling, not a description of behavior below it. `capacity()` fits none of these directly: it predicts a
+single number and checks it once against `max_conc_obs`, which is closest to **c**, so the 63% error on
+`m-ta-staircase` (a cell that never saturates — panel 1b shows capacity tracking load throughout, per
+Finding 3's correction above) is close to a category error: **checking a saturated-regime ceiling formula
+against a run that stayed in the a(t)/b regime the whole time.** That the error is large there may say
+more about applying the check outside its intended regime than about the formula being wrong.
+
+**Both SAT and TA make their own demand/supply estimates, and Dean's point generalizes beyond this one
+viz function:** demand estimates tend to be tractable, supply estimates are multi-modal at best (exactly
+the a(t)/b/c split above), and averaging across a run — which is what a single `max_conc_pred` number
+does — is not expected to be accurate in either analyzer's actual operating regime. This is the same
+concern as Finding 3's correction (a single-tick sample, `P1-obs`, gets treated as representative and
+then sticks via `P2-hist`) and the §7.6 controller-configuration-lever argument (steady state is a moving
+target under a tracking controller, not a fixed point to average toward) — three independent findings in
+this campaign all point at the same underlying issue: **static/global estimates get applied to a
+quantity that is actually piecewise or regime-dependent, and nobody has yet computed how the error
+behaves as a function of time or regime.**
+
+**Not litigated here — flagged as an open design question needing Dean's actual review**, which has
+never happened for these two functions:
+1. Should `capacity()` report a **windowed** or regime-classified value instead of one global number?
+2. What is the local error of `max_conc_pred` as a function of time / regime (a(t) vs b vs c), rather
+   than one point-in-time comparison against `max_conc_obs`?
+3. Is `tput_knee()`'s `argmax`-over-stable-bins approach (documented in its own docstring as an
+   upper-envelope estimate, "the best this hardware was ever seen to do," not a sizing number) the right
+   quantity for the 1b/5 "capacity ceiling" line, given it is now known to be visually convincing
+   *because* it's calibrated from the same curve it overlays — which could mask exactly the kind of
+   regime-dependent error Dean is asking about?
+
+**A concrete, previously-unexploited signal for this: EPP scorer debug logs.** Found this session,
+directly answering Dean's *"epp in debug mode can emit scorer info… estimates prefill effort and cache
+behavior per that request."* Confirmed in `logs/epp_pods.log` (11 MB/cell, already on disk for every
+campaign cell): every scheduling decision emits, keyed by `x-request-id` and per candidate endpoint —
+- `kv-cache-utilization-scorer` score **and** that endpoint's live `KVCacheUsagePercent`,
+  `RunningRequestsSize`, `WaitingQueueSize`, `CacheNumBlocks`/`CacheBlockSize` at that instant;
+- `prefix-cache-scorer` score (0 or nonzero per request — a **per-request** prefix-hit signal, where
+  `capacity()` today only has an aggregate rate `pfx_hit` averaged over the whole run);
+- `queue-scorer` score.
+
+This is real, timestamped, per-request, per-pod state at scheduling time — not TTFT or output length
+directly, but exactly the kind of local signal that could let `max_conc_pred`'s error be computed as a
+function of time/regime instead of once globally, and it directly answers part of the per-request
+discovery task below (prefix-hit rate, at minimum, no longer needs to be an aggregate assumption).
+**Not yet mined for this purpose — added to the discovery task, not analyzed here.**
+
+---
+
 ## Per-request data — disposition and discovery plan (Dean, 2026-08-10)
 
 **Decision: disable per-request collection in inference-perf. No benchmark Makefile target should
@@ -309,7 +378,7 @@ actually recoverable. Sources known to exist and not yet fully mined:
 
 | source | size (dwell cell) | sampled content (this session, partial) |
 |---|---|---|
-| `logs/epp_pods.log` | 11 MB | EPP debug log. Carries `x-request-id` per HTTP body chunk (`HandleResponseBody is triggered` — 34,978 lines in one dwell cell) and named scheduler-plugin events (`Calculated score`, `Request handled`, `LLM request assembled` — 62 each, matching the request count). **No token-count fields found in this session's sample** — needs a full field scan, not a spot-check, before ruling anything out. |
+| `logs/epp_pods.log` | 11 MB | EPP debug log. Carries `x-request-id` per HTTP body chunk (`HandleResponseBody is triggered` — 34,978 lines in one dwell cell) and named scheduler-plugin events (`Calculated score`, `Request handled`, `LLM request assembled` — 62 each, matching the request count). **Confirmed this session** (Dean's lead): `Calculated score` lines carry, per `x-request-id` per candidate endpoint, `kv-cache-utilization-scorer` score + that endpoint's live `KVCacheUsagePercent`/`RunningRequestsSize`/`WaitingQueueSize`, `prefix-cache-scorer` score (a **per-request** prefix-hit signal — see § above), and `queue-scorer` score. **No token-count fields found in this session's sample** — needs a full field scan, not a spot-check, before ruling anything out. |
 | `logs/igw_pods.log` | 38 MB | Gateway (Istio) pod log. This session's sample was Istio's own startup/info noise, not an access-log line with request ID or duration — but only the first lines were read; the bulk is unscanned. |
 | `metrics/raw/*_metrics.log` | 144 KB × N snapshots | Per-pod Prometheus scrape snapshots, already what panels 2–5 are built from. Worth checking specifically for an EPP-emitted metric (Dean's suggestion) that carries request-level info not in the debug log. |
 | `controller.log` | ~200 KB | WVA controller's own decisions — this is the source for the wanted **scaling-decision panel** (see below), not per-request data, but worth scanning for anything unexpected. |
@@ -449,21 +518,30 @@ omit it if you want the PASS/FAIL table.
 | **Bundles + figures — canonical** | `benchmark/dean-*/results/*_1/viz/` | ⚠️ on disk, **gitignored** |
 | Figures — planner mirror | `plans/scratch/campaign-20260810-viz/` | ✅ committed on `plans` |
 
-**Owed, and by whom — updated 2026-08-10 per Dean's persist-results discussion:**
-- **Dean** — **rotate the leaked bearer token** (still the one blocking item with a clock on it).
+**Owed, and by whom — updated 2026-08-10, second pass (per-request/capacity-model discussion):**
+- **Dean** — **rotate the leaked bearer token** (still the one blocking item with a clock on it); the
+  actual review of `tput_knee()` / `capacity()` (§ *never reviewed*, above) — three concrete design
+  questions are listed there and none are the planner's or coder's to decide.
 - **Benchmark coder** — build the `benchmark/{tools→,campaigns/,runs/}` tree (§ *Folder structure*
-  below), disable per-request collection in the benchmark Makefile targets (§ *Per-request data*),
-  discard excessive per-run data per a to-be-written playbook keeping only the reproducible set, and do
-  all of this **on Dean's fork only** — upstream issues/PRs are explicitly deferred ("we can later figure
-  out what belongs as issues/PRs on the benchmark repos").
+  below); disable per-request collection in the benchmark Makefile targets (§ *Per-request data*);
+  discard excessive per-run data per a to-be-written playbook keeping only the reproducible set; **run
+  the per-request discovery task** (§ *Per-request data*) — exact field list, full schema scan of
+  `epp_pods.log` / `igw_pods.log` / `metrics/raw/` / `controller.log`, including mining the EPP scorer
+  debug lines (confirmed this session: per-request `kv-cache-utilization-scorer` +
+  `prefix-cache-scorer` + `queue-scorer` output, keyed by `x-request-id`) for local demand/supply
+  signal that could feed question 2 above (local error of `max_conc_pred` vs time/regime). Do all of
+  this **on Dean's fork only** — upstream issues/PRs are explicitly deferred ("we can later figure out
+  what belongs as issues/PRs on the benchmark repos"). Trigger:
+  `session/handoffs/benchmark__viz-model-review-and-per-request-discovery.md`.
 - **A dedicated new session** — the dwell limit cycle itself (Finding 2, §7.6) is being handed off
   separately per Dean's request; see `session/handoffs/dwell-deep-dive__handoff.md`. Not folded into this
   doc's findings beyond what is already written.
-- **Planner** — audit the plans for any framing that assumed "removing saturation from the list isolates
-  TA" (still open — Finding 1 is sound after §20.21, but text written between the retracted claim and the
-  correction needs a check); add a scaling-decision-reason panel to the renderer (no such panel exists
-  today — see § *Missing: a scaling-decision panel*); document what each of the 16 coverage checks
-  actually asserts (§ *Coverage checks — undocumented*).
+- **Planner / `autoscaling-viz` worktree** — audit the plans for any framing that assumed "removing
+  saturation from the list isolates TA" (still open — Finding 1 is sound after §20.21, but text written
+  between the retracted claim and the correction needs a check); add a scaling-decision-reason panel to
+  the renderer (no such panel exists today — see § *Missing: a scaling-decision panel*); document what
+  each of the 16 coverage checks actually asserts (§ *Coverage checks — undocumented*). None of these
+  should touch `tput_knee()`/`capacity()`'s actual approach ahead of Dean's review above.
 
 ---
 
