@@ -138,24 +138,38 @@ booting. That is exactly §18's replica-lag account, now visible rather than arg
 
 ---
 
-## Finding 3 — `prc` collapse is a third, separate variable
+## Finding 3 — CORRECTED 2026-08-10: saturation's internal `prc` still collapses even while non-voting
 
-Reproduced live in `m-ta-staircase`: `prc` fell **329011 → 195774 → 62538 (5.26×)** after a single
-`P1-obs` tick, then **stuck** at the collapsed value via `P2-hist` for the rest of the run. Supply
-followed it down (329011 → 125076), so utilization crossed 1.0 and `rc` went positive — the controller
-scaled against a capacity estimate that had fallen through the floor, not against real load growth.
-§18 measured up to 13×; this run 5.26×; same direction, same sticking, same `P1-obs`→`P2-hist` sequence.
-**§18's "mechanism, not a tuning problem" diagnosis is confirmed.**
+> **This finding was misframed and is corrected here, not retracted outright — the underlying
+> observation stands, the causal story attached to it does not.** Original framing: reported as a
+> finding *of* `m-ta-staircase` (the TA-only cell), implying the collapse was part of what drove that
+> run's scaling. Dean, 2026-08-10, reviewing 1b for that cell: *"capacity matches load — not sure sat is
+> correct [to discuss] for a TA-only experiment."* He is right. `prc`, `P1-obs`, and `P2-hist` are
+> **saturation-v2** internals (`saturation_v2/types.go`); in `m-ta-staircase`, saturation is **not
+> voting** (§20.21, Finding 1). A grep of that cell's controller log finds only **one** `P1-obs`-adjacent
+> line, not the tick-by-tick sequence the original write-up implied. And 1b for that cell shows capacity
+> tracking delivered load with no visible pathology — consistent with a non-voting analyzer's internal
+> state never reaching the decision.
 
-**It is not the limit cycle's cause.** Present in `m-ta-staircase` (5.26×) and `m-sat-dwell` (1.56×);
-**absent in three cells including one that limit-cycled**. The staircase results alone would have implied
-causation. Three phenomena are now separable: the limit cycle, the `prc` collapse, and the analyzer
-configuration.
+**What actually happened, restated without the causal claim:** saturation's own capacity estimate
+(`prc`) fell **329011 → 195774 → 62538 (5.26×)** in `m-ta-staircase`'s controller log after a `P1-obs`
+entry, then stuck at the collapsed value via `P2-hist`. That collapse is real — it is in the log — but
+because saturation was non-voting in this cell, **there is no evidence it affected `m-ta-staircase`'s own
+scaling decisions.** The compute-and-log-always design (§20.21) means saturation keeps computing `prc`
+whether or not anyone acts on it, so seeing it collapse here is a fact about **saturation's estimator**,
+not about the throughput analyzer or about what drove this particular run's replicas.
 
-**New detail worth a Type-1 look:** `m-sat-staircase` *also* entered `P1-obs` but its `prc` stayed at
-329011. So collapse is **not** a deterministic consequence of entering `P1-obs` — something about the
-observed `k2` at that tick decides whether the history is poisoned. The specific question to aim at: how
-the observed `k2` is written into the bucket-keyed capacity history.
+**§18's "mechanism, not a tuning problem" diagnosis is not affected by this correction** — §18's original
+observations were on cells where saturation *was* voting, so the mechanism itself (a rolling-average
+history that can get poisoned by one bad observed sample) still stands. What's corrected is only which
+cells this finding is evidence *about*: it speaks to saturation's estimator behavior in general, sampled
+here on a cell where that estimator happened to be a passenger, not a driver.
+
+**Still worth a Type-1 look, reframed:** `m-sat-staircase` (saturation *voting*) also entered `P1-obs`
+but its `prc` stayed at 329011 — so the collapse is not a deterministic consequence of entering
+`P1-obs` even within cells where it matters. The question — how the observed `k2` gets written into the
+bucket-keyed history, and why one entry into `P1-obs` poisons it and another doesn't — is unchanged by
+this correction; only its evidentiary weight from `m-ta-staircase` specifically should be discounted.
 
 **Reason-code reference** (source-checked, `saturation_v2/types.go`) — worth folding into a Type 4 doc:
 `P1-obs` = `k2SrcObserved` "queue saturated: tokensInUse" · `P2-hist` = `k2SrcHistorical` "rolling average
@@ -180,12 +194,27 @@ Read this before quoting any number above.
 1. **One run per cell. No repeats, no noise floor.** These are **mechanism observations, not benchmark
    results**. The image A/B in particular (PR-2 → 3 replicas vs the older image → 2) *also* started from
    different replica counts (1 vs 2), so it is not a controlled comparison of images.
-2. **All three dwell cells are blind to user-visible cost** — panel 1a is empty ("no per-request trace in
-   this bundle"). See § *The 1a gap* — this is a harness bug, not missing instrumentation.
-3. **The capacity model fails its own self-check on every staircase cell.** `m-ta-staircase`:
-   `pred=212.4 obs=78.0`, **63% error**. The extractor flags it as a SELF-CHECK FAILURE. The "capacity
-   ceiling" line drawn in panels 1b and 5 is the *model's prediction* and the model is currently wrong by
-   ~2.7× on these runs. Do not present it as a validated ceiling.
+2. **CORRECTED — all three dwell cells are missing per-request resolution, not "blind to user-visible
+   cost".** Panel 1a is empty, but per-stage latency/failure/token-rate data survives intact in
+   `stage_N_lifecycle_metrics.json` for all five stages of all three cells. See § *The 1a gap* for the
+   corrected diagnosis — the earlier "harness bug, ~2 lines" claim in this doc was itself wrong.
+3. **CORRECTED 2026-08-10 — the self-check failure and the 1b "capacity ceiling" line are TWO DIFFERENT
+   QUANTITIES, not the same model.** Original wording conflated them; Dean caught it, correctly noting
+   1b visually tracks delivered load, not 60%+ off. They share no code path in `extract_real_trace.py`:
+   - **1b's dashed "capacity ceiling"** is a **rate** — `ready replicas × tok/s per pod`, where the
+     per-pod rate is `tput_knee()`: the *empirically observed* peak generation throughput on that same
+     run (a `max` over the measured curve, explicitly documented as an upper-envelope estimate, not a
+     model prediction). It tracks visually because it is calibrated **from** the data it is drawn over.
+   - **SELF-CHECK 3** is a **concurrency count** — `capacity()`'s `max_conc_pred = kv_tokens /
+     footprint_tok`, a KV-budget model from `num_gpu_blocks × block_size` divided by a per-request
+     footprint estimate (`I×(1-prefix_hit) + O/2`), compared against `max_conc_obs`, the peak
+     concurrent-requests actually observed. `m-ta-staircase`: pred=212.4, obs=78.0, 63% error. This is
+     the number that is wrong by ~2.7×, and it is a **request-count** model, not the rate line in 1b/5.
+
+   So: **1b and 5's rate ceilings are empirical and are not what the self-check is complaining about.**
+   What is unvalidated is the *concurrency* prediction (would-be panel-3 KV ceiling), whose footprint
+   model (`I×(1-hit) + O/2`) is the actual suspect — worth checking against real per-request I/O length
+   once that data exists (see § *Per-request data — inventory and plan*).
 4. **`m-ta-dwell` is not a usable trace.** Truncated at ~360 s of a ~40-minute cell (campaign stopped —
    Dean: *"putting the laptop to sleep"*); ITL fit r²=0.11 on n=36; replicas fall to 0 at the end because
    the ScaledObject was paused. Its **analyzer counts are valid**; its replica path and ITL fit are not.
@@ -197,45 +226,185 @@ Read this before quoting any number above.
 
 ---
 
-## The 1a gap — what "no per-request trace" costs (answers Dean's question, 2026-08-10)
+## The 1a gap — CORRECTED 2026-08-10: root cause was wrong; the loss is narrower than reported
 
-The **offered** workload survives in full; the **delivered** workload does not.
+> **The original diagnosis in this section was wrong and is replaced, not merely annotated.** It claimed
+> `run_metadata.yaml` is "never written" by a ~2-line harness bug, and that all of TTFT/failure/
+> arrival-vs-departure/router-oscillation were "gone" for all three dwell cells. **Checked directly
+> against the actual result directories on 2026-08-10: `run_metadata.yaml` exists, and so do all five
+> `stage_N_lifecycle_metrics.json` files plus `summary_lifecycle_metrics.json`, each with real content.**
+> The **only** empty file is `per_request_lifecycle_metrics.json` — 0 bytes, in every dwell cell checked.
+> So the failure is real but much narrower than described, and the "~2-line fix" theory does not match
+> what is actually on disk. The likely mechanism is the one the dwell workload's own header predicts
+> (`ta_autoscale_dwell.yaml`'s SIZING comment): the per-request trace is sized to ~11.3 GB against a
+> harness pod OOM boundary the same doc documents at ~11.9 GB — a serialization death, not a control-flow
+> bug in an error handler.
 
-Offered load is recoverable from each cell's `run/inference-perf-*.yaml`:
-`LLMDBENCH_RUN_EXPERIMENT_HARNESS_WORKLOAD_NAME` (`ta_autoscale_dwell.yaml` /
-`ta_autoscale_staircase.yaml`), model `unsloth/Meta-Llama-3.1-8B-Instruct`, a 16-CPU/32Gi harness pod, and
-the gateway endpoint. So "what did we ask for" is never in doubt.
+**What we actually have per stage, per dwell cell** (from `stage_N_lifecycle_metrics.json`, real numbers
+from `m-satta-dwell` stage 2, the 20 rps dwell rung):
 
-| question | without panel 1a |
+| field | value |
+|---|---|
+| requested / achieved rate | 20.0 / 20.018 req/s |
+| count (successes / failures) | 7200 / 0 |
+| request latency | mean 6.72 s · p95 9.00 · p99 14.19 · max 16.59 |
+| normalized time per output token | mean 7.58 ms |
+| **input tokens/sec** | **40,330** |
+| **output tokens/sec** | **18,066** |
+| schedule delay (generator kept up with target rate?) | p95 0.094 s |
+
+**Revised cost table** — this is per-*stage*, not per-*request*, but it is real and on disk today, no
+re-run needed:
+
+| question | without `per_request_lifecycle_metrics.json` |
 |---|---|
 | Offered rate and shape | ✅ from the profile yaml |
-| Replica trajectory, `desired` vs `ready`, boot lag | ✅ panel 2 — the limit cycle is intact |
+| **Achieved rate, per stage** | ✅ `stage_N.load_summary.achieved_rate` — was wrongly marked "gone" |
+| **Delivered latency distribution, per stage** | ✅ `stage_N.successes.latency.*` (mean/p95/p99/max) — was wrongly marked "gone" |
+| **Failure count, per stage** | ✅ `stage_N.successes.count` vs `failures.count` — was wrongly marked "gone" |
+| **Input/output token rate, per stage** | ✅ `stage_N.throughput.{input,output}_tokens_per_sec` |
+| Replica trajectory, `desired` vs `ready`, boot lag | ✅ panel 2 |
 | Per-pod running / waiting, queue depth | ✅ panels 3, 4 |
-| **TTFT, wait-before-first-token, goodput** | ❌ gone |
-| **Whether requests failed or timed out** | ❌ gone |
-| **Arrival vs departure rate** (was the offered load actually delivered?) | ❌ gone |
-| **Router oscillation / `UPSTREAM_HOST`** | ❌ gone |
-| ITL fit quality | ⚠️ degraded — scrape-derived samples only (hence r²=0.87 vs 0.92–0.94) |
+| Per-*request* TTFT / ITL (fine time resolution within a stage) | ❌ genuinely gone — this is what the empty file cost |
+| Router oscillation / `UPSTREAM_HOST` | ❌ genuinely gone — needs a per-request trace by construction |
+| ITL fit quality | ⚠️ degraded to scrape-derived samples (r²=0.87 vs 0.92–0.94) |
 
-**The concrete loss.** Finding 1 exists *because* `m-sat-staircase`'s 9 replicas came with `>60s / failed`
-TTFT bars. Run that same cell on the dwell profile and you would see the replica excursion and **not know
-whether users were served**. A limit cycle that delivers acceptably and one that drops requests are
-**indistinguishable** in panels 2–5.
+**Revised verdict.** The dwell cells are not "blind" — panel 1a can be rebuilt at **stage** resolution
+from data already on disk (5 points per cell instead of a continuous per-request curve), and that
+already answers "did users get served" per stage, including the exact question that made Finding 1
+possible on the staircase cells. What is genuinely and only lost is *within-stage* resolution: the shape
+of the latency distribution as load ramps inside a single 360 s rung, and anything that needs
+per-request identity (router pod, exact arrival instant).
 
-**Verdict:** the dwell *mechanism* is understood (Findings 2 and 3 stand on panels 2–5 alone, which is why
-§7.6's conclusions are safe). The dwell's *user-visible cost* is unmeasured. For "is this regime
-acceptable?" the dwell cells cannot answer.
+**Priority, corrected.** Given the size-boundary root cause, re-running `m-ta-dwell` with the
+per-request collector **enabled** would very likely reproduce the same OOM — not a productive next step
+on its own. See § *Per-request data — inventory and plan* below for the disposition Dean has set for
+per-request collection generally (disable it; find fallback signals instead).
 
-**Root cause — a harness bug, ~2 lines.** Reproducible on the dwell profile (**3 for 3**; 0 for 3 on
-staircase): the treatment logs `complete`, then an unconditional `if errors:` fails the step on a
-`Traceback` from `process_epp_logs.py` that is itself labelled *non-fatal*. Load ran fine (all 5 stages,
-148–149 scrape snapshots, 20 plots) but `run_metadata.yaml` is never written, which breaks the timeseries
-dump and the per-request extraction. Fix: write the metadata **before** the error check, or keep the
-non-fatal EPP failure out of `errors`.
+---
 
-**Priority argument.** This fix outranks re-running `m-ta-dwell`: it is ~2 lines, converts **three blind
-cells into three complete ones**, and re-running without it merely reproduces the blindness. Recommended
-order: fix → re-run `m-ta-dwell` → re-extract all three dwell cells.
+## Per-request data — disposition and discovery plan (Dean, 2026-08-10)
+
+**Decision: disable per-request collection in inference-perf. No benchmark Makefile target should
+enable it going forward.** Reasons, verbatim: it is unreliable (the OOM above is direct evidence — its
+own sizing math admits it's borderline before every run), it consumes excessive disk on the harness pod,
+and — the detail that changes how anyone should read the existing traces — **it collects per-*packet*
+information, not per-request as the name implies.** (`per_request_lifecycle_metrics.json`'s size on a
+successful staircase run, ~1.5 MB bundle / 7920 requests, is consistent with something finer-grained
+than one record per request.) This reframes every per-request number already cited in this doc
+(`n=7920`, the ITL fits, the router-imbalance stats on the four staircase cells that *did* produce this
+file) as **derived from a stream that over-collects relative to what it's used for** — the numbers
+aren't wrong, but the collection mechanism generating them is being retired regardless of whether a given
+run happened to survive it.
+
+**What we keep as the reliable base: per-stage summaries.** Confirmed on disk for every cell, dwell
+included — see the corrected § *The 1a gap* above. Rate, latency distribution, failure count, and token
+throughput, all per stage, at zero additional collection cost (already part of `inference-perf`'s
+non-per-request reporting).
+
+**Open discovery task — a full log scan, not just EPP.** The exact ask: enumerate the fields we need or
+can estimate per request — **arrival time, TTFT, input length, output length, processing time**, and
+whatever else the logs can yield — then scan every available log source, not only EPP, to see what's
+actually recoverable. Sources known to exist and not yet fully mined:
+
+| source | size (dwell cell) | sampled content (this session, partial) |
+|---|---|---|
+| `logs/epp_pods.log` | 11 MB | EPP debug log. Carries `x-request-id` per HTTP body chunk (`HandleResponseBody is triggered` — 34,978 lines in one dwell cell) and named scheduler-plugin events (`Calculated score`, `Request handled`, `LLM request assembled` — 62 each, matching the request count). **No token-count fields found in this session's sample** — needs a full field scan, not a spot-check, before ruling anything out. |
+| `logs/igw_pods.log` | 38 MB | Gateway (Istio) pod log. This session's sample was Istio's own startup/info noise, not an access-log line with request ID or duration — but only the first lines were read; the bulk is unscanned. |
+| `metrics/raw/*_metrics.log` | 144 KB × N snapshots | Per-pod Prometheus scrape snapshots, already what panels 2–5 are built from. Worth checking specifically for an EPP-emitted metric (Dean's suggestion) that carries request-level info not in the debug log. |
+| `controller.log` | ~200 KB | WVA controller's own decisions — this is the source for the wanted **scaling-decision panel** (see below), not per-request data, but worth scanning for anything unexpected. |
+
+**Task for the discovery pass:** (1) write the exact field list needed/wanted (arrival time, TTFT, input
+length, output length, processing time, plus any others worth estimating); (2) scan the full schema of
+each log source above — every distinct `msg`/field combination, not a sample — cross-referenced against
+that field list; (3) report what is directly present, what can be *derived* (e.g. request count per
+window as a demand-rate proxy even without per-request timing), and what needs a source not yet
+inventoried; (4) note explicitly that most of what feeds the existing figures already comes from
+Prometheus scrapes — some of the wanted fields may already be sitting in `metrics/raw/` unused, or
+derivable from the graphs already drawn, before reaching for a new collection mechanism.
+
+**Not yet done.** This is a discovery task, not a result — nothing above should be read as "the fields
+aren't available," only as "not yet fully searched."
+
+---
+
+## Missing: a scaling-decision panel
+
+**Dean asked for a bottom panel showing scaling *reasons*, as captured in the logs. There is no such
+panel today.** The renderer (`render_real_trace.py`) draws six: 1a (request throughput/goodput), 1b
+(work throughput), 2 (desired vs ready replicas), 3 (requests per pod), 4 (queue sources), 5
+(concurrency vs slot capacity). None of them show *why* a scaling decision fired.
+
+The reason codes exist and are already being read manually in this doc's own Finding 3 — `controller.log`
+carries per-tick `scaling-decision` lines and the `P1-obs`/`P2-hist`/`P3-k2`/`P4-k1` capacity-source
+codes (`saturation_v2/types.go`), plus the explicit "analyzer absent from configured list: will not
+vote" lines that settled §20.21. All of that is currently hand-grepped per finding rather than plotted.
+A dedicated panel — decision reason vs time, aligned with panel 2's replica trace — is the natural next
+addition to the toolchain, and would have made Finding 3's correction visible on the figure itself rather
+than requiring a log grep to catch Dean's objection. **Not built. Flagged as the priority addition.**
+
+---
+
+## Coverage checks — undocumented
+
+The extractor's 16 PASS/FAIL self-check lines (`Calibrate A`, `Trust B`, `Characterize saturation`, …)
+have no accompanying doc explaining what each one asserts, why it matters, or what a FAIL should prompt
+someone to do. They're read correctly in this doc's caveats section by inspecting the extractor source
+directly, which is not a sustainable way for anyone else to use them. **Owed:** a short reference — one
+line per check, in the `autoscaling-viz` worktree — naming the assertion and its threshold.
+
+---
+
+## Folder structure — where results live, and what a `make` target should produce
+
+**Not yet settled to Dean's satisfaction as of 2026-08-10** ("I still don't understand where the results
+live and what is the folder structure. Someone running the make target should get a consistent result.")
+Recorded here as the working answer, pending the coder building it and Dean confirming it reads clearly
+in practice:
+
+```
+benchmark/
+├── tools/ → ../hack/benchmark      symlink (§2b-bis, already decided — nothing moves)
+├── campaigns/<YYYYMMDD>/           curated, cross-cell write-ups (this doc's eventual home)
+└── runs/<run-id>/                  ONE run, EVERYTHING about it, single lifecycle
+    ├── config/                     the .env used, workload profile, analyzer config, image pin
+    │                                 — the reproducible set. Dean: "we mainly need the benchmark
+    │                                 configuration... that is how it becomes reproducible."
+    ├── raw/                        harness output, scrapes, per-stage summaries — large, disposable
+    ├── viz/                        panels.png, coverage.json, bundle.json — SAME lifecycle as raw/,
+    │                                 not a separate copy (see below)
+    └── REPORT.md                   metrics table + relative links into viz/ and raw/
+```
+
+**Figures must not be copies.** Corrected this session — the `plans/scratch/campaign-20260810-viz/`
+mirror created for this doc's own links is exactly the anti-pattern Dean flagged: *"like the existing
+benchmark analysis graphs, they should live with the results and their lifecycle should be managed
+together — if I delete an old result I want to also delete all the artifacts, including the panel
+figures."* Once `benchmark/runs/<id>/viz/` exists as the canonical, git-tracked home, the `plans/`
+mirror should be **deleted**, not maintained as a second copy.
+
+**The matrix should link to everything.** Once the tree above exists, the per-cell table at the top of
+this doc should link, per cell: the panels PNG, the raw per-stage JSON, any other result graphs, and the
+`REPORT.md`/config for that run — not just the panels PNG as it does today.
+
+**Not yet built.** Recorded here as the target; execution is the benchmark coder's per the trigger
+already sent (`benchmark__results-tree-and-campaign-persistence.md`), which should be re-read against
+this section's refinement (config/raw/viz coupled per run, not a separate campaigns-only tree).
+
+---
+
+## Fixes to the benchmark harness — scope decision (Dean, 2026-08-10)
+
+**All harness fixes happen on Dean's fork for now.** Not upstream, not yet. *"We can later figure out
+what belongs as issues/PRs on the benchmark repos."* This applies to whatever the per-request discovery
+task above surfaces, and to anything else found while building the tree above.
+
+**Excessive generated data is discarded by a playbook, not accumulated.** *"For now, excessive data
+generated by benchmark can be discarded by our playbook. We keep only what we need."* The reproducible
+set from § *Folder structure* (`config/`) is what's kept; `raw/` is retained only as long as useful and
+is explicitly disposable, not an archival requirement. No playbook has been written yet — owed, likely
+as a `hack/benchmark/` script that prunes a `runs/<id>/raw/` down to whatever `REPORT.md` still
+references.
 
 ---
 
@@ -280,17 +449,21 @@ omit it if you want the PASS/FAIL table.
 | **Bundles + figures — canonical** | `benchmark/dean-*/results/*_1/viz/` | ⚠️ on disk, **gitignored** |
 | Figures — planner mirror | `plans/scratch/campaign-20260810-viz/` | ✅ committed on `plans` |
 
-**Owed, and by whom:**
-- **Benchmark coder** — decide whether the figures need a **tracked** home under `session-notes/` (the
-  canonical `viz/` copies are inside gitignored `dean-*/`, so they do not survive a cleanup or a fresh
-  clone); fix the `run_metadata.yaml` error-ordering bug; re-run `m-ta-dwell` and re-extract the dwell
-  cells.
-- **Dean** — **rotate the leaked bearer token**; choose the figure location; decide whether the campaign
-  results fold into the Type 3 or stay a standalone doc (this doc is currently standalone).
+**Owed, and by whom — updated 2026-08-10 per Dean's persist-results discussion:**
+- **Dean** — **rotate the leaked bearer token** (still the one blocking item with a clock on it).
+- **Benchmark coder** — build the `benchmark/{tools→,campaigns/,runs/}` tree (§ *Folder structure*
+  below), disable per-request collection in the benchmark Makefile targets (§ *Per-request data*),
+  discard excessive per-run data per a to-be-written playbook keeping only the reproducible set, and do
+  all of this **on Dean's fork only** — upstream issues/PRs are explicitly deferred ("we can later figure
+  out what belongs as issues/PRs on the benchmark repos").
+- **A dedicated new session** — the dwell limit cycle itself (Finding 2, §7.6) is being handed off
+  separately per Dean's request; see `session/handoffs/dwell-deep-dive__handoff.md`. Not folded into this
+  doc's findings beyond what is already written.
 - **Planner** — audit the plans for any framing that assumed "removing saturation from the list isolates
-  TA": that assumption is *sound* after §20.21 (list-omission does stop it voting), but the earlier
-  retracted claim briefly implied otherwise, so anything written between those two points needs a check.
-  Not yet done.
+  TA" (still open — Finding 1 is sound after §20.21, but text written between the retracted claim and the
+  correction needs a check); add a scaling-decision-reason panel to the renderer (no such panel exists
+  today — see § *Missing: a scaling-decision panel*); document what each of the 16 coverage checks
+  actually asserts (§ *Coverage checks — undocumented*).
 
 ---
 
