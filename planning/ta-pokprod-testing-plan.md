@@ -15,29 +15,29 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L49:100
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L102:336
-  - 2a. pokprod shared-cluster safety invariants — L134:171
-  - 2b. Two-fork contract — what lives where — L173:210
-  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L212:280**
-  - 2c. Configuration contract — fail-closed, per kube context — L283:335
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L338:365
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L368:506
-  - 4.1 Refresh trigger — ARMED 2026-07-30 — L428:456
-  - 4.2 Tier-A image currency — three tags exist — L459:506
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L509:724
-  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L620:665
-  - 5.7 The KEDA arm is present but unrunnable — L683:724
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L727:938
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L941:1527
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1243:1331
-  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1333:1366**
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1368:1397
-  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1399:1527**
-  - 7.6.1 Cold-resume state (2026-08-08) — L1487:1527
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1529:1552
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1554:end
-  - 9.1 Tooling track (T1–T11) — L1585:end
+- [1. Where we are (findings)](#1-where-we-are-findings) — L48:99
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L101:333
+  - 2a. pokprod shared-cluster safety invariants — L133:167
+  - 2b. Two-fork contract — what lives where — L170:206
+  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L209:277**
+  - 2c. Configuration contract — fail-closed, per kube context — L280:332
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L335:362
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L365:503
+  - 4.1 Refresh trigger — ARMED 2026-07-30 — L425:453
+  - 4.2 Tier-A image currency — three tags exist — L456:503
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L506:721
+  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L617:662
+  - 5.7 The KEDA arm is present but unrunnable — L680:721
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L724:935
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L939:1498
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1241:1315
+  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1317:1350**
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1352:1380
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1383:1498**
+  - 7.6.1 Cold-resume state (2026-08-08) — L1467:1498
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1500:1523
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1525:end
+  - 9.1 Tooling track (T1–T11) — L1556:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -138,16 +138,25 @@ pokprod is a **shared OpenShift cluster** (not pure k8s — expect OCP-specific 
 both hold admin**, so an unscoped or defaulted command can silently land in the wrong namespace or
 mutate cluster-global state. These invariants bind every phase and must be restated in the runbook:
 
-- **Operate only in Dean's namespace** (`dhl-wva-209`, per Phase 3). Every `oc`/harness/helm/kustomize
-  invocation carries an explicit `-n dhl-wva-209`; never rely on the current-context namespace.
-  > REVIEW: scope should be the b
+- **Operate only in the target namespace set for this benchmarking config** (currently
+  `dhl-wva-209`, per Phase 3) — **CORRECTED 2026-08-11 (D-15):** not "Dean's namespace." The namespace
+  is a property of the `.env`/config a run is invoked with, not of who is running it. Every
+  `oc`/harness/helm/kustomize invocation carries an explicit `-n <target namespace>`; never rely on the
+  current-context namespace. When a new context is created and a new namespace is established, it must
+  be **confirmed explicitly with the user** before use — no context silently inherits or infers a
+  namespace. All subsequent operations for that context are confined to the confirmed namespace.
 - **Every environment value comes from the explicit `.env`** — namespace, model, instance, image,
-  accelerator, URLs. Never a harness default or inferred value: a default could resolve into Ofer's
-  namespace or a cluster-global object. This is *why* Dean uses a fully-populated `.env`. 
-  > REVIEW: anyone using the new benchmark MAkefile targets should not land mistakenly on the wrong branch. The rules is not scoped to Dean. 
-- **Any teardown on pokprod requires Dean's explicit approval** — no teardown/delete is initiated or
-  directed by the plan-agent, and none runs (even by Ofer) without Dean signing off on that specific
-  action. Never run a delete/teardown without an explicit namespace arg.
+  accelerator, URLs. Never a harness default or inferred value: a default could resolve into another
+  user's namespace or a cluster-global object. **CORRECTED (D-16):** this is why *any* invocation of the
+  benchmark Makefile targets uses a fully-populated `.env` — not specific to one operator. Anyone using
+  the targets should be structurally prevented from landing on the wrong namespace by omission, not
+  relying on personal discipline.
+- **Any teardown on a shared cluster requires the operator's explicit approval for that specific
+  action** — no teardown/delete is initiated or directed by the plan-agent, and none runs without that
+  sign-off. Never run a delete/teardown without an explicit namespace arg. **CORRECTED (D-17):** this
+  invariant holds for **anyone** using the benchmark targets, not a named person, and it is scoped to
+  the namespace explicitly set for benchmarking — never touch anything outside it, especially for
+  teardown.
 - **Never change any cluster-global / out-of-namespace setting** — Prometheus/monitoring stack config,
   router control plane, routing rules, HTTP/gateway settings, or anything cluster-scoped. Dean *has*
   the admin rights to do this by mistake; the guard is procedural. **Before applying any kustomize or
@@ -300,6 +309,7 @@ thing"*:
    `hack/benchmark/env/<context>.env`. If the file for the current context is absent, targets refuse
    and point at the wizard. (*"we can have an env per target cluster or per k8s context — we should
    look for the specific .env for the context and ask to create it if needed"*.)
+   > REVIEW: can one context be used on multiple NSs? Need to tie to one target NS.  
 3. **An embedded assertion triple** — `WVA_ENV_CONTEXT` / `WVA_ENV_SERVER` / `WVA_ENV_NAMESPACE` —
    checked against the live context before anything runs. The filename gives *discovery*; the triple
    gives *correctness*. A single `.env` cannot detect a config/cluster mismatch; a context-keyed one
