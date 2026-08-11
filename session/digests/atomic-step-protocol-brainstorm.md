@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-11T16:11:26.120Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-11T16:22:08.734Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -276,3 +276,9 @@ by the script. Uncurated — the sections above are the curated record.
 - **ruling** — Focus discussion on tokens not latency; try claude or curl
   > our latest discussion is about tokens, not latency
   > can try using claude and move to curl if needed
+
+### 2026-08-11T16:22:08.734Z
+
+- **question** — shell check, add loop invoking
+  > what shell is running?
+  > add the loop invoking
