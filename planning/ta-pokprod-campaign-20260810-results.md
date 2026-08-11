@@ -37,7 +37,9 @@ token is live in the operator's context at launch time.
 worktree, `sha256~…` pattern grepped clean tree-wide). pokprod itself rotates and forces a new token
 every few hours regardless, and **there is no need to persist a bearer token beyond the active session
 — the live k8s context is sufficient**; a saved token only creates a standing artifact with no
-corresponding need. This resolves the immediate exposure. It does **not** fix the mechanism above: the
+corresponding need. **Dean refreshed the token 2026-08-11** (the old `sha256~ckf53m…` value is dead
+regardless of the file removal above). This resolves the immediate exposure. It does **not** fix the
+mechanism above: the
 *next* campaign will embed whatever token is live in the context at that time, into fresh `dean-*/`
 directories, by the same upstream code path. A durable fix (e.g. a scoped service-account token
 injected via secret, rather than the operator's personal context) is upstream `llm-d-benchmark`
