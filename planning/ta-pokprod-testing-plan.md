@@ -30,15 +30,15 @@
   - 5.7 The KEDA arm is present but unrunnable — L694:736
 - [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L738:950
   - 6.2 Ofer's 11-step standup — hazard classification — L768:885
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L952:1551
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1254:1343
-  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1344:1378**
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1379:1409
-  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1410:1551**
-  - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11) — L1498:1551
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1553:1576
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1578:end
-  - 9.1 Tooling track (T1–T11) — L1609:end
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L952:1550
+  - 7.4 Scenario gaps from the ladder-run cross-check, all three CONFIRMED — L1254:1343
+  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1345:1378**
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1380:1410
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1411:1550**
+  - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11) — L1497:1550
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1552:1575
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1577:end
+  - 9.1 Tooling track (T1–T11) — L1608:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -1259,18 +1259,19 @@ that handoff are the coder's and are tracked in its own `session-notes/status/be
 the three below change the **workload scenario**, which is not the coder's to change, and are
 therefore plan-level.
 
-**Status: OPEN — recorded, not decided.** Planner recommendation: **take all three.** 7.4.1 + 7.4.3
-together are exactly the right-sizing / steady-state emphasis Dean named (*right-sizing and
-steady-state are the premise of autoscaling and the real money-saver, more than transition speed*),
-and 7.4.2 is one extra leg. Any run needs Dean's approval regardless, so writing these down as open
-costs nothing and holds nothing up.
+**Status: DECIDED, all three — closed 2026-08-12.** All three asks are confirmed, not just
+coder-reported: 7.4.2 and 7.4.3 explicitly ("already remarked and agreed"); 7.4.1 not merely approved
+but actively redirected by Dean — its *goal* corrected (§7.6: observe eventual steady state, not force
+a band) and generalized to any analyzer combination. The earlier OPEN marker reflected only that the
+planner hadn't independently heard the approval — that gap is closed; the substance was never in
+question once Dean engaged with 7.4.1's goal directly.
 
-> **⚠ Read §7.6 before acting on 7.4.1 or 7.4.2.** A later addendum from the coder shows that
-> **7.4.1's stated mechanism cannot deliver 7.4.1's stated goal** — steady-state KV under a tracking
-> controller is a *controlled* variable, so the dwell is an analyzer-configuration lever, not an
-> offered-rate one; 7.4.2 has the same defect, more sharply. The *goals* stand; the *mechanisms* are
-> superseded. §7.6 also records that the coder reports Dean approved all three and has implemented
-> them — **unconfirmed by the planner**, which is why this marker still reads OPEN.
+> **Superseded by §7.6, goals unchanged.** 7.4.1's *mechanism* as originally stated (raise the offered
+> rate to reach a fixed 0.3–0.85 band) cannot deliver its goal — steady-state KV under a tracking
+> controller is a controlled variable, so the dwell is an analyzer-configuration lever, not an
+> offered-rate one; 7.4.2 has the same defect, more sharply. The *goals* stand, corrected per §7.6: the
+> test is whether each analyzer configuration's own steady state lands in its own no-action band,
+> observed rather than forced.
 
 **7.4.1 A mid-band dwell stage — the largest gap.** Hold an offered rate that parks KV utilization in
 **0.3–0.85** for **≥3 min**. **No run in any pool has ever dwelt there** — every run to date is
@@ -1486,14 +1487,12 @@ scenario decision, not a workload one.
 cannot hold that beside the two dwell rungs. It is the natural follow-up run **if both rungs read
 low**.
 
-**Status of §7.4's three asks.** The coder reports that Dean **approved all three** and that it has
-implemented them — two new files,
-`hack/benchmark/workloads/inference-perf/ta_autoscale_dwell.yaml.in` and `ta_prefill_knee.yaml.in`.
-The planner has **not** independently confirmed that approval, and §7.4 therefore keeps its OPEN
-marker. This section is itself the evidence that the asks were not self-contained: 7.4.1's stated
-mechanism cannot deliver 7.4.1's stated goal. **What the plan needs from Dean is one line:** confirm
-the three asks, and pick (a) or (b) — or accept the quantization fallback as the next run and defer
-(a)/(b) until its result is in.
+**Status of §7.4's three asks — CONFIRMED 2026-08-12, both open items now closed.** All three are
+implemented — two files, `hack/benchmark/workloads/inference-perf/ta_autoscale_dwell.yaml.in` and
+`ta_prefill_knee.yaml.in` — and confirmed directly by Dean (§7.4's OPEN marker, above). (a)/(b) is
+also decided: **(a)**, generalized to any analyzer combination (§7.6). This section remains useful as
+the record of *why* 7.4.1's original mechanism couldn't deliver its own goal, corrected rather than
+retracted.
 
 #### 7.6.1 Cold-resume state (2026-08-08)
 
