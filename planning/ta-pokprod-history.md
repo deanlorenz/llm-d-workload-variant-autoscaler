@@ -624,3 +624,83 @@ Also, in the same round: stopped duplicating campaign-run config files into
 `session-notes/campaign-runs/<cell>/` (now `mv` at the point of collection, not `cp` followed by a
 stale leftover) — that directory now keeps only genuinely campaign-scoped bookkeeping
 (`results-dir.txt`, `run.log`, `controller.log`) that `run_all.sh`'s own abort-check still reads.
+
+---
+
+## D-34 | 2026-08-08 | topic:dwell-mechanism,dispatch-rate,demand-vs-backlog,analyzer-contradiction | src:plan__benchmark-dwell-run-findings.md
+
+**Six more findings from the same first dwell run as [[D-28]]** (`dean-20260808-051912-230`,
+decision trace captured live) — [[D-28]] covers only the bucket-keyed `prc`-collapse mechanism from
+this handoff; this entry captures the rest, which is substantial and was previously missed entirely.
+The run produced a clean, fully-instrumented limit cycle (period ~9m12s peak-to-peak) rather than a
+dwell, superseding this handoff's own predecessor's "tracking controller holds kv low by construction"
+hypothesis — wrong for a system that at this step size doesn't track at all.
+
+**Cross-run capacity-history contamination, confirmed with direct evidence, not inference.** This
+run's very first tick — before its own `P1-obs` had ever fired — already reported `prc = 25,348` via
+`P2-hist`, a value that could only be a rolling average left over from the *previous* benchmark run
+(the 08-07 ladder): `computeCapacityHistory` is an in-process map with no time-based invalidation, and
+the controller pod had been running continuously across both runs. **Consequence adopted as a runner
+protocol, no decision needed:** restart the WVA controller before each benchmark run, record its start
+time. This independently corroborates and predates [[D-32]]'s later controller-restart adoption.
+
+**A third finding: dispatch rate was missing for 100% of ticks, not intermittently.** 157 occurrences
+of `collector/replica_metrics.go:1035`'s "Pod has engine metrics but no dispatch rate — possible
+pod/pod_name label mismatch" across 33 ticks — every decode pod, every tick, from the very first tick.
+Plausible upstream cause of the next finding.
+
+**A fourth finding: demand is measuring backlog, not arrival rate.** The decisive pair: at 2 rps
+offered load, demand read 2,247,803 (backlog still draining, scaled 2→9), then one tick later at the
+same 2 rps offered load, demand read 53,639 (backlog drained) — a 48× difference in demand under
+*identical* offered load. A quantity that collapses when capacity is added, and stays high when capacity
+is unchanged and offered load has already dropped, is measuring queue depth, not incoming rate. Likely
+explained by the missing dispatch-rate signal above — with no arrival-rate input, demand is derived
+from what's left, and what's left is queue-shaped.
+
+**A fifth finding: the two analyzers can contradict each other outright, and the optimizer can't tell.**
+At one instant, saturation reported `util 3.32` (scale up hard) while throughput reported `demand 0`
+(scale down all the way) — not two noisy estimates of the same thing, two incompatible worlds. Traced
+to throughput's own fallback: a 29–40% model-vs-observation mismatch (`GPS mismatch detected`) causes it
+to clear its observation window for recalibration, and the emptied window reports `demand 0` — a
+spurious scale-down vote from a fallback path that fires exactly when the system is most interesting.
+Same failure family as the bucket-collapse mechanism above: a degraded path returning a value that is
+not merely imprecise but qualitatively wrong.
+
+**A sixth finding: `supply` lags the replica count by ~1 tick in both directions** — over-counts during
+scale-down (terminating pods still counted), under-counts during scale-up (new pods not yet counted) —
+combined with ~90s+ actuation latency, the loop has delay, a more-than-proportional correction, and no
+damping.
+
+**A seventh finding: real kv ≈1.00 was measured directly off a replica while the analyzer reported
+`util 0.36`** and chose no-change — roughly a 3× capacity over-estimate at the exact moment the engine
+was completely full. Also flagged: vLLM 0.20.2 emits `vllm:kv_cache_usage_perc`, not
+`gpu_cache_usage_perc` (the latter returns nothing) — worth checking which name the WVA collector
+actually queries.
+
+**Reason-code distribution across the run:** of 33 ticks, `P1-obs` 6, `P3-k2` 2, `P2-hist` 25 — the
+controller ran on historical or derived capacity for 82% of its decisions, with dispatch rate absent for
+100% of them.
+
+**Five asks, priority order, NONE implemented — this is diagnosis only, explicitly not a proposed code
+change.** (1) Log `outputBucket`/`historyKey` on the `analyzer-result` line — smallest change, confirms
+or refutes the bucket-collapse hypothesis directly. (2) Decide `computeCapacityHistory`'s intended
+lifetime (time-window invalidation vs. run-scoped key vs. document that consecutive experiments aren't
+independent). (3) Fact-find the `pod`/`pod_name` label mismatch behind the 100% dispatch-rate miss —
+if fixed, "most of the demand-is-backlog finding changes character." (4) Confirm which kv metric name
+the collector queries. (5) Treat the two fallback-path failures (bucket-collapse, GPS-mismatch-clears-
+window) as one design question — what should an analyzer emit when it knows it has no valid
+observation, rather than two separate patches; "no confident estimate, abstain" as a signal, rather than
+a confidently wrong number.
+
+**Two confounds the coder flagged in their own workload design**, not attributable to WVA: entry rungs
+compressed too sharply (budgeted for a 1-replica cold start that actually took ~5.5 min, contaminating
+the following rung's first half with transient); and the 512±20 output-token mean sitting right on the
+500-token bucket edge, which is what excites the bucket-collapse mechanism specifically — a corrected
+profile should move the mean well clear of both the 100 and 500 edges so "is prc bucket-discontinuous"
+and "where does the system dwell" aren't confounded in the same run.
+
+**Not yet routed to Dean for scoping — none of the five asks above (see [[D-28]]) has an owner.**
+[[D-21]]'s later deep-dive investigated a related but distinct trigger (a single anomalous `P1-obs`
+sample and the created→ready lag) and does not supersede either [[D-28]]'s bucket-keying finding or
+this entry's cross-analyzer-contradiction / demand-is-backlog findings — all remain open,
+uninvestigated by that later session.
