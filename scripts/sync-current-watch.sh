@@ -30,6 +30,15 @@ STATUS="$PLANS/session/status/sync-current-watch.md"
 LOCK="/tmp/sync-current-watch.lock"
 POLL_SECONDS=30
 
+# Dead man's switch — same requirement and mechanism as sync-main-watch.sh
+# (Dean, 2026-08-12): stateless, restart-on-entry, never left running with
+# nobody around to want it. Checked once per poll, cheap (pgrep only).
+anchor_alive() {
+  pgrep -u "$(id -u)" -f '\.vscode-server/.*code-server' >/dev/null 2>&1 && return 0
+  pgrep -x claude >/dev/null 2>&1 && return 0
+  return 1
+}
+
 cd "$PLANS" || { echo "FAIL: cannot cd to $PLANS"; exit 1; }
 
 holder=$(cat "$LOCK" 2>/dev/null | tr -d '[:space:]')
@@ -77,6 +86,11 @@ echo "sync-current watcher started (pid $$), baseline $baseline, polling every $
 last_signature=""
 
 while true; do
+  if ! anchor_alive; then
+    write_status "stopped" "no VS Code / Claude anchor process found — self-exiting (stateless by design, not a crash)" "$baseline"
+    echo "sync-current watcher (pid $$) exiting: no VS Code or Claude process left to run for"
+    exit 0
+  fi
   handoffs=$(ls session/handoffs/sync__*.md 2>/dev/null || true)
   count=0
   [ -n "$handoffs" ] && count=$(printf '%s\n' "$handoffs" | grep -c .)

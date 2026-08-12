@@ -12,6 +12,23 @@ POLL_SECONDS=60
 STALE_AFTER_SECONDS=150 # ~2.5x poll interval; used by callers checking last_check, not by this script
 LOCK="/tmp/sync-main-watch.lock"
 
+# Dead man's switch: exit once nothing is left that "wants" this watcher
+# running. Dean's requirement (2026-08-12): stateless, restart-on-entry, no
+# processes left behind to hunt down manually. A previous version used `setsid
+# nohup` to fully detach from /init — that outlives everything, including a
+# VS Code quit or a session that's never resumed, which is exactly the
+# "lingering scripts I can't track" failure. Checked once per poll (cheap:
+# pgrep only, no git):
+#   - a live VS Code-WSL connection (the code-server root for this user), OR
+#   - a live Claude Code process anywhere in this WSL instance.
+# Either one alone is enough to keep the watcher alive; both absent means
+# nobody is around to want main synced, so stop.
+anchor_alive() {
+  pgrep -u "$(id -u)" -f '\.vscode-server/.*code-server' >/dev/null 2>&1 && return 0
+  pgrep -x claude >/dev/null 2>&1 && return 0
+  return 1
+}
+
 # Single-instance guard, enforced HERE rather than in the callers.
 #
 # Callers previously inferred "is one already running?" from the last_check
@@ -83,6 +100,11 @@ write_status "idle" "watcher started"
 echo "sync-main watcher started (pid $$), polling upstream/main every ${POLL_SECONDS}s"
 
 while true; do
+  if ! anchor_alive; then
+    write_status "stopped" "no VS Code / Claude anchor process found — self-exiting (stateless by design, not a crash)"
+    echo "sync-main watcher (pid $$) exiting: no VS Code or Claude process left to run for"
+    exit 0
+  fi
   remote=$(git ls-remote upstream main 2>/dev/null | awk '{print $1}')
   # Compare the live remote against the branch we actually maintain (local main),
   # not a cached baseline or the upstream/main tracking ref. This keeps the

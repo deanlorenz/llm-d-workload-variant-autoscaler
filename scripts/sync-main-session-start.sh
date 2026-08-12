@@ -25,8 +25,18 @@ if [ "$alive" -eq 1 ]; then
   context="sync-main watcher is already RUNNING (last heartbeat ${age}s ago) — not started again. Check tip/status with /s-sync-main status."
 else
   # Auto-start, no prompt: this worktree IS the designated sync-main session, so
-  # a live watcher is its normal steady state. Detached with setsid + nohup so it
-  # outlives this hook process and is not killed when the hook returns.
+  # a live watcher is its normal steady state.
+  #
+  # Deliberately stateless (Dean, 2026-08-12): NOT setsid/nohup-detached from
+  # /init. A fully detached process outlives everything — a VS Code quit, a
+  # session that's never resumed — leaving a stray script nobody can find
+  # without knowing to look. Backgrounded plainly instead: sync-main-watch.sh
+  # carries its own dead man's switch (checked every poll) and self-exits once
+  # neither a VS Code-WSL connection nor a Claude process remains anywhere in
+  # this WSL instance. So the watcher's actual lifetime is bounded by "someone
+  # is around to want main synced" — restart-on-entry, no manual cleanup ever
+  # needed. `disown` only detaches it from this hook's own subshell exit, not
+  # from the anchor check.
   #
   # The heartbeat check above is only a cheap early-out, NOT the duplicate guard —
   # it is racy (60s heartbeat vs 150s threshold, so a session starting in that
@@ -40,14 +50,14 @@ else
   # Note the tradeoff vs the Monitor-tool path (/s-sync-main watch): a watcher
   # started here is NOT a harness-tracked task, so TaskStop cannot reach it and
   # sync events do NOT arrive as conversation notifications. Stop it via the PID
-  # in the status file (/s-sync-main stop handles this), and read the status file
-  # for what it has done.
-  setsid nohup bash "$watch_script" >/tmp/sync-main-watch-autostart.log 2>&1 &
+  # in the status file (/s-sync-main stop handles this — or just close VS Code
+  # and quit every Claude session; it stops itself within one poll interval).
+  nohup bash "$watch_script" >/tmp/sync-main-watch-autostart.log 2>&1 &
   disown 2>/dev/null || true
   sleep 2   # let it write its first heartbeat so the report below is truthful
   if [ -f "$status_file" ] && grep -q '^state: watching' "$status_file" 2>/dev/null; then
     newpid=$(grep -m1 '^watcher_pid:' "$status_file" | cut -d' ' -f2-)
-    context="sync-main watcher was not running; AUTO-STARTED it (pid ${newpid}) — no action needed. It polls upstream/main every 60s and pushes to origin/main on change. It is detached, not a harness task: sync events will NOT appear as notifications, so read session/status/main.md (or /s-sync-main status) to see what it has done; stop it with /s-sync-main stop."
+    context="sync-main watcher was not running; AUTO-STARTED it (pid ${newpid}) — no action needed. It polls upstream/main every 60s and pushes to origin/main on change, and self-exits once no VS Code/Claude process remains (stateless by design). Sync events will NOT appear as notifications, so read session/status/main.md (or /s-sync-main status) to see what it has done; stop it early with /s-sync-main stop."
   else
     context="sync-main watcher was not running and the auto-start did NOT come up cleanly — check /tmp/sync-main-watch-autostart.log, then run /s-sync-main watch to start it in-session."
   fi
