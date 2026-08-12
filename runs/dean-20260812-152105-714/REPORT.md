@@ -5,13 +5,13 @@
 
 | Metric | Run 1 |
 |--------|------|
-| P99 TTFT (ms) | ? |
-| P99 ITL (ms/token) | ? |
+| P99 TTFT (ms) | 40,657 |
+| P99 ITL (ms/token) | 422.06 |
 | Avg replicas | 3.21 |
 | Max replicas | 10 |
 | Avg KV cache utilization | 15.0% |
-| Avg queue depth (EPP) | ? |
-| Error count | 0 |
+| Avg queue depth (EPP) | 49.2 |
+| Error count | 1 |
 | Avg pod startup (s) | 77 |
 
 ## Artifacts
