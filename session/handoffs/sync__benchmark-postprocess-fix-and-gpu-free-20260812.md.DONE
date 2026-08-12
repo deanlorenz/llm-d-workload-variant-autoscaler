@@ -1,0 +1,45 @@
+from: benchmark
+to: sync
+session: benchmark
+
+**Ref:** `session/status/benchmark.md` §20.29-30 (full detail).
+
+**Resume prose:**
+
+Continuation of the same-day resume (§20.24-29): the coder session picked back up after an app
+restart, found a completed live `make benchmark-run` (`m-ta-prefill-knee` profile) on disk, and a
+fresh handoff from a *sibling* coder session on this same branch/worktree reporting a live-cluster
+problem — an orphaned `m-ta-calibration-probe` run (killed by a local session interruption, no
+usable data ever produced) left decode stuck at **10/10 replicas with zero load** after a
+`reset_run.py --apply` cleanup restarted the controller.
+
+Verified the stuck state directly against the cluster (WVA logs showed `demand=0, util=0, rc=0`
+but `desiredReplicas` pinned at 10, not converging) and freed the GPUs via the documented
+`free_gpus` pattern (pause ScaledObject at 0, scale decode to 0) — confirmed 0 pods left.
+**10 H100s released on the shared cluster.**
+
+Root-caused and fixed the `postprocess.py` bug §20.29 had flagged and left for input: it only ever
+read guidellm's `results.json`, but the current harness (inference-perf) writes
+`summary_lifecycle_metrics.json` instead, so P99 TTFT/ITL and error count silently degraded
+(error count was showing a **wrong** 0, not just a missing value — a real failure existed).
+Separately fixed `_extract_queue_depth_avg`'s stale EPP pod-name filter and metric name. Fix
+supports both harness formats (not a replacement) per direction. Verified against the real run,
+not just compiled — all three fields now populate correctly.
+
+Three commits: `66c71f8e` (land the run's 5 allowlisted files), `6a10f458` (the postprocess.py
+fix), `eee20e33` (regenerated REPORT.md with correct values). Branch now 30 commits ahead of
+`origin/benchmark`, all local, DCO-signed, nothing pushed.
+
+**Owed by Dean:** nothing blocking. Worth knowing about: (a) the orphaned calibration-probe run's
+setup-only PVC directory (`/requests/inference-perf-1786538941-lwy8cw_1`) is harmless and was left
+in place, not deleted; (b) the `m-ta-calibration-probe` cell itself has still never produced usable
+data — worth a clean re-run whenever convenient, now that the toolchain and the GPUs are both in a
+known-good state.
+
+**No footguns armed.** GPUs are freed and verified (ScaledObject paused at 0, deploy at 0 replicas,
+zero pods) — the standard "un-pause before the next run" reminder applies as always. Sibling
+session's handoff marked `.DONE`.
+
+**CURRENT.md update suggested:** fold into the existing benchmark abstract — note the postprocess.py
+fix (both harness formats now supported, a real error-count miscounting bug fixed), the idle-GPU
+incident and resolution, and point at §20.29-30 rather than restating detail.

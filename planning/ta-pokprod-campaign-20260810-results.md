@@ -250,6 +250,12 @@ The most interesting open thread, and **uninvestigated** — no code read, no ro
 decision/optimizer path rather than the analyzer, since neither demand nor utilization justifies motion.
 Recorded here so it is not lost.
 
+**Possibly related, possibly the same mechanism — a 2026-08-12 incident, still unrouted.** A controller
+restart left decode pinned at 10/10 replicas for 15+ minutes with zero active load, `rc=0`, `util=0`,
+never trending down — a static plateau rather than this finding's oscillation, so not confirmed as the
+same root cause. Full detail:
+[`ta-pokprod-history.md`](ta-pokprod-history.md) `[[D-40]]`.
+
 ---
 
 ## What the figures do NOT license

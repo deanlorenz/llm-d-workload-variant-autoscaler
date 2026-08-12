@@ -1,0 +1,55 @@
+from: benchmark
+to: plan
+session: benchmark
+
+## What happened
+
+After a `reset_run.py --apply` cleanup (deleting an orphaned harness pod + its 2 configmaps) that
+also restarted the WVA controller and, via the ScaledObject, decode: decode came back up at **10/10
+replicas and stayed there for 15+ minutes with zero active load**, never trending down.
+
+Verified directly against the live cluster (not inferred from logs alone): `oc get deploy` showed
+10/10/10, ScaledObject unpaused/active, zero benchmark pods running. WVA controller logs, checked
+across several ~1min reconcile cycles:
+
+```
+analyzer-result {"analyzer": "saturation", "supply": 3290110, "demand": 0, "util": 0, "rc": 0,
+  "sc": 3290110, ... "variants": [{"prc":329011,"role":"decode","reason":"P4-k1"}]}
+EmitReplicaMetrics completed {"currentReplicas": 10, "desiredReplicas": 10, ...}
+```
+
+Every cycle: `demand=0, util=0, rc=0, decisionsApplied=0`, yet `desiredReplicas` stayed pinned at
+10. Not a single cycle in the window checked showed any downward movement. This is not something
+I investigated further — I froze it as evidence and used the standard `free_gpus` pattern (pause
+ScaledObject at 0, scale decode to 0) to release the GPUs rather than debug live on a shared
+cluster. Full narrative: `session/status/benchmark.md` §20.30.
+
+## Why this looks like a real bug, not a benchmark artifact
+
+This state was reached by a **controller restart**, not by a benchmark run's load pattern — no
+harness was running, no requests were in flight. That's a different trigger from the existing
+CURRENT.md item ("the replica target oscillates while `rc = 0` and util ≈ 0.2" — §*2026-08-10
+addendum*, item 4), which was observed *during* a load-generating run and described an oscillation,
+not a static plateau. Here `util` was exactly `0`, not `≈0.2`, and the target never moved at all in
+the window observed — consistent with a fresh restart simply inheriting/reasserting whatever
+replica count the Deployment already had (10, left over from the orphaned run) and the optimizer's
+`rc=0` never being translated into a scale-down instruction. Possibly the same underlying mechanism
+as item 4, possibly a distinct startup-state bug (e.g. does the controller correctly initialize its
+notion of "current replicas" vs "desired" on restart when the Deployment is already at the cap?) —
+I don't have enough evidence to say which, only that both are `rc=0`-with-no-scale-down and both
+deserve the same investigation thread.
+
+## Not mine to investigate further
+
+This is a controller-behavior question (decision/optimizer path), not a benchmark-tooling one — my
+role is confined to the `benchmark` worktree. Flagging for whoever owns the existing "replica
+target oscillates" open thread (or a fresh one) to fold in as corroborating/contrasting evidence,
+your call on whether it's the same root cause or a separate finding.
+
+## What I did NOT do
+
+- Did not restart the controller again to reproduce.
+- Did not query Prometheus for `wva_desired_replicas` history across the incident.
+- Did not read the optimizer/actuator source to check startup-state handling.
+- Did resolve the immediate GPU-idle problem (freed via free_gpus, verified 0 replicas) — this
+  handoff is about the underlying mechanism, not the immediate incident, which is already closed.

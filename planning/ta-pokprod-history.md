@@ -790,3 +790,62 @@ investigated.
 shared tool, not run-scoped, so fixing which file it should read from is not a unilateral call. The run
 directory itself is also not yet committed, held pending that decision (re-committing after a fix would
 just mean a second commit; not a blocker if Dean prefers to land the run as-is and fix separately).
+
+**RESOLVED same day, see [[D-39]].** The pause did not block a fix — the coder proceeded with
+direction to support both harness formats rather than replace one, verified against the real run,
+and the run directory is now committed.
+
+---
+
+## D-39 | 2026-08-12 | topic:postprocess-fix,gpu-incident,verified | src:benchmark.md §20.30
+
+**[[D-38]]'s `postprocess.py` bug is fixed and verified against the real run — not just compiled.**
+Root cause was narrower than "wrong filename": it only ever read guidellm's `results.json`; the
+current harness (inference-perf) writes `summary_lifecycle_metrics.json` instead. The fix **supports
+both harness formats, not a replacement of one** — direction given, followed. Separately fixed
+`_extract_queue_depth_avg`'s stale EPP pod-name filter and metric name in the same pass. **Error count
+had been showing a wrong `0`, not just a missing value** — a real failure existed and was being
+silently hidden, not merely under-reported. All three fields (P99 TTFT, P99 ITL, queue depth) now
+populate correctly. Three commits: `66c71f8e` (the run's 5 allowlisted files), `6a10f458` (the fix),
+`eee20e33` (regenerated `REPORT.md`).
+
+**Separately, a sibling coder session on the same worktree hit a live-cluster incident this session
+resolved: GPUs freed after a controller restart left decode stuck at 10/10 with zero load.** Full
+mechanism in [[D-40]]. Verified directly against the cluster (not inferred from logs) and freed via
+the standard `free_gpus` pattern — confirmed 0 pods, 10 H100s released.
+
+**Not yet done, low priority:** the orphaned `m-ta-calibration-probe` run that triggered [[D-40]]'s
+incident never produced usable data — worth a clean re-run whenever convenient, now that both the
+toolchain and the GPU state are known-good. Its setup-only PVC directory
+(`/requests/inference-perf-1786538941-lwy8cw_1`) was left in place, harmless.
+
+---
+
+## D-40 | 2026-08-12 | topic:controller-restart,stuck-replicas,rc-zero-no-scaledown | src:plan__benchmark-controller-restart-stuck-at-max-replicas-20260812.md
+
+**A controller restart left decode pinned at 10/10 replicas for 15+ minutes with zero active load,
+never trending down — verified directly against the live cluster, not inferred from logs alone.**
+Trigger: a `reset_run.py --apply` cleanup (deleting an orphaned harness pod + its 2 configmaps) that
+also restarted the WVA controller and, via the ScaledObject, decode. Every reconcile cycle checked
+showed `demand=0, util=0, rc=0, decisionsApplied=0`, yet `desiredReplicas` stayed pinned at 10 — not a
+single cycle moved it. Not investigated further live; frozen as evidence and resolved by the standard
+`free_gpus` pattern (pause ScaledObject at 0, scale decode to 0) rather than debugging on a shared
+cluster.
+
+**Distinct trigger from Finding 4 (campaign doc, "the replica target oscillates while `rc = 0` and
+util ≈ 0.2") — related but not confirmed to be the same mechanism.** Finding 4 was observed *during* a
+load-generating run and described an oscillation. Here `util` was exactly `0`, not `≈0.2`, and the
+target never moved at all in the observed window — consistent with a fresh restart simply inheriting
+whatever replica count the Deployment already had (10, left over from the orphaned run) and the
+optimizer's `rc=0` never translating into a scale-down instruction. Possibly the same underlying
+mechanism as Finding 4, possibly a distinct startup-state bug (does the controller correctly
+initialize "current replicas" vs. "desired" on restart when the Deployment is already at the cap?) —
+insufficient evidence to say which; both are `rc=0`-with-no-scale-down and both warrant the same
+investigation thread.
+
+**Explicitly flagged by the reporting coder as not theirs to investigate** — a controller-behavior
+question (decision/optimizer path), not benchmark tooling. **Not yet routed to anyone; no owner.**
+What was *not* done, stated for whoever picks this up: no reproduction attempt (controller not
+restarted again), no Prometheus query for `wva_desired_replicas` history across the incident, no
+optimizer/actuator source read for startup-state handling. The immediate GPU-idle problem is already
+closed (freed, verified 0 replicas) — this entry is about the underlying mechanism, still open.
