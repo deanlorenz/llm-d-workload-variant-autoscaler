@@ -849,3 +849,44 @@ What was *not* done, stated for whoever picks this up: no reproduction attempt (
 restarted again), no Prometheus query for `wva_desired_replicas` history across the incident, no
 optimizer/actuator source read for startup-state handling. The immediate GPU-idle problem is already
 closed (freed, verified 0 replicas) — this entry is about the underlying mechanism, still open.
+
+---
+
+## D-41 | 2026-08-13 | topic:inference-perf,oom,root-cause,upstream-code | src:plan__inference-perf-oom-root-cause-found-20260813.md
+
+**Root cause found, source-verified against the actual `kubernetes-sigs/inference-perf` code (a real
+local clone, not inferred from symptoms).** `m-ta-calibration-probe`'s harness pod OOMKilled after
+~16 min at a 32Gi limit. **inference-perf holds every request's full JSON body and every response's
+full text body in memory for the entire run, in one unbounded Python list, never flushed until the run
+ends.** `client/modelserver/openai_client.py:170,182` captures `request_data = json.dumps(payload)` and
+`response_content = await response.text()` at full size per request; both go into a
+`RequestLifecycleMetric` (`request_data: str` / `response_data: Optional[str]`, not a summary or
+length); `MultiprocessRequestDataCollector.collect_metrics()` drains a shared queue and does
+`metrics.append(item)` — one list, one process, held until the run's `queue.put(None)` signal. Workers
+don't duplicate the list; the single collector's unbounded growth *is* the mechanism.
+
+**This is structural, not tunable per-workload.** At ~4096in/~1024out tokens ramping to 20 req/s over
+12 min, the accumulated list holds thousands of full request+response text bodies growing
+monotonically with elapsed time × request volume — any workload at this token size and duration hits
+the same ceiling eventually, just later for shorter/slower ones. Consistent with, and now confirms,
+Dean's suspicion (*"inference-perf itself can't handle this workload shape/rate"*) rather than a
+per-replica log-capture theory that was checked and ruled out first (~33 MB total across 3 pods, far
+too small to explain a 32Gi OOM).
+
+**No fix proposed or attempted — this is upstream `kubernetes-sigs/inference-perf` code, not this
+repo's.** Given the root cause, a memory-limit bump is the *correct* near-term mitigation (it buys
+headroom against a growing-but-run-length-bounded list), not a workaround for an unrelated cause the
+way the earlier log-capture theory would have been.
+
+**Two side questions, checked directly rather than left as "as far as I've seen":** no harness-pod
+resource monitoring exists anywhere in `hack/benchmark/` (no `kubectl top`, cAdvisor, or
+`container_memory` reference) — confirmed absent, not assumed. A multi-harness-pod flag/count was
+searched for in both `inference_perf/config.py` and `llm-d-benchmark`'s `setup/*.sh`/`env.sh` and found
+nowhere — **inconclusive, not definitive**; may not exist as a first-class flag (running the harness
+twice by hand would produce the same effect with no dedicated flag), or may exist somewhere not
+searched. Needs Dean's memory of where he saw it, not more blind search.
+
+**Open, explicitly not decided here:** whether the benchmark's own playbook should generate load
+directly instead of going through inference-perf's config surface — a design-direction question, not
+answered, though item 1's finding is a point in its favor (sidesteps this specific accumulator by
+construction).

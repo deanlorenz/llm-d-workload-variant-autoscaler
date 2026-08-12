@@ -28,6 +28,7 @@ owns the theory/simulation legs referenced below).
 | Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ⬜ **OPEN, unrouted** | [[D-28]] §3.1 |
 | `postprocess.py`'s missing-field bug | ✅ **FIXED 2026-08-12 — supports both harness formats, verified against a real run** | [[D-39]] |
 | Route the controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) — same mechanism as Finding 4, or a distinct startup-state bug? | ⬜ **OPEN, unrouted, no owner** | [[D-40]] |
+| inference-perf OOM — root cause found (unbounded per-request accumulator, upstream code); should the benchmark generate load directly instead? | ⬜ **root cause CLOSED; the design-direction question is OPEN** | [[D-41]] |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked
