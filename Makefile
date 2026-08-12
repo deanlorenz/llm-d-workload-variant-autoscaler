@@ -133,6 +133,12 @@ BENCHMARK_ANALYZE    ?= true
 # rendered (desired) images were saved, and the WVA controller image -- the whole
 # subject of the benchmark -- was recorded nowhere at all.
 BENCHMARK_RECORD_IMAGES ?= true
+# Mirrors the inference gateway's access log to durable storage before load starts
+# (see benchmark-run's own comment and hack/benchmark/gateway-log-follower.sh for
+# why this can't happen after a run). On by default because a benchmark run without
+# it is a bet against kubelet log rotation; set false only for a harness/namespace
+# where the inference gateway component doesn't exist.
+BENCHMARK_GATEWAY_LOG_FOLLOWER ?= true
 BENCHMARK_UV         ?= false
 BENCHMARK_SCENARIOS_DIR ?= $(CURDIR)/test/benchmark/scenarios
 # Workload profiles owned by THIS repo, partitioned by harness. The llm-d-benchmark
@@ -811,6 +817,24 @@ benchmark-run: benchmark-guard ## Run a single benchmark workload (set BENCHMARK
 			--vllm-image "$(VLLM_IMAGE_REPO):$(VLLM_IMAGE_TAG)" \
 			--harness-image "$(HARNESS_IMAGE_REPO):$(HARNESS_IMAGE_TAG)" \
 			--out "$(BENCHMARK_WORKSPACE)/.images-pending.yaml"; \
+	fi
+	@# Gateway access log is the only surviving per-request trace when the
+	@# harness's own per-request collector fails or is disabled -- but the
+	@# kubelet rotates container logs, so it must be mirrored to durable storage
+	@# BEFORE load starts, not harvested after (see gateway-log-follower.sh for
+	@# the rotation-cliff rationale). "log watching should be part of running a
+	@# benchmark, invoked only when a benchmark actually runs" (Dean, 2026-08-12)
+	@# -- so this applies automatically here rather than needing a separate manual
+	@# step. Idempotent: kubectl apply on an already-running follower is a no-op:
+	@# the Deployment is left running across runs (its own capture-retained-on-
+	@# PVC design), not torn down per run.
+	@if [ "$(BENCHMARK_GATEWAY_LOG_FOLLOWER)" = "true" ]; then \
+		echo "Applying gateway access-log follower (BENCHMARK_NAMESPACE=$(BENCHMARK_NAMESPACE))..."; \
+		kubectl create configmap gateway-log-follower-script -n $(BENCHMARK_NAMESPACE) \
+			--from-file=gateway-log-follower.sh=$(CURDIR)/hack/benchmark/gateway-log-follower.sh \
+			--dry-run=client -o yaml | kubectl apply -f - || exit 1; \
+		sed "s/dhl-wva-209/$(BENCHMARK_NAMESPACE)/g" $(CURDIR)/hack/benchmark/gateway-log-follower.yaml \
+			| kubectl apply -f - || exit 1; \
 	fi
 	$(LLMDBENCHMARK) $(BENCHMARK_CLI_FLAGS) run \
 		-p $(BENCHMARK_NAMESPACE) \
