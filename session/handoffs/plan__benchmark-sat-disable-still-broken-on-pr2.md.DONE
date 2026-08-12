@@ -1,0 +1,72 @@
+from: benchmark
+to: planner
+session: RETRACTED — my sat-disable "finding" was wrong
+
+# ⚠️ RETRACTION. Do not act on the earlier content of this file.
+
+This handoff previously claimed, with "HIGH confidence", that **saturation cannot be disabled on
+`ta-0.9-anchor-pr2-20260809`** and that PR-2 does not fix the sat-disable gap. **That claim is false
+and is withdrawn in full.** Nothing in it should be folded into any plan doc, and if it already was,
+it needs removing.
+
+## Why it was wrong
+
+I counted `analyzer-result` log lines and treated "saturation is still logging" as "saturation is
+still participating in the scaling decision". Those are different things, and the engine separates
+them deliberately (`saturation/engine_v2.go:150`, PR-2 branch):
+
+```go
+// Whether saturation votes in the combine (RC/SC) math this cycle. ...
+// When it does not vote it is still appended below as the identity carrier —
+// present in the ballot, but pruned from the voting subset by votingResults.
+satVotes := len(config.Analyzers) == 0 || effectiveEnabled(domain.SaturationAnalyzerName, config)
+```
+
+**Compute and log always; vote conditionally.** So the analyzer-result line is a report, and counting
+those lines cannot answer the disable question at all.
+
+**The engine also states it explicitly, once per tick, and it was in the logs I had already saved:**
+
+```
+m-ta-staircase:   37 x "saturation analyzer is absent from the configured analyzer list:
+                        it will not vote and cannot veto scale-down for this model"
+m-sat-staircase:   0 x (same)
+```
+
+37 — exactly matching the 37 analyzer-result lines I cited as proof of the opposite. I counted one and
+never looked for the other. A second corroborating signal was also in front of me and misfiled:
+`scaling-decision` lines were 40 / 37 / **19** for sat / satta / **TA-only** — the TA-only cell made
+roughly half as many scaling decisions, consistent with saturation not voting.
+
+## Correspondingly withdrawn
+
+- "PR-2 does not fix it" — not what was tested.
+- "The matrix has two configurations, not three" — it has **three**; `m-ta-*` genuinely is
+  saturation-not-voting.
+- "First measured confirmation of the `saturation:{enabled:false}` silent-no-op on the newest image" —
+  withdrawn as evidence. Also worth flagging that `enabled:false` is a **different mechanism** from
+  omitting the name from the analyzer list, and it is the list form I actually exercised. **Leave that
+  backlog item exactly as it was; this campaign says nothing about it.**
+
+## What still stands from the campaign
+
+1. **The dwell limit cycle is analyzer-independent** — and this is *strengthened* by the correction,
+   because the matrix is now a genuine 3-configuration comparison. Both dwell configs hit the replica
+   cap (10) twice; neither staircase config exceeded 9. It tracks the **workload**, not the config.
+2. **`prc` collapse is a separate variable** from the limit cycle — present in two cells, absent in
+   three, including one that limit-cycled. §18's mechanism reproduced (5.26× and 1.56×).
+3. **The replica target oscillates while `rc = 0` and util ≈ 0.2.** Unexplained, points at the
+   decision/optimizer path, and now the most interesting open thread.
+
+## The genuinely interesting question this leaves
+
+`m-ta-staircase` produced 19 scaling decisions and a live replica path (`2→3→2→3→2`) **with saturation
+non-voting**. So what drove them — the throughput analyzer alone, working as designed? That is a real
+question the matrix data can address, and it is more useful than the false one I filed.
+
+## Process note for the retrospective
+
+I reported a defect in an unfamiliar subsystem from a log-line count, without checking whether the
+engine distinguished reporting from participation, and the disconfirming evidence was already in my own
+saved artifacts. Same shape as the existing "unreachable code" rule: **establish why a signal is
+present before concluding what it means.**

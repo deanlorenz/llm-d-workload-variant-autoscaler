@@ -704,3 +704,56 @@ and "where does the system dwell" aren't confounded in the same run.
 sample and the created→ready lag) and does not supersede either [[D-28]]'s bucket-keying finding or
 this entry's cross-analyzer-contradiction / demand-is-backlog findings — all remain open,
 uninvestigated by that later session.
+
+---
+
+## D-35 | 2026-08-10 | topic:own-guide,doc-consolidation,unverified | src:plan__benchmark-tooling-round-and-own-guide.md
+
+**Decision, Dean — a second, separate doc from the runbook consolidation in [[D-8]].** *"We do not
+diverge from upstream. They have their docs. We just add another guide."* New:
+`docs/wva-benchmark-guide.md`, standing **alongside** upstream's own guide, not replacing it. An
+earlier edit to the *shared* `docs/developer-guide/two-variant-wva-benchmark.md` was reverted —
+division of labor is now explicit: the new guide is the portable procedure, the (separately tracked,
+[[D-8]]) pokprod runbook is one environment's operational detail.
+
+**Marked provisional in its own text — it has never been run from a clean clone.** Dean's stated
+acceptance criterion: *"we would have to do a clean refresh test — start from a clean WVA repo and see
+if following your guide builds everything correctly."* Written into the guide as its own §10 checklist,
+framed so any stumble reads as a guide defect rather than something to route around in the shell.
+**Unperformed, needs a GPU cluster.** Nothing should treat this guide as verified until that test runs.
+
+---
+
+## D-36 | 2026-08-10 | topic:image-under-test,pr2-anchor,parser-risk | src:plan__benchmark-tooling-round-and-own-guide.md
+
+**Fact, not yet fully verified.** `WVA_IMAGE_TAG` defaults to `ta-0.9-anchor-pr2-20260809` (was
+`ta-0.9`), per Dean. **A tag change is a change of the code under test and can move the analyzer log
+format with it** — exactly the mechanism that broke the extractor before ([[D-29]]). The failure mode
+is now loud (warns, refuses to overwrite a good file, exits non-zero) rather than silent — a backstop,
+not a substitute for checking. Cheapest pre-check, not yet done: a read-only diff of the PR-2 branch's
+`engine_v2.go` log lines before committing a run to it. Recommended sequence: short run → confirm
+analysis fields populate → only then a long run. **One positive side effect already in place:** the
+extractor now records `scaleUpThreshold`/`scaleDownBoundary` per tick, so a run on this image will show
+which thresholds are actually live rather than leaving it inferred — directly useful given PR-2's
+`k_sat`-sourcing change ([[D-11]] territory, a different thread).
+
+---
+
+## D-37 | 2026-08-10 | topic:isolation-guard,write-scope,process-correction | src:plan__benchmark-tooling-round-and-own-guide.md
+
+**Process correction, generalizable beyond this thread — the isolation guard intercepts the *tools*,
+not the *shell*.** A duplicate state file (two byte-identical 170,783 B copies of `benchmark.md`) was
+traced to the belief, stated in the file's own header, that a coder cannot write to
+`plans/session/status/`. **Half true, and the wrong half caused the duplicate:** the Write/Edit tools
+are blocked from the shared-checkout path, but Bash `cp`/`mv`/redirect are **not** — they reach
+`plans/session/status/` and `plans/session/handoffs/` normally, including the full `.md` → `.WIP` →
+`.DONE` rename cycle. Verified by direct probe. Resolution: `plans/session/status/benchmark.md` is the
+sole authority, maintained directly via Bash by the owning coder; the tracked duplicate removed.
+
+**One practical wrinkle carried forward:** the guard also refuses compound Bash commands it cannot
+statically verify (pipes, `cd &&`, redirects in loops) — so status/handoff writes must be plain,
+single commands, not chained.
+
+**Worth generalizing in `session/CONVENTIONS.md` — not yet done, flagged here so it isn't lost:** "the
+coder cannot write there" is not a correct blanket statement anywhere in this project; it is specific
+to which *tool* is used, not the target path.

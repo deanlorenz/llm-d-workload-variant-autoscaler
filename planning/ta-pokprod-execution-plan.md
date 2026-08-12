@@ -333,6 +333,8 @@ any session other than the dedicated sync session.
 | T12 | Make the Makefile's forced `-w` workload flag conditional (§5.4 above); audit `$(BENCHMARK_WORKLOAD)`-gated blocks; commit custom profiles to the fork's native catalog instead of the local-`.in` mechanism | benchmark coder | open — see §5.4 |
 | T13 | The `benchmark-configure` wizard — deferred by design, not on the results-tree/A-B critical path ([[D-31]]) | benchmark coder | deferred, Dean's own design preserved for when it's picked up |
 | T14 | Route to Dean for approval, none routed yet: the bucket-keyed `prc` capacity-history collapse fix ([[D-28]]); the broken-extractor log-format-drift fix ([[D-29]]); and [[D-34]]'s five asks (log `outputBucket`/`historyKey`, decide `computeCapacityHistory`'s lifetime, fact-find the 100%-missing dispatch-rate label mismatch, confirm the kv metric name, and the shared "no confident estimate, abstain" design question across saturation's and throughput's fallback paths) | planner/Dean | open — see [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) §3.2 |
+| T15 | Run `docs/wva-benchmark-guide.md`'s own §10 clean-refresh checklist from a clean WVA clone — needs a GPU cluster; nothing should treat the guide as verified until this passes ([[D-35]]) | benchmark coder | open, needs cluster |
+| T16 | Pre-check the PR-2 branch's `engine_v2.go` log lines (read-only diff) before running the dwell workload against `ta-0.9-anchor-pr2-20260809` — a tag change can move the analyzer log format and re-break the extractor the same way it did before ([[D-36]], [[D-29]]) | benchmark coder | open |
 
 **Still Dean's, not a tooling-track item:** the T6 fold-vs-stub call for the pokprod runbook; approval
 of any cluster run, as always.

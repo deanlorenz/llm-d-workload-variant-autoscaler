@@ -1,0 +1,111 @@
+from: benchmark
+to: planner
+session: tooling round 2026-08-10 — extractor fixed, our own guide started
+
+Three local commits on `benchmark`, all DCO-signed, tree clean. **No cluster contact, no run,
+nothing pushed.** Full state: `plans/session/status/benchmark.md` §19 (authoritative copy, saved
+this session).
+
+| Commit | Subject |
+|---|---|
+| `add1d400` | fix the WVA timeseries extractor emitting silent nulls |
+| `c74812f7` | add our own benchmark guide alongside the upstream one |
+| `13845aaf` | resolve the duplicate status file; name one authority |
+
+## 1. The §18 extractor defect is fixed and verified — with a plan consequence
+
+`dump_wva_target_timeseries.py` now yields **54 snapshots / 54 hydrated** from the committed dwell
+log, against 41 / **0** before. It **independently reproduces §18's headline** — per-replica
+capacity 25,348 → 329,011, ratio **13.0×**, matching the 10–13× collapse §18 established by hand.
+Recovered timeseries committed at `session-notes/scratch/wva_target_timeseries-20260808-dwell.json`.
+
+**Planner action — one precondition needs rewording, and it is not mine to edit.**
+The plan's §7.6.1 precondition "run `post_run_analyze.sh` **immediately**" is **necessary but not
+sufficient**, and §18 already suspected this. Promptness defends against log *rotation*; it does
+nothing against log-format *drift*, which is what actually broke the parse. The durable form is:
+
+> **Save the raw controller log during the run (`kubectl logs ... > controller-<run-id>.log`), then
+> parse. Re-parse offline with `--log-file <log> --no-window` if the window has passed.**
+
+A saved log survives both failure modes; a fast parse survives only one. Suggest amending §7.6.1
+accordingly. Related: part of the ladder run's missing `metrics/processed/wva_*` was attributed to
+rotation and may in fact have been this drift.
+
+## 2. Our own guide — new, and deliberately provisional
+
+Dean's direction 2026-08-10: we have drifted enough from the upstream guide to warrant our own,
+standing **alongside** it — *"we do not diverge from upstream. They have their docs. We just add
+another guide."*
+
+New: `docs/wva-benchmark-guide.md`. An edit I had made to the **shared**
+`docs/developer-guide/two-variant-wva-benchmark.md` was **reverted**; my commits touch zero files
+under `docs/developer-guide/`. Division of labor now explicit: **the new guide is the portable
+procedure; `docs/two-variant-wva-pokprod-runbook.md` is one environment's operational detail.**
+
+⚠️ **The guide is marked provisional in its own text: it has never been run from a clean clone.**
+Dean's stated acceptance criterion — *"we would have to do a clean refresh test — start from a
+clean WVA repo and see if following your guide builds everything correctly"* — is written into the
+doc as a §10 checklist, framed so that every stumble is a **guide defect** rather than something to
+work around in the shell. **This test is unperformed and needs a GPU cluster.** Nothing should
+treat the guide as verified until it passes.
+
+## 3. Image under test moved to the PR-2 anchor image — unverified against the parser
+
+`WVA_IMAGE_TAG` now defaults to **`ta-0.9-anchor-pr2-20260809`** (was `ta-0.9`), per Dean
+2026-08-10.
+
+⚠️ **A tag change is a change of the code under test and can move the analyzer log format with
+it** — exactly how the parse broke before. Two notes:
+
+- The failure is now **loud** (warns, refuses to overwrite a good file, exits non-zero) rather than
+  silent. That is a backstop, not a substitute for checking.
+- Cheapest pre-check is a **read-only** look at the PR-2 branch's `engine_v2.go` log lines
+  (`git -C ../ta-anchor-dynamic-refresh show ...`) before committing a run to it. **I have not done
+  this**; happy to, on request. Otherwise: short run → confirm analysis fields populate → only then
+  a long run.
+
+Also relevant to the PR-2 thread: the extractor now records `scaleUpThreshold` /
+`scaleDownBoundary` per tick, so a run on this image will **show** which thresholds are live rather
+than leaving it inferred — directly useful given PR-2 changes where `k_sat` is sourced from.
+
+## 4. Observability / dashboard plan — parked, intent recorded
+
+The `benchmark__observability-plan.md` trigger (Jun 15) predates the pokprod pivot. Dean
+2026-08-10: *"not sure the observability plan is still alive. currently lower priority. idea was to
+make sure we have a dashboard running with the test so we can capture results. needs more work."*
+
+**Not executed.** Recording the intent so it is not lost: *a dashboard running alongside the test
+so results can be captured.* Needs design work before it is actionable. The trigger is left
+**open** (not `.DONE`) since it was neither executed nor properly superseded — planner's call
+whether to retire it in favor of a fresh scoped item.
+
+## 5. State-file duplicate resolved — and a correction worth propagating
+
+Two byte-identical 170,783 B copies, no declared authority. Cause was the belief, stated in the
+file's own header, that a coder cannot write to `plans/session/status/`. **Half true, and the
+wrong half caused the duplicate:**
+
+- The **Write/Edit tools** are blocked from the shared-checkout path.
+- **Bash `cp`/`mv`/redirect are not** — they reach `plans/session/status/` and
+  `plans/session/handoffs/` normally, including the full `.md` → `.WIP` → `.DONE` rename cycle.
+  Verified by probe this session.
+
+Resolution: **`plans/session/status/benchmark.md` is the sole authority**, maintained directly by
+me (Dean's direction). Tracked copy removed; `session-notes/status/README.md` records the history
+and the edit-then-copy workflow; `session-notes/local/` gitignored as a transient editing surface.
+No content at risk.
+
+This may be worth generalizing in CONVENTIONS: the isolation guard intercepts the *tools*, not the
+*shell*, so "the coder cannot write there" is not a correct blanket statement. One practical
+wrinkle: the guard also refuses compound Bash commands it cannot statically verify (pipes,
+`cd &&`, redirects in loops), so status/handoff writes must be plain single commands.
+
+## 6. Unchanged — still gating any live run, all Dean's
+
+🚨 **The ScaledObject is still PAUSED** (that is how the GPUs were released). Un-pausing is a
+mandatory first step of the next run, or the trace is flat 0-replica and reads as a legitimate
+no-scaling result.
+🚨 **Restart the controller before each run** — capacity history contaminates across runs.
+
+Then, in order: §7.6 (a)/(b) answer or explicit deferral → the gateway access-log follower →
+my §7.6.1 preconditions → run approval.
