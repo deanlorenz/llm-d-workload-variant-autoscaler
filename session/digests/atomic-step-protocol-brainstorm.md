@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-12T08:48:12.566Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-12T09:21:39.842Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -325,3 +325,11 @@ by the script. Uncurated — the sections above are the curated record.
 
 - **ruling** — Decisions need clear ownership and lifecycle tracking across documents
   > decisions I made in a planner keep surfacing back up. Seems like the open issue and decision made on them are stored in multiple places. We need a clear owner for every decision (in terms of which document, not which session) and that should track the lifecylce per decision (raised, todo, WIP, partial, decided, why, rejected alternatives, closed) -- most of these are refs
+
+### 2026-08-12T09:21:39.842Z
+
+- **ruling** — split correct; defer needs scope; storage ok; retrofit active work
+  > split rather than partial is correct
+  > defer needs scope -- sometimes I don't want to handle something in a praticular session or just want to push it down the backlog. I say defer when I mean later. Not always meaning that I decide to not do it.
+  > storage -- sound ok. lets see if it works
+  > retrofit only active work.
