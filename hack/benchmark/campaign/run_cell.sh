@@ -6,11 +6,19 @@
 #   1. set the analyzer set (this restarts the controller, flushing the
 #      in-memory capacity history so this run is not a function of the last one)
 #   2. reset per-run state
-#   3. record the analyzer config and images actually live, into the run dir
+#   3. record the analyzer config and images actually live -- staged here because
+#      the run directory the harness will create doesn't exist yet; moved into
+#      runs/<run-id>/config/ at step 6 once it does, not duplicated
 #   4. run
 #   5. save the raw controller log BEFORE analysis -- it survives both log
 #      rotation and any future log-format drift, which a parsed file does not
 #   6. analyse
+#
+# session-notes/campaign-runs/<cell>/ is cell-keyed, campaign-scoped bookkeeping
+# (run.log, results-dir.txt for run_all.sh's abort check, and a copy of
+# controller.log) -- distinct from runs/<run-id>/config/, which is per-run and
+# holds the actual reproducible config set. Nothing here is duplicated there
+# by design; see step 3/6 for the analyzer-config/images/scaledobject handoff.
 #
 # Usage: run_cell.sh <env-name>
 set -uo pipefail
@@ -90,7 +98,10 @@ if [ -n "$RESULTS" ]; then
   RUN_DIR=$(echo "$RESULTS" | cut -d/ -f1-2)
   mkdir -p "$RUN_DIR/config"
   cp "hack/benchmark/${ENV_NAME}.env" "$RUN_DIR/config/" 2>/dev/null
-  cp "$OUT/analyzer-config.txt" "$OUT/images.txt" "$OUT/scaledobject.yaml" "$RUN_DIR/config/" 2>/dev/null
+  # mv, not cp: analyzer-config.txt/images.txt/scaledobject.yaml were staged in
+  # $OUT (step 3, before RUN_DIR was known) -- move them into config/ rather
+  # than duplicating, since runs/<id>/config/ is now their real home.
+  mv "$OUT/analyzer-config.txt" "$OUT/images.txt" "$OUT/scaledobject.yaml" "$RUN_DIR/config/" 2>/dev/null
   echo "$RUN_DIR" > "$OUT/results-dir.txt"
   echo "config recorded at $RUN_DIR/config/ (harness output stays in place under $RUN_DIR)"
 
