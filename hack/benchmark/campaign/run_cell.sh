@@ -85,13 +85,17 @@ if [ -n "$RESULTS" ]; then
   # run directory the harness already created -- tracked in git; everything
   # else the harness wrote (results/, logs/, setup/, plan/, environment/)
   # stays untracked via a .gitignore allowlist rather than a raw/ subfolder,
-  # so nothing here needs to move.
-  RUN_DIR=$(echo "$RESULTS" | cut -d/ -f1)
+  # so nothing here needs to move. RESULTS is runs/<run-id>/results/<leaf>, so
+  # the run directory is the first TWO path segments, not one.
+  RUN_DIR=$(echo "$RESULTS" | cut -d/ -f1-2)
   mkdir -p "$RUN_DIR/config"
   cp "hack/benchmark/${ENV_NAME}.env" "$RUN_DIR/config/" 2>/dev/null
   cp "$OUT/analyzer-config.txt" "$OUT/images.txt" "$OUT/scaledobject.yaml" "$RUN_DIR/config/" 2>/dev/null
   echo "$RUN_DIR" > "$OUT/results-dir.txt"
   echo "config recorded at $RUN_DIR/config/ (harness output stays in place under $RUN_DIR)"
+
+  echo "--- writing REPORT.md ---"
+  python3 hack/benchmark/campaign/write_report.py "$RUN_DIR" --scenario "$ENV_NAME" 2>&1 | tail -5
 else
   echo "WARNING: no results directory found; skipping analysis"
 fi
