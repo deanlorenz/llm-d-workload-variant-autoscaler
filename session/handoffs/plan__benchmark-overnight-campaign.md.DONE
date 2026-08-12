@@ -1,0 +1,67 @@
+from: benchmark
+to: planner
+session: overnight campaign 2026-08-10 — guard tooling, harness fixes, scenario matrix
+
+Dean approved autonomous cluster use overnight (including the un-pause) and asked for the GPUs to be
+freed when done. Full state: `plans/session/status/benchmark.md` §20 (authoritative copy).
+
+## 1. Three harness blockers fixed — none of them known before tonight
+
+Each was found by running, and each one blocked *all* load generation. Committed separately with the
+reasoning, since the distinctions are not guessable and each cost an attempt:
+
+1. **`BENCHMARK_WORKLOAD` is an upstream-catalog name, fetched over the network.** It is **not** the
+   way to select one of our profiles. Ours live in `hack/benchmark/workloads/`, are synced into the
+   harness, and are chosen by the scenario's `harness.experimentProfile` — which was **hardcoded**, so
+   a per-cell load shape was not expressible at all. Now driven by a new `BENCHMARK_PROFILE`.
+2. **`PyYAML` missing from the system `python3`** while the benchmark venv has 6.0.3. The Makefile had
+   already solved this for plotting via `PLOT_PYTHON`; added `YAML_PYTHON` on the same principle
+   (choose the interpreter that can actually `import yaml`). **Fixed for the class** — three helpers
+   import yaml and all three were invoked as bare `python3`, so the same abort was waiting in the
+   analysis step and in variant configuration.
+3. **A token cannot be used for `experimentProfile`** — my own first fix, wrong. `sync_workloads.py`
+   validates that field by reading the **source** scenario, *before* substitution, so a `__TOKEN__`
+   there fails validation as a literal profile name. Every other token in that file is only read
+   post-substitution, which is why the pattern works for them. Now an anchored `sed` rewrite of the
+   line in the harness copy, with the constraint documented at the line so nobody re-tokenises it.
+
+**Planner note:** (1) and (3) are the kind of thing worth capturing in the Type 3's tooling track —
+they are latent traps for anyone adding a workload profile or a scenario value, not one-off slips.
+
+## 2. Guard tooling landed (Dean's design, settled in conversation)
+
+`env_guard.py` / `env_wizard.py` / `apply_images.py`, wired into the **10 destructive** targets only;
+read-only targets deliberately ungated. Design recorded in
+`plan__benchmark-env-guard-design.md`; per Dean's corrections it is **guards, not tiers**, with
+`UNSAFE=confirm|once|silent` as a first-class escape hatch and named `X.env` files carrying
+`KUBE_CONTEXT` inside for verification.
+
+`apply_images.py` closed a real gap: the image pin previously reached the cluster **only** via
+standup, so an A/B across controller images had no clean path. **Verified working for real** — it
+rolled the controller `ta-0.9-anchor-20260807 → ta-0.9-anchor-pr2-20260809` and re-observed the
+running pod.
+
+Also landed: `hack/benchmark/campaign/` drivers (were in a gitignored dir and would have been lost).
+
+## 3. Autoscaling confirmed working on the PR-2 image
+
+The validation cell generated load and the controller **scaled 1 → 2 replicas** (desired raised
+03:52:20, second replica ready 03:53:12). This is the first end-to-end confirmation that the
+new image autoscales under load in this namespace.
+
+## 4. ⚠️ What is NOT established — do not read the cell names as findings
+
+The `m-ta-*` cells are **configured** throughput-only and **named** for what Dean asked for. Whether
+the engine actually stops prepending the saturation result is **what the runs test**, not something
+observed. Every idle-window observation so far (`2 saturation + 2 throughput` with no load) says
+nothing either way. `run_cell.sh` records per-analyzer `analyzer-result` counts from each cell's saved
+controller log — that is the evidence to read.
+
+Dean's instruction was explicit: *"PR-2 should fix it — allow real disable. Do not verify, just test
+as is with the available image."* So this is configured-as-intended and reported-as-observed.
+
+## 5. Method note worth keeping
+
+Switching from "launch all 7" to "validate 1 cell first" is what turned a 7×-repeated failure into
+three cheap single-cell diagnoses. The sequencer now also aborts on the first resultless cell. Worth
+making the default for future campaigns.
