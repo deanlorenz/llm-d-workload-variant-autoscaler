@@ -89,8 +89,8 @@ def _parse_prometheus_value(line, metric_name):
         return None
 
 
-def _extract_latency(results_dir):
-    """P99 TTFT and P99 ITL from results.json."""
+def _extract_latency_guidellm(results_dir):
+    """P99 TTFT and P99 ITL (ms) from guidellm's results.json."""
     path = os.path.join(results_dir, "results.json")
     if not os.path.isfile(path):
         return None, None
@@ -110,12 +110,45 @@ def _extract_latency(results_dir):
     return _p99("time_to_first_token_ms"), _p99("inter_token_latency_ms")
 
 
-def _extract_error_count(results_dir):
-    """Error count from results.json."""
-    path = os.path.join(results_dir, "results.json")
+def _extract_latency_inference_perf(results_dir):
+    """P99 TTFT and P99 ITL (ms) from inference-perf's summary_lifecycle_metrics.json."""
+    path = os.path.join(results_dir, "summary_lifecycle_metrics.json")
     if not os.path.isfile(path):
-        return 0
+        return None, None
+
     with open(path) as f:
+        data = json.load(f)
+
+    latency = data.get("successes", {}).get("latency", {})
+
+    def _p99_ms(section_key):
+        pcts = latency.get(section_key, {})
+        val = pcts.get("p99")
+        return val * 1000 if val is not None else None
+
+    return _p99_ms("time_to_first_token"), _p99_ms("inter_token_latency")
+
+
+def _extract_latency(results_dir):
+    """P99 TTFT and P99 ITL (ms), trying each known harness's result format."""
+    ttft, itl = _extract_latency_inference_perf(results_dir)
+    if ttft is not None or itl is not None:
+        return ttft, itl
+    return _extract_latency_guidellm(results_dir)
+
+
+def _extract_error_count(results_dir):
+    """Error count, trying each known harness's result format."""
+    ip_path = os.path.join(results_dir, "summary_lifecycle_metrics.json")
+    if os.path.isfile(ip_path):
+        with open(ip_path) as f:
+            data = json.load(f)
+        return data.get("failures", {}).get("count", 0)
+
+    gl_path = os.path.join(results_dir, "results.json")
+    if not os.path.isfile(gl_path):
+        return 0
+    with open(gl_path) as f:
         data = json.load(f)
     return data["benchmarks"][0]["metrics"]["request_totals"].get("errored", 0)
 
@@ -210,12 +243,13 @@ def _extract_queue_depth_avg(results_dir):
         return None
 
     metric_names = [
+        "inference_pool_average_queue_size",
         "llm_d_epp_average_queue_size",
     ]
 
     values = []
     for fname in sorted(os.listdir(raw_dir)):
-        if not fname.endswith(".log") or "router-epp" not in fname:
+        if not fname.endswith(".log") or "epp" not in fname:
             continue
         fpath = os.path.join(raw_dir, fname)
         found = False
