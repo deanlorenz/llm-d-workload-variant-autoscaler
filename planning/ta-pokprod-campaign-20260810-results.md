@@ -155,6 +155,38 @@ jumps to 10 while `ready` (purple) trails by 300+ s — **boot mean 316 s over 9
 the staircase cells. The controller keeps asking for more capacity while the previous batch is still
 booting. That is exactly §18's replica-lag account, now visible rather than argued.
 
+> **SHARPENED 2026-08-11 — a dedicated deep-dive session traced this end-to-end against the actual
+> `saturation_v2`/optimizer code**, full trace in
+> [`session/status/dwell-deep-dive.md`](../session/status/dwell-deep-dive.md). "Replica lag" was
+> directionally right but under-specified in two ways this session corrects:
+> 1. **The excursion's trigger is a single anomalous `P1-obs` sample, not accumulated demand.** In
+>    `m-satta-dwell`'s controller.log, the 2→10 jump coincides exactly with saturation's `P1-obs`
+>    (`k2SrcObserved`) reason code reporting `util=3.89` — `util>1` is **by design** (an unclamped
+>    demand/supply ratio), not a units bug, so this is a real, if aggressive, response to a queue
+>    snapshot, not a defect. Reproduced worse in SAT-only (`m-sat-dwell`: util 1.53→4.11→3.60, then
+>    1.35→2.91) than in SAT+TA — saturation drives it regardless of whether TA is also configured.
+> 2. **The lag decomposes into two hops, and only one is the bottleneck.** Ordered→created is fast
+>    (~1 tick, ~60 s, matching the KEDA poll interval) — not where the time goes. **Created→ready is
+>    slow and worsens with concurrent boot count** (model load + GPU scheduling contention under
+>    concurrent boots) — the dominant mechanism, and it is physical, not a WVA control-loop defect.
+>    Confirmed against ground-truth Deployment status: in the first excursion, `ready` peaked at **9**
+>    and never reached the ordered/created peak of **10** — the controller began retreating from its
+>    own peak order (10→7) *before* the last replica it had asked for ever became ready.
+>
+> **What is confirmed correct, not broken:** `TotalAnticipatedSupply = (ReplicaCount +
+> PendingReplicas) × PRC` correctly nets out replicas already ordered+created, so WVA does not
+> re-order supply already in flight — double-booking is avoided today.
+>
+> **The actual gap, and it is new Type-1 design surface, not a bug fix:** the demand side has no
+> forecast of its own resolution. `P1-obs` sizes queue-induced demand off the *instantaneous* queue
+> snapshot, with no model of the fact that already-ordered, already-created (not-yet-ready) replicas
+> will relieve that queue once they come online. The proposed direction — forecast *when* pending
+> replicas become ready (a supply-side timing forecast only, demand held flat, no trend assumed),
+> then use the queue's own buildup-then-drain trajectory under that forecast as the demand signal
+> instead of the instantaneous snapshot — applies to **both** analyzers (saturation's
+> `waitingQueueDemand`/`P1-obs` and TA's queue-drain reasoning), a shared mechanism gap, not
+> saturation-specific. Scoping owed, tracked via `session/handoffs/plan__dwell-limit-cycle-forecast-todo.md`.
+
 ---
 
 ## Finding 3 — CORRECTED 2026-08-10: saturation's internal `prc` still collapses even while non-voting

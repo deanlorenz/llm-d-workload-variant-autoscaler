@@ -15,29 +15,30 @@
 
 ## Table of contents
 
-- [1. Where we are (findings)](#1-where-we-are-findings) — L48:99
-- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L101:333
-  - 2a. pokprod shared-cluster safety invariants — L133:167
-  - 2b. Two-fork contract — what lives where — L170:206
-  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L209:277**
-  - 2c. Configuration contract — fail-closed, per kube context — L280:332
-- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L335:362
-- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L365:503
-  - 4.1 Refresh trigger — ARMED 2026-07-30 — L425:453
-  - 4.2 Tier-A image currency — three tags exist — L456:503
-- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L506:721
-  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L617:662
-  - 5.7 The KEDA arm is present but unrunnable — L680:721
-- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L724:935
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L939:1498
-  - 7.4 Scenario gaps from the ladder-run cross-check — L1241:1315
-  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1317:1350**
-  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1352:1380
-  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1383:1498**
-  - 7.6.1 Cold-resume state (2026-08-08) — L1467:1498
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1500:1523
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1525:end
-  - 9.1 Tooling track (T1–T11) — L1556:end
+- [1. Where we are (findings)](#1-where-we-are-findings) — L50:101
+- [2. Architecture — two-tier separation](#2-architecture--two-tier-separation) — L103:347
+  - 2a. pokprod shared-cluster safety invariants — L135:181
+  - 2b. Two-fork contract — what lives where — L183:220
+  - **2b-bis. Artifact tree — one root, results persisted in git (2026-08-10) — L222:291**
+  - 2c. Configuration contract — fail-closed, per kube context — L293:347
+- [3. Phase 0 — Preserve (zero-loss)](#3-phase-0--preserve-zero-loss) — L349:377
+- [4. Phase 1 — Code-under-test branch + image](#4-phase-1--code-under-test-branch--image) — L379:518
+  - 4.1 Refresh trigger — ARMED 2026-07-30 — L439:468
+  - 4.2 Tier-A image currency — three tags exist — L470:518
+- [5. Phase 2 — Fresh benchmark branch + KEDA harness (blend #1435, parametrized)](#5-phase-2--fresh-benchmark-branch--keda-harness-blend-1435-parametrized) — L520:736
+  - 5.5 Branch / worktree wiring & runbook (item 4 = the doc plan) — L631:677
+  - 5.7 The KEDA arm is present but unrunnable — L694:736
+- [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L738:950
+  - 6.2 Ofer's 11-step standup — hazard classification — L768:885
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L952:1551
+  - 7.4 Scenario gaps from the ladder-run cross-check — L1254:1343
+  - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1344:1378**
+  - 7.5 Autoscaler-arm matrix + A/B hygiene — L1379:1409
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1410:1551**
+  - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11) — L1498:1551
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1553:1576
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1578:end
+  - 9.1 Tooling track (T1–T11) — L1609:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -1495,6 +1496,19 @@ the three asks, and pick (a) or (b) — or accept the quantization fallback as t
 (a)/(b) until its result is in.
 
 #### 7.6.1 Cold-resume state (2026-08-08)
+
+**Root cause found, 2026-08-11 — a dedicated deep-dive session answered "why does the limit cycle
+happen."** Full trace: [`session/status/dwell-deep-dive.md`](../session/status/dwell-deep-dive.md);
+sharpened account folded into
+[`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md) Finding 2. One-line
+summary: a single anomalous `P1-obs` sample triggers the excursion (real, by-design, not a units bug);
+the dominant lag is created→ready (not ordered→created); the controller retreats from its own peak order
+before the last replica it asked for ever becomes ready. `TotalAnticipatedSupply` is confirmed correctly
+implemented — no double-booking. **Forward-work item surfaced, not yet scoped:** the demand side has no
+forecast of pending-replica readiness, so queue-induced demand is sized off an instantaneous snapshot
+that's already about to shrink. New Type-1 design surface, shared between saturation and TA — tracked in
+`session/handoffs/plan__dwell-limit-cycle-forecast-todo.md.WIP`. **Whether/how to scope this is Dean's
+call, not decided here.**
 
 **Staged and unlaunched.** No cluster action has been taken and no run is proposed. Dean's standing
 rule holds: **no run without his explicit approval.**

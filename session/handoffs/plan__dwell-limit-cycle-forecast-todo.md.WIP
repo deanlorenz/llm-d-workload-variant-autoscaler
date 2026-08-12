@@ -1,0 +1,50 @@
+from: dwell-deep-dive (dedicated session per session/handoffs/dwell-deep-dive__handoff.md.DONE)
+to: planner
+session: dwell limit cycle — deep dive
+
+## Task/decision for a working planner
+
+This is a forward-work item surfaced while root-causing the pokprod dwell limit cycle (full trace:
+[`session/status/dwell-deep-dive.md`](../status/dwell-deep-dive.md); summary landing in CURRENT.md
+via the companion `sync__dwell-deep-dive-complete.md` handoff — that one is CURRENT-update only,
+this one is the actual task).
+
+**The gap, in one line:** the controller sizes queue-induced demand off the *instantaneous* queue
+snapshot (saturation's `waitingQueueDemand`/`P1-obs`, and analogously TA's queue-drain reasoning),
+with no model of the fact that replicas already ordered and already created (just not yet Ready)
+will relieve that queue once they come online. This is distinct from the anticipated-*supply*
+term (`TotalAnticipatedSupply = (ReplicaCount + PendingReplicas) × PRC`), which this session
+confirmed IS correctly implemented and does prevent double-ordering supply. The missing piece is
+anticipating the *demand relief* that already-ordered supply implies, once it's ready.
+
+**Dean's proposed direction (his words, substantively preserved):** forecast *when* the pending
+replicas will actually become ready (a supply-side timing forecast only — not a demand forecast;
+demand stays flat at its current observed level, no trend/growth assumed). Given that readiness
+ETA, estimate the queue's own buildup-then-drain trajectory as those replicas come online, and use
+that trajectory — not the instantaneous snapshot — as the queue-induced demand signal feeding
+RequiredCapacity. Applies to **both** analyzers: saturation's `waitingQueueDemand`/`P1-obs` path
+(`internal/engines/analyzers/saturation_v2/analyzer.go`) and TA's queue-drain reasoning
+(`internal/engines/analyzers/throughput/`) — a shared mechanism gap, not saturation-specific.
+
+**Evidence this is real, not speculative:** in `m-satta-dwell`'s controller.log, ready-replica
+count peaked at 9 while the controller had already ordered and created 10, and began retreating
+from that order (10→7) before the 10th replica it asked for ever became ready — see
+session/status/dwell-deep-dive.md's "Confirmed: ready never reaches the peak order" section for
+the tick-by-tick table.
+
+**What this needs before it's actionable:**
+- This is Type-1 design surface (new mechanism, not a bug fix) — needs its own scoping, not a
+  quick patch. Candidate open questions for whoever scopes it: what readiness-ETA estimate to use
+  (per-replica boot-time model? a rolling average of observed boot times, similar to `P2-hist`'s
+  rolling average for `k2`?); whether to model the trajectory per-replica or as an aggregate
+  supply-ramp curve; how it composes with the existing `TotalAnticipatedSupply` term without
+  double-discounting the same in-flight replicas twice (once as "supply coming" and again as
+  "demand already being relieved").
+- No planner thread currently owns this. It is not yet directed by Dean as a scoped task — record
+  as identified/pending in CURRENT.md § Issues to Open (via the sync handoff) until a planner
+  picks it up or Dean scopes it.
+
+## Scope note
+This session's write scope was worktree + `plans/session/handoffs/` + `plans/session/status/` only
+(per CONVENTIONS.md) — writing the actual Type-1 design doc is out of scope here even if it were
+tempting; that's explicitly the planner's/Dean's call.
