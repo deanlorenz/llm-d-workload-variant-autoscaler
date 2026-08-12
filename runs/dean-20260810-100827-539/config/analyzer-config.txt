@@ -1,0 +1,8 @@
+# configmap/workload-variant-autoscaler-wva-saturation-scaling-config -n dhl-wva-209 data.default
+analyzers:
+  - name: saturation
+    score: 1.0
+kvCacheThreshold: 0.8
+queueLengthThreshold: 5
+kvSpareTrigger: 0.1
+queueSpareTrigger: 3

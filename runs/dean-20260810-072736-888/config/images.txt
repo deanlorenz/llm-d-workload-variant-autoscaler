@@ -1,0 +1,8 @@
+Images observed in dhl-wva-209:
+    epp              ghcr.io/llm-d/llm-d-inference-scheduler:v0.8.0  [unpinned]
+    follower         quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:890ded20c72f81acaba090d483e20f5c9171ee8c336aa00d70492443336ae79a  [unpinned]
+    harness          ghcr.io/llm-d/llm-d-benchmark:v0.6.7  [match]
+    harness          ghcr.io/llm-d/llm-d-benchmark:v0.6.7  [match]  (Succeeded)
+    istio-proxy      docker.io/istio/proxyv2:1.29.2  [unpinned]
+    vllm             docker.io/vllm/vllm-openai:v0.20.2  [match]
+    wva-controller   quay.io/deanlorenz/llm-d-workload-variant-autoscaler:ta-0.9-anchor-20260807  [match]

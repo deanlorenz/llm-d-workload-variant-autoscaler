@@ -1,0 +1,108 @@
+apiVersion: v1
+items:
+- apiVersion: keda.sh/v1alpha1
+  kind: ScaledObject
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"keda.sh/v1alpha1","kind":"ScaledObject","metadata":{"annotations":{"llm-d.ai/managed":"true","llm-d.ai/model-id":"unsloth/Meta-Llama-3.1-8B-Instruct","llm-d.ai/variant-cost":"10.0"},"labels":{"inference.optimization/acceleratorName":"NVIDIA-H100-80GB-HBM3","wva.llmd.ai/controller-instance":"dhl-wva-209"},"name":"unsloth--608e585a-instruct-decode-scaler","namespace":"dhl-wva-209"},"spec":{"advanced":{"horizontalPodAutoscalerConfig":{"behavior":{"scaleDown":{"policies":[{"periodSeconds":15,"type":"Percent","value":100}],"stabilizationWindowSeconds":120},"scaleUp":{"policies":[{"periodSeconds":15,"type":"Percent","value":100}],"stabilizationWindowSeconds":0}},"name":"wva-keda-hpa-unsloth--608e585a-instruct-decode"},"restoreToOriginalReplicaCount":false},"cooldownPeriod":300,"fallback":{"failureThreshold":3,"replicas":1},"maxReplicaCount":10,"minReplicaCount":1,"pollingInterval":15,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"unsloth--608e585a-instruct-decode"},"triggers":[{"authenticationRef":{"kind":"TriggerAuthentication","name":"wva-prometheus-auth"},"metadata":{"activationThreshold":"0","authModes":"bearer","metricType":"Value","query":"wva_desired_replicas{variant_name=\"unsloth--608e585a-instruct-decode-scaler\",namespace=\"dhl-wva-209\"}","serverAddress":"https://thanos-querier.openshift-monitoring.svc.cluster.local:9091","threshold":"1"},"name":"wva-desired-replicas","type":"prometheus"}]}}
+      llm-d.ai/managed: "true"
+      llm-d.ai/model-id: unsloth/Meta-Llama-3.1-8B-Instruct
+      llm-d.ai/variant-cost: "10.0"
+    creationTimestamp: "2026-07-30T19:57:01Z"
+    finalizers:
+    - finalizer.keda.sh
+    generation: 4
+    labels:
+      inference.optimization/acceleratorName: NVIDIA-H100-80GB-HBM3
+      scaledobject.keda.sh/name: unsloth--608e585a-instruct-decode-scaler
+      wva.llmd.ai/controller-instance: dhl-wva-209
+    name: unsloth--608e585a-instruct-decode-scaler
+    namespace: dhl-wva-209
+    resourceVersion: "1902729335"
+    uid: 36f223eb-c0a2-4b0b-a8ca-4e28caf86edd
+  spec:
+    advanced:
+      horizontalPodAutoscalerConfig:
+        behavior:
+          scaleDown:
+            policies:
+            - periodSeconds: 15
+              type: Percent
+              value: 100
+            stabilizationWindowSeconds: 120
+          scaleUp:
+            policies:
+            - periodSeconds: 15
+              type: Percent
+              value: 100
+            stabilizationWindowSeconds: 0
+        name: wva-keda-hpa-unsloth--608e585a-instruct-decode
+      restoreToOriginalReplicaCount: false
+      scalingModifiers: {}
+    cooldownPeriod: 300
+    fallback:
+      behavior: static
+      failureThreshold: 3
+      replicas: 1
+    maxReplicaCount: 10
+    minReplicaCount: 1
+    pollingInterval: 15
+    scaleTargetRef:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: unsloth--608e585a-instruct-decode
+    triggers:
+    - authenticationRef:
+        kind: TriggerAuthentication
+        name: wva-prometheus-auth
+      metadata:
+        activationThreshold: "0"
+        authModes: bearer
+        metricType: Value
+        query: wva_desired_replicas{variant_name="unsloth--608e585a-instruct-decode-scaler",namespace="dhl-wva-209"}
+        serverAddress: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+        threshold: "1"
+      name: wva-desired-replicas
+      type: prometheus
+  status:
+    authenticationsTypes: wva-prometheus-auth
+    conditions:
+    - message: ScaledObject is defined correctly and is ready for scaling
+      reason: ScaledObjectReady
+      status: "True"
+      type: Ready
+    - message: Scaling is performed because triggers are active
+      reason: ScalerActive
+      status: "True"
+      type: Active
+    - message: No fallbacks are active on this scaled object
+      reason: NoFallbackFound
+      status: "False"
+      type: Fallback
+    - message: pause annotation removed for ScaledObject
+      reason: ScaledObjectUnpaused
+      status: "False"
+      type: Paused
+    externalMetricNames:
+    - s0-prometheus
+    health:
+      s0-prometheus:
+        numberOfFailures: 0
+        status: Happy
+    hpaName: wva-keda-hpa-unsloth--608e585a-instruct-decode
+    lastActiveTime: "2026-08-10T07:51:59Z"
+    originalReplicaCount: 0
+    scaleTargetGVKR:
+      group: apps
+      kind: Deployment
+      resource: deployments
+      version: v1
+    scaleTargetKind: apps/v1.Deployment
+    triggersActivity:
+      s0-prometheus:
+        isActive: true
+    triggersTypes: prometheus
+kind: List
+metadata:
+  resourceVersion: ""
