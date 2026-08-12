@@ -30,15 +30,15 @@
   - 5.7 The KEDA arm is present but unrunnable — L694:736
 - [6. Phase 3 — Clean stale pokprod + controlled-setup methodology](#6-phase-3--clean-stale-pokprod--controlled-setup-methodology) — L738:950
   - 6.2 Ofer's 11-step standup — hazard classification — L768:885
-- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L952:1550
+- [7. Phase 4 — Scenarios + small e2e](#7-phase-4--scenarios--small-e2e) — L952:1558
   - 7.4 Scenario gaps from the ladder-run cross-check, all three CONFIRMED — L1254:1343
   - **7.4.4 Workload coverage matrix + theory/simulation/real baseline (2026-08-11) — L1345:1378**
   - 7.5 Autoscaler-arm matrix + A/B hygiene — L1380:1410
-  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1411:1550**
-  - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11) — L1497:1550
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1552:1575
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1577:end
-  - 9.1 Tooling track (T1–T11) — L1608:end
+  - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1411:1558**
+  - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11; T9 corrected 2026-08-12) — L1497:1558
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1560:1583
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1585:end
+  - 9.1 Tooling track (T1–T11) — L1616:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -1523,18 +1523,26 @@ rule holds: **no run without his explicit approval.**
   contaminated *across* runs; this is an adopted protocol, not a suggestion.
 - **GPU state:** the ladder run's GPUs are released; **one GPU remains held** by the decode replica's
   `minReplicas=1` steady state — a separate open question (coder's §17.8 item 3).
-- **T9 gates the per-request trace, applied per-test, not in advance.** Without the gateway log-follower
-  applied, every per-request trace is a bet against log rotation (§9.1 T9) — and per §7.4 the routing
-  oscillation is invisible without it. **Corrected 2026-08-11:** this is not a standing prerequisite to
-  clear ahead of the campaign; it applies as part of the test playbook when an actual test is about to
-  run, with no permission scope beyond that run.
+- **T9 gates the per-request trace — CORRECTED 2026-08-12: not a Dean step at all, a playbook step.**
+  Without the gateway log-follower applied, every per-request trace is a bet against log rotation
+  (§9.1 T9) — and per §7.4 the routing oscillation is invisible without it. Dean, 2026-08-12: *"log
+  watching should be part of running a benchmark, invoked only when a benchmark actually runs."*
+  Verified: `gateway-log-follower.yaml`'s every resource (`Role`/`RoleBinding`/`ServiceAccount`/
+  `Deployment`) is **namespace-scoped**, `dhl-wva-209` — nothing cluster-scoped, nothing beyond what
+  the benchmark permissions already granted for that namespace cover. So it needs **no permission a
+  benchmark run doesn't already have**, and the prior "Dean applies it personally" framing was wrong —
+  that only followed from an earlier, now-superseded belief that it needed extra permission. **Not yet
+  wired into the Makefile** (`grep gateway-log-follower Makefile` — no hits): the actual gap is that
+  `benchmark-run` (or a guarded pre-step) doesn't invoke `gateway-log-follower.{sh,yaml}` automatically.
+  Owed: fold the apply into the run playbook so it happens whenever a benchmark actually runs, with no
+  separate manual step for anyone.
 
 **Next steps, in order.**
 
 1. **Dean** — confirm §7.4's three asks (still owed, separate from the (a)/(b) decision below).
 2. **(a)/(b) — DECIDED 2026-08-11.** (a), generalized to any analyzer combination, observed not forced.
-3. **Dean** — apply the gateway log-follower (T9) **as part of the test playbook when the run actually
-   fires**, not as an advance step; otherwise step 4 may yield no per-request trace.
+3. **Coder** — wire the gateway log-follower into the run playbook (T9, corrected above) so it applies
+   automatically whenever a benchmark runs; otherwise step 4 may yield no per-request trace.
 4. **Coder** — satisfy the four preconditions; restart the controller.
 5. **Dean** — approve the run. **Coder** — run it, then `post_run_analyze.sh` **immediately**.
 6. **SUPERSEDED — the two rungs already ran, and they did not read 0.67 or land in-band.** Both
@@ -1621,7 +1629,7 @@ after review, per push. Dependency order matters only where stated.
 | **T6** | The one runbook `docs/developer-guide/benchmark-tooling-runbook.md`, its two link points in `benchmark-guide.md`, and the fold-in of `docs/two-variant-wva-pokprod-runbook.md` | benchmark coder | §5.5 item 4 |
 | **T7** | Close the three cross-arm contamination paths and the literal-match `awk` injection | benchmark coder | §7.5 |
 | **T8** | Pin `hack/benchmark` Python deps in a tracked requirements file; add a **fresh-checkout acceptance gate** — simulate a clean clone and confirm the documented flow works end to end. This is the technique that caught the `metrics/raw/` loss during the autoscaling-viz migration (8 PASS/7 FAIL from a clone vs 12/4 locally) | benchmark coder | §7.4 |
-| **T9** | Apply the gateway access-log follower (`hack/benchmark/gateway-log-follower.{sh,yaml}`) — **CORRECTED 2026-08-11: not standing infrastructure, applied per-test.** Dean: *"T9 should only run with a test, part of the playbook, no extra permissions above an actual test."* The `kubectl apply` runs as **part of the test playbook**, gated to an actual test execution, needing no permission beyond what that run already needs — not a one-time cluster-admin action taken in advance. Still needs Dean applying it (the coder's permission classifier blocks the apply either way), but the *trigger* is "a real test is about to run," not a standing prerequisite to clear once | **Dean, per-test** | §7.4 |
+| **T9** | Wire the gateway access-log follower (`hack/benchmark/gateway-log-follower.{sh,yaml}`) into the run playbook so it applies automatically whenever a benchmark runs. **CORRECTED 2026-08-12: not a Dean step at all.** Dean, 2026-08-11: *"T9 should only run with a test, part of the playbook, no extra permissions above an actual test."* Dean, 2026-08-12, sharper: *"log watching should be part of running a benchmark, invoked only when a benchmark actually runs."* Verified — every resource in the yaml is namespace-scoped (`Role`/`RoleBinding`/`ServiceAccount`/`Deployment`, all `dhl-wva-209`), so it needs no permission beyond what a benchmark run already has. Not yet wired into the Makefile (no `gateway-log-follower` reference in it) — that wiring is the actual remaining work, not a permission gap | **benchmark coder** | §7.4 |
 | **T10** | File upstream llm-d-benchmark issues for the two guards — **later**, Dean's call, after T2 has them isolated | **Dean** | §2b |
 | **T11** | Dwell-run preconditions for the staged `ta_autoscale_dwell` / `ta_prefill_knee` run: reclaim the results PVC to **≥14 GB** with `verify_pvc_vs_host.py` **gating** it, confirm the 96Gi harness pod schedules, set the 5-GPU footprint flag, **restart the controller** (capacity history is contaminated across runs), and run `post_run_analyze.sh` **immediately** after | benchmark coder | §7.6.1 |
 
