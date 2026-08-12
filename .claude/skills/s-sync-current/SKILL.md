@@ -2,7 +2,7 @@
 name: s-sync-current
 description: Apply all pending sync-handoff files (sync__*.md) to CURRENT.md, mark them .DONE, and commit. Run this as the dedicated sync session from the plans worktree when Dean says "sync state". Invoke with /sync-current.
 disable-model-invocation: true
-allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Bash(mv:*), Bash(rm:*), Read, Edit, TodoWrite
+allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Bash(mv:*), Bash(rm:*), Read, Write, Edit, TodoWrite
 ---
 
 # Sync CURRENT.md
@@ -194,6 +194,67 @@ If CURRENT.md has no changes and no handoffs were processed, report "CURRENT.md
 already up to date" and skip the commit.
 
 Print the commit SHA or the up-to-date message when done.
+
+---
+
+## Step 6a: Push `plans` to origin, only if it is a clean fast-forward
+
+Dean's standing instruction (2026-08-12): push after every sync, but **only** when it is a
+plain fast-forward with no divergence — a fast-forward push is harmless and reversible from
+every other session's point of view (nothing is rewritten, nobody's history changes under
+them), so it needs no per-push confirmation the way a force-push or a rewrite would.
+
+```bash
+git -C plans rev-list --left-right --count origin/plans...plans
+```
+
+Read the two numbers as `<behind> <ahead>`. Push **only if `<behind>` is 0** — i.e. `origin/plans`
+has nothing this branch lacks. If `<behind>` is nonzero, `plans` has diverged from `origin/plans`
+(someone force-pushed, or this branch's local history was rewritten) — do **not** push; that
+is exactly the "no push without explicit confirmation" case from CONVENTIONS, and a divergence
+here is itself worth surfacing to Dean rather than silently skipping.
+
+```bash
+git -C plans push origin plans
+```
+
+This is a plain `push`, never `--force` / `--force-with-lease` — if the fast-forward check
+above ever fails to prevent a rejected push for some other reason, stop and report rather than
+retrying with force.
+
+Report the resulting SHA range (e.g. `abc1234..def5678`) or "already up to date" if there was
+nothing to push (this sync made no commits, or `plans` was already level with origin).
+
+---
+
+## Step 7: Record the sync baseline for the concurrent-sync watcher
+
+`scripts/sync-current-watch.sh` (started via the Monitor tool) polls for pending `sync__*.md`
+handoffs and checks whether `CURRENT.md` has moved since this skill's last known-good commit —
+if unchanged, it signals "safe to auto-run this skill"; if changed by someone else, it signals
+a possible concurrent sync session and does **not** auto-anything. That check depends on this
+skill recording its own tip after every successful run:
+
+```bash
+current_sha=$(git -C plans log -1 --format=%H -- session/CURRENT.md)
+```
+
+```
+{
+  echo "last_check: <ISO timestamp>"
+  echo "watcher_pid: <unchanged from the file, or 0 if the watcher isn't running>"
+  echo "state: watching"
+  echo "current_step: idle"
+  echo "last_known_current_sha: $current_sha"
+  echo ""
+  echo "## Notes"
+  echo "baseline updated by /s-sync-current after its own commit"
+} > plans/session/status/sync-current-watch.md
+```
+
+Skip this step if Step 6 made no commit (nothing changed, so the baseline is already correct).
+If the watcher is running, it will pick up the new baseline on its next poll; there is no need
+to restart it.
 
 ---
 
