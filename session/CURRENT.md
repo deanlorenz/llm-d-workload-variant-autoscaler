@@ -72,6 +72,20 @@
   gate criterion was replaced *after* it had failed (his call) and the original is deliberately retained
   and still evaluated — do not "clean it up". State:
   `autoscaling-viz/planning/sim-from-benchmark-plan.md` + `real-trace/ladder-20260807/C2-GATE-REPORT.md`.
+  **2026-08-12 — panel 6 (scaling-decision reasons) landed; the decision-panel Type 3 is
+  code-complete, in review.** Commit `cff4e4c0` (tip, was `5a0c607f`) adds panel 6 to
+  `render_real_trace.py` and controller.log parsing to `extract_real_trace.py`, completing
+  `planning/autoscaling-viz-decision-panel-plan.md` (Item 1 of the follow-on epic,
+  `planning/autoscaling-viz-followon-plan.md`). Verified against real campaign data — `m-satta-dwell`
+  (both analyzers), `m-ta-staircase` (TA-only, absent-analyzer annotation), and a no-controller-log
+  bundle (degrade path), all three re-renders viewed as PNGs. Not pushed — 7 commits ahead of
+  `origin/autoscaling-viz` (was 6). Items 2–6 of the follow-on epic (panel 4 queue-source design,
+  estimation-model code, EPP scorer signal, coverage-check doc, folder-structure question) remain
+  open, explicitly out of scope for this Type 3. A real doc-accuracy correction found along the way,
+  not yet fixed: the plan's § Data source text says the saturation-analyzer-absent line fires "zero
+  or one per run, not per tick" — it actually fires every ~60s tick; flagged for whoever owns that
+  doc next, coders don't edit Type 3 plans. State: `session/status/autoscaling-viz.md` (rewritten in
+  place, prior state preserved below). Trigger sent: `review__autoscaling-viz-ready.md`.
 - **2026-08-10 — pokprod benchmark: guard tooling + scenario matrix; autoscaling confirmed on the
   PR-2 image; overnight campaign complete, GPUs freed.** *WIP.* Ten local commits on `benchmark`
   (DCO-signed, nothing pushed). Built the env-guard contract Dean specified — a named `X.env`
@@ -154,6 +168,28 @@
   `plan__benchmark-env-guard-design.md`, the now-retraction notice
   `plan__benchmark-sat-disable-still-broken-on-pr2.md`, and the open
   `benchmark__viz-model-review-and-per-request-discovery.md` trigger.
+  **2026-08-12 — the 7 pre-`runs/` campaign directories migrated in; T9 actually wired, not just
+  reframed.** Four more commits (`02793145`, `5486afde`, `135b4590`, `3ab8128a`), still nothing
+  pushed (branch 27 ahead of `origin/benchmark`). The 7 pre-existing 2026-08-10
+  `dean-20260810-*/` directories (the ones the prior entry left "undecided") are now moved into
+  `runs/<id>/{config,raw,viz}/` — 56 files, verified clean of the flagged bearer token by three
+  independent grep passes before staging. A real `.gitignore` bug caught in the process: an
+  unanchored `dean-*/` rule was silently shadowing the config/viz/REPORT.md allowlist for every
+  run under `runs/`; fixed by anchoring to `/dean-*/`. The redundant `session-notes/campaign-viz/`
+  figure mirror is deleted (verified byte-identical against the new canonical location first).
+  **T9 (gateway access-log follower) is DONE, not Dean's anymore** — reframed from "Dean applies
+  it personally" to "wire it into the run playbook" (every resource in `gateway-log-follower.yaml`
+  is namespace-scoped, needing no permission beyond what `benchmark-run` already has), then
+  actually wired: new `BENCHMARK_GATEWAY_LOG_FOLLOWER` flag (default `true`), `benchmark-run`
+  applies it automatically before load starts, namespace-substituted via `sed`. Idempotent by
+  design — left running across runs, matching the manifest's own PVC-retained-capture intent.
+  **Bearer-token hazard's exact location corrected:** `environment/context.ctx` per migrated cell,
+  not the originally-flagged `run/*.yaml` — rotation itself is unchanged, still Dean's. **Still the
+  one standing gap across the whole results-tree + T9 effort: nothing has touched a live
+  `make benchmark-run`** — verified via `git add --dry-run` + `make -n benchmark-run` +
+  `uv run --with pyyaml` YAML validation, never a real cluster. Detail: `session/status/benchmark.md`
+  §20.28. This migration + T9 landing, plus the doc restructure below, are recorded in the history
+  ledger as [[D-27]].
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
@@ -180,9 +216,22 @@
   configuration decision, not a workload one. Guards-only fork split now contractual; the `.env`
   contract is fail-closed and kube-context-keyed; the KEDA arm is present but unrunnable (3 verified
   blockers). **Owed by Dean:** (a) saturation-alone-uncapped *(recommended by coder and planner)* vs
-  (b) a deliberate replica cap — or defer both behind the already-staged quantization-sawtooth run; and
-  **T9**, applying the gateway access-log follower personally. Nothing launched, no cluster contact,
-  nothing pushed. State: `planning/ta-pokprod-testing-plan.md` §7.6.1 (cold resume) + §9.1 (T1–T11 owners).
+  (b) a deliberate replica cap — or defer both behind the already-staged quantization-sawtooth run.
+  **T9 is no longer Dean-owned — it's DONE**, wired into `benchmark-run` automatically instead of
+  applied by hand (see the 2026-08-12 benchmark entry above, [[D-27]]); T10 (file upstream issues)
+  remains Dean's. Nothing launched, no cluster contact, nothing pushed.
+  **2026-08-12 — the plan doc this entry cites is now SUPERSEDED, split into four docs** (careful
+  restructure, ~13 real content gaps found and repaired in the process, not just reorganized —
+  original preserved at the bottom of the old doc under a fold, not deleted). State:
+  [`planning/ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) §5 (cold-resume,
+  live scenario surface) + [`planning/ta-pokprod-execution-plan.md`](../planning/ta-pokprod-execution-plan.md)
+  §7.1 (tooling track, now T1–T12) + [`planning/ta-pokprod-architecture-design.md`](../planning/ta-pokprod-architecture-design.md)
+  (durable contracts) + [`planning/ta-pokprod-history.md`](../planning/ta-pokprod-history.md)
+  (append-only decision ledger, `D-1`…`D-27`, grep-lookup by design). Still open, not folded into
+  this restructure by Dean's own choice (kept as a separate pass): `plan__benchmark-env-guard-design.md`
+  (a settled `.env`-contract redesign superseding part of the architecture doc §5) and
+  `benchmark__pokprod-plan-tooling-track.md` (a stale coder trigger, unrepaired since the coder
+  re-reads the plan fresh rather than trusting old line numbers).
 - **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap).** *Blocked on Dean.* Not a regression:
   `saturation/engine_v2.go` unconditionally prepends the saturation result and `effectiveEnabled` only
   skips it by name, so `saturation:{enabled:false}` is a silent no-op. The lifecycle plan's Commit-2c
@@ -282,10 +331,11 @@ rows stay here.
   version-keyed (`bin/golangci-lint-$(GOLANGCI_LINT_VERSION)` + `ln -sf`), so `make lint` fetches 2.10.0 and
   re-points the symlink on its own. Local `go` is **already 1.26.0**, so there is no toolchain gap to close.
   Landing after the v0.9.0 tag point is consistent with the freeze still accepting fixes.
-- **Pokprod benchmark tooling — two Dean-owned items (§9.1 of `ta-pokprod-testing-plan.md`).**
-  **T9**: apply the gateway access-log follower (Dean personally — the coder's permission classifier
-  blocks the `kubectl apply`). **T10**: file upstream llm-d-benchmark issues for the two guards-only-fork
-  violators (later, after §2b's migration isolates them).
+- **Pokprod benchmark tooling — one Dean-owned item left (§7.1 of `ta-pokprod-execution-plan.md`,
+  the doc this bullet cited is now SUPERSEDED and split into four — see the pokprod entry in
+  § Recent activity).** **T9 is DONE** — wired into `benchmark-run` automatically, no longer needs
+  Dean's hand. **T10**: file upstream llm-d-benchmark issues for the two guards-only-fork
+  violators (later, after §2b's migration isolates them) — still his.
 - **Rescale Beta PRs — re-check against RC-2/RC-4 when they land.** PR #1452 (rescale Alpha) merged
   2026-07-28. Tracking issue [#1447](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1447)
   covers RC-1 (damping bypass) and RC-3 (#1003-deferred partition) but its text does **not** mention
@@ -367,7 +417,22 @@ rows stay here.
 - [`planning/benchmark-wva-vs-keda.md`](../planning/benchmark-wva-vs-keda.md) — Type 1 design / approach. Scenarios, structural argument, decisions. Start here.
 - [`planning/benchmark-wva-vs-keda-plan.md`](../planning/benchmark-wva-vs-keda-plan.md) — Type 3 implementation reference. Configs, Go types, Ginkgo skeleton, OpenShift sizing, coder guide. Not yet reviewed/approved.
 
-**Pokprod TA3 testing track (separate from WVA-vs-KEDA above):** [`planning/ta-pokprod-testing-plan.md`](../planning/ta-pokprod-testing-plan.md) (Status: DRAFT; Phases 1–4 gated on its own STOP block). **Phase 0 done locally 2026-07-29** (benchmark worktree): stale TA3 branch preserved as `benchmark-ta3-legacy` @ `892e1efa` (docs only — the two writeup docs; 2026-06-15 raw results discarded per Dean) + signed tag `archive/benchmark-ta3-legacy` → `892e1efa`; fresh `benchmark` @ `11d70a8a` (= upstream/main, has A #1478 + A′ #1479); untracked local `benchmark/reference-legacy/` holds 3 guidellm workload profiles + patched-guide sample + settings for re-application. **Awaiting Dean's pushes** (fork/origin only, never upstream): `git push origin archive/benchmark-ta3-legacy`, then `git push -u origin benchmark` (⚠️ rewrites `origin/benchmark` — `--force-with-lease`; the 2 harness commits survive via the archive tag + legacy branch). Status file: [`session/status/benchmark.md`](status/benchmark.md).
+**Pokprod TA3 testing track (separate from WVA-vs-KEDA above):** landed history, historical
+`ta-pokprod-testing-plan.md` (now **SUPERSEDED**, split 2026-08-12 into
+[`ta-pokprod-architecture-design.md`](../planning/ta-pokprod-architecture-design.md) /
+[`ta-pokprod-execution-plan.md`](../planning/ta-pokprod-execution-plan.md) /
+[`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) /
+[`ta-pokprod-history.md`](../planning/ta-pokprod-history.md) — see the pokprod entry in
+§ Recent activity for current state; the STOP block this used to reference was lifted long ago,
+the mission has been running since 2026-07-30). **Phase 0 done locally 2026-07-29** (benchmark
+worktree): stale TA3 branch preserved as `benchmark-ta3-legacy` @ `892e1efa` (docs only — the two
+writeup docs; 2026-06-15 raw results discarded per Dean) + signed tag `archive/benchmark-ta3-legacy`
+→ `892e1efa`; fresh `benchmark` @ `11d70a8a` (= upstream/main, has A #1478 + A′ #1479); untracked
+local `benchmark/reference-legacy/` holds 3 guidellm workload profiles + patched-guide sample +
+settings for re-application. **Awaiting Dean's pushes** (fork/origin only, never upstream):
+`git push origin archive/benchmark-ta3-legacy`, then `git push -u origin benchmark` (⚠️ rewrites
+`origin/benchmark` — `--force-with-lease`; the 2 harness commits survive via the archive tag +
+legacy branch). Status file: [`session/status/benchmark.md`](status/benchmark.md).
 
 **Methodology pivot (Dean redirection, 2026-07-30).** Pivoted to a **controlled shared-cluster
 setup** (our-NS-only `-p dhl-wva-209`; skip steps `02`/`08`; never full teardown; end-user path runs
@@ -377,10 +442,13 @@ controlled-setup rewrite + §7.0 longer-term goals — supersedes memory
 `project_benchmark_makefile_two_variant_todo`). Phase 2 harness `6505de62` (fork-only, NOT pushed);
 Phase 3 EXECUTED (`dhl-wva-209` created); hazard analysis resolved (live steps `00,03✎,04,05,07✎,09`;
 3 fork-patch presence-gates applied, uncommitted). Blocked-on-Dean items in § Blocked on; 4 coder
-review points in the status file. Full detail: [`planning/ta-pokprod-testing-plan.md`](../planning/ta-pokprod-testing-plan.md)
+review points in the status file. Full detail now in
+[`ta-pokprod-execution-plan.md`](../planning/ta-pokprod-execution-plan.md) (settled) and
+[`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) (live)
 + [`session/status/benchmark.md`](status/benchmark.md) (state: `blocked`).
-**The Type 3 now also carries a tooling track** (§9.1, T1–T11 with owners — T9/T10 are Dean's, see
-§ Next steps) and a cold-resume block for the dwell-run redesign (§7.6.1); the methodology-pivot text
+**The tooling track** (now `ta-pokprod-execution-plan.md` §7.1, T1–T12 with owners — only T10 is
+Dean's now, T9 landed 2026-08-12) and the dwell-run cold-resume block (now
+`ta-pokprod-open-scenarios.md` §5) moved with the split; the methodology-pivot text
 above stays accurate.
 
 **TA-lead experiment — "does ThroughputAnalyzer trigger scale-up faster than saturation?" (setup
