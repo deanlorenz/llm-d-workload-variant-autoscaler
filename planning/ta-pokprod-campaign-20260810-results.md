@@ -19,13 +19,15 @@ primary artifact; this doc exists to say what each one shows and what it does **
 
 ## ⚠️ Two hazards before anything else
 
-**1. RESOLVED 2026-08-10 — a live OpenShift bearer token was present in the results tree (never
-committed).** Every cell's `run/inference-perf-*.yaml` carried `LLMDBENCH_BASE64_CONTEXT_CONTENTS`,
-which base64-decodes to a kubeconfig containing a `sha256~…` bearer token for `DEAN@il.ibm.com` on
-`api.pokprod001.ete14.res.ibm.com`. It never reached git — those files live under gitignored `dean-*/`
-directories — but they were readable on disk, and every copy/mirror step made from that tree (the
-`plans/scratch/` mirror, the coder's tracked `session-notes/campaign-viz/`) had to be checked clean
-before use.
+**1. NOT FULLY RESOLVED — a live OpenShift bearer token remains on disk in the migrated results tree,
+rotation still owed.** Every cell's `environment/context.ctx` (formerly `run/inference-perf-*.yaml`'s
+`LLMDBENCH_BASE64_CONTEXT_CONTENTS`) carries a base64 kubeconfig with a `sha256~…` bearer token for
+`DEAN@il.ibm.com` on `api.pokprod001.ete14.res.ibm.com`. **CORRECTED 2026-08-12** (this line
+previously cited `session-notes/campaign-viz/`, a directory that no longer exists — the tracked figure
+mirror there was deleted once the canonical `runs/<id>/viz/` copies were verified byte-identical). It
+still never reaches git — verified clean via `git add --dry-run` plus three independent credential
+grep passes on every one of the 56 files staged for the `runs/` migration — but the token itself is
+untouched on disk and rotation remains Dean's, unchanged from the original finding.
 
 **Mechanism, traced:** this is upstream `llm-d-benchmark` behavior, not something the WVA fork
 introduced. `setup/run.sh:183` captures the operator's active kube context to `context.ctx`;

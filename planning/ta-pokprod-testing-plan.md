@@ -1,6 +1,36 @@
-# TA on pokprod — Testing Plan (Type 3, internal)
+# TA on pokprod — Testing Plan (Type 3, internal) — SUPERSEDED, kept as historical archive
 
-**Status:** DRAFT — awaiting Dean review before any execution.
+**Status:** SUPERSEDED 2026-08-12. This doc has grown to 1600+ lines mixing durable architecture,
+settled execution history, live scenario work, and a scattered decision ledger — hard to navigate, hard
+to tell what's decided vs. still open. It has been split into four focused documents. **Read those, not
+this, for anything current:**
+
+- [`ta-pokprod-architecture-design.md`](ta-pokprod-architecture-design.md) — Type 1, the durable
+  contracts (two-tier separation, shared-cluster safety, two-fork contract, artifact tree, `.env`
+  contract, the bearer-token hazard).
+- [`ta-pokprod-execution-plan.md`](ta-pokprod-execution-plan.md) — Type 3, the settled phased execution
+  (Phases 0–4 core, all DONE or noted where not, the tooling track T1–T12, execution ownership).
+- [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) — Type 3, LIVE — the actively-changing
+  scenario-design surface (the dwell mechanism, the no-action-band derivation, the coverage-matrix ask),
+  with a checklist of what still needs Dean at the top.
+- [`ta-pokprod-history.md`](ta-pokprod-history.md) — the decision & correction ledger, append-only,
+  fetchable by decision-ID or topic tag without reading the whole file
+  (`grep -n '^## D-nn' ta-pokprod-history.md`).
+
+**This file is kept, not deleted, for two things the new docs deliberately don't duplicate:** the full
+Grafana-observability fact-finding recipe (§7.2, still unexecuted, referenced but not repeated in the
+execution plan), and as the historical record several coder-status-file entries cite by section number
+(`session/status/benchmark.md`, `session/status/dwell-deep-dive.md`) — those citations describe what
+this doc said *at the time they were written* and are left as-is rather than repointed. Everything else
+below is preserved verbatim for provenance; nothing was deleted in the split, only reorganized — see
+the four docs above and the ledger's `[[D-nn]]` entries for what actually happened to each piece.
+
+---
+
+<details>
+<summary>Original doc, preserved in full below (click to expand)</summary>
+
+**Status (as originally written):** DRAFT — awaiting Dean review before any execution.
 **Author role:** plan-agent. **Scope:** internal testing/ops; nothing here is upstream-bound.
 **Created:** 2026-07-28.
 
@@ -1640,3 +1670,5 @@ fold-and-delete-vs-stub call for the pokprod runbook, and — as always — appr
 
 **Not in this plan's scope:** the `benchmark` branch is 9 commits ahead of `origin/benchmark` with
 several dirty paths, all local. Whether and when that pushes is Dean's, per push.
+
+</details>
