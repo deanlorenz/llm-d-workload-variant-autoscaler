@@ -1,0 +1,122 @@
+from: benchmark
+to: planner
+session: benchmark env-guard + apply-images design (Dean-settled 2026-08-10)
+
+Design settled with Dean in conversation 2026-08-10. Recording it for the Type 3 before I
+implement, because it changes the **user-facing contract of every `benchmark-*` target**. I am
+implementing the minimum needed to unblock the A/B (option (c) below); the wizard is deliberately
+deferred.
+
+## Context — why this came up
+
+Dean asked to use the existing env as an A/B. Two levels: his NS on pokprod (`dhl-wva-209`) and the
+`benchmark` branch. The standing cluster stack turns out to be the **pre-PR-2** arm
+(`ta-0.9-anchor-20260807` deployed), so the natural experiment is that image vs
+`ta-0.9-anchor-pr2-20260809`, everything else fixed.
+
+Three defects surfaced while scoping it:
+
+1. **The image pin has no path to a standing stack.** `WVA_IMAGE_TAG` reaches the cluster *only*
+   through standup's token substitution (`Makefile:545`, `:642`). Changing it on a running stack is
+   a no-op. Arm B therefore has no clean deployment path — only a full re-standup (changes more than
+   the controller) or a hand-patch (invisible). Either makes the arms differ in *how they were
+   deployed* as well as in code, contaminating the comparison the experiment exists to make.
+2. **`.env` is not the source of truth.** `Makefile:42` states it: "CLI overrides (`make VAR=...`)
+   still win over `.env`". So reading the file does not tell you what ran.
+3. **No context/`.env` cross-check.** `BENCHMARK_NAMESPACE ?=` means unset silently becomes empty,
+   and nothing verifies the *current kube context* is the cluster that namespace lives on. On a
+   shared cluster a stale context plus a valid-looking `.env` is a write into the wrong cluster.
+
+## Scope decision (Dean picked (c))
+
+- (a) full tooling incl. the wizard, A/B waits — **not chosen**
+- (b) run arm A now, build later — **not chosen** (would strand arm B)
+- **(c) minimum: guard + apply-images, then the A/B; wizard as follow-up — CHOSEN by both**
+
+## Dean's corrections to my initial framing — carry these, they change the design
+
+**1. Guards, not tiers.** I proposed a four-tier automation model. Wrong frame. This is
+**one internal make target that all the others call** — same pattern as the existing
+`benchmark-standup-shared` → `benchmark-preflight` gate (`Makefile:604`). Defaults are careful; it
+is still a Makefile and a user can bypass it.
+
+**2. `UNSAFE=true` is a first-class escape hatch, not an oversight.** Dean: *"IF the user insists on
+UNSAFE mode they can override whatever they want. If the user wants to fully automate llm-d standup
+she can (with an explicit override)."* The guard's job is to make the safe path default and the
+unsafe path **deliberate** — not to prevent it.
+
+**3. Naming inverted from my proposal.** Not `<context>.env`. It is **`X.env` where `X` is just a
+name**, with the context declared *inside* the file and verified against the live one. Better than
+what I proposed: the name can describe the campaign (`armA.env`, `pr2-ab.env`) instead of being
+hostage to a context string, and verification becomes explicit rather than implicit in a filename.
+`BENCHMARK_ENV=<name>` → `hack/benchmark/<name>.env`. Confirmed by Dean.
+
+**4. One uniform override policy — simpler than the tiered split I proposed.** I suggested a
+hard-guarded class, an arguable class, and a free class. Dean collapsed it:
+
+> *"I prefer it is clear what actually ran, so better to use the .env and reproducible. Complain
+> loudly. Still override is probably OK. Probably same policy should be applied on timeouts, and
+> other flags."*
+
+So: **no hard-guarded class.** Every field may be overridden; every override **complains loudly**;
+the `.env` remains the reproducible record. Applies uniformly to scenario, harness, timeouts, and
+other flags.
+
+**5. `BENCHMARK_SPEC` and `BENCHMARK_HARNESS` are LINKED.** Dean flagged these as a pair, and the
+Makefile already knows it (`Makefile:66-69`: the harness "belongs to the spec of a run, not to this
+Makefile: it is whatever the scenario's `harness.name` declares"). They must be validated together
+— a scenario override without its harness (or vice versa) is the inconsistent state to catch.
+
+**6. `PROMETHEUS_URL` is DERIVED, not merely guarded.** Dean: *"should be automatically set based on
+cluster. If users insists on overriding let them, but check they are correct and complain."* So:
+derive from the cluster by default; if overridden, **verify the override actually resolves/is
+correct** and complain — a stronger contract than warn-and-proceed, because a wrong collection
+target yields plausible-looking numbers from the wrong place.
+
+## What I am implementing now
+
+**`benchmark-guard`** (internal; every benchmark target calls it, per the preflight precedent):
+1. `BENCHMARK_ENV=<name>` selected → `hack/benchmark/<name>.env`; unset is an error, not an empty
+   default (closes the silent-empty-namespace hole)
+2. the file declares `KUBE_CONTEXT`
+3. declared context **matches** `kubectl config current-context` — else refuse, naming both
+4. required keys present — fail-closed, listing **all** missing keys at once
+5. any CLI override of a `.env` field → **loud complaint**, proceed (per policy 4)
+6. `BENCHMARK_SPEC`/`BENCHMARK_HARNESS` validated as a **pair**
+7. `PROMETHEUS_URL` derived from cluster; an override is **correctness-checked** then complained about
+8. `UNSAFE=true` downgrades every refusal to a loud warning and names which guard was bypassed
+
+**`benchmark-apply-images`** (the actual A/B blocker): refresh a **standing** stack's controller
+image to match the pin. Reuses `record_images.py` for the live-vs-pin comparison; dry-run by
+default with `BENCHMARK_APPLY=true` to act (matching `benchmark-reset-run`'s existing convention);
+patches only the controller image, waits for rollout, re-verifies. Composes correctly with the
+mandatory pre-run controller restart, since that restart flushes capacity history anyway.
+
+## Deferred — the wizard (Dean's design, recorded so it is not lost)
+
+A user starting a new k8s context with no `.env` for it is **automatically directed to a wizard**.
+It asks for critical info **including the pinned image**, applies the safest protections while
+**warning the user of implications**, and emits the per-context `.env` to be used by every
+subsequent `make` run. Everything explicit — a user reading the `.env` (or an input yaml) sees
+exactly what would run. May start from reasonable defaults taken from the sample. May let a user run
+**NS-level setup once** in a controlled way (and, rarely, cluster-level). When a user runs
+cluster-role/NS-role setup, or per-NS llm-d standup, **they should be aware what is going on and
+approve the steps by default** — only the WVA tests *on top* are automated.
+
+Not on the A/B critical path. Worth its own Type 3 item.
+
+## Also noted — a real gap in image creation
+
+There is (per Dean) a make target to **create a fresh image**, and that is **not this branch's job —
+it runs from a code branch**. Consistent with the Tier-A/Tier-B separation already in the pokprod
+runbook. What this branch owes is only: **apply** the pinned image and **refresh it on the cluster
+when it has changed** — which is `benchmark-apply-images` above.
+
+## Planner asks
+
+1. Fold this into `ta-pokprod-testing-plan.md` (the §9.1 tooling track looks like the right home)
+   as the settled design, superseding any earlier `.env`-contract text.
+2. Capture the **wizard** as a distinct forward item with the description above.
+3. Note the §7.6.1 precondition amendment already sent in
+   `plan__benchmark-tooling-round-and-own-guide.md` (save the raw controller log, then parse) —
+   same tooling track.

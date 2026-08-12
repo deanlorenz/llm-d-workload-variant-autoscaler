@@ -220,6 +220,13 @@ holds: no run without Dean's explicit approval.
   to release GPUs between runs, KEDA holds it at 0 indefinitely regardless of Deployment edits — a run
   launched without un-pausing first (`autoscaling.keda.sh/paused-replicas-`, confirm `PAUSED` reads
   `<none>`) produces a flat 0-replica trace that silently reads as a legitimate no-scaling result.
+- **Precondition 6 (added, [[D-31]]): save the raw controller log during the run, not just parse it
+  live.** `kubectl logs ... > controller-<run-id>.log` running for the duration, so the log can be
+  re-parsed offline (`--log-file <log> --no-window`) if the live parse window has passed or the
+  live-window promptness precondition above wasn't met in time. A saved log survives both rotation and
+  the [[D-29]] drift failure mode; a fast live parse survives only rotation. Part of the ladder run's
+  missing `metrics/processed/wva_*` was originally attributed to rotation and may in fact have been
+  this drift instead.
 - **Restart the controller before each run** — capacity history is bucket-keyed and was found
   contaminated across runs. Adopted protocol, not a suggestion.
 - **GPU state:** the ladder run's GPUs are released; one GPU remains held by the decode replica's
@@ -229,7 +236,7 @@ holds: no run without Dean's explicit approval.
   dwell run itself will be its first real exercise.
 
 **Next steps, in order:**
-1. Coder satisfies the four preconditions; restarts the controller.
+1. Coder satisfies the six preconditions above; restarts the controller.
 2. Dean approves the run. Coder runs it, then `post_run_analyze.sh` immediately.
 3. Dwell deep-dive session's own findings (§3 above) determine whether a longer run is the next
    experiment, or whether the forecast-gap work supersedes running more dwell attempts.
