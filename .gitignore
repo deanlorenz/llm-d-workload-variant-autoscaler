@@ -44,9 +44,12 @@ hack/benchmark/.env
 biran-*/
 # Pre-existing run directories from before BENCHMARK_WORKSPACE moved to runs/
 # (2026-08-11) -- dean-<date>-<time>-<pid>/ at the repo root, three hyphens so
-# not matched by the glob above. Left in place until migrated or cleaned up;
-# still must never be committed.
-dean-*/
+# not matched by the glob above. Anchored to the repo root (leading /) so it
+# does NOT also match runs/dean-*/ -- an unanchored pattern here was shadowing
+# the whole config/viz/REPORT.md allowlist below for every migrated run,
+# caught while migrating the 7 pre-existing 2026-08-10 campaign directories.
+# Still must never be committed if any linger at the root.
+/dean-*/
 # Ignore everything the harness writes under a run directory (results/, logs/,
 # setup/, plan/, environment/ -- 100+ MB of scrapes and per-stage summaries per
 # run) EXCEPT the reproducible/durable set that run_cell.sh copies alongside
