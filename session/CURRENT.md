@@ -115,10 +115,65 @@
   (`ta-0.9-anchor-pr2-20260809`) is still **unverified against the parser** independent of this
   campaign's own results — short run → confirm fields populate → only then a long run;
   (4) `session-notes/local/` is **gitignored** — nothing there is preserved.
+  **Addendum 2026-08-10, second pass (same day):** two parallel threads landed. **On `benchmark`
+  directly (Dean):** campaign figures given a tracked home at `session-notes/campaign-viz/<cell>/`
+  (3.0 MB, verified clean of the leaked token before committing), plus a cross-cell summary table
+  (configured-vs-seen analyzer columns — directly visible if a disable didn't take effect) and a
+  run-subset capability. **On `plans` (review of the results doc):** two of its four findings needed
+  correction (a saturation-internal signal misattributed to a non-voting cell; a wrong root-cause
+  claim about missing per-request data) — both fixed in place, not silently. **Deeper issue
+  surfaced:** the viz toolchain's capacity-estimation functions (`tput_knee()`,
+  `capacity()`/`max_conc_pred`) were never actually reviewed by Dean despite reading as settled —
+  three concrete design questions are now open for him. A confirmed lead: EPP debug logs carry
+  per-request scorer output, unmined until now. **New decisions, none yet executed (at that point):**
+  per-request collection disabled going forward; a further-refined results tree
+  (`benchmark/runs/<id>/{config,raw,viz}/`) proposed on top of what's already shipped; harness fixes
+  stay fork-only; a scaling-decision panel and coverage-check docs both flagged missing. **Still
+  owed by Dean:** rotate the leaked bearer token (clock on it); the `tput_knee()`/`capacity()` review.
+  **2026-08-11/12 — the results-tree proposal above is now code-complete.** Seven commits on
+  `benchmark` (`500b675f`, `334012c4` superseded by `8f55cbfa`, `75dde31a`, `955291a7`, `6a3dc448`,
+  `df320c94`), DCO-signed, nothing pushed (branch 23 ahead of `origin/benchmark`).
+  `report.request_lifecycle.per_request` disabled in 4 of 5 workload templates (deliberate exception:
+  `ta_prefill_knee.yaml.in`, whose own docstring makes per-request ITL the actual measurement, and
+  whose sizing math shows comfortable PVC margin unlike the dwell profile that OOM'd). `Makefile`'s
+  `BENCHMARK_WORKSPACE` now defaults to `runs/`, so the harness writes its own run directory natively
+  there — no copy, no move — fixing a real bug where the old gitignore glob matched only Dean's own
+  username. New `write_report.py` renders `runs/<run-id>/REPORT.md`; a real path bug in
+  `run_cell.sh` was caught and fixed in the same commit before any live run could hit it. New
+  `prune_run.py` (dry-run by default) removes confirmed-duplicate log bytes — verified 5 files,
+  51.2 MB, on real 2026-08-10 data. **The one remaining gap: none of this has touched a live
+  `make benchmark-run`** — every change verified against a scratch copy or scratch git tree, not the
+  live campaign directories; Dean held off any cluster run both nights. Two per-request discovery
+  corrections along the way: `logs/igw_pods.log` **does** carry per-request Envoy access-log data
+  (the "just Istio noise" read was a sampling error); EPP's scorer "Calculated score" lines do
+  **not** carry raw pod state (that's a different event). Still undecided: whether to migrate the 7
+  pre-existing 2026-08-10 campaign directories into `runs/` or leave them in place.
   State: [`session/status/benchmark.md`](status/benchmark.md) **§20** (live state; §18 = dwell
-  findings, §19 = tooling round) — sole authority, coder-maintained. Planner-side items in
-  `plan__benchmark-overnight-campaign.md`, `plan__benchmark-env-guard-design.md`, and the now-retraction
-  notice `plan__benchmark-sat-disable-still-broken-on-pr2.md`.
+  findings, §19 = tooling round, §20.24–§20.27 = discovery + results-tree build) — sole authority,
+  coder-maintained. Planner-side items in `plan__benchmark-overnight-campaign.md`,
+  `plan__benchmark-env-guard-design.md`, the now-retraction notice
+  `plan__benchmark-sat-disable-still-broken-on-pr2.md`, and the open
+  `benchmark__viz-model-review-and-per-request-discovery.md` trigger.
+- **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
+  Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
+  saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
+  `P1-obs` (`k2SrcObserved`) priority reading a real, large `waitingQueueDemand` snapshot —
+  `util>1` is by design, not a bug; reproduces worse SAT-only than SAT+TA, and TA-only doesn't drive
+  it because saturation isn't voting there. Dean's abstract accounting model (ready supply is the
+  only "real" supply; the allocator handles the RC delta; the actuator nets out in-flight orders) was
+  traced end-to-end and **holds structurally** — no double-counting. The lag decomposes into two
+  hops against ground-truth Deployment status: **ordered→created is fast** (~1 tick, matches the
+  KEDA poll interval, not the bottleneck); **created→ready is slow and worsens with concurrent boot
+  count** — in the first excursion, ready peaked at 9 and never reached the ordered/created peak of
+  10, so the controller began retreating from its own peak order before the last requested replica
+  ever became ready. This is the dominant mechanism, and it is **physical** (model load + GPU
+  scheduling contention under concurrent boots), **not a WVA control-loop defect**. Dean's synthesis:
+  the pending-vs-actual lag is real and can't be circumvented; double-booking is correctly avoided
+  today; the real gap is a missing forecast — forward-work item handed to a working planner via
+  `plan__dwell-limit-cycle-forecast-todo.md` (not restated here; that is a Type-1 task, not a
+  CURRENT-update). State/resume: [`session/status/dwell-deep-dive.md`](status/dwell-deep-dive.md) —
+  full code trace with file:line citations, the two-hop lag table, and the synthesis; do not delete,
+  it backs the Type-1 TODO.
 - **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan.**
   *Blocked on Dean.* §7.6 is the substantive finding: steady-state KV under a tracking controller is a
   *controlled* variable, so §7.4.1's dwell cannot be reached by raising the offered rate — it is a
