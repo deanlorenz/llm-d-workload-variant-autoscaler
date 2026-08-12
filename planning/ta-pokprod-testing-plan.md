@@ -36,9 +36,9 @@
   - 7.5 Autoscaler-arm matrix + A/B hygiene — L1380:1410
   - **7.6 The mid-band dwell is a controller-configuration lever, not a workload lever — L1411:1558**
   - 7.6.1 Cold-resume state (2026-08-08, root cause found 2026-08-11; T9 corrected 2026-08-12) — L1497:1558
-- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1560:1583
-- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1585:end
-  - 9.1 Tooling track (T1–T11) — L1616:end
+- [8. Decisions (all resolved 2026-07-28)](#8-decisions-all-resolved-2026-07-28) — L1561:1584
+- [9. Execution ownership & scope](#9-execution-ownership--scope) — L1586:end
+  - 9.1 Tooling track (T1–T11) — L1617:end
 
 > **TOC maintenance:** `scripts/toc-refresh.sh` **does not work on this file** — it requires a
 > literal `^## TOC` heading and this doc uses `## Table of contents`, so the script exits at its
@@ -1539,10 +1539,11 @@ rule holds: **no run without his explicit approval.**
 
 **Next steps, in order.**
 
-1. **Dean** — confirm §7.4's three asks (still owed, separate from the (a)/(b) decision below).
+1. **§7.4's three asks — CLOSED 2026-08-12.** No longer a step; see the status paragraph above §7.4.1.
 2. **(a)/(b) — DECIDED 2026-08-11.** (a), generalized to any analyzer combination, observed not forced.
-3. **Coder** — wire the gateway log-follower into the run playbook (T9, corrected above) so it applies
-   automatically whenever a benchmark runs; otherwise step 4 may yield no per-request trace.
+3. **Coder** — wire the gateway log-follower into the run playbook (T9, **corrected 2026-08-12: not a
+   Dean step**) so it applies automatically whenever a benchmark runs; otherwise step 4 may yield no
+   per-request trace.
 4. **Coder** — satisfy the four preconditions; restart the controller.
 5. **Dean** — approve the run. **Coder** — run it, then `post_run_analyze.sh` **immediately**.
 6. **SUPERSEDED — the two rungs already ran, and they did not read 0.67 or land in-band.** Both
@@ -1633,11 +1634,9 @@ after review, per push. Dependency order matters only where stated.
 | **T10** | File upstream llm-d-benchmark issues for the two guards — **later**, Dean's call, after T2 has them isolated | **Dean** | §2b |
 | **T11** | Dwell-run preconditions for the staged `ta_autoscale_dwell` / `ta_prefill_knee` run: reclaim the results PVC to **≥14 GB** with `verify_pvc_vs_host.py` **gating** it, confirm the 96Gi harness pod schedules, set the 5-GPU footprint flag, **restart the controller** (capacity history is contaminated across runs), and run `post_run_analyze.sh` **immediately** after | benchmark coder | §7.6.1 |
 
-**Scenario decisions still Dean's:** §7.4.1 / §7.4.2 / §7.4.3 (recorded OPEN with a recommendation to
-take all three) — **plus the §7.6 operating-point fork, (a) saturation-alone-uncapped vs (b) a
-deliberate replica cap, which §7.4.1 cannot be executed without** (or an explicit deferral behind the
-§7.6 quantization fallback run) — the §5.5-item-4 fold-and-delete-vs-stub call for the pokprod
-runbook, and — as always — approval of any cluster run.
+**Scenario decisions — CLOSED 2026-08-12.** §7.4.1/7.4.2/7.4.3 confirmed; the §7.6 operating-point fork
+resolved to **(a)**, generalized to any analyzer combination. Still Dean's: the §5.5-item-4
+fold-and-delete-vs-stub call for the pokprod runbook, and — as always — approval of any cluster run.
 
 **Not in this plan's scope:** the `benchmark` branch is 9 commits ahead of `origin/benchmark` with
 several dirty paths, all local. Whether and when that pushes is Dean's, per push.
