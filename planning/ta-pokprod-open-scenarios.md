@@ -26,6 +26,8 @@ owns the theory/simulation legs referenced below).
 | §2c: can one context map to multiple namespaces? | ⬜ **OPEN, unresolved** | architecture doc §5 |
 | Approve the extractor's log-format-drift fix (substantial single-file edit) | ⬜ **OPEN, not yet routed to Dean** | [[D-29]] §3.2 |
 | Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ⬜ **OPEN, unrouted** | [[D-28]] §3.1 |
+| Decide which file `postprocess.py` should read P99 TTFT/ITL/queue-depth from — shared tool, not run-scoped | ⬜ **OPEN, paused for Dean's input** | [[D-38]] |
+| Commit or discard the first live `benchmark-run`'s output (held pending the above) | ⬜ **OPEN, Dean's preference** | [[D-38]] |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked

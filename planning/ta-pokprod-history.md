@@ -757,3 +757,36 @@ single commands, not chained.
 **Worth generalizing in `session/CONVENTIONS.md` — not yet done, flagged here so it isn't lost:** "the
 coder cannot write there" is not a correct blanket statement anywhere in this project; it is specific
 to which *tool* is used, not the target path.
+
+---
+
+## D-38 | 2026-08-12 | topic:live-run,results-tree-verified,postprocess-bug | src:benchmark.md §20.29
+
+**Milestone: the first live `make benchmark-run` against the whole results-tree/`REPORT.md`/
+`.gitignore`-allowlist build ([[D-5]], [[D-13]], [[D-27]], [[D-32]]–[[D-33]]) — previously verified
+only against scratch trees, now confirmed against a real run.** `m-ta-prefill-knee` profile (TA-only,
+isolates the ITL prefill term), `WVA_IMAGE_TAG=ta-0.9-anchor-pr2-20260809`, `dhl-wva-209`,
+ScaledObject confirmed unpaused before the run. Completed cleanly: 0 request errors, avg 3.21 / max 10
+replicas, avg pod startup 77s, avg KV util 15.0%.
+
+**The allowlist machinery works exactly as designed.** `git add -A` on the run directory staged
+precisely `REPORT.md` + the four `config/` files — nothing from `results/`, `logs/`, `analysis/`, or
+`environment/` (individually verified via `git check-ignore -v`). **No bearer token staged** —
+`environment/context.ctx` carries the live pokprod token exactly as [[D-27]] flagged, and it correctly
+stays ignored.
+
+**A real, previously-unknown bug found: `hack/benchmark/postprocess.py` hard-codes a filename this
+harness/profile never produces.** `REPORT.md`'s P99 TTFT, P99 ITL, and avg queue depth all rendered
+`?`. `_extract_latency()`/`_extract_error_count()` (`postprocess.py:91-119`) read `results.json` from
+the run's results leaf, but this run produced `summary_lifecycle_metrics.json`,
+`stage_{0,1,2,3}_lifecycle_metrics.json`, `per_request_lifecycle_metrics.json`, and the harness's own
+already-converted `benchmark_report[_v0.2]_stage_N_*.json.yaml` files instead — the data exists, just
+under different filenames than the extractor expects. **Degrades silently** (`None`/`?`, no error) — a
+green run alone would not catch this, only reading the report contents does. Also: no `viz/panels.png`
+was generated, likely the same missing-input cascading into the viz step, not yet independently
+investigated.
+
+**Deliberately paused for Dean's input, per "discuss before implementing"** — `postprocess.py` is a
+shared tool, not run-scoped, so fixing which file it should read from is not a unilateral call. The run
+directory itself is also not yet committed, held pending that decision (re-committing after a fix would
+just mean a second commit; not a blocker if Dean prefers to land the run as-is and fix separately).
