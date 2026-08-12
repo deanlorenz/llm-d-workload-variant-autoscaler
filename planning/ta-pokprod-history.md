@@ -410,3 +410,217 @@ automatically (`BENCHMARK_GATEWAY_LOG_FOLLOWER`, default `true`, namespace-subst
 the follower Deployment stays running across runs by design). Verified via `make -n benchmark-run` and
 a YAML well-formedness check; **not yet exercised against a live cluster** — no real `benchmark-run`,
 no live `kubectl apply`, still the one standing gap across the whole results-tree + T9 effort.
+
+**Correction to this entry's own [[D-13]] framing — DEPRECATED, not merely deleted.** The
+`session-notes/campaign-viz/` mirror was explicitly classified DEPRECATED (functionality intentionally
+removed, no future work planned — the canonical `runs/<id>/viz/` supersedes it by design, not because
+something wasn't ready). Also caught in the same work: a `.gitignore` bug — the unanchored `dean-*/`
+rule (added when `BENCHMARK_WORKSPACE` moved, [[D-32]]) also matched `runs/dean-<ts>-<pid>/` at any
+depth, silently shadowing the entire `config`/`viz`/`REPORT.md` allowlist for every migrated run;
+`git status` showed a clean tree when it should have shown 56 new files. Fixed by anchoring to
+`/dean-*/`. Caught before committing, not after.
+
+---
+
+## D-28 | 2026-08-08 | topic:dwell-mechanism,bucket-keyed-history,prc-collapse | src:plan__benchmark-dwell-run-findings.md
+
+**Finding, coder, on the ORIGINAL 2026-08-08 dwell run — a distinct mechanism from [[D-21]], not the
+same one.** `prc` collapses 10–13× because the capacity history is keyed on a *discretized bucket* of
+average output length (`historyKey = "modelID|accelerator|gpuCount|outputBucket"`,
+`outputBucket = classifyOutputLength(avgOutput)`, edges at 100/500 tokens,
+`saturation_v2/analyzer.go:289-334`). This run's workload had mean output 512, sd 20 — **12 tokens
+above the 500 medium/long edge with sd 20** — so ordinary sampling noise flips the bucket key mid-run,
+swapping in a rolling average populated by a *different* workload (or a previous run — see below).
+Status: strong mechanism-level hypothesis, not confirmed from logs — the analyzer computes and uses
+`outputBucket`/`historyKey` but never emits them, so the bucket flip itself can't be directly observed,
+only inferred from the collapse's timing and magnitude. Design issue stands independent of this run's
+specific excitation: any workload whose mean output sits near 100 or 500 inherits a step change in
+estimated capacity. **Ask, not yet actioned:** log `outputBucket`/`historyKey` on the `analyzer-result`
+line — smallest possible change, would convert this from hypothesis to confirmed.
+
+**A second, compounding finding: capacity history is contaminated across runs, in-process, no
+time-based invalidation.** Direct evidence: this run's very first tick (before its own P1 could have
+fired) already reported a stale `P2-hist` value left over from the *previous* benchmark run — the
+controller pod had been running 6+ hours, spanning both runs. Consequence: successive benchmark runs
+are not independent samples unless the controller is restarted between them. **Runner protocol
+adopted, no decision needed:** restart the WVA controller before each run — this is the origin of the
+"restart the controller before each run" protocol now standing in
+`ta-pokprod-open-scenarios.md` §5 and `ta-pokprod-testing-plan.md`'s §7.6.1 (pre-restructure).
+
+**Two more findings from the same run, not yet resolved or acted on:**
+- **Dispatch rate was missing for 100% of ticks** (`collector/replica_metrics.go:1035`,
+  "possible pod/pod_name label mismatch") — total, not intermittent, across every decode pod on every
+  tick. Flagged as the plausible upstream cause of demand behaving like a backlog measure rather than
+  an arrival rate (corroborated by a 48× demand swing at constant 2 RPS offered load, and a 5.6× demand
+  *fall* while offered load *rose*). Not fact-checked or fixed.
+- **The two analyzers contradicted each other outright** at one tick — saturation voting hard scale-up
+  or hard scale-down, in the same instant, same variant — with throughput's contradiction traced to a
+  GPS-mismatch fallback that clears its observation window and reports `demand=0`, a "confidently
+  wrong" value rather than an honest abstention. Recorded as one design question, not two patches: what
+  should an analyzer emit when it has no valid observation, rather than a wrong confident one.
+
+**Workload-design errors the coder attributed to itself, not WVA** (should not be read as controller
+defects): entry rungs too sharp for the actual ~5.5 min cold-start time; output mean 512/sd 20
+straddling the bucket edge that excites the collapse above — a corrected profile should put the mean
+well clear of both 100 and 500. **Neither error explains the cross-run contamination or the
+dispatch-rate gap**, which are independent of workload shape.
+
+---
+
+## D-29 | 2026-08-08 | topic:dwell-mechanism,kv-measurement,limit-cycle-mean-invalid | src:plan__benchmark-dwell-rung-kv-answer.md
+
+**Correction to how §7.6.1's original step-5 rule was to be executed — the mean of a limit cycle is
+not a steady state, and reading it literally would have misled.** Real per-rung KV was measured
+directly from vLLM scrapes (`vllm:kv_cache_usage_perc` — not `gpu_cache_usage_perc`, renamed in vLLM
+0.20.2) on the original 2026-08-08 dwell run, since the analyzer's own `util` is a different quantity
+(this run: real kv 0.9987 against reported `util` 0.360 at the same instant). Result: rung A
+(20 RPS) mean kv **0.127**, rung B (26 RPS) mean kv **0.248** — neither ≈0.67, neither in-band, so a
+literal reading of the "both ≈0.67 ⇒ rate-invariance confirmed" rule would have returned
+"rate-invariance refuted" and routed to an unwarranted 32 RPS follow-up run.
+
+**Why the rule can't work as posed, regardless of which numbers come back:** the distribution is
+bimodal, not unimodal — rung B's p90 is 0.994 and max is 1.000 despite a mean of 0.248, because the
+run traverses the full 1↔10 replica range *inside* each rung at constant offered rate. No single
+number describes an operating point for a system that is limit-cycling. Fixing the underlying
+oscillation ([[D-28]]) is a precondition for any two-rung comparison to mean anything, not a follow-up
+to it. **This directly affects [[D-21]]/[[D-19]]'s "too short to reach steady state" framing** — the
+sawtooth cells' means being uninformative is not only a duration problem; a limit cycle's mean is
+categorically the wrong statistic regardless of run length, and this should be checked (distribution,
+not mean) on any re-run.
+
+**A genuine, accidental dwell was observed, and its cause corroborates the readiness-lag mechanism
+[[D-21]] later confirmed independently.** The 14 RPS entry rung (originally written off as a design
+error — too short and sharp) parked kv at mean 0.623 with p50 0.990, because replica count was lagging
+the offered load (1→4 while 14 RPS was already arriving), not because of anything about the rate
+itself. **The dwell is produced by replica lag, not offered rate** — a sharper, earlier statement of
+what the dedicated deep-dive later confirmed with a full code trace.
+
+**Consequence for (a)/(b) ([[D-19]]):** (b) — a deliberate cap — works because a cap *is* enforced
+lag. (a) — SAT-alone-uncapped — only works if SAT's watermarks actually bind, and on this run they did
+not: SAT and throughput contradicted each other outright ([[D-28]]) and the optimizer resolved to
+no-change. Not a vote against the (a) decision — (a) is still decided ([[D-19]]) — but a reason its
+success is not guaranteed and should be watched for on the next run.
+
+**GPU-pause trap found and must be a precondition, not yet added to the checklist.** Pausing the
+ScaledObject (`autoscaling.keda.sh/paused-replicas="0"` annotation) releases the GPU, but KEDA holds it
+at 0 *indefinitely* — scaling the Deployment directly does not override the pause. **A run launched
+without first un-pausing produces a flat 0-replica trace that reads as a legitimate no-scaling result,
+silently.** Restore with the trailing-dash annotation form
+(`autoscaling.keda.sh/paused-replicas-`) and confirm `PAUSED` reads `<none>` before any run. **Not yet
+added as a precondition anywhere in the new docs — real gap, needs fixing in
+`ta-pokprod-open-scenarios.md` §5.**
+
+**The extractor (`dump_wva_target_timeseries.py`) is silently broken by log-format drift, not by log
+rotation.** Its `ANALYSIS_PAT` matches a log line (`V2 saturation analysis completed`) this controller
+build never emits — it now logs `analyzer-result`/`scaling-decision` under renamed keys
+(`supply`/`demand`/`util`/`rc`/`sc`, plus `prc`/`reason` per variant). The tool reported "41 snapshots"
+looking healthy while **0 of 41** rows had any of the five renamed fields populated — a **false
+positive**, not an empty-file failure the existing anti-clobber guard would catch (that guard only
+fires when `samples` is empty; 41 non-empty-but-null-valued rows sail through and can **overwrite a
+good earlier file**). The precondition "run `post_run_analyze.sh` immediately" does not achieve its
+intended purpose against this failure mode — promptness cannot fix a pattern match that no longer
+matches. **Not fixed** — a focused single-file change (add the current pattern, map the five renamed
+keys), flagged as needing Dean's approval per the substantial-edit rule, not yet routed to him.
+**No data at risk regardless** — the raw controller log this run captured
+(`session-notes/scratch/controller-decisions-20260808-dwell.log`) lets the timeseries be regenerated
+offline at any time.
+
+---
+
+## D-30 | 2026-08-10 | topic:harness-bugs,load-generation,fixed | src:plan__benchmark-overnight-campaign.md
+
+**Three harness bugs found and fixed during the overnight campaign, each blocking ALL load
+generation** (found only by running, not discoverable by inspection beforehand): (1)
+`BENCHMARK_WORKLOAD` is an upstream-catalog profile name fetched over the network — not how to select
+one of the fork's own profiles, which live in `hack/benchmark/workloads/` and are chosen via the
+scenario's `harness.experimentProfile` field, which was hardcoded — no per-cell load shape was
+expressible at all until a new `BENCHMARK_PROFILE` variable was added to drive it. (2) The system
+`python3` lacks PyYAML while the benchmark venv has it — three helpers were invoked as bare `python3`
+and all three would abort; fixed for the whole class with a new `YAML_PYTHON` variable, mirroring the
+existing `PLOT_PYTHON` pattern rather than patching each call site individually. (3) A workload
+substitution-token ordering bug in the local-`.in` copy mechanism (downstream symptom of the same
+catalog-routing fragility later addressed by T12 in `ta-pokprod-execution-plan.md` §7.1).
+
+---
+
+## D-31 | 2026-08-10 | topic:env-contract,guard-design,settled | src:plan__benchmark-env-guard-design.md
+
+**Design settled with Dean in conversation, superseding [[D-6]]'s naming scheme, folded into
+`ta-pokprod-architecture-design.md` §5 2026-08-12.** Came up while scoping a controller-image A/B —
+three defects surfaced: the image pin has no path to a *standing* stack (only a full re-standup or an
+invisible hand-patch, either contaminating an A/B's "how it was deployed" axis); `.env` is not the
+source of truth once a CLI override exists (`make VAR=...` always wins); no context/`.env` cross-check
+means an unset namespace silently becomes empty and nothing verifies the live context matches. Dean
+picked the minimum-scope option: guard + `benchmark-apply-images` now, the wizard as an explicit
+follow-up, rather than either building everything before the A/B or running the A/B ungapped.
+
+**`benchmark-apply-images`** (the actual A/B unblocker, alongside the guard): refreshes a standing
+stack's controller image to match the current pin — reuses the existing `record_images.py` for the
+live-vs-pin comparison, dry-run by default with `BENCHMARK_APPLY=true` to act (mirroring
+`benchmark-reset-run`'s existing convention), patches only the controller image, waits for rollout,
+re-verifies. Composes with the mandatory pre-run controller restart, since that restart already
+flushes capacity history ([[D-28]]).
+
+**Explicitly not this branch's job:** creating a fresh image — that runs from a code branch, per the
+Tier-A/Tier-B separation (architecture doc §1). This branch only applies and refreshes a pin.
+
+---
+
+## D-32 | 2026-08-11 | topic:runs-tree,finalized,benchmark-workspace | src:benchmark.md §20.25/§20.26
+
+**Two iterations before landing on the final design — recorded because the first attempt is a real,
+instructive dead end, not because the correction itself is news.** First attempt (§20.25, Dean-approved
+same day): keep the harness's own `dean-<ts>-<pid>` run-id, physically `mv` its tree under
+`runs/<run-id>/` after the fact, splitting it into `config/`/`raw/`/`viz/`. Built, verified on a
+scratch copy, two commits.
+
+**Superseded same session, before anything touched real data.** Re-checking against the architecture
+decision already on record ([[D-5]]: `BENCHMARK_WORKSPACE` moves to `benchmark/runs/`) showed the `mv`
+step was unnecessary — pointing the harness's own workspace variable at `runs/` makes it write there
+**natively**, no copy, no move, and fixes a real bug the `mv`-based version didn't touch: the old
+`dean-*/` gitignore glob only matched one username, so any other user's run showed as untracked
+clutter. Final design, confirmed with Dean: keep `config`/`viz` committed per-run (not [[D-5]]'s
+originally-stated "all of `runs/` untracked"); **no `raw/` subfolder** — allowlist the harness's native
+top-level dirs directly in `.gitignore` (`runs/*/*` then un-ignore `config/`, `viz/`, `REPORT.md`)
+rather than nesting, which avoids the copy/move mechanism entirely and works for every user with zero
+extra logic. `Makefile`: one variable change (`BENCHMARK_WORKSPACE ?= $(CURDIR)/runs`); all four
+existing lookups were already parameterized on it, zero further edits needed there.
+`hack/benchmark/campaign/run_cell.sh` step 6 lost its whole relocation block — the only remaining
+action is copying the `.env`/analyzer-config/images/scaledobject snapshot into `config/`.
+
+**Not amended — left in git history per the no-amend convention**, even though the second commit
+supersedes the first in effect.
+
+**Still not exercised against a live `make benchmark-run`** as of this entry — dry-run/scratch-tree
+verified only. This is a recurring caveat across every commit in this thread; treat it as standing
+until a real campaign run confirms it, not resolved by any individual verification pass.
+
+---
+
+## D-33 | 2026-08-12 | topic:results-tree-tooling,three-tools-built | src:benchmark.md §20.27
+
+**Three tools built to complete the folder-structure design ([[D-5]]/[[D-13]]), all dry-run/scratch-tree
+verified, none exercised live:**
+
+1. **`benchmark/tools/` symlink** — `ln -s hack/benchmark tools` (relative; a first attempt built it
+   one level too high, since `tools` and `hack` are siblings under the same `benchmark/` root, not
+   across a directory boundary — caught before committing).
+2. **`REPORT.md` generator (`write_report.py`)** — wraps the existing `postprocess.py` metrics table
+   (the same one `make benchmark-report` prints) with relative links into a run's `config/`, `viz/`,
+   and raw `results/` leaf. Computes nothing itself. **Caught a real path bug before any live run
+   exercised it:** `run_cell.sh`'s directory-parsing logic was stale from the pre-[[D-32]] `mv`-based
+   version and would have silently written `config/` into a bogus location on every future run. Fixed
+   before committing.
+3. **Conservative pruning script (`prune_run.py`)** — read-only investigation first: confirmed
+   `setup/commands/*_stdout.log` (11–40 MB each, the two biggest files in a run) are byte-identical
+   duplicates of files already preserved under `results/<leaf>/logs/`. Deliberately narrow rule, not a
+   general "big files are safe to delete" heuristic — only removes a file when its hash matches
+   something already preserved elsewhere. `--apply` required to delete; dry-run by default. Never
+   touches `metrics/raw/` or `results/*/logs/` itself, by explicit choice — conservative over
+   aggressive pruning was chosen precisely because the per-request discovery work found real signal in
+   those exact files.
+
+Also, in the same round: stopped duplicating campaign-run config files into
+`session-notes/campaign-runs/<cell>/` (now `mv` at the point of collection, not `cp` followed by a
+stale leftover) — that directory now keeps only genuinely campaign-scoped bookkeeping
+(`results-dir.txt`, `run.log`, `controller.log`) that `run_all.sh`'s own abort-check still reads.

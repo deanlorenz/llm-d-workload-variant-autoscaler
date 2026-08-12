@@ -24,6 +24,8 @@ owns the theory/simulation legs referenced below).
 | §5.5-item-4 fold-vs-stub call for the pokprod runbook | ⬜ **OPEN, Dean's** | execution plan §7.1 T6 |
 | Dwell forecast Type-1 scoping | ⬜ **OPEN, Dean's — explicitly deferred to him** | [[D-21]] |
 | §2c: can one context map to multiple namespaces? | ⬜ **OPEN, unresolved** | architecture doc §5 |
+| Approve the extractor's log-format-drift fix (substantial single-file edit) | ⬜ **OPEN, not yet routed to Dean** | [[D-29]] §3.2 |
+| Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ⬜ **OPEN, unrouted** | [[D-28]] §3.1 |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked
@@ -99,7 +101,9 @@ observable at all." Transition time is a secondary measurement, not the target. 
 (two 360 s rungs, 20 and 26 RPS) executed in the 2026-08-10 campaign as all three `*-dwell` cells.
 Neither sat-voting cell reached steady state — both hit the replica cap of 10 twice (a limit cycle,
 analyzer-independent). This does **not** confirm or refute (a) — it shows the runs were too short to
-test steady-state arrival at all, which is exactly what the dwell deep-dive below is now investigating.
+test steady-state arrival at all *and* (§3.1 below) that a limit-cycling system has no well-defined
+mean operating point regardless of duration — both problems, not one, which is exactly what the dwell
+deep-dive below is now investigating.
 
 ---
 
@@ -126,6 +130,52 @@ TA. **Whether/how to scope this is explicitly Dean's call**, tracked at
 two dwell rungs (~5.1 GB more) — the natural follow-up only if a longer dwell run still reads outside
 `[0.70, 0.85]`.
 
+### 3.1 Two earlier, distinct mechanisms — found on the original 2026-08-08 dwell run, not superseded
+
+**A separate contributing mechanism the deep-dive (§3 above) never addressed: bucket-keyed capacity
+history.** [[D-28]] `prc` collapses because saturation's capacity history keys on a *discretized
+bucket* of average output length (edges at 100/500 tokens), and the workload's mean output (512, sd
+20) sits 12 tokens above the 500-token edge — ordinary sampling noise flips the bucket key mid-run,
+swapping in a history from a different workload. Status: a strong, code-located hypothesis, not
+confirmed from logs (the analyzer never emits `outputBucket`/`historyKey`). **Not yet fixed or
+disproven.** A second, compounding finding from the same run: capacity history is contaminated across
+runs with no time-based invalidation — this is the origin of the "restart the controller before each
+run" protocol already in §5 below, not a new item.
+
+**Real measurement, not inference, on why the mean is the wrong statistic for a limit cycle.**
+[[D-29]] Per-rung KV was measured directly from vLLM scrapes on the original dwell run: rung A
+(20 RPS) mean kv **0.127**, rung B (26 RPS) mean kv **0.248** — neither near 0.67, neither in-band by a
+literal mean-based reading. But the distribution is **bimodal**, not unimodal (rung B: p90 0.994, max
+1.000, despite a mean of 0.248) — the run traverses the full 1↔10 replica range *inside* each rung at
+constant offered rate. **No single number describes an operating point for a system that is
+limit-cycling — this holds regardless of run duration**, not only because a run is too short. Any
+re-run's readout should report the distribution (p50/p90/max), not the mean, and the fix for §3's
+oscillation is a precondition for a mean-based comparison to mean anything at all, not merely a
+nice-to-have refinement.
+
+**A genuine accidental dwell was observed on that run, and it independently corroborates §3's
+readiness-lag finding — a full week before the dedicated deep-dive confirmed it with a code trace.**
+The 14 RPS entry rung parked kv at mean 0.623, p50 0.990 — because replica count was lagging the
+offered load (1→4 while 14 RPS was already arriving), not because of the rate itself. Consequence for
+§2's (a)/(b): (b) works because a cap *is* enforced lag; (a) only works if SAT's watermarks actually
+bind, and on this run they did not — SAT and throughput contradicted each other outright at one tick,
+and the optimizer resolved to no-change. Not a vote against the (a) decision (still §2's answer), but
+a real reason its success on any given run isn't guaranteed.
+
+### 3.2 Two operational items missing from the cold-resume checklist — added here, not yet in §5
+
+- **The extractor (`dump_wva_target_timeseries.py`) is broken by log-format drift, silently.** [[D-29]]
+  Its pattern matches a log line this controller build no longer emits; a broken parse can report a
+  plausible-looking snapshot count while **every field is unpopulated** — and the existing anti-clobber
+  guard only fires on an *empty* result, not a non-empty-but-null one, so a broken parse can overwrite
+  a good earlier file. Not fixed. Needs Dean's approval as a substantial single-file edit before
+  anyone touches it.
+- **A GPU-pause trap, not yet a precondition anywhere.** Pausing a ScaledObject to release its GPU
+  (`autoscaling.keda.sh/paused-replicas="0"`) holds it at 0 **indefinitely** — scaling the Deployment
+  directly does not override the pause. A run launched without first un-pausing
+  (`autoscaling.keda.sh/paused-replicas-`, then confirm `PAUSED` reads `<none>`) produces a flat
+  0-replica trace that reads as a legitimate no-scaling result. **Added as precondition 5 in §5 below.**
+
 ---
 
 ## 4. Workload coverage matrix + theory/simulation/real baseline — not built
@@ -143,7 +193,8 @@ artifacts per workload, in order: (1) a theoretical prediction from the analytic
 through the viz panel set on synthetic input; (2) a simulation driven by the actual generated workload
 (not the analytical idealization), same panel set, still before touching a cluster; (3) the real
 benchmark result, compared against both rather than read cold. Would likely have flagged the sawtooth
-cells' actual problem (too short to reach steady state) before spending cluster time on them.
+cells' actual problem — not merely "too short," but that a limit-cycling system has no well-defined
+mean operating point at all (§3.1) — before spending cluster time on them.
 
 **Ownership split, not yet made.** The coverage matrix and the theory/simulation legs are viz-side, per
 Dean's own scoping (viz owns synthetic simulation and simulation-following-a-test — see
@@ -159,10 +210,16 @@ may belong in a benchmark Type 1 instead, since it's about what benchmark *runs*
 holds: no run without Dean's explicit approval.
 
 - **Config staged, not launched:** the dwell and prefill-knee workload files, local-only on `benchmark`.
-- **Four preconditions before the run:** reclaim the results PVC to ≥14 GB with `verify_pvc_vs_host.py`
-  gating it; confirm the 96Gi harness pod schedules; set the 5-GPU footprint flag; run
-  `post_run_analyze.sh` immediately after — the ladder run's missing `metrics/processed/wva_*` came from
-  skipping this step promptly while the controller log was still a rotating buffer.
+- **Precondition 1–4:** reclaim the results PVC to ≥14 GB with `verify_pvc_vs_host.py` gating it;
+  confirm the 96Gi harness pod schedules; set the 5-GPU footprint flag; run `post_run_analyze.sh`
+  immediately after. **Caveat, [[D-29]]:** promptness alone is not sufficient — the extractor
+  (`dump_wva_target_timeseries.py`) can report a plausible-looking snapshot count while every field is
+  silently unpopulated, due to log-format drift, not rotation. Verify the *populated* output, not just
+  that the script ran without error, before trusting a run's `metrics/processed/wva_*`.
+- **Precondition 5 (added, [[D-29]]): un-pause the ScaledObject before launching.** If it was paused
+  to release GPUs between runs, KEDA holds it at 0 indefinitely regardless of Deployment edits — a run
+  launched without un-pausing first (`autoscaling.keda.sh/paused-replicas-`, confirm `PAUSED` reads
+  `<none>`) produces a flat 0-replica trace that silently reads as a legitimate no-scaling result.
 - **Restart the controller before each run** — capacity history is bucket-keyed and was found
   contaminated across runs. Adopted protocol, not a suggestion.
 - **GPU state:** the ladder run's GPUs are released; one GPU remains held by the decode replica's

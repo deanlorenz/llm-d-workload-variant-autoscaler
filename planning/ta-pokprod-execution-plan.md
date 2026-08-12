@@ -322,7 +322,7 @@ any session other than the dedicated sync session.
 | T1 | Migrate the two fork-guard-rule violators out of the harness fork into WVA `hack/`, deduping against files WVA already owns | benchmark coder | open |
 | T2 | Refresh the harness fork's `main` from true upstream; rebase the guard commits onto it; repoint KEDA mode at that ref. **Gates T3** | benchmark coder | open — see [[D-7]] |
 | T3 | Make the KEDA-direct arm actually run; add it to the arm matrix; fix two cosmetic defects in the same Makefile block — a log line claims to "upgrade the llm-d-benchmark checkout" but the code that follows only checks the CRD, and a `-n $(BENCHMARK_NAMESPACE)` flag is passed to a cluster-scoped `get crd` (inert, but reads as though CRDs were namespaced) | benchmark coder | blocked on T2 |
-| T4 | Context-keyed `.env` + fail-closed Makefile guard + assertion triple + arm-derived refs; extend `benchmark-preflight` beyond its one current call site to the other namespace-requiring targets | benchmark coder | open |
+| T4 | `X.env`-named, fail-closed `benchmark-guard` (one internal target, per architecture doc §5, [[D-31]]) + assertion triple + arm-derived refs + `PROMETHEUS_URL` derivation + `BENCHMARK_SPEC`/`BENCHMARK_HARNESS` pair validation | benchmark coder | **guard + `benchmark-apply-images` DONE** ([[D-31]]) — extending `benchmark-preflight` beyond its one call site still open |
 | T5 | `make benchmark-configure` wizard + the on-branch explaining skill | benchmark coder | open |
 | T6 | The one consolidated runbook + its two link points + the pokprod-runbook fold-in (fold-vs-stub call is Dean's, [[D-8]]) | benchmark coder | open |
 | T7 | Close the three cross-arm contamination paths + the literal-match injection hazard | benchmark coder | open |
@@ -331,6 +331,8 @@ any session other than the dedicated sync session.
 | T10 | File upstream `llm-d-benchmark` issues for the two harness-fork guards | Dean | later, Dean's call, after T2 isolates them |
 | T11 | Dwell-run preconditions (PVC reclaim + gate, harness-pod scheduling, GPU footprint flag, controller restart, prompt post-run analysis) | benchmark coder | tracked in [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) — the run itself is live scenario work, not settled execution |
 | T12 | Make the Makefile's forced `-w` workload flag conditional (§5.4 above); audit `$(BENCHMARK_WORKLOAD)`-gated blocks; commit custom profiles to the fork's native catalog instead of the local-`.in` mechanism | benchmark coder | open — see §5.4 |
+| T13 | The `benchmark-configure` wizard — deferred by design, not on the results-tree/A-B critical path ([[D-31]]) | benchmark coder | deferred, Dean's own design preserved for when it's picked up |
+| T14 | Route the bucket-keyed `prc` capacity-history collapse fix ([[D-28]]) and the broken-extractor log-format-drift fix ([[D-29]]) to Dean for approval — both flagged, neither routed yet | planner/Dean | open — see [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) §3.2 |
 
 **Still Dean's, not a tooling-track item:** the T6 fold-vs-stub call for the pokprod runbook; approval
 of any cluster run, as always.

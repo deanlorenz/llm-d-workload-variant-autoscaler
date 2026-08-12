@@ -189,6 +189,18 @@ booting. That is exactly §18's replica-lag account, now visible rather than arg
 > `waitingQueueDemand`/`P1-obs` and TA's queue-drain reasoning), a shared mechanism gap, not
 > saturation-specific. Scoping owed, tracked via `session/handoffs/plan__dwell-limit-cycle-forecast-todo.md`.
 
+> **A second, distinct mechanism found on the ORIGINAL 2026-08-08 dwell run (not this campaign),
+> additive to the above, not superseded by it — see `ta-pokprod-history.md` D-28/D-29 for full
+> detail.** Saturation's capacity history (`prc`) is keyed on a *discretized bucket* of average
+> output length; this campaign's dwell workload (mean 512, sd 20) sits 12 tokens above the 500-token
+> bucket edge, so ordinary sampling noise can flip the bucket key mid-run and swap in a stale or
+> cross-workload history — a candidate second driver of the excursions, not yet confirmed from logs
+> (the analyzer never emits the bucket label). **Also important for reading any dwell-cell KV number
+> at all: a limit cycle has no well-defined mean.** Direct per-rung KV measurement on the original
+> run showed a bimodal distribution (mean 0.248, p90 0.994) — the mean alone would read as
+> "in-band-ish" or "out-of-band" almost arbitrarily depending on sampling, independent of run
+> duration. Any future reading of dwell-cell KV should report the distribution, not the mean.
+
 ---
 
 ## Finding 3 — CORRECTED 2026-08-10: saturation's internal `prc` still collapses even while non-voting
@@ -391,11 +403,18 @@ never happened for these two functions:
 directly answering Dean's *"epp in debug mode can emit scorer info… estimates prefill effort and cache
 behavior per that request."* Confirmed in `logs/epp_pods.log` (11 MB/cell, already on disk for every
 campaign cell): every scheduling decision emits, keyed by `x-request-id` and per candidate endpoint —
-- `kv-cache-utilization-scorer` score **and** that endpoint's live `KVCacheUsagePercent`,
-  `RunningRequestsSize`, `WaitingQueueSize`, `CacheNumBlocks`/`CacheBlockSize` at that instant;
 - `prefix-cache-scorer` score (0 or nonzero per request — a **per-request** prefix-hit signal, where
   `capacity()` today only has an aggregate rate `pfx_hit` averaged over the whole run);
-- `queue-scorer` score.
+- `queue-scorer` and `kv-cache-utilization-scorer` normalized scores (0–1).
+
+> **CORRECTED 2026-08-11 — the pod-state fields below were on the wrong log line.** This section
+> originally claimed the `kv-cache-utilization-scorer` `"Calculated score"` line itself carries
+> `KVCacheUsagePercent`/`RunningRequestsSize`/`WaitingQueueSize`/`CacheNumBlocks`/`CacheBlockSize`.
+> **Checked directly and false** — a `"Calculated score"` line carries only `plugin`, `endpoint.name`,
+> and the normalized score. Those pod-state fields **do exist**, but on a different event —
+> `"Before running filter plugins"`, emitted once per request, a full snapshot of every candidate
+> pod's live state at that instant, keyed by the same `x-request-id`. Full detail and the corrected
+> field-availability table: § *Per-request data*, below.
 
 This is real, timestamped, per-request, per-pod state at scheduling time — not TTFT or output length
 directly, but exactly the kind of local signal that could let `max_conc_pred`'s error be computed as a
@@ -487,29 +506,56 @@ included — see the corrected § *The 1a gap* above. Rate, latency distribution
 throughput, all per stage, at zero additional collection cost (already part of `inference-perf`'s
 non-per-request reporting).
 
-**Open discovery task — a full log scan, not just EPP.** The exact ask: enumerate the fields we need or
-can estimate per request — **arrival time, TTFT, input length, output length, processing time**, and
-whatever else the logs can yield — then scan every available log source, not only EPP, to see what's
-actually recoverable. Sources known to exist and not yet fully mined:
+**DONE 2026-08-11 — the discovery pass ran, full log-source scan, not a sample.** Read-only against
+`m-satta-dwell`. Full detail: `session/status/benchmark.md` §20.24. Four findings, two of which
+**correct claims made earlier in this very doc** — read the corrections before trusting the earlier
+text elsewhere:
 
-| source | size (dwell cell) | sampled content (this session, partial) |
+- **Finding A — the `vllm:*` Prometheus histograms already answer TTFT/ITL/latency questions, at zero
+  new collection cost.** `metrics/raw/*_metrics.log` carries
+  `vllm:time_to_first_token_seconds_*`, `vllm:inter_token_latency_seconds_*`,
+  `vllm:e2e_request_latency_seconds_*`, `vllm:request_{queue,prefill,decode,inference}_time_seconds_*`,
+  `vllm:request_{prompt,generation}_tokens_*` — aggregated per ~15.7s scrape window, not per-request
+  (can't be joined to one `x-request-id`), but they answer the *distribution* questions directly, for
+  every cell, staircase and dwell alike.
+- **Finding B — CORRECTS this doc's own earlier claim that `logs/igw_pods.log` was "just Istio
+  startup noise."** That was a sampling error (only the first lines were read). Scanned in full:
+  **73,928 of 74,053 lines** in one dwell cell are standard Envoy access-log entries carrying, per
+  request: arrival time (log timestamp), total duration (ms), upstream service time (ms),
+  `x-request-id`, and the actually-routed upstream endpoint — at zero new collection cost, since Envoy
+  access logging is already on. Missing: exact token counts (byte counts only) and per-token timing.
+- **Finding C — CORRECTS the EPP-scorer claim in this doc's own § *`tput_knee()` and `capacity()` were
+  never reviewed* section, above.** That section states `Calculated score` lines carry
+  `KVCacheUsagePercent`/`RunningRequestsSize`/`WaitingQueueSize`/`CacheNumBlocks`/`CacheBlockSize`.
+  **False, checked directly** — a `Calculated score` line carries only `plugin`, `endpoint.name`, and
+  a normalized `score` (0–1). Those pod-state fields **do exist**, but on a different event —
+  `"Before running filter plugins"`, emitted once per request, a full snapshot of every candidate
+  pod's live state, keyed by the same `x-request-id`. Still real, still unmined — just the wrong log
+  line. Anyone building on the earlier claim should re-point to `"Before running filter plugins"`.
+- **Finding D — the retired per-request collector's granularity problem is visible in EPP's own log
+  too, independently of `inference-perf`.** `HandleResponseBody is triggered` fires once per streamed
+  response chunk (545 events for one request in the sample) — corroborates the per-*packet*, not
+  per-request diagnosis from a second, independent source.
+
+**Revised field-availability table** (supersedes the informal notes above):
+
+| field | status | source |
 |---|---|---|
-| `logs/epp_pods.log` | 11 MB | EPP debug log. Carries `x-request-id` per HTTP body chunk (`HandleResponseBody is triggered` — 34,978 lines in one dwell cell) and named scheduler-plugin events (`Calculated score`, `Request handled`, `LLM request assembled` — 62 each, matching the request count). **Confirmed this session** (Dean's lead): `Calculated score` lines carry, per `x-request-id` per candidate endpoint, `kv-cache-utilization-scorer` score + that endpoint's live `KVCacheUsagePercent`/`RunningRequestsSize`/`WaitingQueueSize`, `prefix-cache-scorer` score (a **per-request** prefix-hit signal — see § above), and `queue-scorer` score. **No token-count fields found in this session's sample** — needs a full field scan, not a spot-check, before ruling anything out. |
-| `logs/igw_pods.log` | 38 MB | Gateway (Istio) pod log. This session's sample was Istio's own startup/info noise, not an access-log line with request ID or duration — but only the first lines were read; the bulk is unscanned. |
-| `metrics/raw/*_metrics.log` | 144 KB × N snapshots | Per-pod Prometheus scrape snapshots, already what panels 2–5 are built from. Worth checking specifically for an EPP-emitted metric (Dean's suggestion) that carries request-level info not in the debug log. |
-| `controller.log` | ~200 KB | WVA controller's own decisions — this is the source for the wanted **scaling-decision panel** (see below), not per-request data, but worth scanning for anything unexpected. |
+| Arrival time (per request) | ✅ present | `igw_pods.log` access-log timestamp, or EPP `"EPP received request"` |
+| TTFT (per stage, distribution) | ✅ present, aggregate only | `vllm:time_to_first_token_seconds_*` |
+| TTFT (per request) | ❌ not directly — closest proxy is igw's "upstream service time," which is connection-level, not first-token-specific | — |
+| ITL (per stage, distribution) | ✅ present, aggregate only | `vllm:inter_token_latency_seconds_*` |
+| Input/output length (per request) | ⚠️ bytes only, not tokens | `igw_pods.log` bytes fields |
+| Input/output length (per stage, tokens) | ✅ present, aggregate only | `vllm:request_{prompt,generation}_tokens_*` |
+| Processing/e2e time (per request) | ✅ present | `igw_pods.log` total-duration field |
+| Routed endpoint (per request) | ✅ present | `igw_pods.log` upstream field, or EPP `"Request handled"` |
+| Live pod state at scheduling instant (per request, per candidate pod) | ✅ present | EPP `"Before running filter plugins"` snapshot |
+| Prefix-hit signal (per request) | ✅ present (0/nonzero) | EPP `prefix-cache-scorer` `"Calculated score"` |
 
-**Task for the discovery pass:** (1) write the exact field list needed/wanted (arrival time, TTFT, input
-length, output length, processing time, plus any others worth estimating); (2) scan the full schema of
-each log source above — every distinct `msg`/field combination, not a sample — cross-referenced against
-that field list; (3) report what is directly present, what can be *derived* (e.g. request count per
-window as a demand-rate proxy even without per-request timing), and what needs a source not yet
-inventoried; (4) note explicitly that most of what feeds the existing figures already comes from
-Prometheus scrapes — some of the wanted fields may already be sitting in `metrics/raw/` unused, or
-derivable from the graphs already drawn, before reaching for a new collection mechanism.
-
-**Not yet done.** This is a discovery task, not a result — nothing above should be read as "the fields
-aren't available," only as "not yet fully searched."
+**Scoping note for the per-request-disable work:** the collector knob is
+`report.request_lifecycle.per_request: true` inside each `inference-perf` workload template — present
+in all five profiles with a `report:` block. Flipping it to `false` is the whole of "disable
+per-request collection," and it lives in the workload YAML, not the Makefile.
 
 ---
 
