@@ -1,7 +1,7 @@
 # Session digest — atomic-step protocol + doc/session model
 
 **Session:** designer role, `plans` worktree. Started 2026-08-09, continued 2026-08-10.
-**Captured through:** `2026-08-12T12:10:26.666Z` (UTC — transcript timestamps are UTC; a local-time
+**Captured through:** `2026-08-12T12:39:49.153Z` (UTC — transcript timestamps are UTC; a local-time
 marker silently skips or re-reads turns). Advanced by the checkpoint tick.
 **Owned documents:** [`planning/atomic-step-protocol-design.md`](../../planning/atomic-step-protocol-design.md),
 [`planning/doc-and-session-model.md`](../../planning/doc-and-session-model.md).
@@ -343,3 +343,8 @@ by the script. Uncurated — the sections above are the curated record.
 
 - **question** — Token usage inquiry
   > what is taking so many tokens today?
+
+### 2026-08-12T12:39:49.153Z
+
+- **task** — Consolidate and signal completion
+  > consolidate and let me know when I can /clear.
