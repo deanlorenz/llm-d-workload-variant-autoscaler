@@ -237,8 +237,44 @@ tooling and all harvesting first, coverage machine-checked, then the old files s
 
 ## Next
 
-**Parked 2026-08-11 ~20:15Z.** All five code specs are written and committed; the `sec`/`conv`/`conv-list`/
-`conv-lint` slice is **built and green** (7 commits on `plans-tooling`, 21 tests, 0 failed, shellcheck-clean).
+**Closed 2026-08-12 ~12:40Z, for a fresh session.** Reason: this session never compacted, so context reached
+**~477k tokens** and every request — even a one-line reply — re-uploaded all of it. Twenty requests today cost
+~9.5M input tokens. A fresh session starts near 30k, a ~16× reduction per turn. That is what this digest is
+for.
+
+All five code specs are written and committed; the `sec`/`conv`/`conv-list`/`conv-lint` slice is **built and
+green** (7 commits on `plans-tooling`, 21 tests, 0 failed, shellcheck-clean).
+
+**Recommended next work: retrofit the active decisions** per
+[`doc-and-session-model-addendum-1.md`](../../planning/doc-and-session-model-addendum-1.md). It needs no
+review gate and no coder — rehoming is designer judgment — and it tests the model Dean approved with
+*"lets see if it works."* Its first target is **this digest**: the `## Dean's decisions` section above is
+~40 entries in a document the addendum makes a **ref, never an owner**.
+
+### Review triage for Dean — where to focus in 3,181 lines
+
+His ask, and the answer measured: skip both frozen designs' bodies and the built tooling spec; read only
+`## Intent` + `## Step index` in the four unbuilt specs (64–91 lines each — that is the bounded review surface
+by design). Read order: harvest, step-gates, authoring, role-skills.
+
+**Seven calls made on his behalf that he may not want.** *These are open decisions and, per the addendum,
+belong in their owning specs — listed here only so they survive the session close. Rehoming them is the
+first retrofit task.*
+
+1. **harvest, Intent** — half the spec is **not coder work**: he or a policy-writer must first produce a
+   classification table with source conflicts surfaced to him. **The migration stalls without it.**
+2. **harvest, S3** — a role kernel over **120 lines** halts (invented threshold).
+3. **step-gates, S1–S2** — `--lineage` has **no default**; a default is silently wrong half the time.
+4. **step-gates, S6** — an invented `decided:` line syntax he would write by hand.
+5. **authoring, S3** — `conv-rename --delete` refuses while cited *and* refuses uncited deletion without
+   `--force-approved`, encoding "removal needs Dean" into a tool.
+6. **role-skills** — **ten** roles → ten kernels → ten skills; `s-coder` → `r-coder` touches another
+   session's work.
+7. **role-skills, S5** — its verification is **manual and un-automatable** (eyeball a fresh session's skill
+   listing).
+
+Most consequential live design item: **halt discovery** — a coder halt routes to its spec owner, and if that
+session is closed it surfaces nowhere. **This gates unattended auto mode.**
 
 **Awaiting Dean, nothing blocked on an agent:**
 
