@@ -882,11 +882,47 @@ way the earlier log-capture theory would have been.
 resource monitoring exists anywhere in `hack/benchmark/` (no `kubectl top`, cAdvisor, or
 `container_memory` reference) — confirmed absent, not assumed. A multi-harness-pod flag/count was
 searched for in both `inference_perf/config.py` and `llm-d-benchmark`'s `setup/*.sh`/`env.sh` and found
-nowhere — **inconclusive, not definitive**; may not exist as a first-class flag (running the harness
-twice by hand would produce the same effect with no dedicated flag), or may exist somewhere not
-searched. Needs Dean's memory of where he saw it, not more blind search.
+nowhere. **CORRECTED, see [[D-42]] — it does exist, the search was against a stale local clone, not
+upstream.**
 
 **Open, explicitly not decided here:** whether the benchmark's own playbook should generate load
 directly instead of going through inference-perf's config surface — a design-direction question, not
 answered, though item 1's finding is a point in its favor (sidesteps this specific accumulator by
 construction).
+
+---
+
+## D-42 | 2026-08-13 | topic:load-parallelism,harness-pods,oom-fix,upstream-confirmed | src:benchmark__use-harness-parallelism-for-oom-fix-20260813.md
+
+**[[D-41]]'s item-3 search was against the wrong target — a stale local `llm-d-benchmark` clone, not
+upstream.** Dean's memory was correct: `LLMDBENCH_HARNESS_LOAD_PARALLELISM` is real and current.
+Confirmed via `gh search code`/`gh search commits` against the actual upstream repo (`llm-d/llm-d-benchmark`
+on GitHub, not the local checkout, which is 63 commits behind `upstream/main` and doesn't even have the
+introducing commit in its history) — the flag is present in `docs/run.md`, a tutorial doc, and read
+live in `llmdbenchmark/run/steps/step_07_deploy_harness.py` (`context.harness_parallelism`) on current
+`main`. Introduced by PR [#531](https://github.com/llm-d/llm-d-benchmark/pull/531) "Enable Deploying
+One or More Harness Pods," merged 2025-11-21 — recent, actively maintained, not a legacy relic.
+
+**What it actually does, confirmed by reading the implementation directly, not the PR description
+alone: it multiplies pod count, it does not divide load.** `step_07_deploy_harness.py`'s per-treatment
+loop resolves `pod_profile_name` **once**, before the `parallel_idx` loop, and passes it unchanged to
+every one of the `parallelism` pods — each pod gets its own `pod_name` and a `results_dir` suffixed
+`_1`..`_N`, but the **same** workload profile (same rate, same stage durations) as every sibling. N
+pods running the same profile concurrently against the same target is N× the aggregate offered rate,
+not the original rate split N ways.
+
+**Dean's ruling: this is still the right fix, but only when paired with a rate-divided workload
+variant — using the flag alone against an unmodified profile is wrong given how the mechanism actually
+works.** To get [[D-41]]'s intended effect (each pod's own accumulator handles 1/N the request volume,
+so N× the total load fits in the same 32Gi limit), the workload profile's own stage rates must be
+divided by N *before* setting `LLMDBENCH_HARNESS_LOAD_PARALLELISM=N` — the flag does not do this
+division itself. Concrete first try recommended for the stuck `m-ta-calibration-probe` cell: N=4,
+divide `ta_calibration_probe.yaml.in`'s 8 stage rates (2,4,6,8,10,13,16,20) by 4, keep durations (90s)
+unchanged, set `LLMDBENCH_HARNESS_LOAD_PARALLELISM=4`. Not yet applied — handed to the coder, not
+executed here.
+
+**Not verified: whether the harness image currently deployed carries this feature at all.** The
+image bakes in a fixed `inference-perf` + `llm-d-benchmark` version (`hack/benchmark/.env:69`); the
+feature merged 2025-11-21, so any image built before that date lacks it regardless of what upstream
+`main` shows today. Must be checked against the actual running image's build/version, not assumed
+from the upstream source read.
