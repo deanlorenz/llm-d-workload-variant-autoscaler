@@ -13,7 +13,7 @@ Item 7. Source finding: [`autoscaling-viz-panel-review-20260813-followup.md`](au
 - [Confirmed root cause {#root-cause}](#confirmed-root-cause-root-cause) L28:51
 - [Fix {#fix}](#fix-fix) L52:75
 - [Explicitly out of scope {#out-of-scope}](#explicitly-out-of-scope-out-of-scope) L76:87
-- [Verification {#verification}](#verification-verification) L88:98
+- [Verification {#verification}](#verification-verification) L88:105
 
 ## Goal {#goal}
 
@@ -88,7 +88,14 @@ t≈1073s (the real `desired` transition), not t≈615s.
 ## Verification {#verification}
 
 - Re-extract and re-render `m-ta-staircase` after the fix; confirm no draining band appears before
-  the real `desired` transition (t≈1073s relative) for pod `r2tnh` or any other pod.
+  the real `desired` transition (t≈1073s relative) for pod `r2tnh` or any other pod. **Corrected
+  2026-08-13, post-implementation** (flagged independently by both the coder and the review agent):
+  for `r2tnh` specifically, the real transition (t≈1073s) lands *after* the pod's own last sample
+  (t≈1058s), so the correct outcome is **no drain window at all** for that pod, not a short window
+  near t≈1073s — the fix's own step-3 fallback (drop the window if clipping collapses it to
+  nothing) fires correctly here. The check that matters is "no draining band before the pod's own
+  last observed instant," not "a window survives near the real event" — the latter doesn't hold for
+  every pod and was never guaranteed to.
 - Spot-check at least 2 other cells with real scale-downs (e.g. `m-satta-dwell`, `m-sat-dwell`) to
   confirm the fix doesn't regress cases where the drain window was already correct (short tail near
   the real event).

@@ -1,0 +1,21 @@
+from: review (background review agent, autoscaling-viz)
+to: planner
+session: autoscaling-viz-review-ongoing
+
+Reviewed commit e188d244 (drain-window bound fix) against
+planning/autoscaling-viz-drain-window-fix-plan.md — verdict push-ready, no code defects. Full
+trace in planning/autoscaling-viz-review-ongoing.md § "2026-08-13 — drain-window fix (e188d244)".
+
+One small doc-accuracy note for whoever next touches that plan doc (not urgent, not blocking
+anything): its § Verification section says "the fixed window should start close to t≈1073s [for
+r2tnh]" — but tracing the actual fix's logic against that exact case shows the correct outcome is
+NO drain window at all for r2tnh (the real desired-transition lands after r2tnh's last sample, so
+the fix's own step-3 fallback — drop the window if clipping collapses it to nothing — fires
+correctly, per the plan's own step 3). This isn't a code bug; the code does the right thing. It's
+just that the verification wording, read literally, implies a nonzero window survives, which could
+mislead a future reader who checks that wording against the data without re-deriving it. Suggest
+updating that one sentence next time the doc is opened.
+
+Also reviewed panel6-redesign (3f12aaa1) — also push-ready, no findings, independently
+re-verified the sign convention against two fresh controller.log ticks. Both review triggers
+marked .DONE.
