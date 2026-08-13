@@ -442,7 +442,32 @@ say so in your handoff, and flag the cleanup — do not silently keep state in a
 duplicate that nobody has declared is worse than an awkward path, because the next session cannot tell
 which copy leads.
 
-Suggested format (loose; expand as needed):
+**Identity block — mandatory, at the top of every status file.** A recurring failure (incident
+2026-08-13, see `planning/governance-follow-ups.md`) is a handoff's `to:` field naming a topic or
+branch when two sessions — say a coder and a planner — are both working that same topic at once;
+the recipient token has no way to say *which role* it means, so the wrong session claims it. The
+fix starts here: every session states its own identity explicitly, in its own status file, so
+anything needing to address it precisely has something unambiguous to read. Restate this block
+whenever it changes — session start, a role or task change, resume from sleep or a restart — not
+only at first write:
+
+```
+name: <session's own display name/title, if it has one>
+id: <session id, if available>
+role: <coder | planner | reviewer | designer | sync | ...>
+branch: <branch>
+worktree: <absolute path>
+owned_doc: <path to the plan/spec/design doc this session is executing or authoring>
+task: <one line — the specific unit of work right now>
+status_file: <path to this file — self-referential, but makes a copy self-describing>
+```
+
+Then the existing fields below. A handoff's `to:` should increasingly express **role + task**
+("planner, autoscaling-viz-panel3-redesign") rather than a bare topic name, and fall back to a
+concrete session name only once a reply has established which specific session is on the other
+end of an exchange — keep it short regardless; token overhead on handoff routing is a standing
+concern, not just a correctness one.
+
 ```
 last_update: <ISO timestamp>
 state: in-progress | blocked | idle | done

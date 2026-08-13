@@ -63,6 +63,20 @@ mark="$(dirname "$out")/.$(basename "$out").mark"
 log="$(dirname "$out")/.$(basename "$out").log"
 mkdir -p "$(dirname "$out")" || die "cannot create $(dirname "$out")"
 
+# Self-registration for the shared Tier-2 scanner (tick-shared-scan.sh): it has no other way
+# to learn which digest belongs to which transcript, since that binding only ever existed as
+# this loop's own --file/--digest arguments. One line per session, keyed by transcript path so
+# a restart overwrites rather than duplicates. Best-effort: a registry write failure must not
+# block Tier-1, which is the free path and must stay free regardless of Tier-2's state.
+if [ -n "$tfile" ] && [ -n "$digest" ]; then
+  registry="$here/../session/.tier2-registry"
+  tmp_reg=$(mktemp "$(dirname "$registry").XXXXXX" 2>/dev/null) && {
+    { [ -f "$registry" ] && grep -vF "	$tfile	" "$registry"; true; } > "$tmp_reg"
+    printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$tfile" "$digest" >> "$tmp_reg"
+    mv "$tmp_reg" "$registry" 2>/dev/null || rm -f "$tmp_reg"
+  }
+fi
+
 # Pinning the transcript is strongly advised: session-extract.sh otherwise resolves it by
 # mtime, and a second session sharing this project directory becomes "newest" as soon as it
 # writes — at which point this loop starts mirroring the wrong conversation.

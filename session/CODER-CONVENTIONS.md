@@ -78,8 +78,10 @@ Please restart Bob Shell from the target worktree:
 - `read_file` tool has path restrictions — starting in the target worktree
   makes all code files directly accessible
 - All gates (`make test`, `make lint`, `git` commands) run in correct context
-- Only need `cd ../plans/session/...` for status/handoff writes (sanctioned
-  exception per §1)
+- Status/handoff writes never require leaving your worktree — `cp`/`mv`
+  the file into `plans/session/...` by absolute or relative path (§1, §5).
+  If you ever do find yourself outside your worktree, the fix is
+  `EnterWorktree(path: <absolute-path-to-your-worktree>)`, never `cd`.
 
 **Convenience alias (optional):**
 
@@ -325,6 +327,14 @@ that something moved.
 ### 5.2 Handoff — CURRENT-update (`sync__`) vs planner-task (`plan__`)
 
 Two distinct destinations, two distinct prefixes. Pick by *who acts on it*:
+
+**Before naming the file, split the content first.** If what you want to say
+is both "here's what changed, update CURRENT" and "here's a question/decision
+for a planner," that is two handoffs, not one. Write the `sync__` file with
+only the CURRENT-update content, and a separate `plan__` (or `<sibling>__`)
+file with the rest. A single mixed file is the failure mode — coders keep
+defaulting to `sync__` for the combined draft, then rewriting into two once
+corrected. Decide the split before you decide the filename.
 
 - **CURRENT.md / PR Status / blockers / next steps need to change** → write a
   **`sync__<topic>.md`** handoff (`to: sync`). This is the common end-of-work
