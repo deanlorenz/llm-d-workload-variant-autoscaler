@@ -9,6 +9,7 @@ what's decided vs. still needs Dean.
 [`ta-pokprod-history.md`](ta-pokprod-history.md) (decision ledger — `[[D-nn]]` fetchable by
 `grep -n '^## D-nn'`) · [`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md)
 (the 7-cell campaign this scenario work is informed by) ·
+[`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md) (the 6 cells run since) ·
 [`autoscaling-viz-design.md`](autoscaling-viz-design.md) (Type 1, viz-side capacity/estimation model —
 owns the theory/simulation legs referenced below).
 
@@ -28,8 +29,9 @@ owns the theory/simulation legs referenced below).
 | Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ⬜ **OPEN, unrouted** | [[D-28]] §3.1 |
 | `postprocess.py`'s missing-field bug | ✅ **FIXED 2026-08-12 — supports both harness formats, verified against a real run** | [[D-39]] |
 | Route the controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) — same mechanism as Finding 4, or a distinct startup-state bug? | ⬜ **OPEN, unrouted, no owner** | [[D-40]] |
-| inference-perf OOM — root cause found; fix DECIDED: `LLMDBENCH_HARNESS_LOAD_PARALLELISM=N` + a rate-divided workload variant, not yet applied | ✅ **root cause + fix DECIDED 2026-08-13**; ⬜ application to the stuck cell still open | [[D-41]], [[D-42]] |
+| inference-perf OOM — root cause found; fix DECIDED and **VALIDATED 2026-08-13** by a real 4-pod run, 0 errors | ✅ **DONE** | [[D-41]], [[D-42]], [[D-43]] |
 | "Should the benchmark generate load directly instead of inference-perf" — separate, longer-term design question | ⬜ **OPEN**, unrelated to the OOM fix above | [[D-41]] |
+| No viz output exists for any of the 8 runs since 2026-08-10 — extractor/render toolchain never invoked against them | ⬜ **OPEN, unrouted** | [[D-43]], [`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md) |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked

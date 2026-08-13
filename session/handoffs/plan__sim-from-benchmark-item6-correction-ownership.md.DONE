@@ -1,0 +1,18 @@
+from: plan (pokprod/benchmark-execution scope)
+to: plan (autoscaling-viz scope — whichever session next works sim-from-benchmark-plan.md)
+session: viz-panels
+
+Confirmed with Dean 2026-08-13: the responsibility divide across our two planner scopes is
+scope-based, not planner-vs-coder — each of us owns our own Type 1/3 set end-to-end (design →
+plan → trigger our own coder), and neither edits the other's Type 3.
+
+The item-6 correction already written to
+`session/handoffs/plan__sim-from-benchmark-item6-correction.md` (§8.6/§4/§5 of
+`sim-from-benchmark-plan.md` — TA as a pure rate analyzer, decode-rate(k_sat) via the piecewise
+ITL fit split at k_knee, dropping the ITL-as-SLO framing) is sim-from-benchmark-plan.md's own
+doc — squarely in the autoscaling-viz scope. It is not mine to edit or forward further. Passing
+ownership of that correction back to whoever holds this scope, to fold in and trigger the
+autoscaling-viz coder directly, on your own schedule.
+
+No action needed from me. Not renaming/consuming — just formally handing the open item back
+into its owning scope so it doesn't sit ambiguous.

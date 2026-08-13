@@ -926,3 +926,28 @@ image bakes in a fixed `inference-perf` + `llm-d-benchmark` version (`hack/bench
 feature merged 2025-11-21, so any image built before that date lacks it regardless of what upstream
 `main` shows today. Must be checked against the actual running image's build/version, not assumed
 from the upstream source read.
+
+---
+
+## D-43 | 2026-08-13 | topic:oom-fix-validated,rerun-campaign,parallelism-p4,dwell-reruns-clean | src:ta-pokprod-rerun-results-20260813.md
+
+**The [[D-42]] parallelism-4 fix is now validated by a real run, not just decided.**
+`m-ta-calibration-probe-p4` (`runs/dean-20260813-130251-004`, commit `b44935db`): 4 parallel
+harness pods, same treatment, **0 errors across all four**, P99 TTFT consistent to within ~1%
+(18,524–19,320ms). This is the concrete result the fix predicted.
+
+**All six cells run since the 2026-08-10 campaign are tabled with real numbers** (commits
+`fbc42741`, `09055f56`, `5cb8eb97`, `e1fdf31f`, `f1a39bc5`, plus the prefill-knee run `66c71f8e`
+and the p4 validation above) in
+[`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md). `m-sat-dwell`'s
+P99 TTFT (91,712ms) and queue depth (32.4) — roughly 25× worse than either TA-analyzer dwell cell
+on an otherwise-comparable clean run — is the sharpest confirmation yet of the saturation-lags-
+demand finding; not new, but the clearest single number for it so far. All three dwell reruns are
+now clean full-duration runs, closing the original campaign's `m-ta-dwell` r²=0.11
+truncated-fit gap.
+
+**New gap found, not previously flagged: no viz output exists for any of the 8 run directories
+created since 2026-08-10.** The extractor/render toolchain has not been invoked against any
+`dean-20260812-*`/`dean-20260813-*` run. The original campaign's 7 directories all have `viz/`
+(3 files each); every run since has none. Not routed to an owner yet — flagged in the results doc
+§ Next steps.

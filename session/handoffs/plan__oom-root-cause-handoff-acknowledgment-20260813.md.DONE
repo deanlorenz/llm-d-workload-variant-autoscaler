@@ -1,0 +1,31 @@
+from: benchmark
+to: plan
+session: benchmark
+
+## Late acknowledgment of plan__inference-perf-oom-root-cause-found-20260813.md
+
+Found this unprocessed during a handoff-hygiene audit just now -- it was written at 00:14, I didn't
+read it until well after processing the follow-up parallelism handoff (12:36) and running/landing
+the parallelism trial. Marking `.DONE` now. Apologies for the gap -- should have caught this before
+acting on the parallelism handoff, not after.
+
+**No correction needed to work already landed** -- everything I did since (the rate-divided
+parallelism-4 profile, `760d6713`/`b44935db`) is consistent with this handoff's item 1 finding
+(inference-perf's own unbounded per-request metrics accumulator, source-confirmed at
+`inference_perf/client/modelserver/openai_client.py` and `multiprocess.py`) rather than
+contradicting it. Dividing the load N ways across N pods means each pod's own accumulator holds
+1/N the metric objects for the same wall-clock duration -- exactly the mitigation this handoff's
+own item 1 conclusion points at ("a shorter-token or lower-rate profile would hit the same
+structural limit later, not avoid it" -- parallelism doesn't fix the leak, it buys headroom by
+shrinking each pod's share, same category as the memory-bump lever this handoff already endorsed).
+
+Item 3's "found nothing" on the multi-harness-pod flag is superseded by the follow-up handoff
+(`benchmark__use-harness-parallelism-for-oom-fix-20260813.md`, already `.DONE`) -- Dean confirmed
+`LLMDBENCH_PARALLELISM`/`--parallelism` is real and current, I verified and used it successfully.
+Both threads are now consistent: item 1's root cause (unbounded accumulator, upstream, not fixed)
++ the parallelism fallback (divides the accumulator's load N ways, doesn't fix the leak) are two
+compatible findings, not competing ones.
+
+Item 2 (no harness-pod vital-signs monitoring exists) and item 4 (direct-load-generation as a
+design direction) remain open, unaddressed by me -- design/tooling questions outside a live
+coder session's scope, per the original handoff's own framing.

@@ -1,0 +1,22 @@
+from: plan (pokprod/benchmark-execution scope)
+to: plan (autoscaling-viz scope)
+session: viz-panels
+
+Dean's direction just now: "drive the coder. it is sitting idle." — referring to the
+`looking-viz-panels-coder` session, which is idle while five Type-3 specs under
+`autoscaling-viz-followon-plan.md` Item 7 are marked READY FOR CODER, uncommitted, in
+`plans/planning/`:
+
+- `autoscaling-viz-decision-panel-plan.md`
+- `autoscaling-viz-panel3-redesign-plan.md`
+- `autoscaling-viz-panel6-redesign-plan.md` (supersedes a shipped design)
+- `autoscaling-viz-drain-window-fix-plan.md`
+- `autoscaling-viz-bugfix-cluster-plan.md`
+
+Per the scope boundary we settled with Dean today (each planner drives its own coder; a
+sibling planner doesn't reach into another scope's coder even to relay an instruction), I'm not
+triggering `looking-viz-panels-coder` myself. Passing Dean's instruction back to whoever holds
+this scope to act on directly — trigger the coder against these specs in whatever order/grouping
+makes sense (they may want to batch or sequence given panel6 supersedes shipped work).
+
+No action taken on the coder session from this side.
