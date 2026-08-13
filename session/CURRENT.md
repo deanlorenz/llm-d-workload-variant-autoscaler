@@ -86,6 +86,13 @@
   or one per run, not per tick" — it actually fires every ~60s tick; flagged for whoever owns that
   doc next, coders don't edit Type 3 plans. State: `session/status/autoscaling-viz.md` (rewritten in
   place, prior state preserved below). Trigger sent: `review__autoscaling-viz-ready.md`.
+  **2026-08-13 — Item 5 (coverage-check reference doc) landed.** Commit `34afc197` (tip, was
+  `cff4e4c0`) adds `COVERAGE-CHECKS.md` at the worktree root, cross-linked from README — the Type 1's
+  coverage-check table transcribed and reconciled against current code, not copied verbatim: the
+  Type 1's table predates panel 6 and has 16 rows, live re-extraction confirmed the current extractor
+  emits 17 (panel 6 added row 16, "Scaling-decision log present," ahead of the old conditional row now
+  renumbered 17). Branch 9 commits ahead of `origin/autoscaling-viz`, nothing pushed. Items 2, 3, 4, 6
+  of the follow-on epic remain open, gated on Dean, unchanged.
 - **2026-08-10 — pokprod benchmark: guard tooling + scenario matrix; autoscaling confirmed on the
   PR-2 image; overnight campaign complete, GPUs freed.** *WIP.* Ten local commits on `benchmark`
   (DCO-signed, nothing pushed). Built the env-guard contract Dean specified — a named `X.env`
@@ -190,6 +197,25 @@
   `uv run --with pyyaml` YAML validation, never a real cluster. Detail: `session/status/benchmark.md`
   §20.28. This migration + T9 landing, plus the doc restructure below, are recorded in the history
   ledger as [[D-27]].
+  **2026-08-12/13 — 4-cell rerun filling panel gaps complete; GPUs freed; idle, awaiting next
+  assignment.** 5 new commits on `benchmark`, all local, DCO-signed, **not pushed this round**.
+  `m-ta-calibration-probe`: first attempt OOMKilled at 32Gi after 16 min — root cause **not
+  confirmed** (an initial per-replica-log-capture guess was ruled out by Dean: the actual log total
+  was only ~33MB, far too small to explain a 32Gi OOM); retry succeeded unmodified at the same
+  32Gi (P99 TTFT 20,088ms, ITL 136.79ms/token, 0 errors). Both attempts kept as separate data points
+  per Dean's "I want data from all cases." Open question forwarded to a planner via
+  `plan__inference-perf-scaling-and-oom-investigation-20260812.md` — inference-perf's own memory
+  behavior under this token volume, not yet understood. `m-ta-dwell`: full clean 40-min rerun,
+  replacing a previously truncated attempt. `m-satta-dwell` and `m-sat-dwell`: both clean, no
+  retries; `m-sat-dwell` shows markedly worse tail latency than the TA cells (P99 TTFT 91,712ms,
+  queue depth 32.4) — confirms, doesn't newly discover, the campaign's known
+  saturation-lags-demand finding. Side fix, in the nested `llm-d-benchmark` clone (a separate git
+  repo, not this branch, not committed): `kube_helpers.py`/`process_epp_logs.py` now
+  gzip-compress and transparently read per-replica pod logs. **GPUs freed and verified** (ScaledObject
+  paused at 0, decode at 0 replicas, 0 pods). **Owed by Dean:** whether/when to push this round's
+  commits; whether to act on the inference-perf planner handoff now or later (not urgent — GPUs
+  aren't blocked on it). Detail: `session/status/benchmark.md` §20.31. Session is idle, watching
+  for the next assignment — nothing further to report as of this sync.
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
@@ -287,6 +313,24 @@ rows stay here.
 
 ## Next steps
 
+- **atomic-step-protocol-brainstorm — reading list + a pending operational ask (⚠️ needs Dean's
+  go-ahead, not yet acted on).** The mission's reading list lives at
+  `session/digests/atomic-step-protocol-brainstorm.md` (committed `e8b47c46`) — start with its
+  `## Review triage for Dean` section (harvest, step-gates, authoring, role-skills; each spec's
+  `## Intent` + `## Step index` only, ~64–91 lines per spec). **Checkpoint-tick status, corrected:**
+  the per-session two-tier design (Tier-1 free/model-free, Tier-2 rare/cheap-model) is current and
+  correct — `session/.tick-disabled`'s commit message ("retire the scheduled checkpoint tick") reads
+  as a blanket retirement but only killed the old single-cron mechanism; `CONVENTIONS.md`'s own text
+  has not been corrected to say so yet. **⚠️ Open ask, deliberately not executed by this sync:** a
+  handoff (`sync__shared-tier2-checkpoint-ready.md`, now `.DONE`) proposes centralizing Tier-2 into
+  one shared loop (`scripts/tick-shared-scan.sh`, new) owned/started/monitored by the sync session,
+  per new `planning/atomic-step-protocol-design-addendum-2.md`. Five files are involved — two edited
+  (`session/CODER-CONVENTIONS.md`, `planning/governance-follow-ups.md`, plus `scripts/session-snapshot.sh`),
+  two new (the addendum, `scripts/tick-shared-scan.sh`) — **all uncommitted, explicitly flagged by
+  their author as "pending Dean's review."** Starting a new background service and taking on
+  ongoing operational ownership of it is not something this sync executed unilaterally; it needs
+  your explicit decision (approve as-is, ask for changes, or hold) before anyone commits those
+  files or runs the script.
 - **TA 0.9 — LANDED (all six PRs MERGED 2026-07-30, `main` tip `6bfb73e1`; test-branch + `:ta-0.9`
   image refresh EXECUTED).** Detail in [`session/history.md`](history.md). **Live follow-ups, all
   Dean's:** (1) epics #1492/#1493/#1494 + adopted #1005 — update or close now every PR is merged;

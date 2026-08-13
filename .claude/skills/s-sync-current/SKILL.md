@@ -253,8 +253,16 @@ current_sha=$(git -C plans log -1 --format=%H -- session/CURRENT.md)
 ```
 
 Skip this step if Step 6 made no commit (nothing changed, so the baseline is already correct).
-If the watcher is running, it will pick up the new baseline on its next poll; there is no need
-to restart it.
+
+<!-- user-approved-settings-change: doc-only correction, 2026-08-12, no permission/allowed-tools touched -->
+**If the watcher is running, restart it after writing the new baseline.** It reads
+`last_known_current_sha` from the status file only once, at its own startup, and holds that
+value in memory for its entire process lifetime — every poll after that just rewrites the
+in-memory value back into the file. Editing the file while the process is still running does
+NOT update what it's actually checking against; the next poll silently overwrites your edit with
+the stale value (observed 2026-08-12: this stomped the baseline update immediately after this
+step, because the old process outlived the edit). Kill it (`pgrep -f 'sync-current-watch[.]sh$'`
+→ `kill`), then start a fresh one via the Monitor tool so it re-reads the file on its own startup.
 
 ---
 
