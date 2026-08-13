@@ -1,0 +1,49 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task1-bugfix-cluster-done
+
+## Task done
+
+`autoscaling-viz__task1-bugfix-cluster.md` (Task 1 of the sequenced bugfix-cluster /
+panel3-redesign / panel6-redesign series) is complete. Commit `037106f2` on `autoscaling-viz`
+(tip; was `34afc197`). Implements `planning/autoscaling-viz-bugfix-cluster-plan.md` Fixes 1 and 3 in
+full; Fix 2 triaged as a data-collection gap, not a defect (see detail below and in the status
+file). Marked the trigger `.WIP` on pickup, `.DONE` now that it's finished (see filesystem action
+below).
+
+Full technical detail — the fallback chain, the two helper functions, the legend/hatch/edge changes,
+and the 4-cell verification matrix — is in `session/status/autoscaling-viz.md` (rewritten in place,
+prior entries preserved below the fold). Summary:
+
+- **Fix 1**: extractor now falls back to `config/*.env` and the per-workload profile YAML when
+  `run_metadata.yaml` lacks model/namespace/workload (confirmed genuinely absent for some harness
+  runs, not a field-name bug). Title degrades to the run dir basename, never a bare `?`.
+- **Fix 2**: not a bug. Verified against a run with a real per-request file — panel 1a renders fully
+  there. The review sample's empty panel 1a is that run's own missing data.
+- **Fix 3**: panel 3 legend now uses numeric pod labels (was overflowing at 15+ pods) plus a compact
+  name key; hatch and bar-edge changes for readability. One self-caught layout bug during
+  verification (the pod-name key first collided with the legend/next panel; fixed before commit).
+
+A fresh `review__autoscaling-viz-ready.md` trigger is filed for `/code-review` before this can be
+pushed, per §5.4 (the prior one of the same name was already consumed for the panel-6 commit).
+
+## Next in the sequence
+
+Per the kickoff trigger's note, the other two specs (`autoscaling-viz-panel3-redesign-plan.md`,
+`autoscaling-viz-panel6-redesign-plan.md`) exist in `planning/` but were explicitly described as
+"not yet released" — waiting for the next trigger rather than picking them up now. Watching
+`plans/session/handoffs/` for `autoscaling-viz__*` per your standing instruction to keep watching
+and hand back whenever a task completes.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task1-bugfix-cluster.md` → marked `.WIP` on pickup; will rename to `.DONE` after
+  this handoff and the review trigger are both filed (renaming now, alongside this write).
+- New review trigger and this `plan__` handoff both filed fresh (see sibling files).
+
+## Nothing blocked, nothing else touched
+
+No design forks encountered in this task — both fixes were narrow and root-caused before coding, as
+the spec asked. Branch tip `037106f2`, 10 commits ahead of origin, working tree clean (one
+pre-existing untracked `session-notes/review-samples/` dir, not created by this session, left
+alone — it looks like the reference material Dean's review was based on).

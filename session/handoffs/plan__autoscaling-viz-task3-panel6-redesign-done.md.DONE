@@ -1,0 +1,46 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task3-panel6-redesign-done
+
+## Task done
+
+`autoscaling-viz__task3-panel6-redesign.md` is complete -- the last queued task in the sequenced
+review-fix series (bugfix-cluster -> panel3-redesign -> panel6-redesign). Commit `3f12aaa1` on
+`autoscaling-viz` (tip; was `08927557`). Implements
+`planning/autoscaling-viz-panel6-redesign-plan.md` in full: extractor extension for rc/sc/prc, a
+derived-and-verified signed delta formula, and the panel rewrite.
+
+One thing worth flagging explicitly: the design doc's own suggested starting formula (`sc/prc -
+rc/prc`) had the sign backwards for "positive = scale-up pressure." Caught by reading the saturation
+engine's actual Go source before trusting the suggestion, per the spec's own instruction not to take
+the formula as given. Used `rc/prc - sc/prc` instead, hand-verified against 2 real controller.log
+ticks with independently known scale-up/scale-down outcomes.
+
+Also applied the panel-3 legend-density lesson from fix-round 1 proactively here -- placed the
+reason-marker key inside the axes from the start rather than below it, though even that first
+attempt (a different corner) still needed one adjustment after viewing the render. Full detail in
+`session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved below the fold.
+
+A fresh `review__autoscaling-viz-panel6-redesign-ready.md` trigger is filed for `/code-review`.
+
+## Nothing left queued
+
+Per the Task 3 kickoff trigger's own note, this was the last task in the series. No further
+`autoscaling-viz__*` trigger is expected except the already-known held one below.
+
+## Task 4 -- still held, not picked up
+
+`autoscaling-viz__task4-drain-window-fix.md` exists but was `.HOLD-until-task3-done` when I first
+saw it (before Task 3 was started). Have not touched it or checked whether the hold has since
+lifted -- will check on the next poll of `plans/session/handoffs/` per the standing instruction to
+keep watching, rather than assuming it's ready now just because Task 3 is done.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task3-panel6-redesign.md.WIP` -> `.DONE` (alongside this write).
+- Fresh review trigger and this `plan__` handoff filed.
+
+## Nothing else touched
+
+Branch tip `3f12aaa1`, 13 commits ahead of origin, working tree clean (same pre-existing untracked
+`session-notes/review-samples/` dir, still left alone).

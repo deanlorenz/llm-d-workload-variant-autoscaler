@@ -1,0 +1,11 @@
+to: review
+reason: code-review-before-push
+refs:
+  - autoscaling-viz/ (worktree)
+  - planning/autoscaling-viz-decision-panel-plan.md
+note: 1 commit (cff4e4c0) on top of 5a0c607f; Python-only worktree, no gofmt/lint/test gates apply
+  (per the Type 3's own Verification section). Self-check: no /code-review run (this worktree is
+  Python, the skill's Go-oriented gates don't apply here, and this is a small, single-purpose diff --
+  2 files, +165/-7, matplotlib-only render code plus a new log parser). Manually verified against
+  real 2026-08-10 campaign controller.log data for 3 cells (SAT+TA dwell, TA-only staircase, and a
+  no-controller-log run) with PNG output actually viewed, not just exit-code-checked.

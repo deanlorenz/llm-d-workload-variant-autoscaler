@@ -1,0 +1,7 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-decision-panel-plan.md — Type 3 code spec, Status: READY FOR CODER
+  - planning/autoscaling-viz-followon-plan.md — Item 1 (parent epic; Items 2-6 are separate, not in scope)
+  - planning/autoscaling-viz-design.md § Known gap: no scaling-decision-reason panel exists
+note: new Type 3 in the autoscaling-viz worktree's coder scope, ready to pick up

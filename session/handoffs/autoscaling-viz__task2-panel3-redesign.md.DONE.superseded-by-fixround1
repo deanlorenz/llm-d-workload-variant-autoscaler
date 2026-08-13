@@ -1,0 +1,8 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel3-redesign-plan.md — this task, do this one only for now
+note: second of the sequenced series. Task 1 (bugfix cluster, commit 037106f2) verified by the
+  planner — title fallback and panel 3 legend/hatch/edge readability confirmed working via a fresh
+  render. This task depends on Task 1's Fix 3 (already landed) — proceed. Task 3 (panel6-redesign)
+  still not yet released; wait for the next trigger.

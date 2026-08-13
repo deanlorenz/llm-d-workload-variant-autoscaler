@@ -1,0 +1,12 @@
+to: review
+reason: code-review-before-push
+refs:
+  - autoscaling-viz/ (worktree)
+  - planning/autoscaling-viz-bugfix-cluster-plan.md
+note: 1 commit (037106f2) on top of 34afc197; Python-only worktree, no gofmt/lint/test gates apply
+  (per the Type 3's own Verification section). Self-check: no /code-review run (Python worktree,
+  Go-oriented skill gates don't apply; small diff -- 2 files, +108/-9). Manually verified against 4
+  cells (m-satta-dwell 15-pod SAT+TA, an 8-pod SAT-only staircase, a 3-pod TA-only staircase, and the
+  shipped pre-panel-6 golden bundle as a backward-compat regression check), all PNGs actually viewed.
+  Fix 2 (panel 1a) required no code change -- triaged as a data-collection gap for the review sample,
+  confirmed by finding a run with a real per-request file and seeing panel 1a populate fully there.

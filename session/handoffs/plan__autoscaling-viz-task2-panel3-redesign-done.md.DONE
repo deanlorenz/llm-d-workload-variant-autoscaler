@@ -1,0 +1,49 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task2-panel3-redesign-done
+
+## Task done
+
+`autoscaling-viz__task2-panel3-redesign.md` is complete. Commit `fbecfe26` on `autoscaling-viz` (tip;
+was `037106f2`). Implements `planning/autoscaling-viz-panel3-redesign-plan.md` in full: panel 1b
+y-axis capping with off-chart ceiling/replica labels, new per-pod drain-window derivation in the
+extractor, panel 3's running/draining/waiting/EPP-queue redesign, and the KV-ceiling primary-vs-
+secondary-axis threshold logic. Convergence with the simulated renderer (`plots.py`) checked per the
+spec's own instruction and found genuinely divergent (different units, different concept for its own
+panel 3) -- not attempted to fix, matching the spec's Item E scope boundary.
+
+Full technical detail, including two defects self-caught during verification (a real crash on
+no-per-request runs, and a legend-overflow regression from per-pod draining labels -- both fixed
+before commit, both caught by viewing the actual render rather than by re-reading the diff) is in
+`session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved below the fold.
+
+A fresh `review__autoscaling-viz-panel3-redesign-ready.md` trigger is filed for `/code-review`
+before this can be pushed, per §5.4.
+
+## Next in the sequence
+
+Task 3 (`autoscaling-viz-panel6-redesign-plan.md`) was explicitly described as "not yet released" in
+the Task 2 kickoff trigger -- waiting for the next trigger rather than picking it up. Watching
+`plans/session/handoffs/` for `autoscaling-viz__*` per the standing instruction to keep watching and
+hand back whenever a task completes.
+
+## One judgment call worth flagging, not blocking
+
+The spec's threshold logic (secondary axis when the KV ceiling is >10% off the total-in-system max)
+was verified on real data only for the "far" case -- every real run in the available data set had a
+ceiling several times the in-system max (ratios of ~2.9x and ~10x on two different runs), none
+landed near the 10% boundary naturally. Verified the "near" (primary-axis) code path via one
+synthetically-adjusted bundle (capacity value edited to land ~5% off), documented as such in both the
+status file and the review trigger rather than presented as a real-data confirmation. If a future run
+lands genuinely near the boundary, worth a spot-check that the real behavior matches this synthetic
+test.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task2-panel3-redesign.md.WIP` -> `.DONE` (alongside this write).
+- Fresh review trigger and this `plan__` handoff both filed.
+
+## Nothing else touched, nothing blocked
+
+Branch tip `fbecfe26`, 11 commits ahead of origin, working tree clean (the pre-existing untracked
+`session-notes/review-samples/` dir from before this session, still left alone).

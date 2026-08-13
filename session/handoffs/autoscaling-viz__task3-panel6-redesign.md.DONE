@@ -1,0 +1,10 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel6-redesign-plan.md — this task. New section added this morning
+    (§ "Finding from the 2026-08-13 all-cells render sweep") — read it, it's directly relevant to
+    the absent-analyzer annotation you're carrying forward
+note: third and final of the sequenced series. Task 2 (panel3-redesign, commits fbecfe26 +
+  08927557 fix-round) verified by the planner across both the original render and the fix round —
+  panel 1b's cap and panel 3's legend density both confirmed fixed. This is the last queued task;
+  no more are staged after this one finishes.

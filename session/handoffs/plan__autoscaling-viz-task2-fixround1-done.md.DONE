@@ -1,0 +1,50 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task2-fixround1-done
+
+## Task done
+
+`autoscaling-viz__task2-fixround1.md` is complete. Commit `08927557` on `autoscaling-viz` (tip; was
+`fbecfe26`). Both findings from your independent re-render fixed, and both reproduced locally first
+on the exact run/commit you flagged, before any code change -- confirms they were real, not
+environment-specific.
+
+1. **Panel 1b cap no-op on no-per-request runs**: fixed by falling back to the ceiling series' own
+   median as the cap anchor when there's no offered/delivered work stack. Fixing this surfaced a
+   second, related legibility gap (multiple off-chart plateaus scattered across a long run landing
+   close together on screen) -- fixed too (wider min-gap, staggered label height).
+2. **Panel 3 legend density (21 rows)**: my Task 2 claim to have fixed this only addressed the new
+   draining band's own per-pod explosion -- I never re-checked that the pre-existing per-pod
+   running/waiting rows (present since Task 1, untouched by that fix) still fit once draining's row
+   was added. They didn't. Fixed by collapsing to one representative legend entry per band above 6
+   pods, keeping full per-pod legend for smaller runs.
+
+Full detail in `session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved
+below the fold. That entry also names the general lesson: my Task 2 "verified, no crash" checks
+weren't the same claim as "renders correctly," and this is the second time that gap has mattered on
+this branch -- flagged for whoever reviews or plans the next round, not something I can fully close
+myself without a stronger verification habit (reading actual axis/row values, not just "the PNG
+looks plausible").
+
+A fresh `review__autoscaling-viz-panel3-redesign-fixround1-ready.md` trigger is filed for
+`/code-review`, explicitly noting the prior review trigger for this Type 3 was withdrawn and that
+this round's self-verification should be read with the same caution.
+
+## Next in the sequence
+
+No Task 3 (`panel6-redesign`) trigger has appeared yet -- still watching
+`plans/session/handoffs/` for `autoscaling-viz__*` per the standing instruction.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task2-fixround1.md.WIP` -> `.DONE` (alongside this write).
+- Fresh review trigger and this `plan__` handoff filed. Left the two withdrawn/superseded files
+  (`autoscaling-viz__task2-panel3-redesign.md.DONE.superseded-by-fixround1`,
+  `review__autoscaling-viz-panel3-redesign-ready.md.WITHDRAWN-fixround1`) untouched -- not mine to
+  clean up, they're your own withdrawal markers.
+
+## Nothing else touched
+
+Branch tip `08927557`, 12 commits ahead of origin, working tree clean (same pre-existing untracked
+`session-notes/review-samples/` dir, still left alone -- it now also holds the reference sample and
+bundle you used to find these two issues).

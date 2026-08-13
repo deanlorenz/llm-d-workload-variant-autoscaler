@@ -1,0 +1,32 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel3-redesign-plan.md — same Type 3 as Task 2, two findings from the
+    planner's own re-render need a fix round before this can go to /code-review
+note: verified against m-satta-dwell (benchmark/runs/dean-20260810-092644-320, the same run used to
+  verify Task 1) — a run with no per-request trace and 15 pods. Two issues found, both reproducible:
+
+  1. Panel 1b's y-axis cap silently no-ops when `reqs` is empty (no per-request trace): `work_peak =
+     max((offered_w or [0]) + (total_w or [0]), default=0)` evaluates to 0 when both are None
+     (list-or-fallback gives [0]+[0]), so `if work_peak > 0:` at render_real_trace.py:419 skips the
+     cap+annotation block entirely. Rendered result: axis auto-scales to ~50000 (the ceiling's own
+     peak), exactly the pre-Task-2 unreadable-sliver problem this task exists to fix — just for
+     no-per-request runs specifically, which is a common case (this run and others in the campaign
+     data lack it). The commit message describes a different self-caught crash on this same
+     no-per-request condition as already fixed; this is a second, distinct failure mode of the same
+     underlying case, not the one already handled.
+
+  2. Panel 3's legend has regressed to overflowing again on a 15-pod run: 15 numbered "pod N running"
+     + up to 15 "pod N waiting" (5 nonzero on this run) + 1 "draining" entry all still stack in one
+     `ncol=1` column at fontsize 6.5 (the shared legend call at render_real_trace.py:782) — 21 rows
+     here, overflowing down into panel 4's title area. Task 1's numeric labels fixed label *width*;
+     this task added a 4th band (draining) without revisiting legend *density*, which was already
+     tight. Needs either multi-column, a size/count-based collapse (e.g. only list pods that have
+     nonzero waiting, which the code seems to partially do already — check why it's still 21 rows),
+     or a different presentation (e.g. the running/waiting/draining color key as a compact strip
+     rather than a full legend).
+
+  Sample and bundle saved for reference:
+  autoscaling-viz/session-notes/review-samples/m-satta-dwell-task2-issues.png (+ matching
+  bundle.json/coverage.json in the same dir, extracted fresh from the same run this session used to
+  verify Task 1).

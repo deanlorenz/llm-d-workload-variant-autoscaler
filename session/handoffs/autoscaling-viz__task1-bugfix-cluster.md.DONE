@@ -1,0 +1,7 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-bugfix-cluster-plan.md — this task, do this one only for now
+note: first of a sequenced series (bugfix-cluster, then panel3-redesign, then panel6-redesign) —
+  the other two specs exist in planning/ but are not yet released; wait for the next trigger rather
+  than picking them up once this one is done

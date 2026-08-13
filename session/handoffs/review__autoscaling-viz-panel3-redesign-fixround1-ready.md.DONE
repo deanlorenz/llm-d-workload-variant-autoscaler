@@ -1,0 +1,13 @@
+to: review
+reason: code-review-before-push
+refs:
+  - autoscaling-viz/ (worktree)
+  - planning/autoscaling-viz-panel3-redesign-plan.md
+note: 1 commit (08927557) on top of fbecfe26 -- fix-round 1, addressing two defects from the
+  planner's own independent re-render (not this session's verification). Both reproduced locally on
+  the exact reported run before fixing; both re-verified after fixing, plus a 3-pod regression check
+  and the golden-bundle backward-compat check. Python-only worktree, no gofmt/lint/test gates apply.
+  Self-check: no /code-review run (small diff, 1 file +49/-5). This supersedes the prior
+  review__autoscaling-viz-panel3-redesign-ready.md trigger (withdrawn by the planner) -- the earlier
+  self-check claim there ("verified... render legibly") did not survive an independent re-render, so
+  treat this round's verification with appropriate skepticism too rather than as settled.
