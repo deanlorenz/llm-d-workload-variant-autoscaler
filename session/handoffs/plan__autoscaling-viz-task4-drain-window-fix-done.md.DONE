@@ -1,0 +1,60 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task4-drain-window-fix-done
+
+## Task done
+
+`autoscaling-viz__task4-drain-window-fix.md` is complete -- the last item in the sequenced
+review-fix series (bugfix-cluster -> panel3-redesign -> panel6-redesign -> drain-window-fix).
+Commit `e188d244` on `autoscaling-viz` (tip; was `3f12aaa1`). Fixes the real bug your team
+root-caused in `pod_drain_windows()` (Task 2's own drain-window derivation).
+
+## Worth flagging explicitly
+
+1. **My first fix attempt was itself wrong.** Clipping the backward scan to the nearest `desired`
+   step-down at-or-before the *matched drain event's timestamp* fixed the named repro (`r2tnh`) but
+   silently regressed 11 correct drain windows to 0 on `m-satta-dwell` -- a cell this spec's own
+   verification checklist didn't name, but one I'd used for every prior task's verification and
+   re-checked out of habit rather than trusting the single targeted repro. Root cause: the aggregate
+   `ready`-poll that produces `drain_events` runs on a coarser cadence than the per-pod scrape and
+   can report a decrease *after* a pod's own last sample -- filtering against the drain event's
+   timestamp instead of the pod's own last sample let that lag admit a transition that, as of the
+   pod's death, hadn't happened yet. Fixed by filtering against the pod's own last sample instead,
+   with a fallback to the drain event (capped at the pod's last sample) only when no earlier
+   transition exists at all.
+2. **The fixed `r2tnh` case shows no window, not a short one.** Your spec's verification section
+   said "the fixed window should start close to t≈1073s" -- but `r2tnh`'s last sample (1058s)
+   genuinely precedes the real transition (1073s), so no nonzero window can exist there without
+   inventing data. Your spec's own step 3 already covers this ("if the clipped window is empty...
+   drop it entirely -- not an error"), so I'm treating this as the spec's own fallback firing
+   correctly, not a deviation -- but flagging it since the verification wording read like it
+   expected a nonzero result.
+3. Two other pods (`6l685`, `8xx2f`) lost drain windows they'd shown before this fix. Checked this
+   wasn't a new defect: their disappearance coincided with `desired` still climbing toward its peak
+   (no real scale-down in progress), so their original match to a nearby `drain_events` entry was
+   always a false positive on timing proximity, from the matching step your spec said was already
+   correct and out of scope here. Losing them is a side effect of the fix, not something the fix
+   itself got wrong.
+
+Full detail, including the exact before/after windows per pod, is in
+`session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved below the fold.
+
+A fresh `review__autoscaling-viz-drain-window-fix-ready.md` trigger is filed for `/code-review`,
+flagging both points above for the reviewer's own independent check.
+
+## Nothing left queued
+
+Per this spec's own § Explicitly out of scope, the remaining named follow-ups (panel 3 visual-scheme
+work, the figure-title issue, per-panel corner-info allocation) are separate, not-yet-scoped items,
+not anything queued behind this fix. Watching `plans/session/handoffs/` for the next
+`autoscaling-viz__*` trigger per the standing instruction.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task4-drain-window-fix.md.WIP` -> `.DONE` (alongside this write).
+- Fresh review trigger and this `plan__` handoff filed.
+
+## Nothing else touched
+
+Branch tip `e188d244`, 14 commits ahead of origin, working tree clean (same pre-existing untracked
+`session-notes/review-samples/` dir, still left alone).

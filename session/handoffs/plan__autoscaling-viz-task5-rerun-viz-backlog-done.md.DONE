@@ -1,0 +1,61 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task5-rerun-viz-backlog-done
+
+## Task done
+
+`autoscaling-viz__task5-rerun-viz-backlog.md` is complete. Commit `cf76a238` on `autoscaling-viz`
+(tip; was `e188d244`). No code review trigger filed -- pure toolchain invocation, no code changed.
+
+## The "5 already covered" framing didn't hold up
+
+Checked before trusting it, per the trigger's own "confirm coverage" instruction: two cell names
+(`m-ta-calibration-probe`, `m-ta-dwell`, `m-satta-dwell`, `m-sat-dwell`) each have more than one
+real run directory, and the earlier `all-panels-20260813/` sweep's PNGs carry no run ID in their
+title and no bundle saved alongside them -- no way to confirm which specific run each one actually
+came from. More directly: `planning/ta-pokprod-rerun-results-20260813.md` itself says **"No viz
+output exists for any run in this doc"**, which contradicts "5 of 7 already covered." Resolved by
+re-extracting all 7 fresh rather than guessing -- output now at
+`session-notes/review-samples/backlog-rerun-20260813/<cell-name>/{bundle.json,coverage.json,panels.png}`,
+one subdirectory per run, unambiguous provenance.
+
+## One run had 4 parallel leaves, not one
+
+`dean-20260813-130251-004` (the parallelism-4 validation) has 4 separate results leaves under its
+`results/` dir, not one -- extracted and rendered all 4 (`m-ta-calibration-probe-p4_1` through
+`_4`) rather than picking one arbitrarily. None of the 4 has a captured `controller.log`.
+
+## Worth noting for whoever looks at these next
+
+- OOM'd attempt (`dean-20260812-203217-894`): render clearly shows the run cut short mid-ramp, no
+  scale-down phase reached -- matches the doc's crash description.
+- `m-sat-dwell` rerun (18 pods): panel 6's saturation-analyzer delta and panel 4's queue-depth peak
+  line up exactly in time, visually confirming the doc's own P99-TTFT-91,712ms /
+  saturation-lags-demand finding rather than just restating it in numbers.
+
+Full detail in `session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved
+below the fold.
+
+## Left untouched, flagging rather than acting
+
+The pre-existing loose files at the top level of `session-notes/review-samples/` (Task 1-4
+verification artifacts, plus the ambiguous `all-panels-20260813/` sweep itself) are still untracked
+in this worktree -- not something I reorganized or committed, since that predates this task and
+isn't mine to restructure without being asked. If you want that swept up (organized into
+subdirectories, committed, or deleted now that the ambiguity's been worked around), that's a
+separate call.
+
+## Nothing left queued
+
+Per the Item 8 text, this backlog item had no further sub-tasks. Watching
+`plans/session/handoffs/` for the next `autoscaling-viz__*` trigger per the standing instruction.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task5-rerun-viz-backlog.md.WIP` -> `.DONE` (alongside this write).
+- This `plan__` handoff filed (no review trigger -- no code changed).
+
+## Nothing else touched
+
+Branch tip `cf76a238`, 15 commits ahead of origin, working tree clean except the untracked files
+noted above (unchanged from before this task).

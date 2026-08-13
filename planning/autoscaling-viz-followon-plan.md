@@ -20,14 +20,15 @@ open questions in the Type 1, independent of anything below.
 
 ## TOC {#toc}
 
-- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L32:49
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L50:61
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L62:77
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L78:89
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L90:101
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L102:112
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L113:175
-- [Cross-references](#cross-references) L176:182
+- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L33:50
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L51:62
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L63:78
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L79:90
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L91:102
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L103:113
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L114:174
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L175:208
+- [Cross-references](#cross-references) L209:215
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -168,6 +169,38 @@ secondary-axis behavior, the pod-number legend key. New findings:
   boot/scale-down/drain timing → 2; ITL/ρ → 6; time-per-work-unit → 1b; cost/utilization → 5; router
   imbalance explicitly unassigned). A placement plan, not yet a Type 3 — needs a per-metric
   availability check and Task 3 to land first (panel 6's shape isn't settled yet).
+
+[↑ TOC](#toc)
+
+## Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}
+
+**Low-priority backlog, not blocking.** Flagged via
+`session/handoffs/plan__rerun-results-need-viz.md` (from the pokprod/benchmark-execution planner,
+2026-08-13) — seven benchmark runs since the 2026-08-10 campaign have no `viz/` output, listed with
+real result numbers (no figures) in
+[`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md):
+`dean-20260812-152105-714` (m-ta-prefill-knee), `dean-20260812-203217-894` (m-ta-calibration-probe,
+OOM'd attempt), `dean-20260812-231722-822` (clean retry), `dean-20260813-000928-609` (m-ta-dwell
+rerun), `dean-20260813-005321-943` (m-satta-dwell rerun), `dean-20260813-013728-756` (m-sat-dwell
+rerun), `dean-20260813-130251-004` (m-ta-calibration-probe-p4, parallelism-4 validation).
+
+**DONE, commit `cf76a238`.** The planner's initial read — "5 of 7 already covered by the
+2026-08-13 all-cells sweep" — **did not hold up** and should not be trusted as a pattern: several
+cell names (`m-ta-calibration-probe`, `m-ta-dwell`, `m-satta-dwell`, `m-sat-dwell`) each have more
+than one real run directory, the sweep's PNGs carry no run ID in their title and no bundle saved
+alongside them, and `ta-pokprod-rerun-results-20260813.md` itself states **"No viz output exists
+for any run in this doc"** — directly contradicting the "already covered" framing. All 7 runs were
+re-extracted fresh with unambiguous provenance, at
+`session-notes/review-samples/backlog-rerun-20260813/<cell-name>/{bundle.json,coverage.json,panels.png}`.
+One run (`dean-20260813-130251-004`) had 4 parallel results leaves, not one — all 4 extracted and
+rendered separately. No code changes; pure toolchain invocation, no review trigger needed.
+
+Two things worth carrying forward: the OOM'd attempt (`dean-20260812-203217-894`) visually confirms
+the crash description (cut short mid-ramp, no scale-down reached); `m-sat-dwell`'s rerun (18 pods)
+visually confirms the campaign's P99-TTFT/saturation-lags-demand finding — panel 6's saturation
+delta and panel 4's queue-depth peak line up exactly in time. The pre-existing loose files at the
+top of `session-notes/review-samples/` (Task 1-4 artifacts, the ambiguous `all-panels-20260813/`
+sweep) are left untouched — reorganizing/committing them is a separate call, not done here.
 
 [↑ TOC](#toc)
 

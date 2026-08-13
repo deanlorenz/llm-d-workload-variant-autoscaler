@@ -1,0 +1,12 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-followon-plan.md § Item 8 — this task
+  - planning/ta-pokprod-rerun-results-20260813.md — the 7 flagged runs, with real result numbers
+note: fifth in the sequenced series, held until Task 4 (drain-window fix) finishes. Low-priority
+  backlog, not a design task: extract/render the two runs not yet covered by the 2026-08-13
+  all-cells sweep (dean-20260812-203217-894, the OOM'd calibration-probe attempt; and
+  dean-20260813-130251-004, the parallelism-4 validation) using the current toolchain as-is. The
+  other 5 runs listed in Item 8 already have output under
+  session-notes/review-samples/all-panels-20260813/ from the sweep — confirm coverage before
+  re-extracting anything already done.

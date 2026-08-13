@@ -1,0 +1,10 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-drain-window-fix-plan.md — this task, queued behind Task 3
+  - planning/autoscaling-viz-panel-review-20260813-followup.md § Item J — root-cause detail
+note: fourth in the sequenced series, queued now but do NOT start until Task 3 (panel6-redesign)
+  finishes — this is a separate, real bug found in Task 2's own drain-window derivation
+  (pod_drain_windows over-extends its backward scan with no bound on the replica set's actual
+  `desired` transition). Confirmed and root-caused by the planner against real data
+  (m-ta-staircase, pod r2tnh) before this handoff was written.
