@@ -39,6 +39,14 @@ command can silently land in the wrong namespace or mutate cluster-global state.
    `.env`/config a run is invoked with, never of who is running it, and never inferred from a
    current-context default. When a new context/namespace pair is established, it must be confirmed
    explicitly with the user before use. [[D-15]]
+
+   **Enforcement, decided [[D-44]]:** each `.env` names one specific namespace explicitly — it is
+   never generic. Before any run, verify the active context's namespace (`oc project` — switching
+   projects changes the active context) matches the `.env`'s named namespace exactly; **refuse to run
+   on any mismatch**, fail closed, no override. This holds regardless of scope: WVA itself can run
+   cluster-scoped or against a different namespace than the workload it serves, but every pokprod run
+   in this mission is namespace-scoped for both the llm-d stack and the WVA controller — so the
+   single-namespace check is sufficient here and does not need a multi-namespace variant.
 2. **Every environment value comes from an explicit `.env`** — namespace, model, instance, image,
    accelerator, URLs. This binds any invocation of the benchmark Makefile targets, structurally, not
    as a matter of personal discipline. [[D-16]]

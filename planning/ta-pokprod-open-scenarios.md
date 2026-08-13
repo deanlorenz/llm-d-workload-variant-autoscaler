@@ -24,13 +24,13 @@ owns the theory/simulation legs referenced below).
 | T9 gateway log-follower | ✅ **DONE 2026-08-12 — wired into `benchmark-run`, not yet live-verified** | [[D-22]], [[D-27]] |
 | §5.5-item-4 fold-vs-stub call for the pokprod runbook | ⬜ **OPEN, Dean's** | execution plan §7.1 T6 |
 | Dwell forecast Type-1 scoping | ⬜ **OPEN, Dean's — explicitly deferred to him** | [[D-21]] |
-| §2c: can one context map to multiple namespaces? | ⬜ **OPEN, unresolved** | architecture doc §5 |
-| Approve the extractor's log-format-drift fix (substantial single-file edit) | ⬜ **OPEN, not yet routed to Dean** | [[D-29]] §3.2 |
-| Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ⬜ **OPEN, unrouted** | [[D-28]] §3.1 |
+| §2c: can one context map to multiple namespaces? | ✅ **DECIDED 2026-08-13 — no; enforce context-matches-`.env`-namespace, fail closed** | [[D-44]] |
+| Approve the extractor's log-format-drift fix (substantial single-file edit) | ✅ **ALREADY FIXED 2026-08-10, `add1d400`, predates this doc's OPEN marker — stale checklist row, not a live gap** | [[D-29]] §3.2, [[D-46]] |
+| Route the bucket-keyed `prc` collapse fix (§3.1) to Dean or decide who owns it | ✅ **DECIDED 2026-08-13 — lower priority, WVA issue later, not now; workaround = shift tested workload's output length off the 500-token bucket edge** | [[D-28]] §3.1 |
 | `postprocess.py`'s missing-field bug | ✅ **FIXED 2026-08-12 — supports both harness formats, verified against a real run** | [[D-39]] |
-| Route the controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) — same mechanism as Finding 4, or a distinct startup-state bug? | ⬜ **OPEN, unrouted, no owner** | [[D-40]] |
+| Controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) | ✅ **MECHANISM FOUND 2026-08-13 (background, read-only) — `applySaturationDecisions` deliberately holds at current replicas on no-fresh-decision, by design (avoids scale-to-zero on a transient uninformative cycle); is "hold" the right policy for a *sustained* window? — that's Dean's open question now, not "is it a bug"** | [[D-40]], [[D-46]] |
 | inference-perf OOM — root cause found; fix DECIDED and **VALIDATED 2026-08-13** by a real 4-pod run, 0 errors | ✅ **DONE** | [[D-41]], [[D-42]], [[D-43]] |
-| "Should the benchmark generate load directly instead of inference-perf" — separate, longer-term design question | ⬜ **OPEN**, unrelated to the OOM fix above | [[D-41]] |
+| Controlled-run / timestamped-replay + agentic-replay capability — longer-term, not "benchmark generates load itself" | 🕐 **DEFERRED 2026-08-13 — real community work exists to catch up on eventually; not now, focus stays on the tools we have** | [[D-45]] |
 | No viz output exists for any of the 8 runs since 2026-08-10 — extractor/render toolchain never invoked against them | ⬜ **OPEN, unrouted** | [[D-43]], [`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md) |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
@@ -170,12 +170,16 @@ a real reason its success on any given run isn't guaranteed.
 
 ### 3.2 Two operational items missing from the cold-resume checklist — added here, not yet in §5
 
-- **The extractor (`dump_wva_target_timeseries.py`) is broken by log-format drift, silently.** [[D-29]]
-  Its pattern matches a log line this controller build no longer emits; a broken parse can report a
-  plausible-looking snapshot count while **every field is unpopulated** — and the existing anti-clobber
-  guard only fires on an *empty* result, not a non-empty-but-null one, so a broken parse can overwrite
-  a good earlier file. Not fixed. Needs Dean's approval as a substantial single-file edit before
-  anyone touches it.
+- **STALE, corrected 2026-08-13 — the extractor's log-format-drift bug was already fixed 2026-08-10
+  (`add1d400`), before this section's "not fixed, needs approval" line was ever accurate.** [[D-29]],
+  [[D-46]] Original finding, for the record: `dump_wva_target_timeseries.py`'s pattern matched a log
+  line the controller no longer emits, and the existing anti-clobber guard only fired on an *empty*
+  result, not a non-empty-but-null one — so a drifted parse could overwrite good data while looking
+  healthy. **Fixed:** the current script accepts the controller's actual `analyzer-result` line
+  (`ANALYZER_RESULT_PAT`) with a fallback pattern for older builds, tracks a separate `hydrated` count
+  distinct from raw sample count, refuses to overwrite an existing hydrated file with an unhydrated
+  new parse, and prints a loud `WARNING:` (not a silent success line) when a parse drifts again.
+  Verified directly against the current script source, not inferred from the commit message alone.
 - **A GPU-pause trap, not yet a precondition anywhere.** Pausing a ScaledObject to release its GPU
   (`autoscaling.keda.sh/paused-replicas="0"`) holds it at 0 **indefinitely** — scaling the Deployment
   directly does not override the pause. A run launched without first un-pausing

@@ -951,3 +951,68 @@ created since 2026-08-10.** The extractor/render toolchain has not been invoked 
 `dean-20260812-*`/`dean-20260813-*` run. The original campaign's 7 directories all have `viz/`
 (3 files each); every run since has none. Not routed to an owner yet — flagged in the results doc
 § Next steps.
+
+---
+
+## D-44 | 2026-08-13 | topic:namespace-guard,context-check,safety-invariant | src:architecture doc §2
+
+**Decision, Dean.** Closes the open §2c question ("can one context map to multiple namespaces?").
+No — every `.env` names one specific namespace explicitly, never generic; every pokprod run in this
+mission is namespace-scoped for both llm-d and the WVA controller (WVA *can* run cluster-scoped or
+against a different namespace elsewhere, but not in this mission's runs). Enforcement: before any
+run, verify the active context's namespace (`oc project` changes it) matches the `.env`'s named
+namespace; refuse to run on mismatch, fail closed, no override. Written into architecture doc §2
+invariant 1.
+
+---
+
+## D-45 | 2026-08-13 | topic:controller-restart-incident,direct-load-gen,replay,deferred | src:open-scenarios.md checklist
+
+**Two rulings, Dean.**
+
+**(a) Controller-restart stuck-at-10-replicas incident ([[D-40]]).** Can wait, but must not be
+forgotten — logs are preserved. Launching as a background investigation (log-reading, no code
+change) rather than leaving it fully unrouted.
+
+**(b) "Should the benchmark generate load directly instead of inference-perf" — reframed, not
+rejected.** The narrow framing (build our own load generator to sidestep inference-perf's OOM) is
+the wrong target: broader scope than warranted, and a credibility issue independent of the
+technical one — using our own tool to showcase our own work is suspect; people want to reproduce
+results with tools they already know and trust, even flawed ones. The real longer-term thread is
+**controlled-run capability — timestamped and agentic replay** — real community work exists here
+worth catching up on eventually. Deferred, not now: current focus stays on the tools already in
+use.
+
+---
+
+## D-46 | 2026-08-13 | topic:doc-staleness,extractor-already-fixed,checklist-drift | src:benchmark/hack/benchmark/dump_wva_target_timeseries.py, commit add1d400
+
+**Correction: the extractor's log-format-drift bug ([[D-29]] §3.2), previously listed here as
+"OPEN, not yet routed to Dean," was already fixed on 2026-08-10 — three days before this session
+told Dean it was still open.** Verified by reading the current script source directly, then
+confirming via `git log`: commit `add1d400` ("benchmark: fix the WVA timeseries extractor
+emitting silent nulls"), same day as the bug's own discovery. The fix matches the current
+controller's `analyzer-result` log line (`ANALYZER_RESULT_PAT`), keeps a fallback pattern for
+older builds, tracks a `hydrated` count separate from raw sample count, refuses to overwrite a
+hydrated file with an unhydrated new parse, and prints a loud warning rather than a silent
+success line on drift. **Root cause of the doc staleness:** the open-scenarios checklist was
+never updated after the fix landed — a real gap in the doc-maintenance loop, not a code gap.
+Corrected in place, §3.2 and the checklist row both fixed 2026-08-13.
+
+**Background investigation result, controller-restart stuck-at-max-replicas incident ([[D-40]]).**
+Read-only source investigation (no cluster contact, no code change) found a plausible mechanism:
+`internal/engines/saturation/engine.go`, `applySaturationDecisions` (~L1601-1701). When the
+optimizer has no fresh decision this cycle (consistent with `rc=0` failing the informativeness
+gate), the code deliberately holds at the current replica count — tries the previously-persisted
+CR status target, falls back to `currentAllocations`, falls back further to the live Deployment's
+actual replica count — explicitly to avoid unintentionally scaling to zero on a transient
+uninformative cycle (stated in the code's own comments, ~L1670-1680). This is a **designed
+hold-on-no-decision policy, not a computation bug** — on a fresh restart with no prior CR status
+and a Deployment already at 10 replicas, nothing drives the target down while this policy holds.
+Not confirmed live (static read only); the open question for Dean is whether "hold" is the right
+policy for a *sustained* 15+-minute `rc=0/demand=0/util=0` window, not whether the code is broken.
+**Relationship to Finding 4:** likely the same mechanism *family* (the hold/current-replicas
+fallback logic) but not proven to be one single bug — Finding 4 was an active-decision
+oscillation during live load (`util≈0.2`), this incident is the pure hold case
+(`util=0` exactly, post-restart, no load). Investigation closed as "plausible mechanism found,
+policy question for Dean," not further pursued without his direction.
