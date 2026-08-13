@@ -1016,3 +1016,20 @@ fallback logic) but not proven to be one single bug — Finding 4 was an active-
 oscillation during live load (`util≈0.2`), this incident is the pure hold case
 (`util=0` exactly, post-restart, no load). Investigation closed as "plausible mechanism found,
 policy question for Dean," not further pursued without his direction.
+
+---
+
+## D-47 | 2026-08-13 | topic:coverage-matrix,workload-inventory,ownership-resolved | src:ta-pokprod-workload-coverage.md
+
+**§4.1's coverage matrix ask, built.** [`ta-pokprod-workload-coverage.md`](ta-pokprod-workload-coverage.md)
+tables all 6 canonical `ta_*.yaml.in` templates under
+`benchmark/hack/benchmark/workloads/inference-perf/` against purpose (from each file's own
+docstring), shape, actual run count in `runs/`, and outcome. Every template has run at least once —
+no coverage gap exists at the "has this ever been tried" level. Owned in benchmark-execution scope
+as a Type 3 (about what benchmark *runs*), not a new benchmark Type 1 as previously guessed. §4.2
+(theory/simulation legs, what viz *computes*) stays viz-panels-planner's, unbuilt, separately.
+
+**Real open item this surfaced, not previously stated this plainly:** `ta_autoscale_dwell` has 6
+clean runs but **no run has yet escaped the limit cycle to produce an actual steady-state dwell** —
+a known, understood gap (D-21/D-28/D-45 §2, the deferred forecast design), not a new mystery, but
+worth stating directly rather than leaving implicit across three other docs.

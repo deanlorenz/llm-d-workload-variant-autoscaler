@@ -188,14 +188,15 @@ a real reason its success on any given run isn't guaranteed.
 
 ---
 
-## 4. Workload coverage matrix + theory/simulation/real baseline — not built
+## 4. Workload coverage matrix + theory/simulation/real baseline
 
-**Two asks, Dean, neither built yet.** [[D-13]] *(cross-referenced from the campaign doc, not a
-standalone D-entry — folded here as it's scenario-design surface)*
+**Two asks, Dean.** [[D-13]] *(cross-referenced from the campaign doc, not a standalone D-entry —
+folded here as it's scenario-design surface)*
 
-**4.1 — A coverage matrix.** One table, every `ta_autoscale_*.yaml`/`ta_prefill_knee.yaml` workload
-alongside its purpose and expected outcome. Nothing today lets a cold reader scan the whole workload
-set at once or notice a coverage gap.
+**4.1 — A coverage matrix. ✅ BUILT 2026-08-13** —
+[`ta-pokprod-workload-coverage.md`](ta-pokprod-workload-coverage.md) [[D-47]]. All 6 canonical
+`ta_*.yaml.in` templates tabled with purpose, shape, run count, and outcome — every template has
+run at least once.
 
 **4.2 — A three-artifact baseline, not just a table.** *"Theory based on simulation + viz, simulation
 based on actual workload generated + viz — a synthetic baseline before we actually benchmark."* Three
@@ -206,11 +207,10 @@ benchmark result, compared against both rather than read cold. Would likely have
 cells' actual problem — not merely "too short," but that a limit-cycling system has no well-defined
 mean operating point at all (§3.1) — before spending cluster time on them.
 
-**Ownership split, not yet made.** The coverage matrix and the theory/simulation legs are viz-side, per
-Dean's own scoping (viz owns synthetic simulation and simulation-following-a-test — see
-[`autoscaling-viz-design.md`](autoscaling-viz-design.md)); the workload-spec-to-purpose mapping itself
-may belong in a benchmark Type 1 instead, since it's about what benchmark *runs*, not what viz
-*computes*. No benchmark Type 1 exists yet to receive it.
+**Ownership split, resolved 2026-08-13.** [[D-47]] 4.1 (the coverage matrix — what benchmark *runs*)
+built here, in benchmark-execution scope, as a Type 3 rather than needing a new benchmark Type 1.
+4.2 (theory/simulation legs — what viz *computes*) remains viz-panels-planner's, unbuilt, tracked
+in that scope's own docs.
 
 ---
 

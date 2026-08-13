@@ -6,7 +6,9 @@ upstream-bound. **Author role:** plan-agent.
 
 **Companion docs:** [`ta-pokprod-architecture-design.md`](ta-pokprod-architecture-design.md) (Type 1 —
 the durable contracts this plan executes against) · [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md)
-(Type 3, the live scenario-design surface — dwell, band derivation, coverage matrix) ·
+(Type 3, the live scenario-design surface — dwell, band derivation) ·
+[`ta-pokprod-workload-coverage.md`](ta-pokprod-workload-coverage.md) (Type 3, every canonical
+workload's purpose/shape/run-history) ·
 [`ta-pokprod-history.md`](ta-pokprod-history.md) (decision ledger — `[[D-nn]]` fetchable by
 `grep -n '^## D-nn'`).
 
