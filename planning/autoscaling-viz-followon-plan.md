@@ -18,18 +18,33 @@ Dean's input before any code spec is written). Nothing in this doc authorizes a 
 the estimation model (`tput_knee()`/`capacity()`) — that stays gated on Dean's review of the three
 open questions in the Type 1, independent of anything below.
 
+**Scope boundary vs. the `benchmark`-execution scope, stated directly by Dean (2026-08-15) after a
+real cross-scope incident (Task 6's cross-worktree write + a per-request-data thread that started
+drifting into `benchmark`'s territory):**
+1. **Output placement/location convention** (where rendered results/reports live) — not this
+   scope's call. `benchmark` owns that; their coder does the actual work. This scope's coder may
+   write a one-off analysis batch, but it must land inside *this* worktree, never a sibling's.
+2. **Per-request data handling** (recovering per-request signals from disabled-by-design collection)
+   — not this scope's unless the `benchmark` planner explicitly assigns it here.
+3. **Extraction-tool enhancement** (e.g. generalizing a `benchmark`-side tool like
+   `envoy_per_request.py`) — could become this scope's *if* assigned by that planner; this scope's
+   coder would execute it, not draft the assignment itself.
+4. **Panel rendering/visualization itself** (drain-window correctness, panel visual scheme, corner
+   info, etc.) — squarely this scope's, drive it directly.
+
 ## TOC {#toc}
 
-- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L34:51
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L52:63
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L64:79
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L80:91
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L92:103
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L104:114
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:182
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L183:214
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L215:255
-- [Cross-references](#cross-references) L256:262
+- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L49:66
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L67:78
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L79:94
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L95:106
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L107:118
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L119:129
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L130:197
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L198:229
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L230:268
+- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L269:290
+- [Cross-references](#cross-references) L291:297
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -248,6 +263,26 @@ session already solved this once by pulling the output up a level before committ
 didn't get that treatment. Not `autoscaling-viz`'s to fix (gitignore convention + git history both
 belong to `benchmark`) — handed off via
 `session/handoffs/plan__benchmark-viz-output-needs-pullup-and-commit.md`.
+
+[↑ TOC](#toc)
+
+## Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}
+
+**Full findings:** [`autoscaling-viz-panel-review-20260814.md`](autoscaling-viz-panel-review-20260814.md),
+from Dean's review of the first version-stamped, confirmed-current regen (`m-satta-dwell`, stamped
+`870fff6d`). Confirmed good, no action: panel 1b's capacity annotations, panel 6.
+
+- **Item N — CLOSED, not this scope's.** Per the scope boundary above (item 2), routed to
+  `benchmark`-execution via `plan__envoy-per-request-tool-scope-and-process-gap.md`; their response
+  wrote [`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md) and
+  left the generalization/ownership question open on their own side. Nothing scheduled here.
+- **Item O — CONFIRMED DEFECT: drain windows end ~15-16s before their matched `desired`-drop,
+  systematically** across all 6 windows checked in the reviewed bundle. Same scrape-cadence
+  mechanism Task 4's fix already named, but the fix's own verification didn't catch that the
+  displayed window's *end* still carries the offset. Needs its own Type 3 — not yet written.
+  Separately observed, not yet a confirmed defect: two multi-replica scale-downs have fewer matched
+  drain windows than replicas removed; needs the coder's own trace before scoping.
+- **Item P** — overlay weight too thick, corroborates Item K (Task 8, already queued) — no new spec.
 
 [↑ TOC](#toc)
 
