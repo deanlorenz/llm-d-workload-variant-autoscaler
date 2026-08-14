@@ -26,10 +26,10 @@ open questions in the Type 1, independent of anything below.
 - [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L80:91
 - [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L92:103
 - [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L104:114
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:178
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L179:210
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L211:231
-- [Cross-references](#cross-references) L232:238
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:182
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L183:214
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L215:235
+- [Cross-references](#cross-references) L236:242
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -164,8 +164,12 @@ secondary-axis behavior, the pod-number legend key. New findings:
   against real data (`m-ta-staircase`, pod `r2tnh`). Spec:
   [`autoscaling-viz-drain-window-fix-plan.md`](autoscaling-viz-drain-window-fix-plan.md) — queued as
   **Task 4** (after Task 3 finishes; not interrupting it).
-- **Item K** — panel 3 visual scheme (consistent per-pod color; dots=draining, dashes=waiting, both
-  thinner; very thin black outline on all bars). Blocked on Item J landing first — no Type 3 yet.
+- **Item K — code spec written 2026-08-14.** Was blocked on Item J landing first — **it landed**
+  (`e188d244`, reviewed push-ready), unblocking this. Spec:
+  [`autoscaling-viz-panel3-visual-scheme-plan.md`](autoscaling-viz-panel3-visual-scheme-plan.md) —
+  dots=draining/dashes=waiting overlays, both thinner; very thin black outline on all bars; also
+  folds in the stale panel-3 title text (Finding 2 of the 2026-08-13 code review). Queued as
+  **Task 8**, held behind Task 7 per Dean's explicit sequencing choice.
 - **Item L — code spec written 2026-08-14**, availability check done: TTFT percentiles are NOT
   blocked on new extraction (per-request `ttft` field already exists, just needs aggregation);
   router imbalance moves to panel 4 (resolving the "don't know" gap); ITL/ρ stays on panel 5 rather
