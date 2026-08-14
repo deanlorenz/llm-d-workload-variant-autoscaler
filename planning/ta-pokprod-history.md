@@ -1164,3 +1164,25 @@ and the `autoscaling-viz` coder regenerated all 18 addressable runs (one of the 
 thread (D-51's sibling handoffs) for how that output then needed a `results/<leaf>/viz/` →
 `runs/<id>/viz/` pull-up to become git-trackable — same root cause pattern as the cross-worktree
 write process gap already flagged there.
+
+---
+
+## D-53 | 2026-08-14 | topic:report-relocation-decided,not-yet-executed,cross-worktree-links | src:chat, not previously written down
+
+**Decision, Dean — never captured until this sweep found the gap.** `ta-pokprod-campaign-report.md`
+belongs on the `benchmark` branch, not `plans` — three-way distinction made explicit: per-benchmark
+run reports live with the results (relative paths, fine as-is); a *summary* report describing what
+was tested/found/gapped belongs with the benchmark effort's own "guide" material (Type 6, ultimately
+PR-bound, e.g. `benchmark/docs/benchmark-reports/`) — relative paths there resolve correctly on
+GitHub/clone since everything's in one worktree; *internal* planning/tracking/review material stays
+in `plans/`, needing absolute paths in chat (see the global memory
+`feedback_chat_file_links_full_path`). Location settled: `benchmark/docs/benchmark-reports/`, named
+so multiple campaign reports can coexist over time.
+
+**Not yet executed.** The report still sits in `plans/planning/` as of this entry, so its
+`../../benchmark/runs/...` links are the known cross-worktree case
+([[feedback_relative_links_within_docs]], global memory) — they resolve on raw disk, not
+necessarily as clickable links in a renderer scoped to the `plans` worktree alone. Not a bug to fix
+in place; the fix is the move itself, which needs the benchmark coder to execute (plan-agent write
+scope is `plans/` only, never a code worktree). Handoff not yet written — this ledger entry exists
+so the decision itself isn't lost regardless of when that handoff goes out.

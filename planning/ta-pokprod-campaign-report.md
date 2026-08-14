@@ -13,9 +13,9 @@ workloads exist, why) · [`ta-pokprod-architecture-design.md`](ta-pokprod-archit
 [`ta-pokprod-history.md`](ta-pokprod-history.md) (decision ledger, `[[D-nn]]` fetchable by
 `grep -n '^## D-nn'`).
 
-**⚠️ No viz output exists for any run since 2026-08-10.** Every panel cell below is a placeholder
-until the autoscaling-viz scope generates figures — handed off, not run by this scope. Placeholder
-text is used explicitly; there is no broken link anywhere in this doc.
+**Viz output now exists for all 19 runs, resolved 2026-08-14** — regenerated/rendered by the
+autoscaling-viz scope with a version stamp (`rendered @ <sha>`), pulled up to the canonical
+`runs/<id>/viz/panels.png` location and committed. Panel links below are real, not placeholders.
 
 ---
 
@@ -44,7 +44,7 @@ harness on an unbounded backlog).
 | Avg pod startup (s) | 76 | 65 | 85 |
 | Errors | 0 | 0 | 0 |
 | Report | [REPORT.md](../../benchmark/runs/dean-20260810-080708-371/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260810-084756-739/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260810-064736-555/REPORT.md) |
-| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* |
+| Panels | [panels.png](../../benchmark/runs/dean-20260810-080708-371/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260810-084756-739/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260810-064736-555/viz/panels.png) |
 
 *TTFT/ITL/queue-depth show `?` in these runs' REPORT.md — they predate the D-39 postprocess.py
 fix (2026-08-12) and have never been re-extracted from the raw per-request data still on disk.
@@ -72,7 +72,7 @@ transition speed.
 | Avg queue depth, rerun | **32.4** | 0.0 | 0.0 |
 | Errors, rerun | 1 | 0 | 1 |
 | Report (rerun) | [REPORT.md](../../benchmark/runs/dean-20260813-013728-756/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260813-000928-609/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260813-005321-943/REPORT.md) |
-| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* |
+| Panels (rerun) | [panels.png](../../benchmark/runs/dean-20260813-013728-756/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260813-000928-609/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260813-005321-943/viz/panels.png) |
 
 *Original 2026-08-10 runs and the 2026-08-13 clean reruns both exist; the rerun row above is the
 authoritative one — the original `m-ta-dwell` was truncated (r²=0.11 ITL fit) and superseded, the
@@ -103,7 +103,7 @@ harness pods (the OOM fix, D-42).
 | Avg queue depth | — | 1.1 | 3.1 | 2.4 | 3.5 | **0.0** |
 | Errors | 0 (partial data, OOM before completion) | 0 | 0 (all 4 pods) | 0 (partial data, OOM before completion) | 0 | 0 |
 | Report | [REPORT.md](../../benchmark/runs/dean-20260812-203217-894/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260812-231722-822/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260813-130251-004/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-044129-931/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-050448-704/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-053822-692/REPORT.md) |
-| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* |
+| Panels | [panels.png](../../benchmark/runs/dean-20260812-203217-894/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260812-231722-822/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260813-130251-004/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260814-044129-931/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260814-050448-704/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260814-053822-692/viz/panels.png) |
 
 *Both TA and sat hit the same `OOMKilled` mechanism on first attempt (D-41); each resolved by an
 unmodified retry, not the p4/rate-divided variant, matching the pattern that worked before —
@@ -133,7 +133,7 @@ comparison axis.
 | Avg queue depth | 49.2 | 67.5 | 71.1 |
 | Errors | 1 | 0 | 0 |
 | Report | [REPORT.md](../../benchmark/runs/dean-20260812-152105-714/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-032308-959/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-035754-869/REPORT.md) |
-| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* |
+| Panels | [panels.png](../../benchmark/runs/dean-20260812-152105-714/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260814-032308-959/viz/panels.png) | [panels.png](../../benchmark/runs/dean-20260814-035754-869/viz/panels.png) |
 
 **Cross-config comparison, landed 2026-08-14.** sat and satTA are close to each other (P99 TTFT
 59,990ms vs 61,201ms, queue depth 67.5 vs 71.1) and both markedly worse than TA-only on tail
@@ -191,6 +191,19 @@ sampling noise can flip the bucket key mid-run and swap in a stale or cross-work
 Status: strong, code-located hypothesis, not confirmed from logs. Deprioritized 2026-08-14 —
 workaround is shifting the workload's output length off the bucket edge; a real WVA fix would be
 a separate, lower-priority issue.
+
+**Saturation's `prc` provenance reason codes** (source-checked, `saturation_v2/types.go`, worth
+citing precisely rather than by number alone): `P1-obs` = `k2SrcObserved`, "queue saturated:
+tokensInUse" — the intended observed path, not an anomaly. `P2-hist` = `k2SrcHistorical`,
+"rolling average from prior observations" — the state a `prc` collapse gets stuck in after one bad
+`P1-obs` sample. `P3-k2` = `k2SrcDerived`, "estimated from deployment args." `P4-k1` =
+`k2SrcFallback`, "fallback to k1 (memory-bound)." **Open, still uninvestigated:** `m-sat-staircase`
+also entered `P1-obs` during the 2026-08-10 campaign but its `prc` stayed at 329011 (no collapse),
+while `m-ta-staircase` collapsed 329011→195774→62538 (5.26×) after its own `P1-obs` entry — so
+entering `P1-obs` is not itself sufficient to trigger the collapse, and what actually
+distinguishes a poisoning entry from a benign one is unknown. (Also worth remembering: that
+specific `m-ta-staircase` collapse is evidence about saturation's estimator in general, not about
+what drove that cell's own scaling — saturation was non-voting there, per Finding 1 above.)
 
 **No run has escaped this limit cycle to produce a genuine steady-state dwell** — true across
 both campaigns, all three configs. A limit cycle has no well-defined mean; any dwell-cell KV
@@ -360,6 +373,16 @@ intended for a 3-config comparison).
    steady-state fact.
 3. **`tput_knee()` and `capacity()` (viz toolchain internals cited implicitly via any future panel
    link) have never been formally reviewed by Dean** — treat their outputs as "what the code
-   currently does," not "a reviewed and agreed method," until that review happens.
+   currently does," not "a reviewed and agreed method," until that review happens. **They are two
+   different quantities, not one model** — panel 1b's dashed "capacity ceiling" is a *rate*
+   (`ready replicas × tput_knee()`'s empirically-observed peak tok/s, an upper-envelope estimate
+   calibrated from the same run it's drawn over, which is why it tracks visually). `capacity()`'s
+   `max_conc_pred` is a separate *concurrency count* model (`kv_tokens / footprint_tok`, a
+   KV-budget formula), and it's the one with a real, measured error: on `m-ta-staircase`,
+   pred=212.4 vs obs=78.0, a 63% miss. The suspect is the per-request footprint estimate
+   (`I×(1-prefix_hit) + O/2`) — worth checking against real per-request I/O length once that data
+   exists. **Neither function's design has actually been reviewed and agreed** — both were
+   introduced in the toolchain's first commit (`ca7f2c74`) without a documented design discussion;
+   treat any number derived from either as "what the code does," not "a validated method."
 4. **Router-oscillation claims need a per-request trace** — scrape-cadence-derived panels cannot
    see sub-Nyquist oscillation by construction.
