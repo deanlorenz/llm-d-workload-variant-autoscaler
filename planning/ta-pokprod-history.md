@@ -1033,3 +1033,33 @@ as a Type 3 (about what benchmark *runs*), not a new benchmark Type 1 as previou
 clean runs but **no run has yet escaped the limit cycle to produce an actual steady-state dwell** —
 a known, understood gap (D-21/D-28/D-45 §2, the deferred forecast design), not a new mystery, but
 worth stating directly rather than leaving implicit across three other docs.
+
+---
+
+## D-48 | 2026-08-14 | topic:coverage-matrix,4-new-runs,report-v2-scoped | src:ta-pokprod-workload-coverage.md, ta-pokprod-campaign-report-v2-spec.md
+
+**Report v2 spec written, for Dean's review before the actual rewrite.** Replaces the
+history-heavy `ta-pokprod-campaign-20260810-results.md` + `ta-pokprod-rerun-results-20260813.md`
+pair with one report leading with cross-cutting conclusions, not narrative: (1) a workload×config
+grid (all 6 workloads, sat/TA/satTA columns, per-workload load-composition text, key-measurements
+table, panels row with full md links — placeholder-not-broken where no viz output exists yet), (2)
+cross-cutting analysis by topic (knee, oscillation, queue drain, controller-restart policy — lifted
+from existing prose, no new claims), (3) one run-index summary table (all runs, one row: run ID,
+date, workload, config, completed?, link to results dir) — per-run detail reports stay separate,
+this table indexes them. Panel generation handed to viz-panels-planner as a batch ask, not
+blocking the report.
+
+**Real gap found while scoping Section 1's grid: only 2 of 6 workloads actually needed new data.**
+staircase and dwell already have all 3 configs (sat/TA/satTA) run. `ta_prefill_knee` and
+`ta_calibration_probe` have only ever run TA-only. **Dean approved 4 new runs 2026-08-14**:
+prefill_knee×{sat,satTA}, calibration_probe×{sat,satTA} — handed to the benchmark coder
+(`benchmark__fill-grid-gaps-prefill-knee-calibration-probe.md`), scope detailed in
+`ta-pokprod-workload-coverage.md`'s own "Approved, pending" section rather than the trigger body.
+
+**Doc-accuracy correction, same pass:** the coverage doc had wrongly stated `ta_prefill_knee` "ran
+at a fixed replica count with autoscaling off" — the actual run used TA config with the live
+controller (autoscaling on). The fixed-replica/autoscaling-off variant is a *proposed* sharper
+instrument from the workload's own docstring, explicitly flagged there as needing a planner+Dean
+scenario decision never made — a real, separate, still-open item, not what happened. Corrected in
+place; the two items kept distinct (config-grid gap vs. instrument-design decision) so approving
+one doesn't get read as resolving the other.
