@@ -307,18 +307,28 @@ then there are no rule files to cite.
 
 ### Agent roles and document ownership
 
-Three distinct agent roles write to three non-overlapping doc domains:
+Four distinct agent roles write to four non-overlapping doc domains. **Corrected 2026-08-13** — this
+table previously listed only three rows and said the Plan agent writes "CURRENT.md directly," which
+contradicted the Type-5 single-writer-model text elsewhere in this same file (dated 2026-07-28: *"Only
+one dedicated sync session writes CURRENT.md... every other session, including other planner
+instances... only submits handoffs"*). That contradiction was never patched when the single-writer
+model was introduced. The single-writer-model text is authoritative — it is corroborated by the
+`s-sync-current` SKILL.md mechanics, the entire "Handoffs — serialize updates to shared state" section
+below, and CODER-CONVENTIONS.md §8. The table below is fixed to match; `sync` is added as its own row
+rather than left as scattered prose, since it is a distinct, formalized role exactly like the other
+three.
 
 | Role | Invoked by | Writes | Reads |
 |---|---|---|---|
 | **Review agent** | `/design-review`, `/s-pr-triage`, etc. | reviews (Type 6), handoffs | designs (Type 1), task plans (Type 3), code |
-| **Plan agent** | explicit request | task plans (Type 3), CURRENT.md directly, triggers | reviews (Type 6, FINAL only), designs (Type 1), handoffs, status files |
+| **Plan agent** | explicit request | task plans (Type 3), triggers, handoffs | reviews (Type 6, FINAL only), designs (Type 1), handoffs, status files |
 | **Coder** | explicit request | code, references (Type 4), status files, handoffs, triggers | task plans (Type 3), references (Type 4), status files |
+| **Sync** | Dean says "sync state" (or equivalent) | CURRENT.md, PR Status table, and other canonical `session/` shared state | `sync__*.md` handoffs |
 
 Never write into another agent's domain. A coder should not edit a review; a review agent
-should not edit code or task plans. **Only the plan agent writes CURRENT.md directly; all
-other agents communicate changes via handoffs.** **Coders read only plan docs (Type 3) for
-scope** — handoffs and triggers from siblings or the planner are signals to re-read the plan,
+should not edit code or task plans. **Only the one dedicated sync session writes CURRENT.md
+directly; every other agent — including plan agents — communicates changes via `sync__` handoffs.**
+**Coders read only plan docs (Type 3) for scope** — handoffs and triggers from siblings or the planner are signals to re-read the plan,
 never new instructions in their own right.
 
 **Coder sessions: invoke `/s-coder` before touching any file.** `session/CODER-CONVENTIONS.md` is

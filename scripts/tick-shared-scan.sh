@@ -11,6 +11,27 @@
 # per-session Tier-1). It is acceptable for it to pause when no sync session is active; the
 # next one notices and restarts it. No standing daemon, no systemd unit.
 #
+# Single-instance guard: an flock on a dedicated lock file, held for the process's whole life
+# (fd 9, opened once at startup, never closed). A second invocation -- a second sync session,
+# or the same one restarted without checking first -- refuses the lock and exits 0 quietly, so
+# it is always safe to call the start routine speculatively. Same pattern as
+# scripts/sync-main-watch.sh, which hit exactly this race (2026-08-10 incident: a racy
+# heartbeat-only "already running?" check let two live watchers run simultaneously undetected).
+#
+# Dead-man's-switch: exits once Main sync (the sync session that owns this loop, per the
+# Ownership note above) is no longer active. Tied specifically to Main sync's own status file
+# (session/status/main.md) rather than "any Claude process is running anywhere" --
+# sync-main-watch.sh's `pgrep -x claude` check is intentionally NOT reused here: a process
+# literally named `claude` carries no session identity, so that check would keep this loop
+# alive because of an unrelated Claude session in a different project folder, which is a real
+# over-broad-liveness bug, not a feature, for a loop whose whole reason to exist is serving
+# Main sync's own work. Checked via main.md's `last_check` timestamp, which that session
+# rewrites at its own heartbeat cadence; stale past --main-sync-timeout means Main sync is
+# gone, so this loop should be too. This is a narrower fix than the broader open question of
+# whether nohup/detachment is even needed for either watcher if Main sync could start reliably
+# on its own -- that question is explicitly NOT addressed here (Dean, 2026-08-13: fix the
+# narrow over-broad-scope bug now, defer the rest).
+#
 # Discovery: no liveness protocol. Every registered (transcript -> digest) pair from
 # session/.tier2-registry is scanned every pass; Tier-1's own free count-check means a closed
 # session with nothing new costs ~nothing to check.
@@ -29,15 +50,27 @@
 #
 # Usage:
 #   tick-shared-scan.sh [--once] [--interval <seconds>] [--retire-days <n>] [--daily-cap <tokens>]
+#                        [--main-sync-timeout <seconds>] [--no-main-sync-check] [--lock-file <path>]
 #
-#   --once          single pass then exit, for testing
-#   --interval       seconds between passes (default 300 -- Tier-2 is meant to be rare)
-#   --retire-days     mtime staleness threshold for retirement (default 7)
-#   --daily-cap       combined token cap per UTC day across all sessions (default 50000)
+#   --once                single pass then exit, for testing
+#   --interval             seconds between passes (default 300 -- Tier-2 is meant to be rare)
+#   --retire-days           mtime staleness threshold for retirement (default 7)
+#   --daily-cap             combined token cap per UTC day across all sessions (default 50000)
+#   --main-sync-timeout      seconds since Main sync's own status-file heartbeat before this
+#                            loop treats Main sync as gone and self-exits (default 150 --
+#                            matches sync-main-session-start.sh's own alive-threshold, ~2.5x
+#                            that watcher's 60s poll interval)
+#   --no-main-sync-check     skip the dead-man's-switch entirely (testing only -- a real
+#                            deployment should never need this)
+#   --lock-file              path for the single-instance flock (default
+#                            /tmp/tick-shared-scan.lock)
+#   --main-status            path to Main sync's status file, checked by the dead-man's-switch
+#                            (default plans/session/status/main.md -- override for testing)
 #
 # Exits non-zero and explains itself on stderr for a real failure. A quiet pass with nothing
 # to do exits 0 with a one-line note -- that must never look like a crash, and a crash must
-# never look like a quiet pass.
+# never look like a quiet pass. A redundant instance refusing the lock also exits 0 -- that is
+# the intended outcome of calling the start routine speculatively, not a failure.
 
 set -uo pipefail
 
@@ -45,6 +78,9 @@ once=0
 interval=300
 retire_days=7
 daily_cap=50000
+main_sync_timeout=150
+check_main_sync=1
+lock_file="/tmp/tick-shared-scan.lock"
 
 here="$(cd "$(dirname "$0")" && pwd)"
 plans_dir="$(cd "$here/.." && pwd)"
@@ -52,17 +88,22 @@ consolidate="$here/tick-consolidate.sh"
 registry="$plans_dir/session/.tier2-registry"
 retired_dir="$plans_dir/session/.retired"
 usage_log="$plans_dir/session/.tier2-usage.log"
+main_status="$plans_dir/session/status/main.md"
 
 die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --once)         once=1; shift ;;
-    --interval)     interval="${2:-}";     [ -n "$interval" ]     || die "--interval needs a value";     shift 2 ;;
-    --retire-days)  retire_days="${2:-}";  [ -n "$retire_days" ]  || die "--retire-days needs a value";  shift 2 ;;
-    --daily-cap)    daily_cap="${2:-}";    [ -n "$daily_cap" ]    || die "--daily-cap needs a value";    shift 2 ;;
-    -h|--help)      sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *)              die "unknown argument: $1" ;;
+    --once)                 once=1; shift ;;
+    --interval)             interval="${2:-}";           [ -n "$interval" ]           || die "--interval needs a value";           shift 2 ;;
+    --retire-days)          retire_days="${2:-}";         [ -n "$retire_days" ]        || die "--retire-days needs a value";        shift 2 ;;
+    --daily-cap)            daily_cap="${2:-}";           [ -n "$daily_cap" ]          || die "--daily-cap needs a value";          shift 2 ;;
+    --main-sync-timeout)    main_sync_timeout="${2:-}";   [ -n "$main_sync_timeout" ]  || die "--main-sync-timeout needs a value";  shift 2 ;;
+    --no-main-sync-check)   check_main_sync=0; shift ;;
+    --lock-file)            lock_file="${2:-}";           [ -n "$lock_file" ]          || die "--lock-file needs a value";          shift 2 ;;
+    --main-status)          main_status="${2:-}";         [ -n "$main_status" ]        || die "--main-status needs a value";        shift 2 ;;
+    -h|--help)              sed -n '2,73p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)                      die "unknown argument: $1" ;;
   esac
 done
 
@@ -70,9 +111,35 @@ done
 case "$interval" in ''|*[!0-9]*) die "--interval must be a whole number of seconds" ;; esac
 case "$retire_days" in ''|*[!0-9]*) die "--retire-days must be a whole number" ;; esac
 case "$daily_cap" in ''|*[!0-9]*) die "--daily-cap must be a whole number of tokens" ;; esac
+case "$main_sync_timeout" in ''|*[!0-9]*) die "--main-sync-timeout must be a whole number of seconds" ;; esac
 
 mkdir -p "$retired_dir" || die "cannot create $retired_dir"
 touch "$usage_log" || die "cannot write $usage_log"
+
+# Single-instance guard. Held for this process's entire life (fd 9 opened once, never
+# explicitly closed -- the kernel releases it when the process exits, by crash or by design).
+# A held lock means a live instance already exists; refuse quietly rather than race it, per
+# the sync-main-watch.sh precedent (2026-08-10 incident).
+exec 9>"$lock_file" || die "cannot open lock file: $lock_file"
+if ! flock -n 9; then
+  printf '%s: another instance already holds %s -- exiting quietly, this is expected when\n' \
+    "${0##*/}" "$lock_file" >&2
+  printf '  the start routine is called speculatively; nothing was scanned this invocation.\n' >&2
+  exit 0
+fi
+
+# Dead-man's-switch: is Main sync still around? See the file header for why this checks
+# main.md's own heartbeat specifically rather than "any Claude process anywhere."
+main_sync_alive() {
+  [ "$check_main_sync" -eq 1 ] || return 0
+  [ -f "$main_status" ] || return 1
+  local last_check last_check_epoch age
+  last_check=$(grep -m1 '^last_check:' "$main_status" | cut -d' ' -f2-)
+  last_check_epoch=$(date -d "$last_check" +%s 2>/dev/null || echo 0)
+  [ "$last_check_epoch" -gt 0 ] || return 1
+  age=$(( $(date +%s) - last_check_epoch ))
+  [ "$age" -lt "$main_sync_timeout" ]
+}
 
 # Deterministic short key for a transcript path, used as the retirement marker filename.
 # Not security-sensitive -- just needs to be stable and filesystem-safe.
@@ -185,6 +252,11 @@ if [ "$once" -eq 1 ]; then
 fi
 
 while true; do
+  if ! main_sync_alive; then
+    printf '%s: Main sync heartbeat stale past %ss -- self-exiting (stateless by design, not a crash)\n' \
+      "${0##*/}" "$main_sync_timeout" >&2
+    exit 0
+  fi
   pass
   sleep "$interval"
 done

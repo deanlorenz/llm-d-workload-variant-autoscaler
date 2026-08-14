@@ -140,6 +140,31 @@ storm) rather than to constrain ordinary use.
   zero cost; transcript's mtime moved back to "recent" → marker deleted on the next scan, pair rejoins
   the pool and resumes normal no-op/consolidate behavior with no double-processing. `shellcheck` clean on
   both changed/new scripts.
+- **Single-instance guard + dead-man's-switch, added 2026-08-13 (same day, second pass).** Responds to
+  sync's own `plan__tick-shared-scan-lock-and-start-ownership.md` handoff, which correctly flagged that
+  the script had no `flock` at all — the same race `sync-main-watch.sh` hit on 2026-08-10 (a heuristic
+  "already running?" check let two live watchers run simultaneously undetected). Fixed with an `flock`
+  on fd 9, held for the process's whole life; a redundant instance refuses the lock and exits 0, so it is
+  safe to call the start routine speculatively. **The dead-man's-switch deliberately does NOT reuse
+  `sync-main-watch.sh`'s `pgrep -x claude` liveness check** — Dean caught that this is over-broad: a
+  process literally named `claude` carries no session identity, so that check would keep this loop alive
+  because of an unrelated Claude session in a different project folder, which has nothing to do with
+  whether Main sync (the loop's actual owner, per Ownership above) is still around. Instead it checks
+  Main sync's own `session/status/main.md` heartbeat (`last_check` staleness, default 150s threshold,
+  matching `sync-main-session-start.sh`'s own alive-window) — a tighter binding to the specific session
+  this loop exists to serve, not to "any Claude activity anywhere." New flags: `--main-sync-timeout`,
+  `--no-main-sync-check` (testing only), `--lock-file`, `--main-status` (testing override, since the
+  path is otherwise derived from the script's own location like `registry`/`retired_dir`/`usage_log`
+  already were, all still non-overridable — a pre-existing limitation, not touched by this pass).
+  Verified in a sandbox: a held lock causes a real invocation to refuse cleanly (exit 0, no scan
+  attempted); a missing `main.md` self-exits immediately; a fresh heartbeat keeps the loop running
+  (confirmed by letting `timeout` kill it mid-loop rather than self-exiting); a heartbeat already past
+  the threshold self-exits on the very next check. `--once` is deliberately NOT gated by the
+  dead-man's-switch — a single explicit test pass should always run regardless of Main sync's state.
+  `shellcheck` clean after the change. **Explicitly not addressed** — the broader question of whether
+  `nohup`/detachment is needed at all for either watcher if Main sync could start reliably on its own is
+  a separate, larger design question Dean raised and deferred; only the narrow over-broad-liveness bug
+  is fixed here.
 
 ## Still open
 

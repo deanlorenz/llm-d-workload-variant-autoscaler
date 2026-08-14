@@ -390,8 +390,10 @@ referenced docs and lets their own plan decide how to react.
 
 **Do not edit CURRENT.md directly.** Coder writes are limited to your
 worktree, `plans/session/handoffs/`, and
-`plans/session/status/<your-branch>.md` (per §1). The planner is the
-only writer of CURRENT.md.
+`plans/session/status/<your-branch>.md` (per §1). Only the dedicated
+sync session writes CURRENT.md — not even the planner does this
+directly (corrected 2026-08-13; see CONVENTIONS.md § Agent roles and
+document ownership). Write a `sync__*.md` handoff instead.
 
 ### 5.4 Internal review request — before signalling push-ready
 
@@ -495,7 +497,7 @@ explicitly:
 - Edit any other agent's status file.
 - Edit, `mv`, or `rm` someone else's pending handoff or trigger
   (anything not addressed to you).
-- Edit CURRENT.md directly (the planner is the only writer).
+- Edit CURRENT.md directly (only the dedicated sync session writes it).
 - `rm` consumed handoffs or triggers — use `mv <file>.md <file>.md.DONE`.
 - Run `git push` of any kind.
 - Run any GitHub-mutating `gh` command.
