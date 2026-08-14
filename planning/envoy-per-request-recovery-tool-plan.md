@@ -1,11 +1,20 @@
-# Envoy per-request recovery tool (Type 3)
+# Envoy per-request recovery tools (Type 3)
 
 **Status:** documenting existing code retroactively (2026-08-14) — closes a real doc-coverage
 gap flagged by viz-panels-planner (`session/handoffs/plan__envoy-per-request-tool-scope-and-process-gap.md`).
-The tool itself is real, working, validated code, sitting in
-`benchmark/session-notes/scratch/envoy_per_request.py` since 2026-08-08 with no Type 3/1/6
-coverage. This doc captures what it does, why, and its known limitation — not a plan for new
-work, unless/until the generalization question below is resolved.
+Covers **two** tools, not one — `session-notes/scratch/envoy_per_request.py` and
+`session-notes/scratch/serving_replicas.py` (which imports directly from the former). Both real,
+working, validated code, sitting in scratch/ since 2026-08-08 with no Type 3/1/6 coverage. This
+doc captures what they do, why, and their known limitation — not a plan for new work, unless/
+until the generalization question below is resolved.
+
+**Correction 2026-08-14 (same day, before this doc was even committed):** the "was staying in
+scratch/ deliberate or an oversight" question this doc originally left fully open actually has a
+real, findable answer that predates the question — `session/status/benchmark.md` §17.7
+(2026-08-08) already lists both tools as **"promotion candidates for `hack/benchmark/`"**. So the
+honest state is neither "deliberate" nor "pure oversight": promotion was flagged six days ago and
+never executed. That's a real gap in its own right (a flagged action that silently didn't
+happen), distinct from either the "we meant to leave it exploratory" or "nobody noticed" readings.
 
 **Companion docs:** [`ta-pokprod-architecture-design.md`](ta-pokprod-architecture-design.md)
 (Type 1 — this tool is a fallback signal for the per-request-collection-disabled decision
@@ -46,6 +55,32 @@ climbs 47→183ms; it only times request acceptance, not prefill.
   19.32, 2.01 req/s) reproduces the configured ladder (2, 5, 8, 10, 12, 15, 20, 2) to within
   normal sampling variance.
 
+## Companion tool: `serving_replicas.py`
+
+Derives a **time-weighted serving replica count per stage from routing, not the controller**.
+Imports `STAGES`/`assign_stages`/`fmt`/`parse` directly from `envoy_per_request.py` — same
+ladder-run-specific hard limit, not independently generalizable.
+
+**Why it exists:** the controller log's `curr` field is wrong for a latency model twice over —
+60s sample resolution (a pod ready at :54 isn't observed until the next :40 sample), and it
+counts pods that are Pending/pulling-image/loading-model as "current" while they supply zero
+capacity, backwards for explaining latency. `UPSTREAM_HOST` settles it directly: a replica is
+serving when the gateway is actually sending it requests, so each pod's `[first arrival, last
+arrival]` interval, time-weighted per stage, is a routing-derived ground truth independent of the
+controller.
+
+**Validated against the controller-derived estimate, not asserted alone:** the two agree within
+0.10 replicas on 6 of 8 stages; they diverge exactly where expected — stage 0 (serving 1.59 vs
+`curr` 2.27, `curr` overstates by 43% because most counted replicas hadn't finished loading) and
+stage 6 (3.45 vs 3.61, one replica counted from 21:14:39 but serving nothing until 21:15:28).
+Corroborates a third finding from a third source: the replica the cold-`prc` cascade killed
+served only 599 requests in its entire 426s life.
+
+**Known caveat, stated in its own docstring:** a draining pod is credited as serving until its
+final request, so the count lags actual termination slightly (a couple of seconds at this run's
+rate) — the intended behavior (idle-but-has-capacity should count), not a bug, but worth knowing
+when reading a stage boundary precisely.
+
 ## Known hard limits
 
 - **Stage-assignment is ladder-run-specific.** `assign_stages` partitions on cumulative per-stage
@@ -75,10 +110,30 @@ by viz-panels-planner, not decided here. Per-request collection is disabled by s
 ownership question matters for closing it, but is explicitly out of scope for this
 retroactive-documentation pass.
 
-## Status — asked, not yet answered
+## Status — answered by the coder, 2026-08-14
 
-A parallel handoff (`session/handoffs/plan__benchmark-doc-coverage-gap-check-with-coder.md`,
-sent 2026-08-14, open) asks the benchmark coder whether anyone is actively generalizing this tool
-beyond the ladder run, whether staying in scratch/ was deliberate or an oversight, and whether
-other similarly-undocumented tools exist. **None of those questions are answered yet** — this
-section will be updated once the coder responds, not before.
+`session/handoffs/plan__benchmark-doc-coverage-answers-20260814.md` (from evidence, not
+recollection — checked `git log` and prior session notes directly):
+
+1. **Not being generalized.** `git log` on `envoy_per_request.py` shows no commits since
+   `9e360b18` (2026-08-08, the day it was written) — dormant, not active.
+2. **Oversight, not deliberate.** Confirmed by the coder's own prior session notes (§17.7, same
+   day the tool was written): both `envoy_per_request.py` and `serving_replicas.py` were already
+   flagged as "promotion candidates for `hack/benchmark/`" at the time, and the promotion never
+   happened. Matches this doc's own correction above.
+3. **Five MORE undocumented tools exist at the same never-promoted level**, all named in the
+   coder's own §16.5 (2026-08-07, one day earlier) as promotion candidates, still in `scratch/`,
+   confirmed via direct check that none have been promoted under any name:
+   - `verify_decision_rule.py` (111 lines)
+   - `server_token_truth.py` (92 lines)
+   - `stage_table.py` (105 lines)
+   - `stage_vs_replicas.py` (140 lines)
+   - `watch_pvc_space.sh`
+
+   **Explicitly not validated by the coder to the same standard** as the two covered by this doc —
+   flagged as fact (existence, scratch-status), not vouched for correctness. That's a separate
+   task if wanted, not assumed here.
+
+**This means the doc-coverage gap is at minimum 8 tools, not 2** (the two covered by this doc +
+these 5 + one already covered). This doc's own scope stays limited to the two it validates
+directly; the other five are a distinct, larger cleanup — not silently absorbed into this Type 3.

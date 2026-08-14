@@ -1120,3 +1120,23 @@ silently overwrote an already-committed different run's config files (caught via
 restored with `git checkout --`); the built-in staleness guard catches the timeseries JSON
 specifically but not the config files around it. Both are real correctness gaps in the failure
 path, not this round's cluster-run scope to fix.
+
+---
+
+## D-51 | 2026-08-14 | topic:doc-coverage-gap,scratch-tools-never-promoted,scope-widened | src:plan__benchmark-doc-coverage-answers-20260814.md
+
+**The doc-coverage gap flagged by viz-panels-planner (envoy_per_request.py, no Type 3/1/6 despite
+6 days of validated use) is confirmed real and larger than one tool.** Benchmark coder's answer,
+from evidence not recollection: the tool has been dormant since 2026-08-08 (no commits since
+`9e360b18`); its scratch-status was an oversight, not deliberate — the coder's own prior session
+notes (§17.7, same day) already flagged it *and* `serving_replicas.py` as "promotion candidates
+for `hack/benchmark/`," and the promotion never happened. **Five more tools at the same
+never-promoted level exist**, named in the coder's own §16.5 one day earlier:
+`verify_decision_rule.py`, `server_token_truth.py`, `stage_table.py`, `stage_vs_replicas.py`,
+`watch_pvc_space.sh` — confirmed none promoted under any name, not independently re-validated by
+the coder to the envoy tool's standard.
+
+**Retroactive Type 3** (`envoy-per-request-recovery-tool-plan.md`) now covers the two tools it can
+directly validate (`envoy_per_request.py`, `serving_replicas.py`); the other five are a distinct,
+larger doc-coverage cleanup, not silently absorbed into that doc. Scoping that cleanup is a
+separate task, not started here.
