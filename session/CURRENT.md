@@ -214,8 +214,28 @@
   gzip-compress and transparently read per-replica pod logs. **GPUs freed and verified** (ScaledObject
   paused at 0, decode at 0 replicas, 0 pods). **Owed by Dean:** whether/when to push this round's
   commits; whether to act on the inference-perf planner handoff now or later (not urgent — GPUs
-  aren't blocked on it). Detail: `session/status/benchmark.md` §20.31. Session is idle, watching
-  for the next assignment — nothing further to report as of this sync.
+  aren't blocked on it). Detail: `session/status/benchmark.md` §20.31.
+  **2026-08-14 — coverage-matrix gap-fill complete: `ta_prefill_knee` and `ta_calibration_probe`
+  now have all 3 analyzer configs.** 4 Dean-approved runs, 6 local commits, DCO-signed, not
+  pushed. `m-sat-prefill-knee` and `m-satta-prefill-knee` come out nearly identical (P99 TTFT
+  ~60s, queue depth ~70) — TA doesn't help this workload's short-output shape, consistent with
+  saturation-lags-demand. `m-satta-calibration-probe` is the opposite: ~3.5× better than
+  sat-only (P99 TTFT 4,798ms vs 17,105ms, queue depth 0.0 vs 3.5) — satTA clearly helps here.
+  `m-sat-calibration-probe` OOM'd once (same known mechanism), clean on an unmodified retry; per
+  the coverage-matrix doc's own constraint, did not switch to the p4/rate-divided variant. GPUs
+  freed and verified. **Two process/tooling gaps found, flagged for a planner, not fixed
+  in-flight given the time-sensitive gap-fill:** (1) `benchmark-reset-run`'s `reset_run.py` does
+  not actually un-pause KEDA — its own code comment says so; the log line that looks like an
+  unpause is a printed suggested command, never executed, so every run implicitly depends on a
+  human having un-paused manually first (caused today's first failure). Open question: is
+  print-not-do a deliberate safety gate, or should `--apply` also unpause? (2) `run_cell.sh`'s
+  failure path can fall through to analyzing/overwriting an **already-committed, different
+  run's** config files when step `run` fails before producing a fresh results directory — caught
+  3 times today via unexpected `git status` diffs on unrelated cells, restored each time with
+  `git checkout --`. One partial guard exists (skips overwriting a timeseries JSON with fewer
+  snapshots) but config files still get clobbered around it — a real correctness gap in the
+  failure path. Detail: `session/status/benchmark.md` §20.34. Session idle, watching for the next
+  assignment.
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
