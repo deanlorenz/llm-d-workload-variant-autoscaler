@@ -26,10 +26,10 @@ open questions in the Type 1, independent of anything below.
 - [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L80:91
 - [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L92:103
 - [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L104:114
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:175
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L176:207
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L208:228
-- [Cross-references](#cross-references) L229:235
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:178
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L179:210
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L211:231
+- [Cross-references](#cross-references) L232:238
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -166,10 +166,13 @@ secondary-axis behavior, the pod-number legend key. New findings:
   **Task 4** (after Task 3 finishes; not interrupting it).
 - **Item K** — panel 3 visual scheme (consistent per-pod color; dots=draining, dashes=waiting, both
   thinner; very thin black outline on all bars). Blocked on Item J landing first — no Type 3 yet.
-- **Item L** — per-panel corner-info allocation (# requests/goodput → 1a; TTFT percentiles → 3;
-  boot/scale-down/drain timing → 2; ITL/ρ → 6; time-per-work-unit → 1b; cost/utilization → 5; router
-  imbalance explicitly unassigned). A placement plan, not yet a Type 3 — needs a per-metric
-  availability check and Task 3 to land first (panel 6's shape isn't settled yet).
+- **Item L — code spec written 2026-08-14**, availability check done: TTFT percentiles are NOT
+  blocked on new extraction (per-request `ttft` field already exists, just needs aggregation);
+  router imbalance moves to panel 4 (resolving the "don't know" gap); ITL/ρ stays on panel 5 rather
+  than moving to panel 6 (panel 6 is too dense post-Task-3); cost/utilization is genuinely new
+  derived scope (replica-seconds and/or served/slots ratio, both cheap from existing series). Spec:
+  [`autoscaling-viz-corner-info-plan.md`](autoscaling-viz-corner-info-plan.md) — queued as **Task 7**
+  (after Task 6 finishes; not interrupting it).
 
 [↑ TOC](#toc)
 
