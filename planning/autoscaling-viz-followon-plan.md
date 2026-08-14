@@ -28,8 +28,8 @@ open questions in the Type 1, independent of anything below.
 - [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L104:114
 - [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:182
 - [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L183:214
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L215:235
-- [Cross-references](#cross-references) L236:242
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L215:255
+- [Cross-references](#cross-references) L256:262
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -228,6 +228,26 @@ sidecar `coverage.json` is still self-describing; (2) only then regenerate the 7
 never-rendered run directories, so the regenerated batch doesn't recreate the same blind spot one
 version later. Source handoff:
 `session/handoffs/plan__viz-regen-batch-plus-versioning-ask.md`.
+
+**Part 1/1b DONE, committed `870fff6d`.** Independently reviewed push-ready (one cosmetic,
+non-blocking finding logged in `autoscaling-viz-review-ongoing.md`).
+
+**Part 2 — content-complete but with a real process incident, now resolved.** The coder regenerated
+all 18 target runs correctly but wrote the output to `benchmark/runs/<id>/results/<leaf>/viz/` — a
+cross-worktree write (`benchmark` is a sibling, not the coder's own worktree). The coder caught this
+mid-task, stopped without attempting self-correction (per this workspace's own governance
+precedent), and surfaced it precisely. **Resolution (Dean's call, 2026-08-14):** leave the files
+where they are — content is real and useful, this is a process/scope miss, not a content defect.
+Task 6 is closed on the `autoscaling-viz` side.
+
+**Separate finding surfaced by this incident, routed to the `benchmark` scope:** the written output
+is currently gitignored at that path — `benchmark/.gitignore`'s `!runs/*/viz/` exception only
+reaches `viz/` as a direct child of `runs/<id>/`, not the deeper `results/<leaf>/viz/` the coder
+(and, per commit `02793145`'s own message, an earlier session too) actually writes to. A prior
+session already solved this once by pulling the output up a level before committing — this batch
+didn't get that treatment. Not `autoscaling-viz`'s to fix (gitignore convention + git history both
+belong to `benchmark`) — handed off via
+`session/handoffs/plan__benchmark-viz-output-needs-pullup-and-commit.md`.
 
 [↑ TOC](#toc)
 
