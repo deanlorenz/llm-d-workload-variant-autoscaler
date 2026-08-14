@@ -41,29 +41,17 @@ workload in this table.
 - `ta_autoscale_dwell` — 6 clean runs exist, but none has escaped the limit cycle to produce an
   actual steady-state dwell. Whether that needs a longer run, a forecast fix (D-45 §2, deferred),
   or is simply not achievable under saturation-alone at this workload's shape is still open.
-- `ta_prefill_knee` — only run once, under TA config with autoscaling on (live controller).
-  **Correction 2026-08-14:** the coverage-matrix pass previously said this ran "at a fixed replica
-  count with autoscaling off" — wrong; that's a proposed sharper instrument from the workload's own
-  docstring, explicitly flagged there as needing a planner+Dean scenario decision that was never
-  made, not what the actual run did. Two separate open items, not one: (1) sat/satTA configs are
-  missing for this workload — 2 new runs approved 2026-08-14, see
-  `benchmark__fill-grid-gaps-prefill-knee-calibration-probe.md`; (2) the fixed-replica-count/
-  autoscaling-off variant remains an unmade scenario decision, unrelated to (1), still open.
+- `ta_prefill_knee` — **the config-grid gap is closed** — all 3 configs now have data (D-50). A
+  separate, still-open item remains: the workload's own docstring flags a sharper
+  fixed-replica/autoscaling-off instrument as a scenario decision never made — unrelated to the
+  config grid, not addressed by the new runs.
 - `ta_autoscale_ladder` — superseded by dwell/staircase; no plan to rerun it, listed here for
   completeness of the coverage picture, not as an open item.
-- `ta_calibration_probe` — only run under TA config (2 attempts + the p4 parallelism variant, all
-  TA-only). sat/satTA configs missing — 2 new runs approved 2026-08-14, same handoff as above.
+- `ta_calibration_probe` — **the config-grid gap is closed** — all 3 configs now have data (D-50),
+  including a second confirmed OOM (sat config, same mechanism as the earlier TA-only OOM,
+  resolved the same way: an unmodified retry, not the p4 variant).
 
-**Approved, pending — 4 runs, Dean 2026-08-14** (fills the only real gaps in the 3-config grid;
-staircase and dwell already have all 3 configs):
-- `ta_prefill_knee.yaml.in` × sat
-- `ta_prefill_knee.yaml.in` × satTA
-- `ta_calibration_probe.yaml.in` × sat
-- `ta_calibration_probe.yaml.in` × satTA
-
-Same image/namespace/preconditions as the existing 2026-08-10/12/13 runs (architecture doc §2 +
-§5's cold-resume preconditions, including the D-44 namespace-context guard). Standard
-postprocess/results-tree flow. `ta_calibration_probe` OOM'd once before under TA-only at 1×
-parallelism (D-41) — the sat/satTA runs here use the original (non-p4) profile per this scope;
-flag to the planner if OOM recurs rather than silently switching to the p4 variant, since that
-would change what's being compared.
+**All 6 workload templates now have every config their own design intends — closed 2026-08-14
+(D-50).** `ta_autoscale_ladder` excepted (superseded, never intended for a 3-config comparison).
+Two harness process gaps surfaced during the gap-fill runs, flagged not fixed — full detail in
+[`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) § *Two harness process gaps*.

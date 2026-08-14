@@ -1091,3 +1091,32 @@ per-request/stage lifecycle data still exists on disk. **Dean approved re-runnin
 against them 2026-08-14** (no cluster contact needed) — handed to the benchmark coder
 (`benchmark__reprocess-staircase-runs-predate-postprocess-fix.md`); the report's staircase row
 carries a "pending re-postprocess" placeholder until that lands.
+
+---
+
+## D-50 | 2026-08-14 | topic:coverage-matrix-closed,4-runs-landed,two-process-gaps | src:session/status/benchmark.md §20.34
+
+**All 4 grid-gap runs (D-48) landed clean.** `m-sat-prefill-knee` (`07988f6b`, after fixing a
+precondition gap manually — see below), `m-satta-prefill-knee` (`bd82645b`, first try),
+`m-sat-calibration-probe` (`7fb3f124` OOM + `d682c82d` clean retry, same OOM mechanism as the
+earlier TA-only case, resolved the same way — unmodified retry, not the p4 variant, per this
+scope's explicit constraint), `m-satta-calibration-probe` (`1db6e216`, first try). **Coverage
+matrix now genuinely closed** — every workload template has every config its own design intends.
+Full numbers folded into `ta-pokprod-campaign-report.md`.
+
+**Sharpest new result: analyzer informativeness depends on workload shape, not a general
+sat-vs-TA ranking.** calibration_probe (designed to give TA its KSpread samples): satTA wins
+clearly (P99 TTFT 4,798ms vs sat-only 17,105ms, ~3.5×). prefill_knee (short-output, not designed
+to produce KSpread): the *opposite* — TA-only wins (40,657ms vs sat/satTA's ~60,000ms). Read
+together: TA's signal is only as good as the samples the workload's own shape provides it,
+consistent with the piecewise-ITL-fit mechanism.
+
+**Two real harness process gaps surfaced, flagged not fixed (out of scope to patch mid-run):**
+(1) `reset_run.py` deliberately does not un-pause a paused ScaledObject — it prints the unpause
+command as a suggestion, never executes it; every run implicitly depends on a prior manual
+unpause. Hit once, fixed manually. (2) `run_cell.sh`'s `analyse` step falls through to the
+most-recent-existing results directory when `run` fails before producing one — hit 3 times, twice
+silently overwrote an already-committed different run's config files (caught via `git status`,
+restored with `git checkout --`); the built-in staleness guard catches the timeseries JSON
+specifically but not the config files around it. Both are real correctness gaps in the failure
+path, not this round's cluster-run scope to fix.

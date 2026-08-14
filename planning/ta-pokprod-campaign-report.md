@@ -94,21 +94,29 @@ give the throughput analyzer enough KSpread≥0.30 samples to leave its T2-defau
 TA do anything at all." The p4 variant divides each stage's rate by 4 for use with 4 parallel
 harness pods (the OOM fix, D-42).
 
-| Metric | TA (attempt 1, OOM) | TA (retry, clean) | TA-p4 (4 pods) | sat | satTA |
-|---|---|---|---|---|---|
-| Run | `...203217-894` | `...231722-822` | `...130251-004` | *pending* | *pending* |
-| P99 TTFT (ms) | ? (OOM before postprocess) | 20,088 | 19,053 avg | — | — |
-| P99 ITL (ms/tok) | ? | 136.79 | 139.93 avg | — | — |
-| Avg / max replicas | 6.00 / 9 | 6.25 / 10 | 4.50 / 9 | — | — |
-| Errors | 0 (partial data, OOM before completion) | 0 | 0 (all 4 pods) | — | — |
-| Report | [REPORT.md](../../benchmark/runs/dean-20260812-203217-894/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260812-231722-822/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260813-130251-004/REPORT.md) | — | — |
-| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* | — | — |
+| Metric | TA (attempt 1, OOM) | TA (retry, clean) | TA-p4 (4 pods) | sat (attempt 1, OOM) | sat (retry, clean) | satTA |
+|---|---|---|---|---|---|---|
+| Run | `...203217-894` | `...231722-822` | `...130251-004` | `...044129-931` | `...050448-704` | `...053822-692` |
+| P99 TTFT (ms) | ? (OOM before postprocess) | 20,088 | 19,053 avg | ? (OOM before postprocess) | 17,105 | **4,798** |
+| P99 ITL (ms/tok) | ? | 136.79 | 139.93 avg | ? | 144.33 | 120.20 |
+| Avg / max replicas | 6.00 / 9 | 6.25 / 10 | 4.50 / 9 | 3.91 / 10 | 4.64 / 10 | 5.63 / 10 |
+| Avg queue depth | — | 1.1 | 3.1 | 2.4 | 3.5 | **0.0** |
+| Errors | 0 (partial data, OOM before completion) | 0 | 0 (all 4 pods) | 0 (partial data, OOM before completion) | 0 | 0 |
+| Report | [REPORT.md](../../benchmark/runs/dean-20260812-203217-894/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260812-231722-822/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260813-130251-004/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-044129-931/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-050448-704/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-053822-692/REPORT.md) |
+| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* | *pending viz generation* |
 
-*sat/satTA columns: 2 new runs approved 2026-08-14, in flight — see
-`ta-pokprod-workload-coverage.md`.*
+*Both TA and sat hit the same `OOMKilled` mechanism on first attempt (D-41); each resolved by an
+unmodified retry, not the p4/rate-divided variant, matching the pattern that worked before —
+per the coverage doc's explicit "flag to the planner if OOM recurs rather than silently switching
+to p4" constraint.*
 
-**Cross-config comparison:** not yet possible — only TA config has run for this workload. Deferred
-until the sat/satTA runs land.
+**Cross-config comparison, landed 2026-08-14.** satTA clearly helps this workload's shape: P99
+TTFT 4,798ms vs sat-only's 17,105ms (~3.5× better) and TA-only's 20,088ms, with queue depth 0.0 vs
+2.4–3.5 for the single-analyzer configs. Consistent with the throughput analyzer's stated purpose
+— calibration-probe's rate sweep is exactly the shape designed to give TA the KSpread≥0.30 samples
+it needs, so it isn't surprising satTA outperforms either analyzer alone here. This is the
+opposite pattern from prefill-knee below, where satTA does *not* help — the two workloads'
+shapes make different demands on which analyzer's signal is informative.
 
 ### ta_prefill_knee.yaml.in
 
@@ -116,20 +124,26 @@ until the sat/satTA runs land.
 the stimulus (shape), not the rate, kept as a separate run from the dwell workload for a clean
 comparison axis.
 
-| Metric | TA |
-|---|---|
-| Run | `dean-20260812-152105-714` |
-| P99 TTFT (ms) | 40,657 |
-| P99 ITL (ms/tok) | 422.06 |
-| Avg / max replicas | 3.21 / 10 |
-| Avg queue depth | 49.2 |
-| Errors | 1 |
-| Report | [REPORT.md](../../benchmark/runs/dean-20260812-152105-714/REPORT.md) |
-| Panels | *pending viz generation* |
+| Metric | TA | sat | satTA |
+|---|---|---|---|
+| Run | `dean-20260812-152105-714` | `dean-20260814-032308-959` | `dean-20260814-035754-869` |
+| P99 TTFT (ms) | 40,657 | 59,990 | 61,201 |
+| P99 ITL (ms/tok) | 422.06 | 253.16 | 250.11 |
+| Avg / max replicas | 3.21 / 10 | 2.62 / 10 | 3.54 / 10 |
+| Avg queue depth | 49.2 | 67.5 | 71.1 |
+| Errors | 1 | 0 | 0 |
+| Report | [REPORT.md](../../benchmark/runs/dean-20260812-152105-714/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-032308-959/REPORT.md) | [REPORT.md](../../benchmark/runs/dean-20260814-035754-869/REPORT.md) |
+| Panels | *pending viz generation* | *pending viz generation* | *pending viz generation* |
 
-*sat/satTA columns: 2 new runs approved 2026-08-14, in flight.* Ran under TA config with live
-autoscaling (controller on) — a separate, still-unmade scenario decision exists on whether a
-sharper fixed-replica/autoscaling-off variant is worth building (see coverage doc).
+**Cross-config comparison, landed 2026-08-14.** sat and satTA are close to each other (P99 TTFT
+59,990ms vs 61,201ms, queue depth 67.5 vs 71.1) and both markedly worse than TA-only on tail
+latency/queue-depth — the opposite pattern from calibration-probe above. Adding the throughput
+analyzer does not help this workload's shape: short-output, prefill-dominated load isn't designed
+to give TA the KSpread≥0.30 samples it needs, so satTA's throughput signal here is plausibly
+uninformative rather than actively harmful — sat-only and satTA landing at nearly the same result
+is consistent with TA simply not contributing. All 3 configs ran under live autoscaling
+(controller on) — a separate, still-unmade scenario decision exists on whether a sharper
+fixed-replica/autoscaling-off variant is worth building (see coverage doc).
 
 ### ta_autoscale_ladder.yaml.in
 
@@ -193,9 +207,60 @@ latency — not a logging artifact (the engine computes-and-logs-always but vote
 raw log-line counts alone cannot answer the disable question — traced independently via replica
 count and latency instead).
 
+**Prefill-knee, landed 2026-08-14, is the exception that sharpens the pattern rather than breaking
+it.** Here sat and satTA land close to each other (P99 TTFT 59,990ms vs 61,201ms) and both worse
+than TA-only (40,657ms) — TA-only wins, not loses, for this workload's shape. See § *Analyzer
+informativeness depends on workload shape* below for why.
+
 **Open, uninvestigated:** why TA-only (saturation non-voting) still drove a live replica path
 (2→3→2→3→2, 19 scaling decisions) on the staircase cell — what TA alone is actually doing to
 produce that trajectory. The data can answer this; nobody has looked yet.
+
+### Analyzer informativeness depends on workload shape
+
+Two workloads landed under all 3 configs 2026-08-14 show opposite patterns, and the difference
+tracks each workload's own design intent rather than a general "TA is better" or "sat is better"
+rule:
+
+- **calibration_probe** (4096in/1024out, rate sweep — designed to give TA its KSpread≥0.30
+  samples): satTA wins clearly, P99 TTFT 4,798ms vs sat-only's 17,105ms (~3.5×) and TA-only's
+  20,088ms, queue depth 0.0 vs 2.4–3.5.
+- **prefill_knee** (~2000in/~100out, short-output/prefill-dominated — not designed to produce
+  KSpread): TA-only wins, sat and satTA both land near 60,000ms P99 TTFT vs TA-only's 40,657ms.
+
+Read together: TA's signal is only as good as the samples the workload gives it. A shape that
+doesn't exercise concurrency variation (prefill-knee) starves TA of the spread it needs, so adding
+it (satTA) doesn't help and may even dilute a working sat-only-adjacent decision path; a shape
+that does (calibration_probe's rate sweep) lets TA's signal dominate and clearly outperform
+sat-alone. Neither result generalizes to "always prefer X" — the workload's own shape is the
+deciding factor, consistent with how TA's estimation model works (§ *The knee / piecewise ITL
+model* below): a workload that never explores enough of the concurrency range gives TA nothing
+to fit.
+
+### Two harness process gaps found during the 2026-08-14 gap-fill runs
+
+**KEDA pause is not auto-cleared by the reset step.** `run_cell.sh`'s reset step
+(`make benchmark-reset-run` → `reset_run.py`) does not un-pause a paused ScaledObject — its own
+code comment says explicitly this is deliberate ("that is a decision about starting a run, so the
+script reports the pause and leaves it"). What looks like an unpause action in the log
+(`autoscaling.keda.sh/paused-replicas-`) is a **printed suggested command**, never executed. So
+every run implicitly depends on someone having unpaused manually beforehand — nothing in the
+automated path does it. Hit once during this round (`m-sat-prefill-knee`'s first attempt failed
+immediately with `verify_model: no pods available in datastore`), fixed manually, not patched in
+code — flagged as a real gap, not silently changed mid-cycle without discussing whether
+printing-not-doing is intentional.
+
+**A failed run's analyze step can silently analyze the wrong (earlier) run's directory.** When
+`run_cell.sh`'s `run` step fails before producing a results directory (fast-fail or an OOM'd
+harness pod), its `analyse` step falls through to the most-recent-existing `runs/*/results/*`
+directory instead of failing cleanly. Hit 3 times this round; twice it silently began overwriting
+an *already-committed, different* run's `config/analyzer-config.txt`/`scaledobject.yaml`/
+`REPORT.md` — caught via unexpected `git status` modifications, restored with `git checkout --`
+each time. The third time a built-in staleness check caught the timeseries JSON specifically
+("existing file has 20/20, new parse has 0/0"), but the config files still got clobbered around
+it — the guard is partial, not complete. This is a real correctness gap in the failure path (it
+should fail closed, not fall through to the wrong directory); flagged, not patched mid-run given
+the gap-fill was time-sensitive.
 
 ### The knee / piecewise ITL model
 
@@ -272,9 +337,15 @@ Section 1 for measurement outcomes).
 | `dean-20260813-005321-943` | 2026-08-13 00:53 | dwell (rerun) | satTA | ✅ | [runs/dean-20260813-005321-943](../../benchmark/runs/dean-20260813-005321-943) |
 | `dean-20260813-013728-756` | 2026-08-13 01:37 | dwell (rerun) | sat | ✅ | [runs/dean-20260813-013728-756](../../benchmark/runs/dean-20260813-013728-756) |
 | `dean-20260813-130251-004` | 2026-08-13 13:02 | calibration-probe-p4 | TA (÷4, 4 pods) | ✅ (all 4 pods, 0 errors) | [runs/dean-20260813-130251-004](../../benchmark/runs/dean-20260813-130251-004) |
+| `dean-20260814-032308-959` | 2026-08-14 03:23 | prefill-knee | sat | ✅ | [runs/dean-20260814-032308-959](../../benchmark/runs/dean-20260814-032308-959) |
+| `dean-20260814-035754-869` | 2026-08-14 03:57 | prefill-knee | satTA | ✅ (first try) | [runs/dean-20260814-035754-869](../../benchmark/runs/dean-20260814-035754-869) |
+| `dean-20260814-044129-931` | 2026-08-14 04:41 | calibration-probe | sat | ❌ OOMKilled, partial data kept | [runs/dean-20260814-044129-931](../../benchmark/runs/dean-20260814-044129-931) |
+| `dean-20260814-050448-704` | 2026-08-14 05:04 | calibration-probe | sat | ✅ (unmodified retry) | [runs/dean-20260814-050448-704](../../benchmark/runs/dean-20260814-050448-704) |
+| `dean-20260814-053822-692` | 2026-08-14 05:38 | calibration-probe | satTA | ✅ (first try) | [runs/dean-20260814-053822-692](../../benchmark/runs/dean-20260814-053822-692) |
 
-**4 runs pending, not yet in this table** (approved 2026-08-14, in flight): prefill-knee × {sat,
-satTA}, calibration-probe × {sat, satTA} — see `ta-pokprod-workload-coverage.md`.
+**Coverage-matrix gap now closed as of 2026-08-14** — all 6 workload templates have run under
+every WVA config the workload's design intends (`ta_autoscale_ladder` excepted, superseded, never
+intended for a 3-config comparison).
 
 ---
 
