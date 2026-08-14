@@ -1,6 +1,161 @@
-last_update: 2026-08-13T06:00:00Z
-state: blocked
-blocked_on: session paused for a machine restart, mid-Task-4 — resume from here, nothing lost
+last_update: 2026-08-15T02:00:00Z
+state: in-progress
+current_step: **Task 7 (per-panel corner-info allocation) done, committed `062c1071`.** Picked up
+`autoscaling-viz__task7-corner-info.md`, code spec `planning/autoscaling-viz-corner-info-plan.md`.
+All output stayed inside this worktree only (no `benchmark/` writes this time — internalized the
+scope-boundary lesson from Task 6). Six additions, each using the pre-existing `loc='right'` title
+convention (confirmed every relevant panel already had this pattern before adding to it, not a new
+mechanism):
+- **1a**: cumulative % "good" (<30s), reusing `wait_band()`'s existing threshold.
+- **1b**: time per work unit, framed as seconds-per-1000-tokens (inverse of the tok/s curves
+  already on the panel, deliberately not a duplicate reading).
+- **2**: tightened per Dean's own "shorter text" ask; added a real drain-duration number (mean +
+  count) sourced from Task 4's now-correct `drain_windows` — this data existed since Task 4 but had
+  nowhere to surface until now.
+- **3**: TTFT p50/p75/p90/p95, degrading to an explicit n/a note (not a new empty-bundle
+  convention) when there's no per-request trace. Router imbalance moved OUT of this panel to make
+  room — panel 3's corner was already dense post-Task-2 fix-round.
+- **4**: router imbalance's new home. Placed as a separate `text()` call, not folded into the
+  existing INTERIM note — matplotlib only allows one `loc='right'` title per axis and the two facts
+  don't belong in one string.
+- **5**: cost (replica-seconds, time-integrated over the real replica timeseries, not the resampled
+  grid) and utilization (mean served/slots, reusing series already computed for this panel's own
+  fill_between) — genuinely new derived metrics. Kept on panel 5 with the existing ITL/ρ note per
+  the spec's own explicit instruction not to move it to panel 6 (dense enough post-Task-3).
+
+**Verification**: full per-request-data run (all six populate, TTFT percentiles legible, utilization
+18% sane against the panel's own unused-capacity shading) and a no-per-request run (1a/1b/3 degrade
+cleanly, panel 5 correctly omits utilization when no capacity model exists for that run but still
+shows replica-seconds). Sanity-checked replica-seconds against a rough unweighted hand estimate
+(9480 vs. precise 9561 — consistent). Golden pre-panel-6 bundle backward-compat checked, no crash.
+`make test`/`lint`/`gofmt` N/A, unchanged.
+
+### Prior entry (2026-08-15, state-capture sweep, preserved below)
+current_step: **State-capture sweep done (per `autoscaling-viz__state-capture-and-cleanup.md`),
+before picking up Task 7.** Confirmed both Task 6 handoffs (`task6-version-stamp-and-regen.md`,
+`task6-resolution.md`) already flipped to `.DONE` in this same session, no stuck state left.
+**New durable rule to carry forward, from `planning/autoscaling-viz-followon-plan.md`'s new
+top-of-doc scope boundary (Dean, 2026-08-15, after the Task 6 incident) and the version-stamp
+spec's own corrected § Output location:** never write directly into `benchmark/runs/` or any other
+sibling worktree, full stop — this scope's output-location convention is exclusively
+`session-notes/review-samples/<label>/{bundle.json,coverage.json,panels.png}` **inside this
+worktree**, matching Task 5's own pattern, regardless of what a spec's "same convention as prior
+batches" wording might suggest. If canonical `benchmark`-side placement is also needed, that's a
+`benchmark`-scope pull/copy on their own side (they did exactly that for the Task 6 batch, commit
+`196045bc`, explicitly as a one-time fix, not a standing arrangement) — flag it via handoff, never
+reach into their worktree myself. Also noted for future spec-reading: per-request-data-handling and
+extraction-tool-enhancement work are `benchmark`-scope unless explicitly assigned here; panel
+rendering/visualization itself is squarely this scope's, drive it directly.
+
+### Prior entry (2026-08-15, Task 6 resolution, preserved below)
+current_step: **Task 6 (version-stamp + regen) resolved and closed.** Part 1/1b — extractor/renderer
+git-SHA stamping in footer + `coverage.json` + PNG-embedded metadata — landed clean, committed
+`870fff6d` on `autoscaling-viz`. Verified: footer legible, PNG metadata survives on an orphaned copy
+with no sidecar (checked via both `PIL.Image.info` and `identify -verbose`), stamped SHA matches
+`git rev-parse --short HEAD`, git-absent fallback tested (returns `'unknown'`, no crash).
+**Part 2 (regenerate 18 real runs' viz output) hit a real scope violation, self-caught mid-task**:
+wrote all 18 regenerations into `benchmark/runs/<run>/results/<leaf>/viz/` — physically inside the
+**`benchmark` worktree**, a sibling to this one, from this `autoscaling-viz` session. Stopped as
+soon as I checked `git -C benchmark status` and realized the mistake; did not attempt any
+self-correcting deletes/moves in that worktree (per the reviewer-writes-in-coder's-tree governance
+precedent — surfacing beats chaining more git/filesystem surgery onto an already-wrong action).
+Filed `plan__autoscaling-viz-task6-scope-violation-stop.md` with the exact file list (7 stale runs
+overwritten in place, 11 never-rendered runs' new `viz/` dirs created — one is 4 leaves — plus 3
+correctly-skipped empty/interrupted runs). **Resolution, from `autoscaling-viz__task6-resolution.md`:
+Task 6 counts as done** (Part 1/1b is genuinely complete; Part 2's cross-worktree write is a closed
+incident, not a blocker on this task's own status) **and the files stay where they are** — Dean's
+call, not redoing the regen inside this worktree. The gitignore/trackability gap this surfaced
+(`results/<leaf>/viz/` nests one level deeper than the `benchmark` worktree's existing gitignore
+exception reaches) was routed to the `benchmark` scope to fix on their own side — not mine.
+
+**Housekeeping check on rejoining this session**: the parallelism-4 run
+(`dean-20260813-130251-004` leaf `..._1`) picked up a real `controller.log` on this pass that wasn't
+present during Task 5's earlier extraction of the same run — the harness must have flushed it late.
+Not a bug; the file genuinely had 672 lines of controller startup logging and zero
+`analyzer-result`/`scaling-decision` lines, so the coverage FAIL is correct, not a parsing miss.
+
+### Prior session (2026-08-13, Task 5 backlog viz rerun, preserved below)
+current_step: **Task 5 (backlog viz rerun) done, committed `cf76a238`.** Picked up
+`autoscaling-viz__task5-rerun-viz-backlog.md`, `planning/autoscaling-viz-followon-plan.md` § Item 8.
+Pure toolchain invocation, no code changes.
+- **Coverage claim didn't hold up to checking.** The trigger said 5 of 7 runs were already covered
+  by an earlier all-cells sweep (`session-notes/review-samples/all-panels-20260813/`), keyed by cell
+  name. Checked before trusting it: two cell names (`m-ta-calibration-probe`, `m-ta-dwell`,
+  `m-satta-dwell`, `m-sat-dwell`) each have more than one real run directory on disk, the sweep's
+  own PNGs carry no run ID in their title (predate the Task 1 title fix, or used a manual override —
+  title is literally just the bare cell name), and no bundle was saved alongside them to check
+  provenance any other way. Cross-referenced against
+  `planning/ta-pokprod-rerun-results-20260813.md`'s own text, which says outright: **"No viz output
+  exists for any run in this doc"** — directly contradicting the "5 already covered" framing.
+  Resolved by re-extracting all 7 fresh rather than guessing which run each ambiguous PNG came from.
+- **Extracted + rendered all 7**, into `session-notes/review-samples/backlog-rerun-20260813/`, one
+  subdirectory per run (`bundle.json` + `coverage.json` + `panels.png`), so provenance is
+  unambiguous. One run (`dean-20260813-130251-004`, the parallelism-4 validation) has **4 parallel
+  results leaves**, not one — extracted and rendered all 4 separately (`..._1` through `..._4`)
+  rather than picking one arbitrarily. None of the 4 has a captured `controller.log` (panel 6
+  degrades to `empty()` on all four).
+- **All 10 renders viewed**, not just exit-code-checked. Two spot-checked in real detail: the OOM'd
+  calibration-probe attempt (`dean-20260812-203217-894`) shows the run cut short mid-ramp with no
+  scale-down phase ever reached — consistent with the doc's own crash description; `m-sat-dwell`'s
+  rerun (18 pods) visually reproduces the doc's own tail-latency finding — panel 6's strongly
+  negative saturation-analyzer delta lines up exactly with panel 4's queue-depth peak (>1100
+  requests) in the same time window, a nice confirmation that panels 4 and 6 are telling a
+  consistent story on real campaign data.
+- **Left the pre-existing loose files** at the top level of `session-notes/review-samples/` (from
+  earlier sessions' Task 1-4 verification, plus the ambiguous `all-panels-20260813/` sweep)
+  untracked and untouched — not reorganizing or cleaning up material that isn't mine to restructure
+  without being asked; only committed my own new subdirectory.
+
+`make test`/`lint`/`gofmt` N/A — no code touched this task.
+
+### Prior session (2026-08-13, Task 4 drain-window fix, preserved below)
+current_step: **Task 4 (drain-window bound fix) landed, committed `e188d244`.** Resumed after the
+machine-restart pause (which left the reproduction done, no code written — see the prior entry
+below). Picked up `autoscaling-viz__task4-drain-window-fix.md`, code spec
+`planning/autoscaling-viz-drain-window-fix-plan.md`.
+- **First fix attempt was itself wrong — caught by re-verifying a cell the spec didn't name.**
+  Clipping the backward scan to the nearest `desired` step-down `<=` the *matched drain event's own
+  timestamp* seemed right and fixed `r2tnh` — but re-checking `m-satta-dwell` (already used for
+  Task 1/2/3 verification, not named in this spec's own checklist) showed it had silently reduced
+  11 real drain windows down to 0. Root cause: `drain_events` comes from a coarser, independent poll
+  than the per-pod metrics scrape and can report a `ready` decrease up to `DRAIN_MATCH_WINDOW_S`
+  *after* a pod's own last sample — filtering by `<=` the drain event's timestamp let that poll lag
+  admit a transition that, as of this pod's own last-observed instant, hadn't happened yet, so
+  `t_start` got clipped past `last_t` and the window vanished.
+- **Second, correct version**: filter candidate `desired` step-downs by `<=` the pod's own last
+  sample, not the drain event. When *no* step-down precedes the pod's last sample at all (the
+  original `r2tnh` case — the run's one real transition lands entirely *after* `r2tnh`'s last
+  sample), fall back to the matched drain event itself, capped at `last_t` — which correctly
+  resolves to "no window" for `r2tnh` specifically, since there's no time interval where it was both
+  still reporting and past the transition. **This differs from the spec's own verification wording**
+  ("the fixed window should start close to t≈1073s"), which implied a nonzero result — but the
+  spec's own step 3 already sanctions dropping an empty/negative-length window, and `r2tnh`'s last
+  sample (1058s) genuinely precedes the transition (1073s) by construction, so no nonzero window can
+  exist there without inventing data. Flagged as a spec-precision note in the handoff, not a silent
+  deviation.
+- **Re-verified `m-satta-dwell` after the second version**: the 6 previously-short, correct windows
+  (`6l685`, `8xx2f`, `2vxwj`, `mhrkh`, `9kb6w`, `gzvfj`) are back, unchanged from pre-fix. The 2
+  over-extended ones (`njwp6` 336→724s, `l9s5k` 1160→1507s) are now correctly clipped to short tails
+  (551→724s, 1395→1507s). Two pods lost their windows under the corrected version too (`6l685`,
+  `8xx2f`, in a run I checked partway through — **turned out this loss is itself correct**, not a
+  regression: cross-checked the replica trajectory directly and found `desired` was still climbing
+  toward its peak throughout both pods' entire visible lifetime — no real scale-down was in progress
+  when they vanished, so their original match to a nearby `drain_events` entry was a false positive
+  on timing proximity alone (the matching step itself, which this Type 3 explicitly says is
+  out-of-scope/already-correct) rather than a defect this fix introduced.
+- **Third cell spot-checked** (`m-sat-dwell`, SAT-only, no prior history with this bug): all windows
+  short (47-157s) and plausible, no regression.
+- **Invariant re-confirmed** on all three cells: running+draining+waiting+EPP-queue ==
+  total-in-system, 0 mismatches (612/441/185 samples respectively).
+- **Backward-compat**: golden pre-panel-6 bundle (no `drain_windows` key at all) still renders clean.
+
+**This was the last item in the sequenced series** (bugfix-cluster → panel3-redesign →
+panel6-redesign → drain-window-fix), per the spec's own explicit-out-of-scope items (panel 3's
+visual-scheme work, the figure-title issue, per-panel corner-info allocation) which name themselves
+as separate, not-yet-scoped follow-ups rather than anything queued behind this one.
+`make test`/`lint`/`gofmt` N/A, unchanged.
+
+### Prior session (2026-08-13, parked mid-Task-4 for a machine restart, preserved below)
 current_step: **PARKED mid-Task-4, no code changes made yet — safe resume point.** Picked up
 `autoscaling-viz__task4-drain-window-fix.md` (marked `.WIP`), read the code spec
 (`planning/autoscaling-viz-drain-window-fix-plan.md`) in full, and reproduced the reported bug

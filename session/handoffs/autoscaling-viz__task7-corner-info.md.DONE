@@ -1,0 +1,7 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-corner-info-plan.md — this task, held until Task 6 finishes
+note: seventh task, direct follow-on from Dean's own review today ("panel's right titles" still
+  missing). Held until Task 6's Part 2 (batch regen) lands, so the regenerated batch isn't
+  immediately made stale again by this task landing mid-batch.

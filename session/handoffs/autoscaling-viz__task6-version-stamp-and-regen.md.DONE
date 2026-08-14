@@ -1,0 +1,9 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-version-stamp-and-regen-plan.md — this task
+  - planning/autoscaling-viz-followon-plan.md § Item 9
+note: sixth task, direct request from Dean's own review of the panels today. Two parts, in order —
+  Part 1/1b (version stamp: footer + coverage.json + PNG-embedded metadata) must land before Part 2
+  (regenerate 7 stale + up to 14 never-rendered run directories), so the regenerated batch is itself
+  stamped rather than recreating the same blind spot. No task currently in flight ahead of this one.

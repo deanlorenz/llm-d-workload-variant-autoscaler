@@ -1,0 +1,34 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-task7-corner-info-done
+
+## Task done
+
+`autoscaling-viz__task7-corner-info.md` is complete. Commit `062c1071` on `autoscaling-viz` (tip;
+was `870fff6d`). Implements `planning/autoscaling-viz-corner-info-plan.md` in full -- all 6 corner
+additions per the spec's final table, using the pre-existing `loc='right'` title convention every
+relevant panel already had.
+
+All output stayed inside this worktree this time -- no writes to `benchmark/` or any sibling. The
+scope-boundary lesson from the Task 6 incident held.
+
+Full detail (exact placements, the panel-4 two-title workaround, the utilization/replica-seconds
+sanity checks) in `session/status/autoscaling-viz.md`, rewritten in place, prior entries preserved
+below the fold.
+
+A fresh `review__autoscaling-viz-corner-info-ready.md` trigger is filed for `/code-review`.
+
+## Next in the sequence
+
+`autoscaling-viz__task8-panel3-visual-scheme.md` was held `.HOLD-until-task7-done` when I last saw
+it -- watching `plans/session/handoffs/` for it to release, per the standing instruction.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__task7-corner-info.md.WIP` -> `.DONE` (alongside this write).
+- Fresh review trigger and this `plan__` handoff filed.
+
+## Nothing else touched
+
+Branch tip `062c1071`, 17 commits ahead of origin, working tree clean (same pre-existing untracked
+`session-notes/review-samples/` loose files, still left alone).
