@@ -20,15 +20,16 @@ open questions in the Type 1, independent of anything below.
 
 ## TOC {#toc}
 
-- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L33:50
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L51:62
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L63:78
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L79:90
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L91:102
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L103:113
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L114:174
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L175:208
-- [Cross-references](#cross-references) L209:215
+- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L34:51
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L52:63
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L64:79
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L80:91
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L92:103
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L104:114
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L115:175
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L176:207
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L208:228
+- [Cross-references](#cross-references) L229:235
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -201,6 +202,25 @@ visually confirms the campaign's P99-TTFT/saturation-lags-demand finding — pan
 delta and panel 4's queue-depth peak line up exactly in time. The pre-existing loose files at the
 top of `session-notes/review-samples/` (Task 1-4 artifacts, the ambiguous `all-panels-20260813/`
 sweep) are left untouched — reorganizing/committing them is a separate call, not done here.
+
+[↑ TOC](#toc)
+
+## Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}
+
+**DECIDED, code spec written 2026-08-14.** Dean's direct review of the 7 existing `panels.png`
+files (the first time anyone opened one since 2026-08-12) found they're all stale — up to 6 commits
+behind current render code, with no way to tell from the file itself — plus 14+ run directories
+with no `viz/` output at all. Direct ask: "verify all panels.png are using the latest code, add a
+version somewhere so we can track this."
+
+**Code spec:** [`autoscaling-viz-version-stamp-and-regen-plan.md`](autoscaling-viz-version-stamp-and-regen-plan.md).
+Two parts, in order: (1) stamp every render with the extractor's and renderer's own git SHA — in the
+existing footer text (human-visible) and `coverage.json` (machine-checkable) — plus PNG-embedded
+metadata (`tEXt`/`iTXt` chunks via matplotlib's `savefig(metadata=...)`) so a copy separated from its
+sidecar `coverage.json` is still self-describing; (2) only then regenerate the 7 stale + up to 14
+never-rendered run directories, so the regenerated batch doesn't recreate the same blind spot one
+version later. Source handoff:
+`session/handoffs/plan__viz-regen-batch-plus-versioning-ask.md`.
 
 [↑ TOC](#toc)
 
