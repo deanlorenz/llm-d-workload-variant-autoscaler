@@ -1140,3 +1140,27 @@ the coder to the envoy tool's standard.
 directly validate (`envoy_per_request.py`, `serving_replicas.py`); the other five are a distinct,
 larger doc-coverage cleanup, not silently absorbed into that doc. Scoping that cleanup is a
 separate task, not started here.
+
+---
+
+## D-52 | 2026-08-14 | topic:viz-panels-stale,render-versioning,handed-off | src:plan__viz-regen-batch-plus-versioning-ask.md
+
+**Dean's own direct panel review found the 7 existing `viz/panels.png` files (2026-08-10
+campaign) were 6 commits stale against the render code at the time** — generated 2026-08-12
+11:55:23 (right after `cff4e4c0`, panel-6-add), but `render_real_trace.py`/`extract_real_trace.py`
+had since moved through `037106f2`, `fbecfe26`, `08927557`, `3f12aaa1`, `e188d244` — missing panel
+6 rendering, panel 1b/3 fixes, and a drain-window fix. **14 more runs had no `viz/` output at
+all** (21 run directories total: 7 stale + 14 missing). No version stamp existed anywhere to make
+this checkable without a manual `git log` diff — Dean's direct ask: "add a version somewhere so
+we can track this."
+
+**Handed off to the autoscaling-viz scope** (`plan__viz-regen-batch-plus-versioning-ask.md`,
+`.DONE`) with the full 19-run regen/render list (2 runs flagged unclear, worth a judgment call)
+and the versioning ask. **Resolved same day, fast** — that scope's own commit `472af544`
+("version-stamp + regen spec, Item 9") added a `rendered @ <sha>, bundle extracted @ <sha>`
+footer stamp (confirmed directly on a fresh re-render of `m-sat-staircase`, commit `870fff6d`),
+and the `autoscaling-viz` coder regenerated all 18 addressable runs (one of the 19 IDs is the
+2-leaf-ambiguous case, resolved separately). See [[D-50]]'s cross-reference and the pull-up
+thread (D-51's sibling handoffs) for how that output then needed a `results/<leaf>/viz/` →
+`runs/<id>/viz/` pull-up to become git-trackable — same root cause pattern as the cross-worktree
+write process gap already flagged there.

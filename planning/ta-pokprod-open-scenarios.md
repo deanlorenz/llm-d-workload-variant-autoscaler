@@ -30,7 +30,8 @@ owns the theory/simulation legs referenced below).
 | Controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) | ✅ **MECHANISM FOUND 2026-08-13 (background, read-only) — `applySaturationDecisions` deliberately holds at current replicas on no-fresh-decision, by design (avoids scale-to-zero on a transient uninformative cycle); is "hold" the right policy for a *sustained* window? — that's Dean's open question now, not "is it a bug"** | [[D-40]], [[D-46]] |
 | inference-perf OOM — root cause found; fix DECIDED and **VALIDATED 2026-08-13** by a real 4-pod run, 0 errors | ✅ **DONE** | [[D-41]], [[D-42]], [[D-43]] |
 | Controlled-run / timestamped-replay + agentic-replay capability — longer-term, not "benchmark generates load itself" | 🕐 **DEFERRED 2026-08-13 — real community work exists to catch up on eventually; not now, focus stays on the tools we have** | [[D-45]] |
-| No viz output exists for any of the 8 runs since 2026-08-10 — extractor/render toolchain never invoked against them | ⬜ **OPEN, unrouted** | [[D-43]], [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) |
+| Viz output missing/stale for runs since 2026-08-10 | ✅ **RESOLVED 2026-08-14 — 18 runs regenerated with a version stamp, pulled up to git-trackable location** | [[D-43]], [[D-50]], [[D-52]], [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) |
+| Doc-coverage gap: 5 more scratch tools never promoted, undocumented (`verify_decision_rule.py`, `server_token_truth.py`, `stage_table.py`, `stage_vs_replicas.py`, `watch_pvc_space.sh`) | ⬜ **OPEN, unscoped** — separate from the 2-tool Type 3 already written | [[D-51]], [`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md) |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked
