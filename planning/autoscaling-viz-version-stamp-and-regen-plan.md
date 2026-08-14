@@ -12,8 +12,8 @@ review of the 7 existing `panels.png` files, 2026-08-14.
 - [Goal {#goal}](#goal-goal) L18:29
 - [Part 1 — version stamp {#part-1-stamp}](#part-1--version-stamp-part-1-stamp) L30:63
 - [Part 1b — PNG metadata, so the file is self-contained {#part-1b-png-metadata}](#part-1b--png-metadata-so-the-file-is-self-contained-part-1b-png-metadata) L64:87
-- [Part 2 — regenerate the 21 run directories {#part-2-regen}](#part-2--regenerate-the-21-run-directories-part-2-regen) L88:120
-- [Verification {#verification}](#verification-verification) L121:135
+- [Part 2 — regenerate the 21 run directories {#part-2-regen}](#part-2--regenerate-the-21-run-directories-part-2-regen) L88:132
+- [Verification {#verification}](#verification-verification) L133:147
 
 ## Goal {#goal}
 
@@ -111,10 +111,22 @@ and the benchmark-execution scope is actively running new cells in parallel (per
 "current focus is making it all work over different scenarios" framing from earlier this branch's
 history). Don't treat the list above as exhaustive if the run directory has grown since.
 
-**Output location:** same convention as prior batches — `<run-root>/results/<leaf>/viz/` (canonical)
-and/or `session-notes/review-samples/` mirrors, matching whatever the coder's own established
-pattern from Task 5's backlog rerun was (unambiguous per-run subdirectories, bundle+coverage+PNG
-together) — don't invent a new location scheme.
+**Output location — corrected 2026-08-14/15, after a real incident.** The wording above ("same
+convention as prior batches... `<run-root>/results/<leaf>/viz/`") caused exactly the problem it was
+trying to avoid: on the first run of this task, the coder wrote there, which is a) inside the
+sibling `benchmark` worktree — a cross-worktree write, a real scope violation caught mid-task and
+stopped — and b) below `benchmark/.gitignore`'s `!runs/*/viz/` exception, which only reaches `viz/`
+as a **direct child** of `runs/<run-id>/`, not one level deeper under `results/<leaf>/`. The
+`benchmark` scope did a one-time pull-up-and-commit to fix that specific batch (commit `196045bc`)
+but was explicit that this is not a standing fix for future writes from outside their worktree.
+
+**Corrected instruction: never write directly into `benchmark/runs/` or any other sibling worktree,
+full stop — output only inside your own `autoscaling-viz` worktree**, at
+`session-notes/review-samples/<label>/{bundle.json,coverage.json,panels.png}`, matching Task 5's own
+established pattern (unambiguous per-run subdirectories). If the canonical `benchmark`-side location
+also needs the output, that's a `benchmark`-scope pull/copy operation on their own side, not
+something this coder writes directly — flag it via handoff rather than reaching into their worktree
+yourself, even to "match convention."
 
 [↑ TOC](#toc)
 
