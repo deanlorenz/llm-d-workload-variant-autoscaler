@@ -8,10 +8,9 @@ once and spot a coverage gap. **Owned here** (benchmark-execution scope), not vi
 about what the benchmark *runs*, not what viz *computes*. §4.2's theory/simulation/real baseline
 legs remain viz-panels-planner's, separately.
 
-**Companion docs:** [`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md)
-(7-cell campaign) · [`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md)
-(6 rerun cells) · [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) §4 (this matrix's
-origin ask) · [`ta-pokprod-history.md`](ta-pokprod-history.md).
+**Companion docs:** [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) (all
+results/findings) · [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md) §4 (this
+matrix's origin ask) · [`ta-pokprod-history.md`](ta-pokprod-history.md).
 
 ---
 

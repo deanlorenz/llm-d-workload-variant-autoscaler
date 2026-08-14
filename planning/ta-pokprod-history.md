@@ -1063,3 +1063,31 @@ instrument from the workload's own docstring, explicitly flagged there as needin
 scenario decision never made — a real, separate, still-open item, not what happened. Corrected in
 place; the two items kept distinct (config-grid gap vs. instrument-design decision) so approving
 one doesn't get read as resolving the other.
+
+---
+
+## D-49 | 2026-08-14 | topic:report-rewrite,cross-cutting-conclusions,doc-consolidation | src:ta-pokprod-campaign-report.md
+
+**New `ta-pokprod-campaign-report.md` replaces the two prior results docs**, per Dean's spec
+approval — leads with cross-cutting conclusions, not narrative. Section 1: workload×config grid
+(all 6 workloads, sat/TA/satTA columns, load-composition text, measurements, panel/report links —
+verified 0 broken links across 32 checked). Section 2: analysis by topic (dwell limit cycle,
+saturation-lags-demand, knee/piecewise ITL model, queue/drain, controller-restart policy, OOM fix)
+— consolidated from existing prose, no new claims. Section 3: one run-index table, all 15 runs,
+one row each, **completed?** (harness finished without crashing) kept distinct from measurement
+outcomes per Dean's correction — those two are not the same thing and don't belong in one column.
+
+**Both prior docs marked SUPERSEDED, not deleted** (pointer header added, content unedited below,
+so old Finding-N/section citations still resolve) — `ta-pokprod-campaign-20260810-results.md`,
+`ta-pokprod-rerun-results-20260813.md`. Companion-doc cross-references in `open-scenarios.md` and
+`ta-pokprod-workload-coverage.md` repointed to the new report; the one exception —
+`open-scenarios.md`'s §3 citation of "Finding 2" — left pointing at the original doc, since that's
+a citation to a specific historical numbered section that only exists there.
+
+**Re-processing gap found while pulling Section 1's staircase row:** the 4 original 2026-08-10
+staircase runs show TTFT/ITL/queue-depth as `?` — same missing-field bug D-39 fixed on
+2026-08-12, these 4 runs simply predate the fix and were never re-extracted, even though the raw
+per-request/stage lifecycle data still exists on disk. **Dean approved re-running postprocess
+against them 2026-08-14** (no cluster contact needed) — handed to the benchmark coder
+(`benchmark__reprocess-staircase-runs-predate-postprocess-fix.md`); the report's staircase row
+carries a "pending re-postprocess" placeholder until that lands.

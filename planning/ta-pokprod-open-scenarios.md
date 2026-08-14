@@ -7,9 +7,8 @@ what's decided vs. still needs Dean.
 **Companion docs:** [`ta-pokprod-architecture-design.md`](ta-pokprod-architecture-design.md) (Type 1) ·
 [`ta-pokprod-execution-plan.md`](ta-pokprod-execution-plan.md) (Type 3, settled phases) ·
 [`ta-pokprod-history.md`](ta-pokprod-history.md) (decision ledger — `[[D-nn]]` fetchable by
-`grep -n '^## D-nn'`) · [`ta-pokprod-campaign-20260810-results.md`](ta-pokprod-campaign-20260810-results.md)
-(the 7-cell campaign this scenario work is informed by) ·
-[`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md) (the 6 cells run since) ·
+`grep -n '^## D-nn'`) · [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) (all
+results/findings across every run to date, superseding the two prior results docs) ·
 [`autoscaling-viz-design.md`](autoscaling-viz-design.md) (Type 1, viz-side capacity/estimation model —
 owns the theory/simulation legs referenced below).
 
@@ -31,7 +30,7 @@ owns the theory/simulation legs referenced below).
 | Controller-restart stuck-at-10-replicas incident (`rc=0`, no scale-down) | ✅ **MECHANISM FOUND 2026-08-13 (background, read-only) — `applySaturationDecisions` deliberately holds at current replicas on no-fresh-decision, by design (avoids scale-to-zero on a transient uninformative cycle); is "hold" the right policy for a *sustained* window? — that's Dean's open question now, not "is it a bug"** | [[D-40]], [[D-46]] |
 | inference-perf OOM — root cause found; fix DECIDED and **VALIDATED 2026-08-13** by a real 4-pod run, 0 errors | ✅ **DONE** | [[D-41]], [[D-42]], [[D-43]] |
 | Controlled-run / timestamped-replay + agentic-replay capability — longer-term, not "benchmark generates load itself" | 🕐 **DEFERRED 2026-08-13 — real community work exists to catch up on eventually; not now, focus stays on the tools we have** | [[D-45]] |
-| No viz output exists for any of the 8 runs since 2026-08-10 — extractor/render toolchain never invoked against them | ⬜ **OPEN, unrouted** | [[D-43]], [`ta-pokprod-rerun-results-20260813.md`](ta-pokprod-rerun-results-20260813.md) |
+| No viz output exists for any of the 8 runs since 2026-08-10 — extractor/render toolchain never invoked against them | ⬜ **OPEN, unrouted** | [[D-43]], [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked

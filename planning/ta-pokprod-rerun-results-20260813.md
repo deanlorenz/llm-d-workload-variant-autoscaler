@@ -1,5 +1,9 @@
 # TA on pokprod — rerun results, 2026-08-12/13
 
+> **SUPERSEDED 2026-08-14.** Content folded into
+> [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md). Kept on disk, unedited below,
+> so old citations still resolve. Do not cite this doc going forward — use the new report.
+
 **Status:** results write-up, real data only — nothing in this doc is inferred or projected.
 **Scope:** the 6 cells run since the [2026-08-10 7-cell
 campaign](ta-pokprod-campaign-20260810-results.md) — the two calibration-probe attempts, the
