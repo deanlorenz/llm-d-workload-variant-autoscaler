@@ -11,9 +11,11 @@
 
 ## TOC {#toc}
 
-- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L27:71
-- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L72:110
-- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L111:120
+- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L20:74
+- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L75:132
+- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L133:145
+- [2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}](#2026-08-14--version-stamp-renders-part-11b-870fff6d-no-trigger-yet-session-2026-08-14-stamp) L146:207
+- [2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}](#2026-08-15--per-panel-corner-info-allocation-062c1071-session-2026-08-15-corner) L208:273
 
 ## 2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}
 
@@ -138,5 +140,134 @@ Data-only commit (30 files, all under `session-notes/review-samples/backlog-reru
 review for code correctness. Scope-checked against Item 8's own description (7 runs, one with 4
 parallel result leaves handled as 4 separate outputs) — matches. Not entered as a reviewed
 code-correctness item; recorded here only so the commit isn't silently absent from this log.
+
+[↑ TOC](#toc)
+
+## 2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}
+
+**No `review__` trigger filed at review time** — reviewed anyway, at the coordinator's request
+(Dean actively asking what's reviewable; the coder likely holds the trigger until Part 2, the
+21-run regen batch, also lands, per the plan's own "do this only after Part 1 lands" framing for
+Part 2, not necessarily for filing review triggers). **Plan:**
+[`autoscaling-viz-version-stamp-and-regen-plan.md`](autoscaling-viz-version-stamp-and-regen-plan.md)
+§ Part 1 / Part 1b — Part 2 (the 21-run regen) is explicitly out of scope for this commit and not
+reviewed here; revisit once it lands.
+
+**Verdict: push-ready. One minor finding (non-blocking).**
+
+Diff (`extract_real_trace.py` +22/−0, `render_real_trace.py` +43/−3) matches Part 1/1b closely:
+
+- `git_sha()` helper duplicated once per file (extractor, renderer) rather than shared — the plan's
+  own wording ("same approach, its own short SHA") explicitly allows this, not a defect.
+- **Independently verified, live, on a real bundle** (`benchmark/runs/dean-20260810-092644-320/…/
+  inference-perf-1786343242-zr01gi_1`, extracted and rendered fresh via the actual toolchain, output
+  to `/tmp/`):
+  - `coverage.json`'s `extractor_sha` (`870fff6d`) matches `git -C autoscaling-viz rev-parse
+    --short HEAD` exactly, and `extracted_at` is a well-formed UTC ISO-8601 timestamp — satisfies
+    the plan's own sanity-check bullet in § Verification.
+  - Footer text on the rendered PNG carries `rendered @ 870fff6d, bundle extracted @ 870fff6d` per
+    the terse-one-line design.
+  - **PNG-embedded metadata confirmed present and complete on an orphaned copy** (copied the PNG to
+    a scratch dir with no `coverage.json` sidecar present, per the plan's own verification
+    instruction): `PIL.Image.open(...).info` returns all four fields —
+    `extractor_sha`/`render_sha`/`source_run`/`extracted_at` — correct values, matching the sidecar.
+    This is the exact check the plan's § Verification asks for, run for real rather than trusted
+    from the commit message.
+  - **Git-unavailable fallback confirmed independently**, not just taking the commit message's word
+    for it: copied `extract_real_trace.py` alone into a directory with no `.git` and called
+    `git_sha()` directly — returned `'unknown'`, no exception, matching the claimed degrade path.
+
+**Finding 3 — `tight_layout`'s bottom-margin reservation is now always active, a side effect not
+mentioned in the commit message.** `render_real_trace.py`'s `foot` string used to stay `''` (and
+`fig.text(...)` was skipped, and `fig.tight_layout(rect=(0, 0.022 if foot else 0, 1, 0.985))` used
+the full-height `0` branch) whenever a run had **zero** coverage-warning caveats and **zero**
+coverage-row FAILs — confirmed by reading the pre-commit code at `e188d244:render_real_trace.py`
+lines 883-894, which gated `fig.text(...)` behind `if foot:`. This commit appends the version-stamp
+line to `foot` **unconditionally**, so `foot` is now always truthy — `fig.text(...)` always fires
+(intended: every render should show the stamp) but `tight_layout`'s `rect` branch is now
+permanently on its `0.022`-margin side too, since the `if foot: fig.text(...)` guard that used to
+gate that decision is gone and `foot`'s emptiness is no longer possible. Net effect: a
+run with a genuinely clean coverage report (rare — none of this branch's sample cells hit it, all
+have at least one FAIL row) would previously get the full figure height for its 7 panels and now
+always loses a thin bottom strip to the mandatory stamp line. This is very likely the **correct**
+behavior (the stamp needs the margin to be legible, so reserving it unconditionally is arguably
+what Part 1 intends), but it's an incidental behavior change the commit message doesn't call out or
+verify, and the plan's own § Verification list doesn't ask for a clean-coverage-report render to be
+spot-checked — so nobody has actually looked at whether a genuinely clean run's panel 7 still reads
+correctly with the smaller usable height. Low priority, cosmetic at worst; worth a to-whoever-next-
+touches-panel-layout note rather than a re-open.
+
+**Not independently checked:** whether `identify -verbose` (ImageMagick) reads the same metadata as
+`PIL.Image.info` — the plan's § Verification names both as acceptable checks; only the PIL path was
+exercised here since ImageMagick wasn't confirmed available in this environment. Low-value gap —
+PIL's read already confirms the tEXt chunk round-trips correctly, which is the substance of the
+claim; a second reader tool would only add redundant confirmation of the same PNG mechanism.
+
+[↑ TOC](#toc)
+
+## 2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}
+
+**Trigger:** `review__autoscaling-viz-corner-info-ready.md`. **Plan:**
+[`autoscaling-viz-corner-info-plan.md`](autoscaling-viz-corner-info-plan.md).
+
+**Verdict: push-ready. No blocking findings; one narrow pre-existing edge case noted, not
+introduced by this commit.**
+
+Diff (`render_real_trace.py` +85/−16, six panels) checked against the plan's own final placement
+table point by point — all six rows land where the table says: 1a (% good), 1b (time per work
+unit), 2 (tightened boot/scale-down + new drain-duration), 3 (TTFT percentiles, router imbalance
+moved OUT), 4 (router imbalance moved IN), 5 (cost/utilization). Traced the two "not-to-do" items
+too: the figure title is untouched, and panel 6 gets nothing added — both confirmed clean in the
+diff.
+
+**Rendered on two real bundles, not just read the diff:**
+
+1. `benchmark/runs/dean-20260810-092644-320/…/inference-perf-1786343242-zr01gi_1` (no per-request
+   trace — `per_request_lifecycle_metrics.json` is genuinely 0 bytes on this run, a pre-existing
+   harness-capture gap, not caused by this commit). Confirms the degrade paths: panel 1a shows no
+   "% good" text (per-request-gated, correctly silent), panel 3 shows `TTFT percentiles: n/a (no
+   per-request trace)`, panel 5 shows only `replica-seconds=9561` with **no** utilization figure —
+   traced why: `slots_g` requires `cap.get('max_conc_pred')`, which this run's own coverage report
+   already flags as unavailable (`Capacity model checkable: pred=None`) — the omission is the
+   correct behavior the commit message claims, not a bug.
+   - **Independently re-derived `replica-seconds=9561` from the raw bundle** (`Σ (t[i+1]-t[i]) ·
+     ready[i]` over `bundle['replicas']`, not trusting the rendered number or the commit message):
+     got exactly **9561**. Also independently reconstructed the commit's own "rough unweighted
+     estimate" cross-check (`mean(ready) × total_duration`): got exactly **9480**, matching both
+     numbers the commit message cites verbatim. This was flagged by the coordinator specifically as
+     worth re-deriving rather than trusting — done, on real data, both figures confirmed.
+2. `benchmark/runs/dean-20260812-152105-714/…/inference-perf-1786537304-51sczw_1` (real
+   per-request data, extracted with `--head 5000` to keep the multi-GB source file tractable — full
+   un-headed extraction of this run's 2GB+ per-request file was attempted first and timed out at
+   90s under this review's time budget; a 5000-row sample is enough to exercise every corner-info
+   code path, just not a claim about this run's full-run numbers). All six additions populate:
+   panel 1a `100% good (<30s)`, panel 1b `0.62s per 1000 tokens`, panel 2 `boot 84s mean/3`, panel 3
+   `TTFT p50/p75/p90/p95 (ms): 125/259/443/705`, panel 4's router-imbalance text sits cleanly above
+   the INTERIM note with no visual overlap (the `1.10 vs 1.02` transAxes y-offset split, gated on
+   `drawn`, works as designed), panel 5 `replica-seconds=3654 utilization=18%` (both present this
+   time — this run's capacity model is a coverage PASS).
+   - **Independently re-derived `replica-seconds=3654`** the same way as run 1 — exact match.
+   - **Independently re-derived `100% good (<30s)`** directly from the 5000-row per-request sample
+     (`wait_band(r) <= 2` reduces to `ttft is None or ttft < 30` for non-error requests) — exact
+     match, and consistent with panel 3's own TTFT p95 of 705ms on the same sample, well under the
+     30s threshold.
+
+**Note, not a finding against this commit — pre-existing behavior, checked because the new "%
+good" corner metric is the first place it gets aggregated into one number a reader might trust at
+face value:** `wait_band()` (unchanged by this diff) returns band 0 (the *best* band, "good") when
+`r.get('ttft') is None`, i.e. a request with no recorded TTFT counts as "good" rather than
+"unknown." Checked whether this is live on real data: across the 5000-row sample above, **zero**
+non-error requests had `ttft is None` — so on the data actually exercised, this doesn't inflate
+anything. But it's a real path that would silently overstate "% good" if a future run had
+non-error requests with missing TTFT (e.g. a partial-capture gap), since panel 1a's bars already
+show band-0 as a visibly small sliver a viewer can sanity-check, while the new single-number corner
+metric has no such visual cross-check. Not asking for a re-open — flagging for whoever next touches
+`wait_band()` or panel 1a.
+
+**Not independently re-derived:** the `utilization=18%` figure on run 2 — would require
+reconstructing the full `grid`/`hold()`/`served_g`/`slots_g` pipeline standalone rather than a
+one-line formula; the zero/nonzero gating logic (whether the number appears at all) was traced and
+confirmed correct instead, which is the part most likely to be wrong. Low-priority gap, not
+re-opening for it.
 
 [↑ TOC](#toc)
