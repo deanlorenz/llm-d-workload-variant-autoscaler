@@ -1341,3 +1341,22 @@ Testing a newer vLLM image is the next real question if that path is ever wanted
 **Second instance, same day, of the routing pattern noted at D-59:** this reply also landed
 addressed to the autoscaling-viz scope rather than this one, despite the test being scoped and
 triggered here. Flagged again; folding the result in regardless.
+
+---
+
+## D-62 | 2026-08-16 | topic:render-check-found-real-bug,traced-fixed | src:plan__estimate-boundary-spike-was-real-bug-fixed.md
+
+**The D-60 boundary-spike cluster was a real code bug, not a data artifact — root-caused and
+fixed same day** (`c0f4d5f3`). Estimates were indexed by each request's arrival-order position
+within its stage; the candidate bucket-value pool is built in ascending-TTFT order, so
+late-arrivers always drew high-TTFT values regardless of the real signal — confirmed against the
+exact sample indices (6776–6856 against a pool length of 6857, literally the ordering's tail).
+The underlying signal is real (81 genuine 2.5–5s TTFT observations exist in stage 2's histogram) —
+only the request-to-value assignment was wrong. Fixed by indexing on a hash of `request_id`
+instead of arrival position. Checked directly against D-59's Finding 2 (stage-4 rate anomaly) and
+confirmed unrelated — different stage, different mechanism (count/rate vs. value ordering),
+Finding 2's numbers unchanged by this fix.
+
+**Validates the render-check exercise directly:** this bug was invisible to every text-only
+verification pass (counts, field shapes) and only surfaced as a visual/temporal pattern once the
+output was actually viewed — the concrete case for "did you run viz to see the result" mattering.

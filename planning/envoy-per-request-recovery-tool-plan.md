@@ -226,6 +226,30 @@ quality on this specific run, not about the estimation technique itself. Neither
 the output to viz for panel review; both need a decision (playbook change, and whether stage 4's
 anomaly matters) before generalizing beyond this one run.
 
+**Finding 3 — a real code bug, found by actually rendering the output (D-60), traced and fixed
+same day (commit `c0f4d5f3`).** A standalone scratch render (not the real toolchain) surfaced a
+cluster of ~8 requests sharing an identical outlier TTFT/output-token estimate within a 0.4s
+window at a stage-2 boundary. **Root cause, confirmed:** estimates were indexed by each request's
+*arrival-order position* within its stage, and the pool of candidate bucket values is built in
+ascending-TTFT order — so late-arriving requests always drew high-TTFT estimates regardless of
+whether they were actually slow, independent of the real signal. Verified against the sample
+indices directly (6776–6856, against a pool length of 6857 — literally the tail of that ordering).
+**The underlying signal itself is real** — 81 genuine 2.5–5s TTFT observations exist in stage 2's
+histogram, confirmed against the raw bucket delta, not fabricated — the bug was purely in *which*
+request got assigned *which* value. Fix: index by a hash of `request_id` instead of arrival
+position — same value distribution, no temporal correlation, reproducible. Re-ran: the same
+3750.0ms estimate now spans the full ~440s stage rather than a 3.8s slice, reading as what it
+actually is (a real elevated tail present throughout the stage), not a spike.
+
+**Checked against Finding 2 directly — confirmed unrelated, not the same mechanism twice.**
+Finding 2 is in stage 4, about request *count/rate*; this bug was in stage 2, about *value
+ordering*. Finding 2's numbers are unchanged after the fix.
+
+**This is the concrete case for why D-60's render-check mattered:** the text-only verification
+(counts, field shapes, D-59) did not and could not have caught this — the bug only shows up as a
+visual/temporal pattern across many records, exactly the kind of defect that looking at the
+output, not just its schema, surfaces.
+
 **Background investigation returned 2026-08-15 — a real finding, changes the picture.** vLLM has a
 shipped flag, **`--enable-per-request-metrics`** (docs.vllm.ai, origin: GitHub feature request
 #40076), that puts genuine per-request TTFT (`metrics.time_to_first_token_ms`) and output-token
