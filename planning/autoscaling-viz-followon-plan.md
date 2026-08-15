@@ -34,18 +34,19 @@ drifting into `benchmark`'s territory):**
 
 ## TOC {#toc}
 
-- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L50:67
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L68:79
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L80:95
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L96:107
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L108:119
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L120:130
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L131:198
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L199:230
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L231:269
-- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L270:289
-- [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L290:305
-- [Cross-references](#cross-references) L306:312
+- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L51:68
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L69:80
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L81:96
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L97:108
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L109:120
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L121:131
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L132:199
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L200:231
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L232:270
+- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L271:290
+- [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L291:304
+- [Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}](#item-12--2026-08-15-panel-review-mostly-ready-to-spec-panel-4-open-one-doc-gap-item-12-panel-review-0815) L305:333
+- [Cross-references](#cross-references) L334:340
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -298,6 +299,33 @@ one it was built against. Handed to the `benchmark`-execution scope via
 `session/handoffs/plan__per-request-data-recovery-for-viz-1a-1b.md` to design the extraction
 mechanism, build it, and run it against this example run first. Nothing scheduled here until they
 respond with output for this run.
+
+[↑ TOC](#toc)
+
+## Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}
+
+**Full findings:** [`autoscaling-viz-panel-review-20260815.md`](autoscaling-viz-panel-review-20260815.md),
+Dean's review of the first fresh, stamp-confirmed-current render of the only per-request-data-
+bearing run (`m-ta-prefill-knee`). Confirmed good, no action: panels 1a, 2, 5, the footer, and
+panel 3's TTFT text / waiting-vs-ready-replica correctness. Four correctness questions Dean raised
+were all traced against the real bundle — no cross-panel contradiction found; two are real,
+independently-confirmed findings (a genuine 9x completion-rate drop at t≈600s, and a scale-up at
+t≈628/644s traced to a transient collapse in the throughput analyzer's own `prc` estimate — the
+same estimator-instability mechanism already tracked as a backlog item, this time triggered by
+falling rather than rising demand).
+
+- **Item Q** — panel 1b text should show mean±std, not mean alone. Small, ready to spec.
+- **Item R** — panel 3's waiting-band hatch should revert from horizontal (Task 8) back to diagonal;
+  draining stays dots, overlay weight/color from Task 8 confirmed good otherwise. Small, ready to
+  spec.
+- **Item S** — panel 4 feedback (stack a/b, (a)'s values look wrong, maybe panel 5 already covers
+  this, floated alternative: per-pod KV%/running/GPS/PPS stats instead) — panel 4 stays parked per
+  Item 2; this is discussion material for whenever it's actually picked up, not scheduled now.
+- **Item T** — panel 6: y-axis label → "replica-delta"; annotate each marker's reason-code label at
+  its first occurrence rather than relying on the legend alone. Small, ready to spec.
+- **Item U** — "WEAK TIME ANCHOR" in the figure title needs a plain-language explanation (what it
+  is, why it matters) — a doc gap, not yet resolved, likely a Type 4/comment addition rather than a
+  code change.
 
 [↑ TOC](#toc)
 
