@@ -1,8 +1,9 @@
 # Pokprod campaign 2026-08-10 — 7-cell scenario matrix, results and figures
 
-> **SUPERSEDED 2026-08-14.** Content folded into
-> [`ta-pokprod-campaign-report.md`](ta-pokprod-campaign-report.md) (workload×config grid,
-> cross-cutting analysis by topic, run index). Kept on disk, unedited below, so old citations by
+> **SUPERSEDED 2026-08-14, RELOCATED 2026-08-15.** Content folded into the campaign report
+> (workload×config grid, cross-cutting analysis by topic, run index), which now lives at
+> `benchmark/docs/benchmark-reports/ta-pokprod-campaign-report.md` (D-53 — Type-6/PR-bound guide
+> material, not `plans`-internal tracking). Kept on disk, unedited below, so old citations by
 > section/finding number still resolve. Do not cite this doc going forward — use the new report.
 
 **Status:** DRAFT
