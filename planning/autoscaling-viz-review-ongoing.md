@@ -11,11 +11,12 @@
 
 ## TOC {#toc}
 
-- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L20:74
-- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L75:132
-- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L133:145
-- [2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}](#2026-08-14--version-stamp-renders-part-11b-870fff6d-no-trigger-yet-session-2026-08-14-stamp) L146:207
-- [2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}](#2026-08-15--per-panel-corner-info-allocation-062c1071-session-2026-08-15-corner) L208:273
+- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L21:75
+- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L76:133
+- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L134:146
+- [2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}](#2026-08-14--version-stamp-renders-part-11b-870fff6d-no-trigger-yet-session-2026-08-14-stamp) L147:208
+- [2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}](#2026-08-15--per-panel-corner-info-allocation-062c1071-session-2026-08-15-corner) L209:275
+- [2026-08-15 — panel 3 visual scheme (`b7920cd3`) {#session-2026-08-15-panel3-visual}](#2026-08-15--panel-3-visual-scheme-b7920cd3-session-2026-08-15-panel3-visual) L276:351
 
 ## 2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}
 
@@ -269,5 +270,82 @@ reconstructing the full `grid`/`hold()`/`served_g`/`slots_g` pipeline standalone
 one-line formula; the zero/nonzero gating logic (whether the number appears at all) was traced and
 confirmed correct instead, which is the part most likely to be wrong. Low-priority gap, not
 re-opening for it.
+
+[↑ TOC](#toc)
+
+## 2026-08-15 — panel 3 visual scheme (`b7920cd3`) {#session-2026-08-15-panel3-visual}
+
+**Trigger:** `review__autoscaling-viz-panel3-visual-scheme-ready.md`. **Plan:**
+[`autoscaling-viz-panel3-visual-scheme-plan.md`](autoscaling-viz-panel3-visual-scheme-plan.md).
+
+**Verdict: push-ready. No findings.**
+
+Diff (`render_real_trace.py` +45/−12, one panel-3 block) checked against the plan's four numbered
+changes plus its title-fix fold-in, point by point:
+
+1. **Draining hatch lighter, dots kept.** Confirmed in source: `hatch='....'` unchanged, but now
+   pairs `edgecolor=INK, linewidth=0.25` (was `edgecolor=C_ACT, linewidth=0.4`) with an explicit
+   `bar.set_hatch_linewidth(0.3)` and `bar.set_hatchcolor('#f5f5f5')` per bar — two independent
+   mechanisms (border vs. hatch stroke), both thinned, matching the commit message's own claim that
+   both needed adjusting.
+2. **Waiting → dashed-style, not diagonal.** `hatch='////'` replaced with `hatch='--'`.
+   **Independently checked the API claim rather than trusting the commit message:** ran matplotlib
+   3.11.1's `_hatch_types` and read `HorizontalHatch.__init__` source directly —
+   `self.num_lines = int((hatch.count('-') + hatch.count('+')) * density)`, confirming `'-'` is a
+   real, parsed hatch character producing horizontal lines. Also confirmed matplotlib has no literal
+   dash-pattern hatch: the full char vocabulary across all 8 `_hatch_types` classes is
+   `-,+,|,/,\,x,X,o,O,.,*` (commit message says `/,\,|,-,+,x,o,O,.,*` — omits `X`, a harmless
+   under-statement, not a false claim). So the commit's own framing — "closest built-in to dashed
+   lines, not a literal dash glyph, but a genuinely different primitive from draining's dots" — holds
+   exactly as stated, verified against the interpreter's actual parsing, not the docs prose.
+3. **Both overlays thinner overall.** Same `linewidth=0.25`/`set_hatch_linewidth(0.3)` pair applies
+   to both bands (draining L664, waiting L704 in the post-commit file) — no asymmetry between them.
+4. **Outline uniform across all three bands.** Grepped the post-commit source directly:
+   running (L641), draining (L664), and waiting (L704) all read `edgecolor=INK, linewidth=0.25`,
+   character-for-character identical. Confirms the claimed running 0.4→0.25 tightening and the
+   draining `C_ACT`→`INK` edgecolor switch both landed, and that no band was left inconsistent.
+   (Two other `linewidth=` sites elsewhere in the file — L555 at `0.0`, L941 at `0.3` — belong to
+   different panels/contexts, untouched by this diff and correctly out of the plan's scope.)
+5. **Title fix.** Source now reads `'3 · requests per pod: running, draining, waiting, EPP queue'`
+   (was "...running, waiting, router-side"), matching the plan's fold-in instruction citing the
+   earlier review's Finding 2 verbatim.
+
+**Verified by rendering, not just reading the diff** — extracted and re-rendered two real bundles
+into a scratch tmp dir (not the tracked worktree), matching the commit message's own two cited
+verification runs:
+
+1. **`m-satta-dwell`** (`benchmark/runs/dean-20260810-092644-320/results/inference-perf-1786343242-
+   zr01gi_1`) — 15 pods, `Router imbalance measurable pods=15`, `Scale-down present drain_events=7`,
+   i.e. a real multi-pod run with both draining and waiting material, matching the commit's "15 pods,
+   real draining + waiting bands both present" claim. Viewed the full 6-panel render and several
+   tight crops of panel 3 at up to 8x magnification. Panel title reads correctly. Every stacked
+   segment — running, draining, waiting — carries a visibly thin, uniform dark outline; no band reads
+   heavier than another. Found and visually confirmed at least one bar with a clean, legible white
+   dot-grid hatch (draining) with good contrast against its teal fill — the exact defect the commit
+   message says was caught and fixed (dark hatch color invisible against darker `BAND_SHADES`) is
+   absent on this render; the fix holds. Did not manage to isolate an unambiguous tall waiting-only
+   segment at the crop scales tried to visually confirm the horizontal-line texture in isolation
+   (waiting segments in this run's bars are mostly short, mixed with other bands, and read as solid
+   fill at this resolution) — see gap note below.
+2. **`m-ta-staircase`** (`benchmark/runs/dean-20260810-084756-739/results/inference-perf-1786340933-
+   m9emm7_1`) — 3 pods, `Scale-down present drain_events=1`, matching the commit's smaller-scale
+   regression-check run. Rendered clean, no crash, panel 3 shows the numbered 3-pod legend
+   (`1=l4hqk 2=r2tnh 3=thggq`) with thin uniform outlines and no draining/waiting material visible at
+   this run's scale — consistent with the plan's "no crash, thin outlines apply uniformly" bar for
+   this run rather than a hatch-visibility check.
+
+**Legend legibility (plan's 3rd verification bullet):** viewed the full panel on both renders — the
+panel-3 legend box (run 1, 3-line key) and the numbered pod-color key text (run 2) both render
+cleanly, no truncation or overlap with the new hatch/outline styling.
+
+**Not independently confirmed:** a clean, high-zoom isolation of the waiting band's `'--'` hatch on
+this review's own re-render — every crop attempted either missed the bar or landed on a segment too
+short at this run's data to show the line texture unambiguously (dots were easy to isolate; dashes
+were not, at the crop scales tried within this review's time budget). This is a verification gap on
+the reviewer's side, not a defect claim — the source-level check (item 2 above) already confirms
+`'-'` is genuinely parsed as `HorizontalHatch` and is a different code path from draining's `'.'`
+scan, which is the part most likely to be wrong and was checked directly against the interpreter.
+Low priority: worth a look next time this panel is touched with a run/crop that has a taller isolated
+waiting segment, not worth a re-render cycle on its own.
 
 [↑ TOC](#toc)
