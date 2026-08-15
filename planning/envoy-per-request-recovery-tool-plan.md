@@ -195,6 +195,37 @@ pending a fix, since no fix removes the OOM risk on the harness side.
    `dean-20260813-005321-943` only, first. Generalizing to the rest of the campaign is explicitly
    a later step, not this one's.
 
+**Built, verified, 2 findings — 2026-08-16 (commit `a092536f`, `hack/benchmark/estimate_per_request.py`).**
+Consolidated as designed, no existing scratch tool modified/moved/deleted. Output at
+`metrics/processed/per_request_estimated.json` under the run's results leaf (gitignored like every
+other `metrics/processed` output — code is committed, output is not).
+
+- **Finding 1 — the target run's own Envoy trace is truncated, hits the exact risk the tool's own
+  docstring already warned about, first time on a real run.** 19,388 in-window requests vs the
+  harness's own attempted 21,120 (delta −1,732), concentrated at the window's **start** — kubelet
+  log rotation evicted it. Consequence: **stage 0 (the 5rps entry rung) has zero requests in the
+  estimate**, a real gap in the source data, not a code defect (the build used timestamp-based
+  stage assignment specifically so this kind of gap wouldn't corrupt the *other* stages).
+  **Playbook implication, not decided here:** if per-request estimation is a standing fallback
+  going forward, runs need the trace captured continuously (the already-built gateway-log-follower,
+  which writes to the PVC as it goes) rather than relying on a post-run `kubectl logs` harvest,
+  which is exactly what's vulnerable to this rotation cliff. Whose call to change the playbook is
+  open — flagged, not resolved.
+- **Finding 2 — an unexplained rate anomaly, unresolved.** Stage 4 (2rps drain, 720s) shows an
+  *observed* rate of 3.16 req/s — 58% above configured, while stages 2-3 track within 5% of their
+  configured rates. Not a general window-math offset (it's specific to one stage). Two candidate
+  explanations, neither confirmed: genuine traffic (responses from the preceding 26rps rung still
+  draining, logged by Envoy on receipt not completion) vs. an artifact of the last stage's
+  unbounded trailing window (+120s drain allowance with no other upper bound). Not debugged
+  further — correctly stopped rather than guessing at a fix, since whether this matters depends on
+  what panels 1a/1b actually need from stage 4 specifically, not a code question alone.
+
+**What this changes:** the design's core approach is validated — it ran, produced real per-request
+estimates, distinguished a genuine source-data gap from a code bug. Both findings are about data
+quality on this specific run, not about the estimation technique itself. Neither blocks handing
+the output to viz for panel review; both need a decision (playbook change, and whether stage 4's
+anomaly matters) before generalizing beyond this one run.
+
 **Background investigation returned 2026-08-15 — a real finding, changes the picture.** vLLM has a
 shipped flag, **`--enable-per-request-metrics`** (docs.vllm.ai, origin: GitHub feature request
 #40076), that puts genuine per-request TTFT (`metrics.time_to_first_token_ms`) and output-token

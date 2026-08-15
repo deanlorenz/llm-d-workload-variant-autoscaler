@@ -1287,3 +1287,22 @@ Test deliberately minimal: one bare vLLM pod, no gateway/EPP/harness, 2-3 curl r
 response bodies directly for the `metrics` object and `usage.completion_tokens`. Teardown
 immediately after — a probe, not a kept resource. Deferred: testing through the real
 gateway/EPP path, testing a newer vLLM image (only relevant if v0.20.2 fails).
+
+---
+
+## D-59 | 2026-08-16 | topic:per-request-estimation-built,two-findings,coder-reply-misrouted | src:plan__per-request-estimation-built-two-findings.md
+
+**Per-request estimation built and verified against the one example run** (`a092536f`,
+`hack/benchmark/estimate_per_request.py`), per the D-57 design. Two real findings, neither a code
+defect: (1) the target run's own Envoy trace is truncated by kubelet log rotation — stage 0 (5rps
+entry rung) has zero requests in the estimate, a real source-data gap the tool's own docstring
+already warned about, hit for the first time on a real run. Playbook implication flagged, not
+decided: standing per-request-estimation fallback needs continuous capture (gateway-log-follower)
+rather than a post-run harvest. (2) Stage 4 shows an unexplained 58%-above-configured observed
+rate — not a general window-math offset (other stages track within 5%), not debugged further,
+correctly left open pending whether it matters for panel 1a/1b's purposes.
+
+**Process note:** the coder's reply was addressed to the autoscaling-viz scope, not this one —
+likely followed the original ask's provenance rather than the actual build-trigger's sender.
+Flagged directly to that scope so it isn't silently absorbed or acted on twice; findings folded
+into the design doc here regardless of the routing mixup.
