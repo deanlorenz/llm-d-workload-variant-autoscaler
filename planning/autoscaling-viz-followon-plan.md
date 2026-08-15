@@ -34,17 +34,18 @@ drifting into `benchmark`'s territory):**
 
 ## TOC {#toc}
 
-- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L49:66
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L67:78
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L79:94
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L95:106
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L107:118
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L119:129
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L130:197
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L198:229
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L230:268
-- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L269:290
-- [Cross-references](#cross-references) L291:297
+- [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L50:67
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L68:79
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L80:95
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L96:107
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L108:119
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L120:130
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L131:198
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L199:230
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L231:269
+- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L270:289
+- [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L290:305
+- [Cross-references](#cross-references) L306:312
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -283,6 +284,20 @@ from Dean's review of the first version-stamped, confirmed-current regen (`m-sat
   Separately observed, not yet a confirmed defect: two multi-replica scale-downs have fewer matched
   drain windows than replicas removed; needs the coder's own trace before scoping.
 - **Item P** — overlay weight too thick, corroborates Item K (Task 8, already queued) — no new spec.
+
+[↑ TOC](#toc)
+
+## Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}
+
+**Not this scope's to design or build**, per the Item 2 scope boundary above — a full data inventory
+of one representative run (`dean-20260813-005321-943`, m-satta-dwell) confirmed a richer raw-data
+surface than just `igw_pods.log` (raw per-pod Prometheus scrapes in `metrics/raw/`, EPP/vLLM pod
+logs, 8 already-derived `metrics/processed/*.json` files) and confirmed the previously-flagged
+fallback tool (`envoy_per_request.py`) has never actually run on this or any other run beyond the
+one it was built against. Handed to the `benchmark`-execution scope via
+`session/handoffs/plan__per-request-data-recovery-for-viz-1a-1b.md` to design the extraction
+mechanism, build it, and run it against this example run first. Nothing scheduled here until they
+respond with output for this run.
 
 [↑ TOC](#toc)
 
