@@ -1,69 +1,58 @@
 #!/usr/bin/env bash
-# Background watcher for the s-sync-main skill's "watch mode".
-# Polls upstream/main cheaply (git ls-remote — ref query only, no object
-# transfer) and only does the real fetch/ff-merge/push when the SHA actually
-# changes. Meant to be run via the Monitor tool with persistent:true, not
-# invoked directly by a human.
+# Keeps local main fast-forwarded to upstream/main. Polls with git ls-remote (ref query only)
+# and does the real fetch/ff-merge/push only when the SHA moves. Started by the sync session,
+# not run by hand. Guards: planning/atomic-step-protocol-design-addendum-7.md.
+#
+# Usage: sync-main-watch.sh --origin-pid <pid>
+#   --origin-pid   pid of the Claude session that started this watcher. Required.
+#                   Checked with `kill -0` each poll; when it is gone, sync once more and exit.
+#
+# Linux only: uses `date -r <file>` (GNU coreutils) for mtime. BSD/macOS `date -r` takes seconds.
 set -uo pipefail
 
 MAIN_WORKTREE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../Main" && pwd)"
 STATUS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/session/status/main.md"
 POLL_SECONDS=60
 STALE_AFTER_SECONDS=150 # ~2.5x poll interval; used by callers checking last_check, not by this script
-LOCK="/tmp/sync-main-watch.lock"
+origin_pid=""
 
-# Dead man's switch: exit once nothing is left that "wants" this watcher
-# running. Dean's requirement (2026-08-12): stateless, restart-on-entry, no
-# processes left behind to hunt down manually. A previous version used `setsid
-# nohup` to fully detach from /init — that outlives everything, including a
-# VS Code quit or a session that's never resumed, which is exactly the
-# "lingering scripts I can't track" failure. Checked once per poll (cheap:
-# pgrep only, no git):
-#   - a live VS Code-WSL connection (the code-server root for this user), OR
-#   - a live Claude Code process anywhere in this WSL instance.
-# Either one alone is enough to keep the watcher alive; both absent means
-# nobody is around to want main synced, so stop.
-anchor_alive() {
-  pgrep -u "$(id -u)" -f '\.vscode-server/.*code-server' >/dev/null 2>&1 && return 0
-  pgrep -x claude >/dev/null 2>&1 && return 0
-  return 1
+die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --origin-pid) origin_pid="${2:-}"; [ -n "$origin_pid" ] || die "--origin-pid needs a value"; shift 2 ;;
+    -h|--help)    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)            die "unknown argument: $1" ;;
+  esac
+done
+[ -n "$origin_pid" ] || die "--origin-pid is required -- see -h"
+case "$origin_pid" in ''|*[!0-9]*) die "--origin-pid must be a numeric pid" ;; esac
+
+# Single-instance guards.
+# Guard 1 (mkdir, atomic): are two instances starting at the same instant?
+# Guard 2 (pgrep): is a fully-started watcher already running?
+# Neither covers the other's window. Held only during startup, removed inline.
+dedup_dir="${TMPDIR:-/tmp}/sync-main-watch.dedup.$origin_pid"
+
+# Reclaim a guard abandoned by a process that died before its own rmdir (SIGKILL, OOM, sleep).
+# 1 week: far longer than any startup, so age alone is a safe abandonment signal.
+if [ -d "$dedup_dir" ] && [ "$(( $(date +%s) - $(date -r "$dedup_dir" +%s) ))" -gt 604800 ]; then
+  rmdir "$dedup_dir" 2>/dev/null
+fi
+
+# Exit 0 when standing down: the caller starts this speculatively, so "already running" is success.
+mkdir "$dedup_dir" 2>/dev/null || {
+  echo "sync-main watcher already starting for --origin-pid $origin_pid -- this instance is exiting"
+  exit 0
 }
 
-# Single-instance guard, enforced HERE rather than in the callers.
-#
-# Callers previously inferred "is one already running?" from the last_check
-# timestamp in the status file. That is racy: the heartbeat is 60s and the
-# staleness threshold 150s, so a session starting inside that window reads
-# "stale" and launches a duplicate — and because both instances then write the
-# same status file, the heartbeat looks healthy and neither notices the other.
-# (Observed 2026-08-10: two live watchers, pids 91394 and 124820.)
-#
-# flock on a dedicated file is authoritative: the lock is held by the kernel for
-# as long as the process lives and is released automatically if it is killed, so
-# no stale-pidfile cleanup is needed. Every start path — hook auto-start, the
-# Monitor tool, a manual run — funnels through this same check.
-# Read the incumbent's pid BEFORE opening fd 9: `>` truncates on open, so
-# reading after would always report an empty file ("pid unknown").
-holder=$(cat "$LOCK" 2>/dev/null | tr -d '[:space:]')
-exec 9>>"$LOCK" || { echo "FAIL: cannot open $LOCK"; exit 1; }
-if ! flock -n 9; then
-  echo "sync-main watcher already running (pid ${holder:-unknown}) — this instance is exiting, not starting a second poller"
-  # Exit 0: "one is already running" is success from the caller's point of view,
-  # and a nonzero here would surface as a spurious failure in the hook output.
+# $$ must be excluded: pgrep -f matches this script's own argv, which contains the pattern.
+if pgrep -f "sync-main-watch[.]sh .*--origin-pid $origin_pid" 2>/dev/null | grep -qv "^$$\$"; then
+  echo "sync-main watcher already running for --origin-pid $origin_pid -- this instance is exiting"
+  rmdir "$dedup_dir" 2>/dev/null
   exit 0
 fi
-# Record our pid in the lock file for diagnostics.
-#
-# Do NOT truncate via a second redirection (`: >"$LOCK"`): that opens a separate
-# fd with its own offset, so fd 9's subsequent write lands past the truncation
-# point and the file reads back empty. Truncate fd 9 in place instead, then write
-# through the same fd.
-truncate -s 0 /dev/fd/9 2>/dev/null || truncate -s 0 "$LOCK" 2>/dev/null || true
-printf '%s\n' "$$" >&9
-
-# NOTE: the EXIT trap that rewrites the status file to "stopped" is installed
-# further down, deliberately AFTER this guard — so a duplicate instance exiting
-# here never touches the status file of the watcher that actually holds the lock.
+rmdir "$dedup_dir" 2>/dev/null   # startup done; guard no longer needed
 
 cd "$MAIN_WORKTREE"
 last_sync="never"
@@ -96,21 +85,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-write_status "idle" "watcher started"
-echo "sync-main watcher started (pid $$), polling upstream/main every ${POLL_SECONDS}s"
-
-while true; do
-  if ! anchor_alive; then
-    write_status "stopped" "no VS Code / Claude anchor process found — self-exiting (stateless by design, not a crash)"
-    echo "sync-main watcher (pid $$) exiting: no VS Code or Claude process left to run for"
-    exit 0
-  fi
+sync_pass() {
   remote=$(git ls-remote upstream main 2>/dev/null | awk '{print $1}')
-  # Compare the live remote against the branch we actually maintain (local main),
-  # not a cached baseline or the upstream/main tracking ref. This keeps the
-  # invariant "local main == live upstream tip" self-correcting: if main lags for
-  # any reason (tracking ref advanced without a merge, a prior push failed, etc.),
-  # the next poll notices and re-syncs.
+  # Compare against local main, not the upstream/main tracking ref or a cached baseline, so
+  # "local main == live upstream tip" self-corrects whenever main lags for any reason.
   localmain=$(git rev-parse main 2>/dev/null || echo "")
   if [ -n "$remote" ] && [ "$remote" != "$localmain" ]; then
     if git fetch upstream >/tmp/main-sync-fetch.log 2>&1 && git merge --ff-only upstream/main >/tmp/main-sync-merge.log 2>&1; then
@@ -133,5 +111,19 @@ while true; do
   else
     write_status "idle" "no change"
   fi
+}
+
+write_status "idle" "watcher started"
+echo "sync-main watcher started (pid $$), polling upstream/main every ${POLL_SECONDS}s"
+
+while true; do
+  # Origin gone: sync once more, THEN exit. write_status runs after, so the file says "stopped".
+  if ! kill -0 "$origin_pid" 2>/dev/null; then
+    echo "sync-main watcher (pid $$) exiting: origin pid $origin_pid is gone -- final sync first"
+    sync_pass
+    write_status "stopped" "origin pid $origin_pid is gone — ran final sync, exiting"
+    exit 0
+  fi
+  sync_pass
   sleep "$POLL_SECONDS"
 done
