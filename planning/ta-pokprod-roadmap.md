@@ -40,22 +40,26 @@ deferred by Dean** — needs a proper Type 1 (or Type-1 family) for TA covering 
 algorithms first, then a Type 2 breaking it into scoped tasks, before this specific mechanism gets
 its own Type 1 slice. Not started.
 
-**Doc-coverage cleanup.** D-51 found the gap is 7 tools wide, not 2 — `envoy_per_request.py` and
-`serving_replicas.py` got a retroactive Type 3
+**Doc-coverage cleanup.** D-51 found the gap real; **corrected 2026-08-15 (D-56) from 5 to 17
+tools** — a full directory listing of `session-notes/scratch/` (19 scripts total) found 12 D-51's
+own source list missed. `envoy_per_request.py`/`serving_replicas.py` have a retroactive Type 3
 ([`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md)); the other
-5 got a draft classification recommendation
+17 have a rewritten draft classification (10 DEFERRED-as-pattern, 7 promote-as-is)
 ([`pokprod-scratch-tools-doc-coverage-cleanup-plan.md`](pokprod-scratch-tools-doc-coverage-cleanup-plan.md)).
 Dean's classification call not yet made on either.
 
-**Per-request data recovery for viz (new, 2026-08-15).** viz-panels-planner handed over a full raw-
-data inventory for panels 1a/1b's empty-on-most-runs gap (per-request collection disabled by
-design, D-12). Confirmed independently this session: neither `metrics/processed/*.json`
-(aggregate/cumulative only) nor EPP's `"EPP received request"`/`"Request handled"` lines (routing
-latency only, same TTFT/output-size gap as `igw_pods.log`) closes the gap alone. **This is this
-scope's to design and build** (viz consumes, doesn't build) — continues in
-[`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md), which already
-carries the two existing tools and the open generalization-ownership question this ask answers.
-**Not yet designed** — next actual step, this session.
+**Per-request data extraction/estimation (new, 2026-08-15).** Not "the viz work" — this scope's own
+task of getting the right per-request data out of (or estimated from) what a run actually
+produces, prompted by viz-panels-planner surfacing panels 1a/1b's gap but scoped and owned here.
+Correction, same day: the goal is extracting the right data, not preserving any particular
+existing tool — consolidate what's reusable from the tools already written (envoy/EPP-log
+parsing, histogram-bucket estimation per D-55, the ladder-run analysis scripts) into one coherent
+design, broader than any single log source. **Don't delete old work** — every existing scratch
+tool stays on disk; this consolidates by borrowing techniques into a clean design, not by
+replacing files. Continues in
+[`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md). Viz's own
+consumption of whatever this produces is tracked on viz's own roadmap, not here — this entry is
+scoped to extraction/estimation only. **Not yet designed** — next actual step, this session.
 
 **Controller-restart hold-at-current-replicas policy (D-46).** Mechanism found (deliberate
 by-design hold, not a bug) — read-only source trace. Open question is a policy call ("is 'hold'

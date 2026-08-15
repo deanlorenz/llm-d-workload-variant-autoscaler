@@ -1221,3 +1221,26 @@ viz-panels-planner's fresh per-request data inventory today re-discovered the sa
 territory independently, because the earlier findings were invisible outside the coder's own
 status file. Filed now so the next design (see [[D-56]] if scoped) builds on this rather than
 re-derives it a third time.
+
+---
+
+## D-56 | 2026-08-15 | topic:doc-coverage-count-corrected,17-not-5,type2-roadmap-created | src:ta-pokprod-roadmap.md, pokprod-scratch-tools-doc-coverage-cleanup-plan.md
+
+**Two structural corrections, same pass, prompted by Dean's "keep viz on its own roadmap" and
+"don't delete old work" instructions.** (1) **Created the missing Type 2 roadmap**
+(`ta-pokprod-roadmap.md`) — the mission had run since 2026-07-30 with a Type 1 and several Type 3s
+but no mission-level living plan tracking alternatives/decisions/active-next. Built from this
+ledger's 55 (now 56) decisions, points into Type-3 detail rather than restating it. (2) **D-51's
+tool count was wrong.** A full directory listing of `benchmark/session-notes/scratch/` (prompted
+by checking whether any tools there were viz/simulation-related, per Dean's "don't delete old
+work" caution — none were; the `two_variant_v2_full_pipeline.png` figure Dean asked about comes
+from tracked `hack/benchmark/plot_two_variant_pipeline.py`, unrelated) found **19 scripts total**,
+not 7. 12 were never named in D-51 or the first cleanup-plan draft:
+`analyzer_presence.py`, `decision_timeline.py`, `kv_per_rung.py`, `replica_timeline.py`,
+`fetch_missing_from_pvc.py`, `probe_first_record.py`, `sample_report.py`, `test_sidecar.py`,
+`verify_pvc_vs_host.py`, `wait_harness_done.sh`, `wait_pid_exit.sh`, `watch_decode_replicas.sh`.
+Cleanup plan rewritten in place with all 19 classified (2 already documented, 10 recommended
+DEFERRED-as-pattern, 7 recommended promote-as-is) — recommendation only, Dean's classification
+call not made. **Roadmap correction, same pass:** the per-request-recovery-for-viz thread (D-55's
+follow-on) is scoped to extraction/estimation only — viz's own consumption of the output is
+tracked on viz's own roadmap, not folded in here.
