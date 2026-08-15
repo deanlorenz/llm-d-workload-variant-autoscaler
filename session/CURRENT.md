@@ -1,6 +1,6 @@
 # Current Work
 
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-15
 
 > ⚠️ **Before editing this file:** re-read `session/CONVENTIONS.md` (Type-5 paragraph + per-task rule). CURRENT.md holds **operational state + short abstracts only** — design/per-PR detail live in `planning/`, landed history in git; never overwrite a sibling task's state. **Recent activity is a bounded rolling window:** a short head of active-WIP abstracts + a tail of 1-liners, each carrying a PR#/commit-SHA or doc ref. Compress an item to a pointer only once its substance is in git or a permanent doc — never just delete.
 
@@ -10,6 +10,51 @@
 
 **Active (full abstracts) — live WIP only:**
 
+- **2026-08-14/15 — checkpoint scripts: origin-pid lifecycle + atomic single-instance guards.
+  Coded, tested, committed; review DEFERRED to a worktree by Dean's instruction.** Commit
+  **`750f9c5d`** on `plans`, **local only, not pushed**. Three scripts reworked —
+  `scripts/session-snapshot.sh` (Tier-1 capture), `scripts/tick-shared-scan.sh` (Tier-2 shared
+  consolidation), `scripts/sync-main-watch.sh` (main fast-forward). All three now take
+  `--origin-pid <pid>` — the Claude session that launched them, captured at launch because a
+  detached child reparents to init and cannot re-derive it — checked with `kill -0` each pass; on
+  origin death they run **one final unit of their own real work, then exit**. Lock files are gone,
+  replaced by two guards answering two different questions: an atomic `mkdir` on a fixed
+  per-origin-pid path (two instances starting the same instant, when nothing exists for `pgrep` to
+  find) plus the `pgrep` check (a watcher already running from an earlier launch), with a 1-week
+  mtime staleness reclaim as the backstop for a process killed mid-startup. No traps for the guard.
+  Verified **behaviorally, not by inspection**: 5/5 exactly one survivor on simultaneous launch,
+  planted stale guard reclaimed, planted fresh guard respected and not deleted, guard released while
+  the loop runs, final pass evidenced in the log on origin death.
+  **Three defects found en route, all one shape — a guard released before the thing it protects
+  exists:** (1) the dead-man's-switch originally exited *before* the final pass, which for Tier-1/
+  Tier-2 defeats their whole purpose — and the same bug had sat in `sync-main-watch.sh`'s
+  `anchor_alive()` since 2026-08-12, uncaught; (2) `pgrep`-only dedup had no atomic step, so two
+  simultaneous launches left **zero** survivors, 4/4; (3) `stat -f %m` is wrong on GNU coreutils
+  (`-f` takes a format, so `%m` became a filename operand and `stat` printed a filesystem block while
+  exiting 0 — the `|| echo 0` fallback was unreachable and prose reached `$(( ))`), replaced with
+  `date -r`. **Root cause of the pattern: no Type 3 plan existed** — code came straight from
+  conversation, so no review had anything to check against. New
+  [`planning/atomic-step-protocol-design-addendum-7.md`](../planning/atomic-step-protocol-design-addendum-7.md)
+  is that plan, written retroactively (84 lines), and carries the verification checklist.
+  **⚠️ Review is INCOMPLETE and did not follow CONVENTIONS § Review pipeline.** Two ad-hoc
+  `general-purpose` subagents acted as checkers — their findings were real and are fixed — but no
+  **Type 6 doc** (`planning/*-review.md`, `Status: DRAFT`, review-agent role via `/s-design-review`)
+  exists. Two questions left open rather than guessed: **who runs it** (this session wrote the code,
+  so self-review is the wrong shape — recommend spawning) and **which scope form** (design-doc scope
+  fits; there is no branch/PR). Per Dean: **stop coding in `plans`** — the scripts stay as-is here,
+  and the review resumes in `plans-tooling` or a fresh/temp worktree, deliberately not mixed with
+  `plans-tooling`'s in-flight work.
+  **⚠️ Armed footguns, carry verbatim:** (1) **`scripts/tier1-session-start.sh` is committed but NOT
+  wired and NOT functional** — it passes no `--origin-pid`, so it would fail the new required-arg
+  validation; it also needs a `container-settings.json` SessionStart entry, which
+  `guard-settings-edit.sh` blocked once and must **not** be self-approved. (2) **Four production
+  loops still run the OLD interface** (`session-snapshot.sh` pids 16342 + 629315,
+  `sync-main-watch.sh` 89026, `tick-shared-scan.sh` 620370) — they work, they just predate the
+  commit; restarting them is a separate approved step, gated on (1). (3) **`tick-live-index.sh:111`
+  still carries the `stat -f %m` bug** — same latent crash, left out-of-scope. (4)
+  **`.claude/settings.json` holds another session's uncommitted permission additions** — untouched
+  here; do not attribute or discard them.
+  **State:** [`session/status/sync-session.md`](status/sync-session.md) (cold-resume detail).
 - **2026-08-07/09 — Anchor-refactor mission. PR-1 MERGED; PR-2 = #1523 OPEN, green, awaiting external
   review.**
   **PR-1 `ta-anchor-refactor-v2` = [#1516](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1516)
@@ -236,6 +281,36 @@
   snapshots) but config files still get clobbered around it — a real correctness gap in the
   failure path. Detail: `session/status/benchmark.md` §20.34. Session idle, watching for the next
   assignment.
+  **2026-08-14 — campaign coverage matrix CLOSED (21 experiments, 6 workload shapes); results
+  consolidated into one authoritative report.** Every workload now has every config its own design
+  calls for. The single authoritative results doc is
+  [`planning/ta-pokprod-campaign-report.md`](../planning/ta-pokprod-campaign-report.md) — leads with
+  cross-cutting conclusions rather than narrative, and **supersedes the two older results docs**
+  (both left in place with pointer headers, not deleted). All 19 affected runs have real,
+  version-stamped viz panels linked from the report. **Two items open and actionable:** (a) moving
+  the campaign report to `benchmark/docs/benchmark-reports/` (Dean's call, `D-53`) is **in flight,
+  not stalled** — the benchmark coder holds `benchmark__relocate-campaign-report-to-docs.md` as
+  `.WIP`; (b) doc-coverage cleanup for 5 more undocumented scratch tools (`verify_decision_rule.py`,
+  `server_token_truth.py`, `stage_table.py`, `stage_vs_replicas.py`, `watch_pvc_space.sh`) —
+  flagged as `D-51`, Dean asked for a draft cleanup plan, **not started**. **Deliberately deferred
+  by Dean, not forgotten:** pokprod runbook fold-vs-stub (`T6`), the dwell-forecast Type-1 design
+  (shared queue-load-forecast mechanism), the controller-restart hold-at-current-replicas policy
+  question (`D-46`), the bucket-keyed `prc` collapse bug, and controlled-run/timestamped-replay
+  capability. **No armed footguns** — GPUs freed, no cluster action pending, nothing uncommitted on
+  that scope. This scope's docs were **just self-audited** (Dean-prompted), which found and fixed 3
+  real content gaps and one stale banner claim (`D-52`/`D-53`) — so they are verified current, not
+  assumed. State: [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md)
+  § *what still needs Dean, at a glance* + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md)
+  (`D-1`…`D-53`, append-only, grep-lookup).
+  **⚠️ Process incident, 2026-08-14 — a coder self-marked its own outgoing handoff `.DONE`.** The
+  benchmark session filed a reply (`plan__benchmark-viz-pullup-resolved-20260814.md`) and then
+  marked *its own* reply `.DONE` — only the **recipient** may do that, and doing it as sender hides
+  the item from the session that was supposed to act on it. Caught by **Dean's direct audit of
+  handoff file state**, not by self-check; fixed by renaming back to a plain open `.md` so
+  `viz-panels` can consume it. Root cause was not misunderstanding the rule but failing to apply the
+  ownership check while closing out a task ("wrap up this exchange" treated as one action rather than
+  two differently-owned files); captured as a global feedback memory. **Worth checking whether other
+  coder sessions have the same pattern** — that generalization is unverified, flagged not concluded.
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
@@ -556,6 +631,13 @@ Multi-analyzer — full detail in [`planning/multi-analyzer-design.md`](../plann
 - Engine SchedulerQueue wiring — ✅ landed with #1246 merge (2026-06-10, `09e1c386`).
 
 Infra / misc (no design-doc home; file as separate issues):
+
+- **`scripts/tick-live-index.sh:111` — `stat -f %m` is wrong on GNU coreutils** (internal tooling, not
+  a WVA issue — no GitHub issue needed, just a fix when that script is next touched). `-f` takes a
+  *format*, so `%m` is parsed as a filename operand: `stat` prints a filesystem block and **exits 0**,
+  which makes the `|| echo 0` fallback unreachable and can feed prose into `$(( ))`. Same defect was
+  fixed in the three checkpoint scripts via `date -r` (`750f9c5d`); this fourth site was left
+  out-of-scope deliberately. Latent (fallback path only), not live.
 
 - **TA forward plan** — 26 internal issues + 5 deferred features (correctness, observability, tests, architecture, docs): [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md).
   - **Deferred features (Group 0)** — code removed during #1250 dev cycle whose design intent is preserved: D-1 ITL knowledge store (historical A,B per variant, warm-up skip), D-2 GPS-mismatch SC gate, D-3 EPP-absent SC gate, D-4 FreshnessStatus staleness gate (dead end-to-end), D-5 `has*` throughput sentinels (nil-vs-zero for 3 fields). None are deprecated — all return in later PRs (D-2/D-3 via #1261, D-4 via I-6, D-5 via #1264, D-1 via I-18).
