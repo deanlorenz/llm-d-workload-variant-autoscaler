@@ -19,8 +19,8 @@ renderer's pre-Task-3 numbering by mistake, not a document defect.
 - [Item T — panel 6: y-axis label + marker-label-on-first-occurrence {#item-t-panel6-label}](#item-t--panel-6-y-axis-label--marker-label-on-first-occurrence-item-t-panel6-label) L97:110
 - [Item U — "WEAK TIME ANCHOR" in the title: relocate out of the main title, not just explain it {#item-u-weak-anchor}](#item-u--weak-time-anchor-in-the-title-relocate-out-of-the-main-title-not-just-explain-it-item-u-weak-anchor) L111:131
 - [Item V — CONFIRMED: no cross-panel contradiction; two real findings underneath {#item-v-correctness}](#item-v--confirmed-no-cross-panel-contradiction-two-real-findings-underneath-item-v-correctness) L132:175
-- [Item W — panel 3 drain windows are mis-anchored: they cover the pod's still-busy tail, not a decay to zero {#item-w-drain-window-root-cause}](#item-w--panel-3-drain-windows-are-mis-anchored-they-cover-the-pods-still-busy-tail-not-a-decay-to-zero-item-w-drain-window-root-cause) L176:236
-- [Cross-references](#cross-references) L237:251
+- [Item W — RESOLVED: "drain window" is mislabeled — no real per-pod drain signal exists; relabel to what it actually shows {#item-w-drain-window-root-cause}](#item-w--resolved-drain-window-is-mislabeled--no-real-per-pod-drain-signal-exists-relabel-to-what-it-actually-shows-item-w-drain-window-root-cause) L176:248
+- [Cross-references](#cross-references) L249:263
 
 ## Confirmed good, no action {#confirmed-good}
 
@@ -173,24 +173,35 @@ behavior for that window, not a bug.
 
 [↑ TOC](#toc)
 
-## Item W — panel 3 drain windows are mis-anchored: they cover the pod's still-busy tail, not a decay to zero {#item-w-drain-window-root-cause}
+## Item W — RESOLVED: "drain window" is mislabeled — no real per-pod drain signal exists; relabel to what it actually shows {#item-w-drain-window-root-cause}
 
 **Dean's hypothesis, verbatim:** "review the drain — does not match the scale-down events. I think
 it may be related to the mismatch I already saw in previous fig. p3 may be showing the data upon
 entry time rather than current time. Requests in epp queue, requests per pod, requests per draining
 pods, and waiting per pod, are all current time, not entry time. All probably available as metrics."
-Investigated against the fresh `m-satta-dwell` render (7 drain events / 6 pods with drain windows) —
-**a real, confirmed defect, but not entry-time-vs-current-time indexing.**
+Investigated against the fresh `m-satta-dwell` render (7 drain events / 6 pods with drain windows).
 
-**What was ruled out:** panel 3's underlying per-pod `run`/`wait` series and the system `in_system`
-series are all correctly keyed by the sample's own scrape timestamp (`s['t']`) both in the renderer
-(`render_real_trace.py`) and the extractor's `GAUGE_MAP` (`vllm:num_requests_running` /
-`vllm:num_requests_waiting` — live current-value gauges, not queue-entry-time markers). No
-entry-time indexing bug found in the data series themselves.
+**Ruled out — not an entry-time-vs-current-time indexing bug.** Panel 3's underlying per-pod
+`run`/`wait` series are all correctly keyed by the sample's own scrape timestamp (`s['t']`), both in
+the renderer and the extractor's `GAUGE_MAP` (`vllm:num_requests_running`/`waiting` — live
+current-value gauges, not queue-entry-time markers). No entry-time indexing bug found in the data
+series themselves.
 
-**What was confirmed instead — the drain window's own definition doesn't mean what its shading
-implies.** Checked every pod with a drain window in the fresh render against its own `run` series
-inside that window:
+**Ruled out — not abrupt teardown with request loss either.** An intermediate hypothesis (pods
+killed with no grace period, requests simply lost) was checked directly against EPP's own
+`q_dispatch` series (`inference_objective_running_requests` — ground truth independent of per-pod
+scrape gaps) around each pod's disappearance. For 3 of 4 transitions (`mhrkh`; `9kb6w`+`gzvfj`;
+`l9s5k`), total system load is smoothly **conserved** across the departing pod's last sample — no
+step-down proportional to what it was carrying (e.g. `mhrkh` held run=28 at its last sample;
+`q_dispatch` shows 193→215 across that tick, essentially unchanged). One case (`njwp6`+`2vxwj`
+dying on the same tick) showed a single-scrape `q_dispatch=0` anomaly that self-corrects on the very
+next tick — a transient reporting gap, not sustained loss. So the data doesn't show requests being
+dropped either.
+
+**Actual root cause, confirmed by Dean's own framing: the pod is either live or draining, never
+both — and every one of these windows shades time when the pod was still live.** Checked every
+pod's own `run` series across its full drain window (`autoscaling-viz/extract_real_trace.py:854-934`,
+`pod_drain_windows()`):
 
 | pod | drain window | `run` inside the window |
 |---|---|---|
@@ -201,34 +212,35 @@ inside that window:
 | `mhrkh` | [65, 127] (62s, pod-relative) | 0 → 1 → **72** → 32 → 31 → 28 |
 | `njwp6` | [771, 944] (173s) | 12 → 20 → 15 → 20 → 20 → 19 → 19 → 15 → 18 → 18 → 17 → 14 |
 
-Every one of these climbs or stays high through the shaded window, several spiking well into
-double digits (`mhrkh` to 72) — the opposite of what a "draining" band should show. The pod's own
-**last observed sample is still fully loaded** (`njwp6` ends at run=14, `mhrkh` at run=28), hundreds
-to 1500+ seconds before the run itself ends — so this isn't a run-end truncation artifact either.
+Every window's *entire span* is filled with normal, healthy scrapes — several climbing or spiking
+(`mhrkh` to 72) — with no sub-interval that looks like a wind-down. The pod is being scraped
+normally, serving normally, all the way through its last sample. **By Dean's rule, this means the
+window is currently shading time the pod was fully live, not draining** — it isn't a partial
+mismatch, the whole window is mislabeled.
 
-**Root cause, traced to `pod_drain_windows()` in `extract_real_trace.py`
-(`autoscaling-viz/extract_real_trace.py:854-934`):** the function's own docstring states its premise —
-a drained pod "kept in-flight requests running after it stopped being part of the ready set," i.e.
-it assumes a decaying tail of shrinking `run` counts between "marked for removal" and "actually
-gone." The window is built as `[bound, last_t]` where `bound` is the nearest preceding
-`desired`-drop timestamp (correctly current-time — this part isn't the bug) and `last_t` is the
-pod's own last sample, with a backward scan from `last_t` clipped no earlier than `bound`. **The
-bug: the code never checks that `run` actually trends toward zero inside that span** — it only
-checks `run > 0` continuously (line 906: `if (s['g'].get('run') or 0) <= 0: break`), which is true
-for a fully-busy pod exactly as much as a truly-draining one. On this run, the pods aren't drained
-gracefully at all — they're killed abruptly while still serving a full load. The window's shading
-therefore paints "this pod was draining" over an interval where the data actually shows "this pod
-was killed while still at or near full concurrency," which is exactly the mismatch Dean spotted
-against the scale-down events: the window's *start* lines up with the `desired`-drop (correct), but
-its *content* doesn't depict a drain — because there wasn't one to depict.
+**Why: the code was never given a real per-pod drain signal, because none exists in the current
+data pipeline.** `pod_drain_windows()` infers "this pod is draining" from two proxies: (1) the
+nearest *fleet-level* `desired`-drop timestamp, and (2) "this pod's own metrics disappeared soon
+after." Neither is a per-pod live/drain signal — confirmed by checking the full gauge set actually
+scraped (`extract_real_trace.py:56-60`, `GAUGE = {run, wait, kv}`): only vLLM-native metrics, no
+kube-state-metrics pod-phase, no pod-deletion timestamp, no EPP routing-exclusion signal. There is
+currently no way to know, from this data, when a specific pod was actually marked for removal versus
+just still being scraped normally until it disappeared.
 
-**Not yet resolved — routing question, not a fix proposal.** Two directions, not decided here:
-(a) redefine "drain window" to only be drawn/shaded over the sub-interval where `run` is actually
-declining, if such a sub-interval exists, and represent the rest (still-busy-until-killed) with a
-different visual treatment or none; or (b) keep the window as "time between marked-for-removal and
-actually-gone" but relabel/re-style it so it doesn't visually claim a graceful decay that isn't
-there. Needs a fresh Type 3 before dispatch to the coder — this doc only establishes the root cause
-and the evidence, not the visual fix.
+**Resolution, confirmed by Dean:** the feature's honest purpose is narrower than its current label
+claims — it is "a visual aid to show which pod was taken down at a given scale-down event," not a
+claim about drain/grace-period behavior. **Action: relabel/re-caption, don't remove.** Keep the
+shaded band (it correctly identifies which pod and roughly when), but its text/legend must stop
+saying "draining" and say something like "pod removed at scale-down event" instead — matching what
+the signal actually is, not implying knowledge of in-flight-request wind-down that isn't there.
+Needs a fresh Type 3 before dispatch to the coder — this doc establishes the resolved direction, not
+the exact wording/styling.
+
+**Separate, explicit TODO opened by Dean: find a real per-pod drain signal.** Not scoped or
+scheduled here — candidates to consider when picked up: kube-state-metrics pod-phase/deletion
+timestamp if scraped elsewhere in the harness, or an EPP-side "excluded from routing" signal if one
+exists. Until such a signal exists, panel 3 cannot show true per-pod drain state, only the
+relabeled proxy above.
 
 [↑ TOC](#toc)
 

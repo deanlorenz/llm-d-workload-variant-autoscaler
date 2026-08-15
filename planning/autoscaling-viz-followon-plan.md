@@ -45,8 +45,8 @@ drifting into `benchmark`'s territory):**
 - [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L232:270
 - [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L271:290
 - [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L291:304
-- [Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}](#item-12--2026-08-15-panel-review-mostly-ready-to-spec-panel-4-open-one-doc-gap-item-12-panel-review-0815) L305:333
-- [Cross-references](#cross-references) L334:340
+- [Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}](#item-12--2026-08-15-panel-review-mostly-ready-to-spec-panel-4-open-one-doc-gap-item-12-panel-review-0815) L305:349
+- [Cross-references](#cross-references) L350:356
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -315,17 +315,33 @@ same estimator-instability mechanism already tracked as a backlog item, this tim
 falling rather than rising demand).
 
 - **Item Q** — panel 1b text should show mean±std, not mean alone. Small, ready to spec.
-- **Item R** — panel 3's waiting-band hatch should revert from horizontal (Task 8) back to diagonal;
-  draining stays dots, overlay weight/color from Task 8 confirmed good otherwise. Small, ready to
-  spec.
+- **Item R** — **updated 2026-08-15/16, exact wording matters:** panel 3's waiting-band hatch must
+  be **diagonal, white, thinnest possible** — not just "revert to diagonal." Root cause of the
+  Task 8 regression was my own mis-paraphrase of a distinction requirement into a mechanism
+  requirement; draining stays dots, overlay border weight/color from Task 8 confirmed good
+  otherwise. Small, ready to spec with the exact wording from the review doc.
 - **Item S** — panel 4 feedback (stack a/b, (a)'s values look wrong, maybe panel 5 already covers
   this, floated alternative: per-pod KV%/running/GPS/PPS stats instead) — panel 4 stays parked per
   Item 2; this is discussion material for whenever it's actually picked up, not scheduled now.
 - **Item T** — panel 6: y-axis label → "replica-delta"; annotate each marker's reason-code label at
   its first occurrence rather than relying on the legend alone. Small, ready to spec.
-- **Item U** — "WEAK TIME ANCHOR" in the figure title needs a plain-language explanation (what it
-  is, why it matters) — a doc gap, not yet resolved, likely a Type 4/comment addition rather than a
-  code change.
+- **Item U** — **updated 2026-08-16:** not just an explanation gap — Dean's correction is that
+  "WEAK TIME ANCHOR" doesn't belong in the main title **at all**, even well-explained. Resolution is
+  relocation (drop the suffix, since the footer already carries the explanation, or move to a
+  secondary annotation) — placement not yet decided, needs a fresh Type 3.
+- **Item W (new, RESOLVED direction) — drain-window shading is mislabeled, not indexed wrong.**
+  Investigated Dean's entry-time-vs-current-time hypothesis against the fresh `m-satta-dwell`
+  render; ruled out both entry-time indexing (panel 3's data series are correctly current-time) and
+  abrupt-teardown-with-request-loss (EPP's own `q_dispatch` shows load conserved, not lost, across
+  3 of 4 pod disappearances). Actual finding: every drain window's *entire span* covers time the pod
+  was still fully live (normal/climbing `run`, up to 72) — because no per-pod live/drain signal
+  exists in the scraped data (only vLLM's own `run`/`wait`/`kv`; no kube pod-phase, no
+  deletion-timestamp, no EPP routing-exclusion signal). **Dean confirmed the fix: relabel, don't
+  remove** — the shading is a legitimate visual aid for "which pod was taken down at this
+  scale-down event," it just must stop claiming "draining" since that's not what it measures.
+  **Separate TODO, not scheduled:** find a real per-pod drain signal (candidates: kube-state-metrics
+  pod-phase/deletion-timestamp if scraped elsewhere in the harness; an EPP-side routing-exclusion
+  signal if one exists) — only after that exists can panel 3 show true drain state.
 
 [↑ TOC](#toc)
 
