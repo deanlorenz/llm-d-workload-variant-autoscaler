@@ -1201,3 +1201,23 @@ namespace "on purpose... never point it at another namespace"). Recommendation: 
 for the 4 analysis tools, promote-as-is (or close to it) for the guard — not decided, a
 recommendation only. New Type 3:
 [`pokprod-scratch-tools-doc-coverage-cleanup-plan.md`](pokprod-scratch-tools-doc-coverage-cleanup-plan.md).
+
+---
+
+## D-55 | 2026-08-11 (retroactive entry, written 2026-08-15) | topic:per-request-fallback-discovery,never-ledgered | src:session/status/benchmark.md §20.24
+
+**Real gap found while tracing "what happened to the fallback-source analysis":** the full
+log-source discovery pass this ledger's own [[D-12]] scheduled (trigger
+`benchmark__viz-model-review-and-per-request-discovery.md.DONE`) was executed 2026-08-11 and
+produced real findings — a field-availability table (arrival time/TTFT/input-output length/
+routing/prefix-hit, per source), and 3 corrections to earlier wrong claims (`igw_pods.log` is NOT
+noise — 73,928/74,053 lines are real per-request access-log entries, mis-sampled the first time;
+EPP's `"Calculated score"` lines carry only a plugin+score, NOT raw pod state — the actual
+per-request pod-state snapshot is on `"Before running filter plugins"` instead; EPP's own
+`HandleResponseBody` chunk-level firing independently confirms why the retired per-request
+collector over-collected). **None of this ever got its own ledger entry** — the trigger's `.DONE`
+status recorded that the task was done, not what it found. Consequence, confirmed 2026-08-15:
+viz-panels-planner's fresh per-request data inventory today re-discovered the same EPP-log
+territory independently, because the earlier findings were invisible outside the coder's own
+status file. Filed now so the next design (see [[D-56]] if scoped) builds on this rather than
+re-derives it a third time.
