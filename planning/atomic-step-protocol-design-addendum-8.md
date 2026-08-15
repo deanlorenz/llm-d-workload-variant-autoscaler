@@ -79,6 +79,88 @@ this, captured as they occurred rather than only at the end:
   conv-new/conv-edit/conv-rename per `conventions-authoring-spec.md` S1-S3), reviewer `3da4ba42`
   (launched from `plans`, scoped to review the coder's work once ready, explicitly told to wait).
 
+**Second round of findings, same day — `auto` mode does not fully close the human-in-the-loop gap:**
+
+- **`SendMessage`/`ListAgents` failed to reach either background agent**, even with the exact display
+  name from `ListAgents`'s own output, with and without its `[ref]` suffix. Both calls returned "No
+  agent... is reachable." Consistent with the already-recorded finding in memory
+  `feedback_sendmessage_vs_file_handoffs` (2026-08-13: "it did not reliably work") — this is a second,
+  independent occurrence, not a one-off. `claude -p --resume <session-id>` also does not work for a live
+  background agent ("Session ... is currently running as a background agent... Use `claude agents` to
+  find and attach to it, or add `--fork-session` to branch off a copy" — the latter creates a *new*
+  session, not what's needed). **The only reliable way found to get new instructions to a running
+  background agent is the file-based handoff protocol** — which is also the *correct* channel
+  architecturally (it preserves the audit trail and state-machine ownership rules), not merely a
+  fallback for a broken shortcut.
+- **Real mistake, caught and fixed immediately:** the first handoff attempt was written to
+  `plans-tooling/session/handoffs/` — wrong, since that path doesn't exist as a coordination surface;
+  the shared handoff directory is `plans/session/handoffs/` regardless of which worktree a session's
+  CWD happens to be in. A coder session operating with CWD in a code worktree still needs the shared
+  `plans/session/handoffs/` path, exactly as every other coder in this project's existing convention
+  already does. The stray directory was deleted before anything read it; corrected file written to
+  `plans/session/handoffs/coder-plans-tooling__s1-test-mechanism-approved.md`.
+- **`--permission-mode auto` reduces prompts but does not eliminate all of them.** Both agents later
+  surfaced a `needsInput`/`Needs input` state visible only in `claude agents`' live TUI — genuinely
+  requiring a human to answer at that exact interface, which broke the "Dean never interacts with the
+  agent directly" boundary out of necessity (Dean answered directly since no other channel could reach
+  the agent at that moment). This is a real, currently-unresolved gap in the ownership model Dean is
+  describing (2026-08-15, same day, separate concern from this addendum's launch-mechanics content):
+  a planner cannot yet guarantee it is the *only* channel through which an agent it owns receives input.
+  Not designed around here — flagged for whatever eventually formalizes the "planner-owns-agents"
+  governance model.
+- **Despite the above, both agents' actual work quality was strong.** The reviewer independently
+  re-derived the full four-stage review pipeline from CONVENTIONS.md and correctly scoped itself to
+  S1-S3 only, unprompted; it also independently rediscovered the same "move a convention between topic
+  files" open design gap flagged in `conventions-authoring-spec.md`'s own Intent section. The coder found
+  a real, non-obvious parsing detail on its own (a convention field written as bare `key:` with no
+  trailing space is invisible to `conv-lint`'s field regex, which requires `^[a-z][a-z-]*:[[:space:]]`
+  — meaning an unsupplied field is reported as *missing* rather than *empty*, which is exactly the
+  behavior the spec calls for), asked a well-reasoned question about test mechanics before writing any
+  code (the existing harness diffs read-only fixtures; `conv-new` necessarily mutates files, so it
+  proposed fixed deterministic scratch dirs under `tests/tmp/` rather than `mktemp`, plus a `.gitignore`
+  entry), and committed S1 (`65553806`) cleanly once approved, leaving the untracked leftover
+  `conventions/code-deletion.md` untouched exactly as instructed.
+- **Resolved: how Dean can actually follow a background agent's output.** `claude logs <id>` and
+  `session-extract.sh` against the agent's own transcript JSONL (findable at
+  `~/.claude/projects/<cwd-with-slashes-as-dashes>/<session-id>.jsonl`, same location and shape as every
+  other Claude Code transcript) both fall short for this purpose — `logs` dumps raw unreadable ANSI, and
+  `session-extract.sh` is deliberately built to surface only *user*-authored turns, not the agent's own
+  reasoning or actions, so it shows almost nothing for a background agent nobody is chatting with.
+  **`claude attach <id>`, interacted with normally (the same live TUI Dean was already using), is the
+  actual answer** — real-time, complete, shows everything the agent is doing. Dean found this himself.
+  Net effect: watching a background agent's *output* is solved (attach); *sending it new instructions*
+  without becoming its sole conversational partner is still open, per the file-handoff-is-the-reliable-
+  channel finding above — attaching to type at it defeats the "only through the planner" boundary the
+  same way answering a stray prompt did.
+
+## Session end, 2026-08-15 — both agents stopped and examined before transcript deletion
+
+Per Dean's explicit request ("stop all... examine... capture and delete everything"): both background
+agents (coder `14d876ac`, reviewer `3da4ba42`) were stopped via `claude stop <id>` — confirmed gone from
+both `claude agents --json` and the process table before proceeding. Full inventory was taken first
+(`claude agents --json`, unfiltered) to confirm only these two `kind: background` entries belonged to
+this planner session; the six `kind: interactive` entries in the same listing (including this session
+itself) were left untouched — they are other live sessions' work, not this session's to stop.
+
+**Real finding, would have been lost without checking before delete: the coder got further than last
+verified.** `plans-tooling` shows S2 committed (`57f4874a`, `conv-edit.sh`) in addition to the
+previously-confirmed S1 (`65553806`) — only S3 (`conv-rename`) remains unbuilt. S2's commit message
+documents catching a genuinely subtle bug before the golden test could hide it: trailing blank lines
+between a convention's section and whatever follows (next heading or EOF) belong to the file's
+structure, not the section being replaced — splicing at the untrimmed boundary glued the replacement
+directly onto the next heading. Fixed by mirroring `sec.sh`'s own read-side trim on write. Round-trip
+tested (`conv | conv-edit --from <output> | conv` byte-exact). Working tree left clean, the untracked
+`conventions/code-deletion.md` leftover still untouched throughout — same discipline as S1.
+
+The reviewer's transcript (37 records total, all Bash/Read tool calls) contained nothing beyond what is
+already captured above — it read exactly what it was told to, invoked `/code-review` zero times (the
+coder never signaled anything ready), and wrote no files anywhere. Nothing further to preserve from it.
+
+Both transcript files (`~/.claude/projects/.../14d876ac-*.jsonl`, 755KB;
+`~/.claude/projects/.../3da4ba42-*.jsonl`, 73KB) are being deleted after this capture, per Dean's
+explicit instruction — their substance now lives here and in the `plans-tooling` git history (S1/S2
+commits), not only in the (now-deleted) transcripts.
+
 ## Still open — consequences not yet worked out
 
 - **What happens to the planned "copy into `plans/`" kickoff step**, now that `plans-tooling` is meant
