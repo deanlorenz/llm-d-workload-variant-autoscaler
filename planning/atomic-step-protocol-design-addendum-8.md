@@ -161,6 +161,63 @@ Both transcript files (`~/.claude/projects/.../14d876ac-*.jsonl`, 755KB;
 explicit instruction — their substance now lives here and in the `plans-tooling` git history (S1/S2
 commits), not only in the (now-deleted) transcripts.
 
+## Second launch, 2026-08-16 — SendMessage tested and confirmed non-functional for `--bg` agents
+
+Two fresh agents launched to resume where the first pair left off (coder `a915f65b` at S3, reviewer
+`b42c8494` from `plans`), with two changes versus the first launch: `--permission-mode auto` from the
+start (no `acceptEdits` mistake to repeat), and an explicit `IDENTITY:` block in each launch prompt
+stating role and scope before any task content, per Dean's instruction to make sure the coder actually
+knows it's a coder, not a planner.
+
+**`ListAgents`/`SendMessage` tested deliberately, at Dean's request — confirmed non-functional for
+`kind: bg` agents, not a naming mistake.** Five addressing forms tried against two different agents:
+display name exactly as shown by `ListAgents` (with and without its `[ref]` suffix), the full session
+UUID, the short `id` `claude agents`/`claude stop` accept, and the bare bracketed ref alone. All five
+failed identically ("No agent named '...' is reachable"). Dean's hypothesis that the display name's
+missing emoji-icon-in-`to:`-text might be the cause was tested directly (bare ref, full UUID, short id
+— none contain an emoji) and ruled out: the failure is independent of which token is used, so this is
+not a naming/formatting bug on the caller's side. No dedicated "send input to a running background
+agent" CLI subcommand was found either. Consistent with, and now a second independent confirmation of,
+the finding already recorded in memory `feedback_sendmessage_vs_file_handoffs` (2026-08-13). **File-based
+handoffs remain the only channel confirmed to reach a running `--bg` agent with new instructions** —
+tested this round with a plain connectivity-test handoff to each agent; neither agent noticed it
+without being separately told to check (see below), but once each was later given a substantive handoff
+addressed to it as part of its actual task flow, both read and acted on it correctly.
+
+**Real, useful finding: neither agent polls `session/handoffs/` on its own.** A `Monitor` watch for
+either agent's status file changing or the connectivity-test handoffs changing state ran 5 minutes with
+zero events — neither agent has a standing watch loop; each only checks `session/handoffs/` at the
+specific moments its own launch prompt told it to (e.g., "wait for a handoff addressed to you"), not
+continuously. Confirms Dean's own point (from the session/task-ownership rule set, 2026-08-15) that a
+watcher skill is a real, currently-missing capability, not a hypothetical one.
+
+**Auto-namer still mislabels the coder as "Planner" despite an explicit `IDENTITY:` instruction stating
+otherwise as the first thing in its launch prompt** (`"name": "📐 identity-coder-session-plans-tooling
+Planner"`). Confirms the naming mechanism derives its role-word suffix from something other than the
+prompt's own content (timing — the namer likely runs before the first prompt is even processed, per
+Dean's own hypothesis — or some other session-metadata signal), so prompt wording alone cannot fix it.
+The agent's own self-reported identity in its status file is correct regardless (`role: coder`,
+explicitly stated, matching the task) — this is a cosmetic display defect only, not a functional one,
+confirmed by both agents' actual behavior: both wrote correct role/scope statements to their own status
+files and stayed within their assigned scope throughout.
+
+**Both agents' work quality on this second round, same as the first: careful, correctly scoped, nothing
+guessed silently.** The coder's S3 (`conv-rename`) plan (written to
+`session/handoffs/plan__s3-conv-rename-plan.md` rather than only replied inline, per instruction to
+produce a durable artifact) flagged every open judgment call rather than picking silently — CLI flag
+arity, a deliberate divergence from the flat-`--dir` scanning idiom (recursive cite-dir scan, argued as
+correct since under-matching a citation is the worse failure), two documented out-of-scope gaps
+(conventions citing conventions from within `conventions/` itself; `planning/archive/` rewritten same
+as anything else), an exit-code table, a shared-test-infra change flagged before touching it
+(`scratch-run.sh` generalized to repeated fixture/scratch pairs), and a genuine ambiguity in the spec's
+own case count (states "six," lists five, "done_when" says "six") — resolved by proposing seven,
+adding both a parity case with `conv-new`'s invalid-name refusal and an actual delete-succeeds case
+(every existing delete case was a refusal only; nothing proved delete could ever really delete). All
+of it reviewed and approved as proposed. The reviewer's parallel report independently re-verified the
+exact commit range already landed (`git log` against `plans-tooling`) rather than trusting the prior
+session's claims, and correctly identified its own current state as "nothing to review yet, waiting for
+signal" — same discipline as the first round's reviewer.
+
 ## Still open — consequences not yet worked out
 
 - **What happens to the planned "copy into `plans/`" kickoff step**, now that `plans-tooling` is meant
