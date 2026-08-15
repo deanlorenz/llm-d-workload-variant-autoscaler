@@ -10,6 +10,30 @@
 
 **Active (full abstracts) — live WIP only:**
 
+- **2026-08-15 — state commands (park/sweep/consolidate) ported as skills; Type 1 design written.**
+  Three skills for making sure nothing important is lost, at increasing depth — `/s-state-park`
+  (flush live context; additive only; model-invocable), `/s-state-sweep` and `/s-state-consolidate`
+  (both Dean-invoked only, read broadly, may restructure). The load-bearing rule is a **mandatory
+  source report**: without a list of what was read, the command has only been *claimed*, not
+  performed — memory and conversational context are never sources. Adapted to this workspace's
+  ownership model: role-aware write scope (own docs directly, `sync__`/`plan__` handoffs for shared
+  state; coders get the narrower worktree + two-shared-paths scope), and **no `mv` in any of the
+  three** because renaming a handoff `.WIP`/`.DONE` is a session *accepting and finishing* work,
+  which a state command never does. Two findings worth carrying: (a) subagent transcripts already
+  persist at `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl` and survive a
+  parent restart, and subagents resume **by agent ID** — so the fragile thing is the *address*, not
+  the state; park records IDs into durable state and additionally best-effort-nudges running agents,
+  reporting the two separately so an unconfirmed nudge never reads as a completed flush; (b) exiting a
+  worktree is **correctness, not tidiness** — CC migrates the session on enter/exit and only sessions
+  in `plans` appear in the VSCode extension history, so a park ending inside a worktree is itself
+  unfindable. Committed `cc2d5ab0`, **not pushed**. ⚠️ Design § 6.1's platform facts (transcript
+  path, resume-by-agent-ID, `SendMessage` delivery, `SubagentStop` semantics) came from a spawned
+  `claude-code-guide` subagent's reading of the Claude Code docs — read, not independently
+  re-fetched page by page; the resume-by-agent-ID and transcript-path claims are the load-bearing
+  ones if anyone wants them verified before relying on them. State:
+  [`planning/state-commands-design.md`](../planning/state-commands-design.md) (§ 5 adaptations,
+  § 6 subagents, § 7 worktree exit, § 8 grants, § 9 forward work).
+
 - **2026-08-14/15 — checkpoint scripts: origin-pid lifecycle + atomic single-instance guards.
   Coded, tested, committed; review DEFERRED to a worktree by Dean's instruction.** Commit
   **`750f9c5d`** on `plans`, **local only, not pushed**. Three scripts reworked —
@@ -54,6 +78,35 @@
   still carries the `stat -f %m` bug** — same latent crash, left out-of-scope. (4)
   **`.claude/settings.json` holds another session's uncommitted permission additions** — untouched
   here; do not attribute or discard them.
+  **2026-08-15/16 — pushed; guard mechanism further fixed and re-verified; two of the four
+  production loops restarted; hook-wiring ownership handed off.** Pushed to `origin/plans`
+  (`e59dd371`, clean fast-forward). Two further real bugs found and fixed in review, not just the
+  three above: **a `pgrep`-only dedup left ZERO survivors on simultaneous launch** (both instances
+  see each other and both stand down) — fixed by adding an atomic `mkdir` guard ahead of the `pgrep`
+  check, released inline (no trap — the mtime-staleness check already covers a guard abandoned by a
+  killed process, so a trap was redundant machinery); and **`--once` mode diverged between scripts**
+  on whether it also skipped the dedup guards (`session-snapshot.sh` didn't, `tick-shared-scan.sh`
+  did) — made consistent. Re-verified behaviorally after each fix, not by inspection alone. Manually
+  started `tick-shared-scan.sh` (pid `3410333`) and `sync-main-watch.sh` (pid `3412453`) here under
+  the new interface — both confirmed running via a real `/proc` scan (not `pgrep`, which self-matched
+  the literal `--origin-pid <n>` text typed into the launching shell call — a testing artifact, not a
+  script defect; worked around by launching through a separate wrapper script on disk).
+  **`session-snapshot.sh`'s auto-start ownership transferred**, per Dean's instruction — the
+  atomic-step-protocol-brainstorm planner now owns finishing `tier1-session-start.sh` (needs
+  `--origin-pid "$PPID"` wired in, plus the still-unapproved `container-settings.json` hook entry);
+  handoff `plan__tier1-session-start-ownership-transfer.md` sent. Manual start command for any
+  session in the meantime: `nohup bash scripts/session-snapshot.sh --out
+  session/digests/<topic>.raw.md --file <own transcript path> --origin-pid <own real claude pid>
+  --interval 120 &` (the pid must be the actual long-lived `claude` process, found by matching
+  `--resume=<session-id>` in its argv — not a shell wrapper pid, which dies and respawns per tool
+  call). **`tick-live-index.sh:111`'s `stat -f %m` bug moved from a footnote here into a tracked
+  backlog item** — see § Issues to Open. **Still open, unchanged:** the Type 6 review itself (who
+  runs it, which scope form) — explicitly deferred to `plans-tooling` or a fresh worktree, not
+  continued here per Dean's instruction. **Also landed this window, same scope:** a new
+  [`planning/planning-map.md`](../planning/planning-map.md) (`Status: DRAFT`) indexing every
+  `planning/` doc by type and topic cluster, approved by Dean as "good enough for now." Its own
+  § Gaps names that it has no refresh mechanism yet — handed to the atomic-step-protocol-brainstorm
+  planner as a non-urgent TODO (`plan__planning-map-refresh-tool-todo.md`).
   **State:** [`session/status/sync-session.md`](status/sync-session.md) (cold-resume detail).
 - **2026-08-07/09 — Anchor-refactor mission. PR-1 MERGED; PR-2 = #1523 OPEN, green, awaiting external
   review.**
@@ -283,23 +336,38 @@
   assignment.
   **2026-08-14 — campaign coverage matrix CLOSED (21 experiments, 6 workload shapes); results
   consolidated into one authoritative report.** Every workload now has every config its own design
-  calls for. The single authoritative results doc is
-  [`planning/ta-pokprod-campaign-report.md`](../planning/ta-pokprod-campaign-report.md) — leads with
-  cross-cutting conclusions rather than narrative, and **supersedes the two older results docs**
-  (both left in place with pointer headers, not deleted). All 19 affected runs have real,
-  version-stamped viz panels linked from the report. **Two items open and actionable:** (a) moving
-  the campaign report to `benchmark/docs/benchmark-reports/` (Dean's call, `D-53`) is **in flight,
-  not stalled** — the benchmark coder holds `benchmark__relocate-campaign-report-to-docs.md` as
-  `.WIP`; (b) doc-coverage cleanup for 5 more undocumented scratch tools (`verify_decision_rule.py`,
-  `server_token_truth.py`, `stage_table.py`, `stage_vs_replicas.py`, `watch_pvc_space.sh`) —
-  flagged as `D-51`, Dean asked for a draft cleanup plan, **not started**. **Deliberately deferred
-  by Dean, not forgotten:** pokprod runbook fold-vs-stub (`T6`), the dwell-forecast Type-1 design
-  (shared queue-load-forecast mechanism), the controller-restart hold-at-current-replicas policy
-  question (`D-46`), the bucket-keyed `prc` collapse bug, and controlled-run/timestamped-replay
-  capability. **No armed footguns** — GPUs freed, no cluster action pending, nothing uncommitted on
-  that scope. This scope's docs were **just self-audited** (Dean-prompted), which found and fixed 3
-  real content gaps and one stale banner claim (`D-52`/`D-53`) — so they are verified current, not
-  assumed. State: [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md)
+  calls for. **2026-08-15 — report RELOCATED, doc-coverage count corrected, first Type 2 created.**
+  The authoritative results doc moved (Dean's call, `D-53`) to
+  [`benchmark/docs/benchmark-reports/ta-pokprod-campaign-report.md`](../../benchmark/docs/benchmark-reports/ta-pokprod-campaign-report.md)
+  — it's Type-6/PR-bound guide material, not internal tracking; the old `planning/` path now holds
+  only a superseded-pointer stub, all 28 run-directory links fixed for the new location, and three
+  stale "pending re-postprocess" TTFT/ITL values were filled in with real numbers in the move. All
+  19 affected runs have real, version-stamped viz panels linked from the report. **`D-51`'s
+  doc-coverage count was wrong — corrected 5 → 17** (a full directory listing caught 12 tools the
+  original source list missed); cleanup plan rewritten with the full inventory (10 recommended
+  DEFERRED, 7 promote-as-is), still not started. **First-ever Type 2 roadmap for this mission**,
+  a real structural gap closed rather than a routine update:
+  [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (LIVE, created 2026-08-15) is now the
+  entry point — read it first, it points into everything else. **New active thread:** per-request
+  TTFT/output-size estimation for viz panels 1a/1b (no true per-request source exists under the
+  standing OOM-risk collection-disable policy; design anchors real Envoy-log arrival/duration data
+  to a distribution-conditional estimate) — build handed to the benchmark coder, scoped to one
+  example run first, **in progress, `.WIP`**. **Real finding mid-design, not yet acted on:** vLLM's
+  shipped `--enable-per-request-metrics` flag may return genuine per-request data with
+  caller-controlled retention — a structurally different risk profile from the harness's own OOM
+  mechanism, and could replace the estimation approach if it verifies cleanly. Needs Dean's call:
+  verify the flag now, or let the in-flight estimation build finish first. **Two harness process
+  gaps found, flagged not fixed:** `reset_run.py`'s reset step never actually unpauses a paused
+  ScaledObject (prints the command, doesn't run it); `run_cell.sh`'s failure path can silently
+  overwrite an already-committed different run's config files when a run fails before producing a
+  results directory — both already documented in the campaign report and `ta-pokprod-history.md`,
+  not new asks. **Deliberately deferred by Dean, not forgotten:** pokprod runbook fold-vs-stub
+  (`T6`), the dwell-forecast Type-1 design (shared queue-load-forecast mechanism), the
+  controller-restart hold-at-current-replicas policy question (`D-46`), the bucket-keyed `prc`
+  collapse bug, and controlled-run/timestamped-replay capability. **No armed footguns** — GPUs
+  freed and verified quiescent, no cluster action pending, working tree clean on both scopes'
+  sides. State: [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (start here) +
+  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md)
   § *what still needs Dean, at a glance* + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md)
   (`D-1`…`D-53`, append-only, grep-lookup).
   **⚠️ Process incident, 2026-08-14 — a coder self-marked its own outgoing handoff `.DONE`.** The
@@ -402,12 +470,28 @@ rows stay here.
   also awaiting Dean's OK on 3 fork-only pushes (`6505de62`, the 3 presence-gate patches) and the
   upstream-patch-proposal decision. See § Benchmark + `session/status/benchmark.md`.
 - **The staged pokprod dwell run** is blocked on, in order: Dean's §7.6 (a)/(b) answer (or an
-  explicit deferral), Dean applying the gateway access-log follower (§9.1 **T9** — the coder's
-  permission classifier blocks the `kubectl apply`, and without it every per-request trace is a bet
-  against log rotation), the coder's four preconditions (§7.6.1), and finally Dean's run approval.
+  explicit deferral), the coder's four preconditions (§7.6.1), and finally Dean's run approval.
+  **Corrected 2026-08-16:** this used to also list "Dean applying the gateway access-log follower
+  (T9)" as a blocker — T9 has been **DONE since 2026-08-12**, wired automatically into
+  `benchmark-run` (see § Recent activity's pokprod entry) and no longer needs Dean's hand; this
+  line was stale against CURRENT.md's own already-recorded fact and is corrected, not new
+  information.
 
 ## Next steps
 
+- **State commands — 3 forward-work items from the 2026-08-15 port, none claimed yet.**
+  (1) **`SubagentStop` hook — unscoped, Dean's.** The real flush-on-termination guarantee (design
+  § 9.1): fires when a subagent finishes, receives `transcript_path` + `last_assistant_message`,
+  and `exit 2` **blocks** the stop — beats "more park" since it fires whether or not anyone
+  remembers to run it, and doesn't depend on `SendMessage` delivery. Touches `settings.json`, needs
+  its own approval. (2) **`s-note` has two real defects** (design § 9.2), neither urgent: its
+  handoff body still uses the pre-redesign `to: plan-agent`/`body:` format instead of the current
+  `from:`/`to:`/`session:` convention; its grants include the exact `Bash(git -C plans *)` wildcard
+  (incl. `git rm`) this design rules out for the state commands. (3) **Open design question, not
+  decided:** should park ever fire fully automatically via a `PreCompact` hook — the one moment the
+  loss channel is known to be about to open? Deliberately not designed yet; auto-firing a
+  write-capable skill needs its own thinking. Detail:
+  [`planning/state-commands-design.md`](../planning/state-commands-design.md) § 9.
 - **atomic-step-protocol-brainstorm — reading list + a pending operational ask (⚠️ needs Dean's
   go-ahead, not yet acted on).** The mission's reading list lives at
   `session/digests/atomic-step-protocol-brainstorm.md` (committed `e8b47c46`) — start with its
