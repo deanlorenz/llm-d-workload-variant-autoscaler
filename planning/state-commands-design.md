@@ -5,7 +5,7 @@
 > self-contained; each ends with a `[↑ TOC](#toc)` link.
 
 **Type:** 1 (design) · **Status:** FINAL for the three skills as built; § 9 forward work is unscoped
-**Created:** 2026-08-15
+**Created:** 2026-08-15 · **First-use findings added:** 2026-08-15 (§ 11)
 **Implements:** `.claude/skills/s-state-park/`, `s-state-sweep/`, `s-state-consolidate/`
 **Command definitions adapted from:** `ai-session-protocol/protocol/STATE-COMMANDS.md` (external repo,
 read-only reference — only the three command definitions were taken)
@@ -14,27 +14,31 @@ read-only reference — only the three command definitions were taken)
 
 ## TOC
 
-- [1. What this is and why it exists](#1-what-this-is-and-why-it-exists) L39:67
-- [2. The founding failure](#2-the-founding-failure) L68:95
-- [3. The source report — the rule that makes these real](#3-the-source-report--the-rule-that-makes-these-real) L96:130
-- [4. The three commands](#4-the-three-commands) L131:184
-  - [park — *"Is anything in my head not yet written down?"*](#park--is-anything-in-my-head-not-yet-written-down) L133:145
-  - [sweep — *"Does the source of truth actually reflect every open item?"*](#sweep--does-the-source-of-truth-actually-reflect-every-open-item) L146:159
-  - [consolidate — *"Is everything captured, correct, in the right place, and free of cruft?"*](#consolidate--is-everything-captured-correct-in-the-right-place-and-free-of-cruft) L160:184
-- [5. Adaptations to this workspace](#5-adaptations-to-this-workspace) L185:242
-  - [5.1 Role-aware write scope, not direct writes](#51-role-aware-write-scope-not-direct-writes) L191:221
-  - [5.2 A state command never accepts or finishes work](#52-a-state-command-never-accepts-or-finishes-work) L222:242
-- [6. Subagents: the address is the fragile part](#6-subagents-the-address-is-the-fragile-part) L243:306
-  - [6.1 What the platform actually does](#61-what-the-platform-actually-does) L249:266
-  - [6.2 The design consequence](#62-the-design-consequence) L267:285
-  - [6.3 Best-effort nudge — decided 2026-08-15](#63-best-effort-nudge--decided-2026-08-15) L286:306
-- [7. Worktree exit is load-bearing](#7-worktree-exit-is-load-bearing) L307:332
-- [8. Permission grants and why each absence is deliberate](#8-permission-grants-and-why-each-absence-is-deliberate) L333:384
-- [9. Forward work — documented, not built](#9-forward-work--documented-not-built) L385:428
-  - [9.1 `SubagentStop` hook for genuine flush-on-termination](#91-subagentstop-hook-for-genuine-flush-on-termination) L387:406
-  - [9.2 `s-note` cleanup](#92-s-note-cleanup) L407:417
-  - [9.3 Open questions](#93-open-questions) L418:428
-- [10. Lifecycle boundary](#10-lifecycle-boundary) L429:438
+- [1. What this is and why it exists](#1-what-this-is-and-why-it-exists) L43:71
+- [2. The founding failure](#2-the-founding-failure) L72:99
+- [3. The source report — the rule that makes these real](#3-the-source-report--the-rule-that-makes-these-real) L100:134
+- [4. The three commands](#4-the-three-commands) L135:188
+  - [park — *"Is anything in my head not yet written down?"*](#park--is-anything-in-my-head-not-yet-written-down) L137:149
+  - [sweep — *"Does the source of truth actually reflect every open item?"*](#sweep--does-the-source-of-truth-actually-reflect-every-open-item) L150:163
+  - [consolidate — *"Is everything captured, correct, in the right place, and free of cruft?"*](#consolidate--is-everything-captured-correct-in-the-right-place-and-free-of-cruft) L164:188
+- [5. Adaptations to this workspace](#5-adaptations-to-this-workspace) L189:246
+  - [5.1 Role-aware write scope, not direct writes](#51-role-aware-write-scope-not-direct-writes) L195:225
+  - [5.2 A state command never accepts or finishes work](#52-a-state-command-never-accepts-or-finishes-work) L226:246
+- [6. Subagents: the address is the fragile part](#6-subagents-the-address-is-the-fragile-part) L247:310
+  - [6.1 What the platform actually does](#61-what-the-platform-actually-does) L253:270
+  - [6.2 The design consequence](#62-the-design-consequence) L271:289
+  - [6.3 Best-effort nudge — decided 2026-08-15](#63-best-effort-nudge--decided-2026-08-15) L290:310
+- [7. Worktree exit is load-bearing](#7-worktree-exit-is-load-bearing) L311:336
+- [8. Permission grants and why each absence is deliberate](#8-permission-grants-and-why-each-absence-is-deliberate) L337:388
+- [9. Forward work — documented, not built](#9-forward-work--documented-not-built) L389:434
+  - [9.1 `SubagentStop` hook for genuine flush-on-termination](#91-subagentstop-hook-for-genuine-flush-on-termination) L391:410
+  - [9.2 `s-note` cleanup](#92-s-note-cleanup) L411:421
+  - [9.3 Open questions](#93-open-questions) L422:434
+- [10. Lifecycle boundary](#10-lifecycle-boundary) L435:447
+- [11. First-use findings (2026-08-15, day of landing)](#11-first-use-findings-2026-08-15-day-of-landing) L448:514
+  - [11.1 What was confirmed working](#111-what-was-confirmed-working) L454:484
+  - [11.2 The real gap: report compliance is not enforceable from inside the skill](#112-the-real-gap-report-compliance-is-not-enforceable-from-inside-the-skill) L485:503
+  - [11.3 Still untested](#113-still-untested) L504:514
 
 ## 1. What this is and why it exists
 
@@ -420,7 +424,9 @@ neither urgent:
 - Should park ever fire fully automatically (PreCompact), or only on agent initiative and Dean's word?
 - Should sweep/consolidate leave a machine-readable record of *what they read and when*, so a later sweep can
   justify a skip (§ 4's "unchanged since `<sha>`") instead of re-reading everything? Today the source report
-  is prose in the transcript, which the next session cannot query.
+  is prose in the transcript, which the next session cannot query. **No longer hypothetical — see § 11.2:
+  observed on day one, one park emitted a report and another did not.** A `Stop` hook that checks for the
+  report shape is the candidate fix; unscoped.
 
 [↑ TOC](#toc)
 
@@ -434,5 +440,75 @@ agent's own judgment — closing requires explicit human confirmation. Nor does 
 
 If a command surfaces something that needs a decision rather than filing, it becomes an open question or a
 new thread. It does not get resolved silently in passing.
+
+[↑ TOC](#toc)
+
+---
+
+## 11. First-use findings (2026-08-15, day of landing)
+
+Two other sessions picked up `/s-state-park` within hours of it landing, without being asked to. Both parks
+were good; between them they exercised different halves of the design and exposed one real gap. Recorded
+here because a design's first contact with real use is evidence, and it decays fast.
+
+### 11.1 What was confirmed working
+
+**Park A — sync session, in `plans`** (commit `4339168a`, parking the checkpoint-guard work `750f9c5d`):
+
+- The **identity block** came out fully populated — `id`, `role`, `owned_doc`, `task`, `status_file`. That is
+  the block CONVENTIONS added after the 2026-08-13 routing incident, and Step 1 caused it to be filled rather
+  than skipped.
+- **The routing boundary held under the one condition that could have collapsed it.** A *sync* session — the
+  only agent that legitimately writes CURRENT.md — still wrote itself a `sync__` handoff rather than editing
+  CURRENT.md inline, correctly treating "parking" as distinct from "running `/sync-current`".
+- **Armed footguns came out verbatim and specific**, including *another session's uncommitted
+  `settings.json` edits* marked "do not attribute or discard" — the "another session is in this tree" rule
+  producing a real safety note rather than boilerplate.
+- **An incomplete review was reported as incomplete** (no Type 6 doc, convention not followed) with two
+  questions left open rather than guessed. § 10 holding.
+
+**Park B — coder, in the `autoscaling-viz` worktree** (Task 7 close-out):
+
+- **§ 7's worktree exit fired for real** — `exited autoscaling-viz → plans, keep` — the load-bearing path
+  Park A could not test, since sync runs in `plans` already.
+- It was **honest about check sequencing**: `tip 062c1071 — confirmed via git log before exit`, rather than
+  implying every check happened from the final location. That distinction is easy to blur and § 7 asks for it.
+- **An all-empty park proved to be a legitimate, trustworthy outcome** — because the empties were *itemized
+  with reasons* (`Written to: (nothing — status file already reflected everything through Task 7; no drift
+  found)`) rather than omitted. A park that printed "nothing to do" would be indistinguishable from a park
+  that did not look.
+- **§ 5.2 held at the tempting moment**: a released, unclaimed handoff was explicitly **not** marked `.WIP`,
+  with the reason stated — accepting work is a session's act, not park's.
+
+[↑ TOC](#toc)
+
+### 11.2 The real gap: report compliance is not enforceable from inside the skill
+
+Same skill, same day: **Park B emitted a full source report; Park A emitted none** that survives in its
+commit. Its status file and handoff were excellent, but § 3 says the report *is* the checkable artifact — and
+it exists only in a transcript the next session cannot query.
+
+So the source report is followed when the invoking session is inclined to, and silently skipped otherwise.
+**Nothing in a skill body can force it.** This is § 9.3's second open question arriving as a concrete
+inconsistency rather than a hypothetical, and it is the same shape as § 9.1: the fix is a hook, not more
+prose. A `Stop` hook could check for the report shape after a park and block on its absence, exactly as
+`SubagentStop` can block on a missing state file. Same infrastructure family, same "needs its own approval"
+caveat. **Not scoped.**
+
+Note the asymmetry this creates today: a park that *claims* completeness and a park that *is* complete are
+distinguishable only when the report is present. That is precisely the failure mode § 2 describes, one level
+up — applied to the state command itself rather than to a document.
+
+[↑ TOC](#toc)
+
+### 11.3 Still untested
+
+**Step 2a/2b — the subagent address recording and best-effort nudge — has not run.** Both parks had no
+subagents to address (Park A *did* spawn two `general-purpose` checkers, and neither agent ID appears anywhere
+in its parked state; whether 2a was skipped or judged unnecessary cannot be determined *because no report was
+emitted*). The most novel part of this design remains unexercised, and § 6.2's claim — that an unrecorded
+agent ID is unrecoverable after compaction — is still an inference from the docs rather than an observation.
+
+The two gaps compound: without a report there is no way to distinguish "checked, not needed" from "missed."
 
 [↑ TOC](#toc)
