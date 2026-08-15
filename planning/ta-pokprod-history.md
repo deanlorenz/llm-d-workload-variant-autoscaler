@@ -1186,3 +1186,18 @@ necessarily as clickable links in a renderer scoped to the `plans` worktree alon
 in place; the fix is the move itself, which needs the benchmark coder to execute (plan-agent write
 scope is `plans/` only, never a code worktree). Handoff not yet written — this ledger entry exists
 so the decision itself isn't lost regardless of when that handoff goes out.
+
+---
+
+## D-54 | 2026-08-15 | topic:doc-coverage-cleanup,5-tools,draft-plan | src:pokprod-scratch-tools-doc-coverage-cleanup-plan.md
+
+**D-51's 5 undocumented scratch tools, read in full and classified (draft, Dean's call not yet
+made).** Split into two real categories, not one: `verify_decision_rule.py`,
+`server_token_truth.py`, `stage_table.py`, `stage_vs_replicas.py` are ladder-run-specific
+diagnostic tools (same hard limit as `envoy_per_request.py`/`serving_replicas.py` — hardcoded
+constants, a reusable *technique* rather than a reusable *tool*); `watch_pvc_space.sh` is a
+genuinely reusable, deliberately narrow-scoped operational guard (PVC-space watchdog, hardcoded
+namespace "on purpose... never point it at another namespace"). Recommendation: DEFERRED-as-pattern
+for the 4 analysis tools, promote-as-is (or close to it) for the guard — not decided, a
+recommendation only. New Type 3:
+[`pokprod-scratch-tools-doc-coverage-cleanup-plan.md`](pokprod-scratch-tools-doc-coverage-cleanup-plan.md).
