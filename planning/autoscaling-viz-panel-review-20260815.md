@@ -12,14 +12,15 @@ renderer's pre-Task-3 numbering by mistake, not a document defect.
 
 ## TOC {#toc}
 
-- [Confirmed good, no action {#confirmed-good}](#confirmed-good-no-action-confirmed-good) L24:38
-- [Item Q — panel 1b text: mean±std, not just mean {#item-q-1b-text}](#item-q--panel-1b-text-meanstd-not-just-mean-item-q-1b-text) L39:47
-- [Item R — panel 3: waiting overlay back to diagonal hatch {#item-r-panel3-diagonal}](#item-r--panel-3-waiting-overlay-back-to-diagonal-hatch-item-r-panel3-diagonal) L48:57
-- [Item S — panel 4 redesign: stack (a)/(b), fix (a), consider per-pod-stats alternative {#item-s-panel4}](#item-s--panel-4-redesign-stack-ab-fix-a-consider-per-pod-stats-alternative-item-s-panel4) L58:79
-- [Item T — panel 6: y-axis label + marker-label-on-first-occurrence {#item-t-panel6-label}](#item-t--panel-6-y-axis-label--marker-label-on-first-occurrence-item-t-panel6-label) L80:93
-- [Item U — "WEAK TIME ANCHOR" in the title: needs explaining, not just displaying {#item-u-weak-anchor}](#item-u--weak-time-anchor-in-the-title-needs-explaining-not-just-displaying-item-u-weak-anchor) L94:107
-- [Item V — CONFIRMED: no cross-panel contradiction; two real findings underneath {#item-v-correctness}](#item-v--confirmed-no-cross-panel-contradiction-two-real-findings-underneath-item-v-correctness) L108:153
-- [Cross-references](#cross-references) L154:162
+- [Confirmed good, no action {#confirmed-good}](#confirmed-good-no-action-confirmed-good) L25:39
+- [Item Q — panel 1b text: mean±std, not just mean {#item-q-1b-text}](#item-q--panel-1b-text-meanstd-not-just-mean-item-q-1b-text) L40:48
+- [Item R — panel 3: waiting overlay — thinnest possible diagonal white lines {#item-r-panel3-diagonal}](#item-r--panel-3-waiting-overlay--thinnest-possible-diagonal-white-lines-item-r-panel3-diagonal) L49:74
+- [Item S — panel 4 redesign: stack (a)/(b), fix (a), consider per-pod-stats alternative {#item-s-panel4}](#item-s--panel-4-redesign-stack-ab-fix-a-consider-per-pod-stats-alternative-item-s-panel4) L75:96
+- [Item T — panel 6: y-axis label + marker-label-on-first-occurrence {#item-t-panel6-label}](#item-t--panel-6-y-axis-label--marker-label-on-first-occurrence-item-t-panel6-label) L97:110
+- [Item U — "WEAK TIME ANCHOR" in the title: relocate out of the main title, not just explain it {#item-u-weak-anchor}](#item-u--weak-time-anchor-in-the-title-relocate-out-of-the-main-title-not-just-explain-it-item-u-weak-anchor) L111:131
+- [Item V — CONFIRMED: no cross-panel contradiction; two real findings underneath {#item-v-correctness}](#item-v--confirmed-no-cross-panel-contradiction-two-real-findings-underneath-item-v-correctness) L132:175
+- [Item W — panel 3 drain windows are mis-anchored: they cover the pod's still-busy tail, not a decay to zero {#item-w-drain-window-root-cause}](#item-w--panel-3-drain-windows-are-mis-anchored-they-cover-the-pods-still-busy-tail-not-a-decay-to-zero-item-w-drain-window-root-cause) L176:236
+- [Cross-references](#cross-references) L237:251
 
 ## Confirmed good, no action {#confirmed-good}
 
@@ -45,13 +46,29 @@ derived from the delivered-work series; add the same series' std alongside it).
 
 [↑ TOC](#toc)
 
-## Item R — panel 3: waiting overlay back to diagonal hatch {#item-r-panel3-diagonal}
+## Item R — panel 3: waiting overlay — thinnest possible diagonal white lines {#item-r-panel3-diagonal}
 
 Task 8 changed the waiting band's hatch from diagonal (`/`) to horizontal (`-`) lines, to
-distinguish it from draining's dots. Dean's preference, after seeing it rendered: **go back to
-diagonal** for waiting. Overlay line weight and color from Task 8 are confirmed good — "line width
-and color is good," just the specific hatch character for waiting should revert. Draining stays as
-dots (unchanged, not mentioned as needing a change).
+distinguish it from draining's dots — a change Dean never asked for; he flagged this directly:
+"not sure why 8 asked for horizontal — I never asked for that." **Root cause: my own Type 3 spec**
+(`autoscaling-viz-panel3-visual-scheme-plan.md`, sourced from `autoscaling-viz-panel-review-20260813-followup.md`
+§ Item K) mis-paraphrased Dean's original ask — "dots for draining, dashes for waiting" as a visual
+**distinction** requirement — into a specific **mechanism** requirement ("change the hatch character
+to a dashed-line style"). The coder faithfully implemented the flawed spec; matplotlib has no literal
+"dash" hatch character (only `/,\,|,-,+,x,o,O,.,*,X`), so `-` (horizontal) was a defensible reading
+of the flawed spec on its own terms — but it wasn't what Dean wanted.
+
+**Dean's exact correction:** "I want the thinest possible diagonal white lines." Requirements,
+precisely:
+1. **Diagonal** (`/`, back to what Task 8 replaced) — not horizontal.
+2. **White** — the hatch line color itself, not just distinguishable from draining's dots.
+3. **Thinnest possible** — minimize the hatch line weight, distinct from the overlay border line
+   weight (which Dean separately confirmed is already good — "line width and color is good" referred
+   to the overlay's own border, not the hatch fill).
+
+Draining stays as dots (unchanged, not mentioned as needing a change). A fresh Type 3 (or a
+targeted amendment to the visual-scheme plan) must carry this exact wording — not "revert to
+diagonal" alone — before dispatch to the coder.
 
 [↑ TOC](#toc)
 
@@ -91,17 +108,24 @@ good attempt":
 
 [↑ TOC](#toc)
 
-## Item U — "WEAK TIME ANCHOR" in the title: needs explaining, not just displaying {#item-u-weak-anchor}
+## Item U — "WEAK TIME ANCHOR" in the title: relocate out of the main title, not just explain it {#item-u-weak-anchor}
 
-Dean's direct question: **what does "weak time anchor" mean, and why does it appear in the figure
-title?** Not yet answered in this doc — this is a real documentation gap, not a code defect. The
-mechanism exists in code (`render_real_trace.py`'s `weak = anchor.get('trustworthy') is False`,
+Dean's original question: **what does "weak time anchor" mean, and why does it appear in the
+figure title?** My first-pass resolution proposed a plain-language explanation in place (Type 4
+reference or expanded code comment) while leaving the text in the title. **Dean's correction on
+that framing: "even with better explanation, does not belong in main title."** The defect isn't
+that the phrase is unexplained — it's that a caveat this technical has no business occupying the
+figure's main title regardless of how well it's glossed. Resolution changes from *explain it
+better where it is* to **move it out of the title entirely**.
+
+The mechanism exists in code (`render_real_trace.py`'s `weak = anchor.get('trustworthy') is False`,
 driving the title suffix) and the footer already names *why* it fired for this specific run
 ("engine occupancy exceeds request-derived in-system count on 7% of scrapes despite
-corr=0.9995...") — but nothing explains *what a time anchor is* or *why its trustworthiness matters*
-to a reader encountering this for the first time. Needs a plain-language explanation, likely a
-doc addition (Type 4 reference or an expanded code comment) rather than a code change — flagged, not
-yet resolved.
+corr=0.9995...") — so the caveat's content is already captured somewhere reasonable (the footer).
+**Not yet decided:** whether the fix is simply dropping the title suffix (since the footer already
+carries the explanation) or moving it to a smaller/secondary annotation elsewhere on the figure.
+That placement call, and any accompanying doc work, needs a fresh Type 3 before dispatch — not yet
+written.
 
 [↑ TOC](#toc)
 
@@ -149,14 +173,79 @@ behavior for that window, not a bug.
 
 [↑ TOC](#toc)
 
+## Item W — panel 3 drain windows are mis-anchored: they cover the pod's still-busy tail, not a decay to zero {#item-w-drain-window-root-cause}
+
+**Dean's hypothesis, verbatim:** "review the drain — does not match the scale-down events. I think
+it may be related to the mismatch I already saw in previous fig. p3 may be showing the data upon
+entry time rather than current time. Requests in epp queue, requests per pod, requests per draining
+pods, and waiting per pod, are all current time, not entry time. All probably available as metrics."
+Investigated against the fresh `m-satta-dwell` render (7 drain events / 6 pods with drain windows) —
+**a real, confirmed defect, but not entry-time-vs-current-time indexing.**
+
+**What was ruled out:** panel 3's underlying per-pod `run`/`wait` series and the system `in_system`
+series are all correctly keyed by the sample's own scrape timestamp (`s['t']`) both in the renderer
+(`render_real_trace.py`) and the extractor's `GAUGE_MAP` (`vllm:num_requests_running` /
+`vllm:num_requests_waiting` — live current-value gauges, not queue-entry-time markers). No
+entry-time indexing bug found in the data series themselves.
+
+**What was confirmed instead — the drain window's own definition doesn't mean what its shading
+implies.** Checked every pod with a drain window in the fresh render against its own `run` series
+inside that window:
+
+| pod | drain window | `run` inside the window |
+|---|---|---|
+| `2vxwj` | [881, 944] (63s) | 0 → 1 → **19 → 20** → 15 → 13 |
+| `9kb6w` | [411, 537] (126s) | 0 → 1 → 2 → 1 → 2 → 1×5 |
+| `gzvfj` | [458, 537] (79s) | 2 → 1 → 1 → 2 → 1 → 1 |
+| `l9s5k` | [615, 727] (112s) | 2 → 2 → **5** → 3 → 3 → 3 → 2 → 3 → 2 |
+| `mhrkh` | [65, 127] (62s, pod-relative) | 0 → 1 → **72** → 32 → 31 → 28 |
+| `njwp6` | [771, 944] (173s) | 12 → 20 → 15 → 20 → 20 → 19 → 19 → 15 → 18 → 18 → 17 → 14 |
+
+Every one of these climbs or stays high through the shaded window, several spiking well into
+double digits (`mhrkh` to 72) — the opposite of what a "draining" band should show. The pod's own
+**last observed sample is still fully loaded** (`njwp6` ends at run=14, `mhrkh` at run=28), hundreds
+to 1500+ seconds before the run itself ends — so this isn't a run-end truncation artifact either.
+
+**Root cause, traced to `pod_drain_windows()` in `extract_real_trace.py`
+(`autoscaling-viz/extract_real_trace.py:854-934`):** the function's own docstring states its premise —
+a drained pod "kept in-flight requests running after it stopped being part of the ready set," i.e.
+it assumes a decaying tail of shrinking `run` counts between "marked for removal" and "actually
+gone." The window is built as `[bound, last_t]` where `bound` is the nearest preceding
+`desired`-drop timestamp (correctly current-time — this part isn't the bug) and `last_t` is the
+pod's own last sample, with a backward scan from `last_t` clipped no earlier than `bound`. **The
+bug: the code never checks that `run` actually trends toward zero inside that span** — it only
+checks `run > 0` continuously (line 906: `if (s['g'].get('run') or 0) <= 0: break`), which is true
+for a fully-busy pod exactly as much as a truly-draining one. On this run, the pods aren't drained
+gracefully at all — they're killed abruptly while still serving a full load. The window's shading
+therefore paints "this pod was draining" over an interval where the data actually shows "this pod
+was killed while still at or near full concurrency," which is exactly the mismatch Dean spotted
+against the scale-down events: the window's *start* lines up with the `desired`-drop (correct), but
+its *content* doesn't depict a drain — because there wasn't one to depict.
+
+**Not yet resolved — routing question, not a fix proposal.** Two directions, not decided here:
+(a) redefine "drain window" to only be drawn/shaded over the sub-interval where `run` is actually
+declining, if such a sub-interval exists, and represent the rest (still-busy-until-killed) with a
+different visual treatment or none; or (b) keep the window as "time between marked-for-removal and
+actually-gone" but relabel/re-style it so it doesn't visually claim a graceful decay that isn't
+there. Needs a fresh Type 3 before dispatch to the coder — this doc only establishes the root cause
+and the evidence, not the visual fix.
+
+[↑ TOC](#toc)
+
 ---
 
 ## Cross-references
 
 - Parent epic: [`autoscaling-viz-followon-plan.md`](autoscaling-viz-followon-plan.md)
-- Sample reviewed: `autoscaling-viz/session-notes/review-samples/m-ta-prefill-knee-fresh-b7920cd3.png`
+- Sample reviewed (Items Q-V): `autoscaling-viz/session-notes/review-samples/m-ta-prefill-knee-fresh-b7920cd3.png`
+  (+ matching `-bundle.json`/`-coverage.json`)
+- Sample reviewed (Item W, drain-window investigation): `autoscaling-viz/session-notes/review-samples/m-satta-dwell-fresh-d7fa6ee5.png`
   (+ matching `-bundle.json`/`-coverage.json`)
 - Related backlog item (finding 3's mechanism): `session/CURRENT.md` § bucket-keyed `prc` collapse;
   `autoscaling-viz/planning/sim-from-benchmark-plan.md` §1.2
+- Related but distinct — do not conflate: `autoscaling-viz-drain-window-fix-plan.md` (Item O, the
+  ~15-16s drain-window-end scrape-cadence lag) is a different defect in the same function, already
+  addressed by commit `e188d244`'s backward-scan clipping fix. Item W is about what the window's
+  *content* depicts once its bounds are correct, not about the bounds' timing precision.
 
 [↑ TOC](#toc)
