@@ -1275,3 +1275,15 @@ already-in-flight estimation build, not decided here.
 (177/run) — no OTel collector endpoint running in this deployment. Tracing infrastructure exists
 in the stack, generates real spans, and they're silently dropped. Not pursued as a separate fix;
 the response-body flag is the more direct path to the same underlying data.
+
+---
+
+## D-58 | 2026-08-16 | topic:vllm-flag-test-scoped,version-gap-found | src:envoy-per-request-recovery-tool-plan.md
+
+**Fact-finding test scoped and handed to the coder, Dean-approved.** The image actually pinned
+across this mission's runs is `vllm/vllm-openai:v0.20.2` — the `--enable-per-request-metrics`
+flag (D-57) was only confirmed on the `latest`/`v0.27.0` doc branches, 7 minor versions newer.
+Test deliberately minimal: one bare vLLM pod, no gateway/EPP/harness, 2-3 curl requests, inspect
+response bodies directly for the `metrics` object and `usage.completion_tokens`. Teardown
+immediately after — a probe, not a kept resource. Deferred: testing through the real
+gateway/EPP path, testing a newer vLLM image (only relevant if v0.20.2 fails).

@@ -216,14 +216,35 @@ shipped/exported today, flagged as a lead worth re-checking if the vLLM flag pat
 pan out.
 
 **This finding does not retroactively obsolete the design above** — the vLLM flag needs its own
-verification (does it work as documented on the image versions actually in use here, what's the
-actual overhead, does the harness's own OpenAI-client parsing already surface `usage` today) before
-it can replace estimation as the plan. Treating it as a **second, higher-priority thread**: verify
-the flag on a real run before building more on the estimation path, since if it works cleanly, it
-may make the histogram-based estimation approach a fallback rather than the primary mechanism.
-Flagged for Dean's prioritization call, not decided here — the estimation build already handed to
+verification before it can replace estimation as the plan; the estimation build already handed to
 the coder for the one example run stays in flight regardless, since it doesn't require this flag
 and answers a real near-term need either way.
+
+**Fact-finding test scoped, Dean-approved 2026-08-15/16 — small, cheap, answers the real
+version-gap question first.** The image actually in use across this mission's runs is
+`docker.io/vllm/vllm-openai:v0.20.2` (`hack/benchmark/.env`), not the `latest`/`v0.27.0` doc
+branches the flag was confirmed on — 7 minor versions newer. Test design, deliberately minimal:
+
+1. Start **one** bare vLLM pod, image `v0.20.2`, flag `--enable-per-request-metrics` set. No
+   gateway, no EPP, no harness, no benchmark scenario — just the model server, so the answer
+   isn't confounded by anything else in the stack.
+2. Send 2-3 manual `curl` requests directly against it (one non-streaming, one streaming with
+   `stream_options.include_usage: true`, matching the two documented invocation shapes).
+3. Inspect each response body directly: does a `metrics` object exist at all on this version, and
+   if so does it carry `time_to_first_token_ms`? Does `usage.completion_tokens` populate correctly
+   on both invocation shapes?
+4. **Answer format:** exists-and-works / exists-but-broken / flag-not-recognized-on-this-version —
+   report the literal response bodies, not just a verdict, so a "no" is falsifiable and a "yes" is
+   directly reusable as a fixture for the next step.
+
+**Scope boundary:** this is a real cluster action (starts a pod on pokprod) — needs the standing
+per-run approval same as any other cluster contact, tracked separately from this design's own
+write-up. Teardown immediately after: this is a fact-finding probe, not a kept resource.
+
+**Not in scope for this test:** running it through the real harness/gateway/EPP path (more
+realistic, more cost — deferred until the bare-server answer is known), and testing a newer vLLM
+image (deferred — if v0.20.2 already works, there's nothing to gain from testing newer; if it
+doesn't, that becomes the next real question, not assumed now).
 
 **A related, independently-found data point:** `logs/modelserving_pods.log` (the decode pod's own
 `routing-proxy` sidecar, `llm-d-inference-scheduler`) initializes OpenTelemetry tracing on startup
