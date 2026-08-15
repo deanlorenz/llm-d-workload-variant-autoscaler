@@ -1306,3 +1306,21 @@ correctly left open pending whether it matters for panel 1a/1b's purposes.
 likely followed the original ask's provenance rather than the actual build-trigger's sender.
 Flagged directly to that scope so it isn't silently absorbed or acted on twice; findings folded
 into the design doc here regardless of the routing mixup.
+
+---
+
+## D-60 | 2026-08-16 | topic:estimate-actually-viewed,boundary-spike-found | src:scratch/estimate-review-20260816
+
+**Actually rendered the estimate before trusting it, per Dean's direct question ("did you run viz
+once to see the result").** Nobody had — the build was verified in text (counts, field shapes) but
+never looked at visually. Wrote a standalone scratch render (not the real toolchain, no
+extract_real_trace.py change) against `dean-20260813-005321-943`'s `per_request_estimated.json`.
+
+**Real-data panel (1a-ish) looks healthy** — sensible arrival shape, mostly fast requests. **Found
+a real pattern in the estimated fields:** ~8 requests, all within `t=436.0-436.4s`, share an
+identical outlier estimate (`ttft_estimated_ms=3750.0`, `out_tok=250`) well above the surrounding
+band — a near-simultaneous cluster at what reads as a stage boundary. Not established whether
+this is a genuine traffic burst or a histogram-bucket-assignment artifact at stage transitions;
+flagged to the coder with the concrete records rather than guessed at. Possibly related to, or a
+second instance of, D-59's already-flagged stage-4 rate anomaly — same investigation, not
+resolved by this pass either.
