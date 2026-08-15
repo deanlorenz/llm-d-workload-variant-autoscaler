@@ -1244,3 +1244,34 @@ DEFERRED-as-pattern, 7 recommended promote-as-is) — recommendation only, Dean'
 call not made. **Roadmap correction, same pass:** the per-request-recovery-for-viz thread (D-55's
 follow-on) is scoped to extraction/estimation only — viz's own consumption of the output is
 tracked on viz's own roadmap, not folded in here.
+
+---
+
+## D-57 | 2026-08-15 | topic:per-request-estimation-design,vllm-flag-found,otel-dropped | src:envoy-per-request-recovery-tool-plan.md
+
+**Design written for panels-1a/1b per-request extraction/estimation, build handed to the
+benchmark coder** (scoped to one example run, `dean-20260813-005321-943`, per viz-panels-planner's
+own request). No source gives true per-request TTFT/output-tokens under the current
+per-request-collection-disable policy — only per-stage histogram distributions
+(`vllm:time_to_first_token_seconds_*`/`vllm:request_generation_tokens_*`, D-55) — so the design
+anchors real per-request arrival/duration/routing from Envoy to a distribution-conditional
+estimate for the two missing fields. Dean confirmed estimation as the accepted near-term ceiling.
+Consolidates technique from `envoy_per_request.py` (parsing/dedup) while explicitly replacing its
+ladder-run-specific `STAGES`/`assign_stages` — not preserving any tool wholesale, per Dean's own
+framing.
+
+**Background research changes the picture: a real per-request path may exist after all.** vLLM's
+shipped `--enable-per-request-metrics` flag (GitHub #40076) returns genuine per-request TTFT +
+output-token-count in the response body itself, with retention entirely the caller's choice —
+structurally different risk profile from the harness's own unbounded-accumulator OOM mechanism
+(D-41). EPP was checked and is a dead end: `RequestContext` internally holds the right fields,
+discarded per-request (not itself OOM-prone), but none of it is exposed via any metric or log
+line today, and no upstream work proposes to. **Verifying the vLLM flag on a real run is now a
+second thread, not yet started** — Dean's prioritization call on sequencing against the
+already-in-flight estimation build, not decided here.
+
+**Independently found, same pass:** the decode pod's own `routing-proxy` sidecar
+(`llm-d-inference-scheduler`) initializes OpenTelemetry tracing but every export attempt fails
+(177/run) — no OTel collector endpoint running in this deployment. Tracing infrastructure exists
+in the stack, generates real spans, and they're silently dropped. Not pursued as a separate fix;
+the response-body flag is the more direct path to the same underlying data.
