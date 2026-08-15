@@ -39,3 +39,38 @@ case_register conv-lint-required-fields ./scripts/conv-lint.sh --dir tests/fixtu
 case_register conv-lint-status-value   ./scripts/conv-lint.sh --dir tests/fixtures/bad/status
 case_register conv-lint-heading-level  ./scripts/conv-lint.sh --dir tests/fixtures/bad/levels
 case_register conv-lint-referenced-path ./scripts/conv-lint.sh --dir tests/fixtures/bad/paths
+
+# conv-new — mutates a topic file, so each case runs against a deterministic
+# scratch copy (see tests/scratch-run.sh) rather than the committed fixtures.
+# The golden captures both the tool's own stdout and the resulting file
+# tree, so a wrong write is caught even if the tool's own message looks right.
+case_register conv-new-existing-topic \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-new-existing-topic -- \
+    ./scripts/conv-new.sh --dir tests/tmp/conv-new-existing-topic fresh-one \
+    --topic tests/tmp/conv-new-existing-topic/commits.md \
+    --description "A fresh convention added by a test." \
+    --scope "test fixtures only" \
+    --trigger "running the conv-new golden suite" \
+    --origin "conv-new S1 test case"
+
+# --origin is deliberately omitted here: the field prints as a bare 'origin:'
+# with no value, which conv-lint's field-line pattern does not match, so the
+# field reads as absent rather than empty. That is the mechanic behind "leave
+# unsupplied fields empty rather than inventing content."
+case_register conv-new-new-topic \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-new-new-topic -- \
+    ./scripts/conv-new.sh --dir tests/tmp/conv-new-new-topic fresh-two \
+    --topic tests/tmp/conv-new-new-topic/new-topic.md \
+    --description "A convention in a topic file that did not exist yet." \
+    --scope "test fixtures only" \
+    --trigger "running the conv-new golden suite"
+
+case_register conv-new-duplicate-refused \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-new-duplicate-refused -- \
+    ./scripts/conv-new.sh --dir tests/tmp/conv-new-duplicate-refused commit-message-shape \
+    --topic tests/tmp/conv-new-duplicate-refused/commits.md
+
+case_register conv-new-invalid-name-refused \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-new-invalid-name-refused -- \
+    ./scripts/conv-new.sh --dir tests/tmp/conv-new-invalid-name-refused "Not_Valid" \
+    --topic tests/tmp/conv-new-invalid-name-refused/commits.md
