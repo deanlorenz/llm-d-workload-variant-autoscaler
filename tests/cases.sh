@@ -74,3 +74,33 @@ case_register conv-new-invalid-name-refused \
     ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-new-invalid-name-refused -- \
     ./scripts/conv-new.sh --dir tests/tmp/conv-new-invalid-name-refused "Not_Valid" \
     --topic tests/tmp/conv-new-invalid-name-refused/commits.md
+
+# conv-edit — replace one section in place; --from fixtures are checked-in
+# and read-only, so only the target conventions dir needs a scratch copy.
+case_register conv-edit-first \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-first -- \
+    ./scripts/conv-edit.sh --dir tests/tmp/conv-edit-first commit-message-shape \
+    --from tests/fixtures/conv-edit/replace-first.md
+
+case_register conv-edit-middle \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-middle -- \
+    ./scripts/conv-edit.sh --dir tests/tmp/conv-edit-middle one-commit-per-step \
+    --from tests/fixtures/conv-edit/replace-middle.md
+
+# no-dco-on-plans runs to end-of-file in the fixture, so this also exercises
+# the no-following-heading boundary.
+case_register conv-edit-last \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-last -- \
+    ./scripts/conv-edit.sh --dir tests/tmp/conv-edit-last no-dco-on-plans \
+    --from tests/fixtures/conv-edit/replace-last.md
+
+case_register conv-edit-missing-marker-refused \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-missing-marker-refused -- \
+    ./scripts/conv-edit.sh --dir tests/tmp/conv-edit-missing-marker-refused commit-message-shape \
+    --from tests/fixtures/conv-edit/missing-marker.md
+
+# Round trip: conv | conv-edit --from <that output> | conv again must be
+# byte-exact, and the containing file must show no other change.
+case_register conv-edit-roundtrip \
+    ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-roundtrip -- \
+    ./tests/conv-edit-roundtrip.sh tests/tmp/conv-edit-roundtrip archive-never-delete
