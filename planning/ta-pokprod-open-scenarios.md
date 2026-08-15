@@ -34,7 +34,7 @@ owns the theory/simulation legs referenced below).
 | Doc-coverage gap: scratch tools never promoted, undocumented — corrected 2026-08-15 from 5 to 17 (a full directory listing found 12 more D-51's own source list missed) | ✅ **DRAFT CLEANUP PLAN REWRITTEN 2026-08-15 — recommendation (10 DEFERRED-as-pattern, 7 promote-as-is), Dean's classification call not yet made** | [[D-51]], [[D-56]], [`pokprod-scratch-tools-doc-coverage-cleanup-plan.md`](pokprod-scratch-tools-doc-coverage-cleanup-plan.md) |
 | Move `ta-pokprod-campaign-report.md` to `benchmark/docs/benchmark-reports/` | ✅ **DONE 2026-08-15 — relocated, links fixed for same-worktree resolution, stub left at old path** | [[D-53]] |
 | Per-request TTFT/output-size estimation for viz panels 1a/1b | 🔵 **RENDERED+CHECKED 2026-08-16 — 3 findings open (rotation-truncated trace, unexplained stage-4 rate anomaly, a stage-boundary spike cluster found by actually viewing the output), none blocking, viz can review** | [[D-55]], [[D-57]], [[D-59]], [[D-60]], [`envoy-per-request-recovery-tool-plan.md`](envoy-per-request-recovery-tool-plan.md) |
-| vLLM `--enable-per-request-metrics` flag — does it work on the pinned v0.20.2 image? Small fact-finding test scoped and handed to coder | 🔵 **IN PROGRESS 2026-08-16 — Dean-approved, minimal bare-pod test** | [[D-58]] |
+| vLLM `--enable-per-request-metrics` flag on the pinned v0.20.2 image | ✅ **ANSWERED 2026-08-16 — definitive NO, flag not recognized, rejected at CLI parse time** | [[D-58]], [[D-61]] |
 | Any cluster run | ⬜ **always, per-run** | standing rule |
 
 **Nothing else in this doc is waiting on Dean right now.** The dwell mechanism itself is being worked

@@ -1324,3 +1324,20 @@ this is a genuine traffic burst or a histogram-bucket-assignment artifact at sta
 flagged to the coder with the concrete records rather than guessed at. Possibly related to, or a
 second instance of, D-59's already-flagged stage-4 rate anomaly — same investigation, not
 resolved by this pass either.
+
+---
+
+## D-61 | 2026-08-16 | topic:vllm-flag-test-result,definitive-negative | src:plan__vllm-per-request-metrics-flag-answer.md
+
+**`--enable-per-request-metrics` does not exist on the pinned vLLM v0.20.2** — rejected at CLI
+arg-parse time, before any model load: `vllm: error: unrecognized arguments:
+--enable-per-request-metrics`. Confirms the version-gap flagged when the test was scoped (D-58):
+the docs were checked against `latest`/`v0.27.0`, 7 minors newer, and that gap is real. Pod torn
+down immediately, no GPU held. **This closes the vLLM-flag path for now** — not closed in
+general, just unavailable without an image upgrade (a separate decision, not folded in here). The
+estimation approach (D-59/D-60, built, rendered, has 3 open findings) remains the live path.
+Testing a newer vLLM image is the next real question if that path is ever wanted — not pursued.
+
+**Second instance, same day, of the routing pattern noted at D-59:** this reply also landed
+addressed to the autoscaling-viz scope rather than this one, despite the test being scoped and
+triggered here. Flagged again; folding the result in regardless.

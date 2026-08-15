@@ -277,6 +277,19 @@ realistic, more cost — deferred until the bare-server answer is known), and te
 image (deferred — if v0.20.2 already works, there's nothing to gain from testing newer; if it
 doesn't, that becomes the next real question, not assumed now).
 
+**Result, 2026-08-16 — definitive negative.** The flag does not exist on v0.20.2: rejected at CLI
+arg-parse time, before any model load or serving attempt (`vllm: error: unrecognized arguments:
+--enable-per-request-metrics`). No curl needed — there was no server to query. Confirms the
+version-gap concern exactly: the docs were checked against `latest`/`v0.27.0`, 7 minors newer, and
+that gap is real, not hypothetical. Pod torn down immediately, no GPU held.
+
+**What this means for the design:** the vLLM-flag path is closed **on the version this mission
+actually runs** — not closed in general, just not available without an image upgrade, which is
+its own separate decision (upgrading vLLM mid-campaign has real risk/cost beyond this one
+question, not something to fold in here). **The estimation approach (built and rendered, D-59/
+D-60) remains the live path for now.** Testing a newer vLLM image is the next real question if
+that path is ever wanted — deliberately not pursued yet, per the test's own original scope.
+
 **A related, independently-found data point:** `logs/modelserving_pods.log` (the decode pod's own
 `routing-proxy` sidecar, `llm-d-inference-scheduler`) initializes OpenTelemetry tracing on startup
 ("OpenTelemetry tracing initialized successfully," 10% sample ratio) — but every export attempt
