@@ -57,19 +57,19 @@ a rejection on a misreading:
 | Append primitive | plain file append | `git notes append` |
 | Visible to `ls`/`grep`/`cat` | yes | no — needs `git notes show`/`git log --show-notes` |
 | Shows up in `git status` / working tree | yes (needs a `.gitignore` decision) | no — notes live in a separate ref namespace, never touch the tree |
-| Concurrent-append safety | line-granular, git-transactional only if the file itself is committed each time (or left uncommitted, per Dean's existing "handoffs need not be committed" rule) | git-transactional natively, since a note update is itself a git object write |
+| Concurrent-append safety | a single `write()`/`>>` is one syscall, atomic up to `PIPE_BUF`/block size for a short line — no read-modify-write step at all | `git notes append` internally reads the current note tree, builds a new commit, then CAS-updates the ref via the standard `.lock`-file mechanism — a genuine read-modify-write; two truly concurrent appends race, the loser gets `error: cannot lock ref` and must retry itself (confirmed by direct research 2026-08-16, correcting an earlier guess in this doc that notes were simply "transactional" here) |
+| Timestamp | not automatic — a script adds one to the line's own text, same as it always would | not automatic either, despite first appearances: each append is a new commit on the notes ref with a commit-object timestamp, but that timestamp is invisible via `git notes show`/`git log --show-notes` (the normal way to read a note) — only visible via `git log --format=%cd` *on the notes ref itself*, a different command. So notes do not save a script from adding its own timestamp to the content if it wants one via the normal read path. |
+| Subscribe/watch | none either way | none — confirmed no notes-specific hook exists; polling is the only option for both mailbox files and notes |
 | Discoverable cold, from a fresh clone/session with no prior context | yes, trivially (a normal file) | requires knowing to fetch/look at the notes ref at all — less obvious to a first-time reader |
 
-**Both solve problem 3 equally well once the fixed-anchor precondition holds.** The remaining
-difference is ergonomics, not correctness: mailbox files stay inside the same mental model as every
-other artifact in this protocol (plain files, `ls`-discoverable, no new git concept to learn), while
-notes are genuinely git-native and free of any working-tree/`.gitignore` footprint but need everyone —
-including a future reader unfamiliar with this specific convention — to know that `git notes` is where
-the channel's activity actually lives. **Decided: keep the mailbox-file design below as the concrete
-mechanism**, on ergonomics grounds (nothing new to teach, directly greppable, consistent with the
-existing handoff files' own shape) — but the choice is closer than the first pass suggested, and notes
-remain a legitimate alternative implementation if the working-tree footprint of many mailbox files
-ever becomes a real problem worth solving.
+**Corrected verdict, 2026-08-16: mailbox files are not just more ergonomic than notes — they are
+simpler and at least as safe for concurrency, not merely "close."** The initial version of this table
+credited notes with transactional and free-timestamp properties that direct research does not
+support: a plain append has *no* read-modify-write race to retry at all, while `git notes append`
+does, and neither mechanism gets a usable timestamp or a subscribe/watch capability for free. **Decided:
+mailbox files, plain and simple** — notes were considered on the reasonable worry that a shared
+append-able file might be hard to script reliably; that worry does not hold once checked, so there is
+no remaining case for the added complexity of git's ref-update semantics here.
 
 **Problem 1 (addressing) is still not solved by either storage substrate** — a fixed-per-channel commit
 still has to be created and its hash shared by *some* mechanism the first time a channel is needed,
@@ -184,6 +184,49 @@ from [Addendum 3](atomic-step-protocol-design-addendum-3.md) — the two overlap
 "who currently holds role X") but this broadcast channel is peer-to-peer and self-service, while
 Addendum 3's index is sync-maintained and computed — whether one subsumes the other, or they serve
 genuinely different consumers, is an open question for whenever Addendum 3 is revisited.
+
+## Cost model corrected: the lookup itself must be a shell-script cost, not a model-token cost
+
+Dean, 2026-08-16, correcting an assumption this addendum had been carrying since its first draft:
+*"all the lookup cost should be local shell script cost, not model token cost. Only the 'looking for'
+or real broadcast messages go to model. Otherwise the script should figure out the addressing,
+grepping, etc."* Every cost estimate earlier in this addendum (the mailbox "check line count" cost,
+the broadcast log's "scan-past-irrelevant-lines" cost) had implicitly assumed a session's own model
+context does the grepping/tailing/relevance-filtering directly — wrong framing. The actual design:
+
+- **One shared script** (name TBD, e.g. `scripts/mailbox-check.sh`), parameterized per invocation by
+  the calling session's own channel name/role — not one script per role, matching the project's
+  existing pattern (`session-extract.sh`, `tick-shared-scan.sh`: one script, many callers, configured
+  by arguments). Decided explicitly over a session-specific/bespoke-per-role script.
+- **The script does all of the O(N) work at shell-execution cost, not model-token cost**: reading the
+  mailbox/broadcast file, tailing from the last-seen offset, grepping for the caller's own relevant
+  patterns, computing addresses from broadcast announcements. This is a tool call whose *execution*
+  costs nothing token-wise (shell time only); only its **output** — the filtered, already-relevant
+  result — becomes context the model reads.
+- **Good defaults, but flexible**: the script ships with sensible default patterns (a session's own
+  channel name, plus the broadcast prefixes — `looking-for`, `announce`, `all`) but must accept
+  broader/custom grep patterns as arguments when a session needs to watch for something beyond its
+  defaults, without needing a new script or a code change for every new pattern.
+- **Restartable/refreshable for pattern updates**: since the script is what encodes "what counts as
+  relevant to me," updating that logic is a script edit, not a redesign of the file format or the
+  channel mechanism itself — directly addressing Dean's stated reason for preferring a script layer
+  in the first place: *"Having a script also allows us to update the mechanism later."*
+
+This resolves the earlier draft's "scan-past-irrelevant-lines" worry (§ Broadcast/discovery channel,
+above) as a non-issue: that cost was never going to land on the model in the first place once a script
+sits between the file and the session.
+
+## Growth and cleanup — deferred, not designed away
+
+Dean also flagged, same day: *"The mailbox is not a human readable file, and it needs cleaning
+periodically. It keeps growing."* True of both the per-channel mailboxes and the broadcast log —
+append-only, by design, means unbounded growth. **Decided approach for when cleanup is actually
+needed** (not built now): archive-and-truncate, sync-owned — the same pattern already established for
+`CURRENT.md`/`session/history.md` (sync periodically moves old or already-consumed lines out to a
+dated archive file and truncates the live mailbox back down; nothing is lost, only relocated, and the
+actively-scanned file stays small). **Explicitly not enabled yet** — Dean's own words: *"don't enable
+cleaning yet. We handle it when files start to grow."* Recorded here so the approach isn't re-derived
+from scratch later, not as something to build in this pass.
 
 ## What this does not solve
 
