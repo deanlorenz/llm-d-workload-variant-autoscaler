@@ -10,43 +10,16 @@
 
 **Active (full abstracts) — live WIP only:**
 
-- **2026-08-16 — shared single-instance-guard library built; three call sites migrated; guard
-  identity key corrected from pid to logical identity.** Closes the "build S0"/"migrate S2/S4"
-  checklist items in [`planning/checkpoint-capture-spec.md`](../planning/checkpoint-capture-spec.md)
-  and the guard half of [`planning/sync-watchers-spec.md`](../planning/sync-watchers-spec.md) S2,
-  against Addendum 10's **corrected** (not retracted) design. New
-  `scripts/lib/single-instance-guard.sh`, sourced by all three: `session-snapshot.sh` (keyed on a
-  new required `--session-id`), `tick-shared-scan.sh` and `sync-main-watch.sh` (both keyed on the
-  fixed role constant `"sync"`). `--origin-pid` unchanged in all three — still only the `kill -0`
-  kill-switch. The bug this closes: under the old pid-keyed guard, a sync session restarting under
-  a *different* `--origin-pid` (a real, observed case — a session's underlying process pid can
-  change across restart/resume while the logical session persists) would start a duplicate
-  watcher, which for `sync-main-watch.sh` means two processes pushing to `origin/main`. Also fixed
-  **Defect C**: `sync-main-watch.sh`'s status file used to hardcode `state: watching` even after a
-  crash. Verified behaviorally: two simultaneous launches leave exactly one survivor 5/5 for both
-  key shapes; planted fresh guards respected; week-old guards reclaimed; guard released while the
-  loop runs; the `--origin-pid` kill-switch still runs one final pass before exit.
-  `shellcheck`/`bash -n` clean. **Committed `f9e1dba6`, but swept into another session's commit by
-  the shared git index — not its own commit, message doesn't describe this work** (flagged
-  separately as a process-convention gap, not restated here). **Not pushed** — `plans` is 29+
-  commits ahead of `origin/plans` as of this entry, not verified clean by this session.
-  **⚠️ Armed footguns, carry verbatim:** (1) **two of the four old-interface production loops are
-  gone** — `session-snapshot.sh` pids `16342` and `629315` were killed during testing by an
-  over-broad cleanup helper; verified capturing nothing at the time, so no data was lost, but they
-  are not running and were not restarted (restart is a separately-approved deployment step; these
-  processes carry no `--resume=<session-id>` in argv, so the usual pid-identification recipe
-  doesn't apply to them). (2) **Two live Tier-1 capture defects found, NOT yet fixed, handed to a
-  planner** (`plan__tier1-capture-marker-poisoning.md`): `session-snapshot.sh`'s marker can be
-  overwritten by a `## `-prefixed heading inside a user turn's own text — confirmed one session's
-  marker read literally `Findings`, capturing nothing from 2026-08-13 onward; and the sync
-  session's own `sync-session.raw.md` had never been appended at all (no marker, 379 bytes since
-  2026-08-14) — **this sync session's own Tier-1 loop was silently dead this entire time**; a fresh
-  loop was started 2026-08-16 (pid pinned to the real long-lived `claude` process, not a shell
-  wrapper) and is being verified now. Both defects fail with rc 0, indistinguishable from an idle
-  session without checking directly. **Also flagged (informational, no action required):** the
-  guard mechanism's kill-switch identity model was clarified mid-design — `--origin-pid` answers
-  "is the owning process alive" only; it is not, and was never meant to be, a session identity key.
-  State: [`session/status/single-instance-guard.md`](status/single-instance-guard.md).
+- **2026-08-16 — single-instance guard mechanism (session_id/role-constant keyed, not pid) built
+  and migrated into all five call sites, plus the `sync-main` family generalized over
+  container/repo/branch; every found defect (Defect C, marker-poisoning, dead-watcher-reads-RUNNING,
+  and others found along the way) fixed.** Full state:
+  [`session/status/single-instance-guard.md`](status/single-instance-guard.md); design + as-built
+  detail: [`planning/checkpoint-capture-spec.md`](../planning/checkpoint-capture-spec.md),
+  [`planning/sync-watchers-spec.md`](../planning/sync-watchers-spec.md),
+  [`atomic-step-protocol-design-addendum-10.md`](../planning/atomic-step-protocol-design-addendum-10.md),
+  [`atomic-step-protocol-roadmap.md`](../planning/atomic-step-protocol-roadmap.md) (refreshed
+  end-of-day 2026-08-16, reflects everything as landed).
 - **2026-08-15 — state commands (park/sweep/consolidate) ported as skills; Type 1 design written.**
   Three skills for making sure nothing important is lost, at increasing depth — `/s-state-park`
   (flush live context; additive only; model-invocable), `/s-state-sweep` and `/s-state-consolidate`
@@ -458,28 +431,11 @@
   (a settled `.env`-contract redesign superseding part of the architecture doc §5) and
   `benchmark__pokprod-plan-tooling-track.md` (a stale coder trigger, unrepaired since the coder
   re-reads the plan fresh rather than trusting old line numbers).
-- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap). STILL OPEN — new evidence found
-  2026-08-16, needs verification in PR-2 before this can be called resolved, NOT resolved yet.**
-  The original claim (`saturation/engine_v2.go` unconditionally prepends the saturation result;
-  `effectiveEnabled` only skips it by name, making `saturation:{enabled:false}` a silent no-op)
-  predates PR-1 (`57f3fe64`, merged `main` 2026-08-07), which added a `satVotes` gate — confirmed
-  present on `main` directly (`engine_v2.go:147`), not just on a branch: saturation is still
-  computed and appended as an "identity carrier," but tagged `Enabled: satVotes` where
-  `satVotes = len(config.Analyzers) == 0 || effectiveEnabled(...)`, and `votingResults()`
-  (`analyzer_helpers.go:341-344`) filters strictly on `e.Enabled && e.Live` before the combine
-  math — a config-disabled saturation entry looks genuinely excluded from RC/SC, not just
-  cosmetically marked, from reading the code alone. **This is a finding to verify, not a
-  resolution to declare** — it has NOT been checked against PR-2's own test suite/review, and
-  nobody has confirmed this specific behavior was an intended, reviewed fix rather than an
-  incidental side effect that might have its own gaps. Keep this entry open until: (a) someone
-  (ideally PR-2's own reviewer) explicitly verifies and marks this in PR-2's review doc, and
-  (b) PR-2 actually merges to `main` — until both, treat the F1 gap as unconfirmed, not closed.
-  If verified, the `wva-analyzer-lifecycle-plan.md` Half-B carve (disabling saturation, previously
-  blocked on this gap) may be unblocked — not re-scoped here, flagging for whoever owns that plan
-  and for PR-2's reviewer. Historical context: the lifecycle plan's Commit-2c "zero-signal" design
-  was REJECTED (`663a9624`) as the wrong fix; this finding, if verified, would be a different fix
-  that landed independently, not that one. State: `planning/wva-analyzer-lifecycle-plan.md` +
-  [`multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511.
+- **2026-08-03 — sat_v2 F1 gap (cannot disable saturation via config) — STILL OPEN, verified but not
+  yet closed.** New evidence (2026-08-16) that PR-1's `satVotes` gate may have fixed this as a side
+  effect is now independently verified against two tests at PR-2's own tip — detail and citations in
+  [`ta-anchor-dynamic-refresh-plan.md`](../planning/ta-anchor-dynamic-refresh-plan.md) §7. Routed to
+  the PR-2 reviewer for a numbered finding; **stays open until that finding lands and PR-2 merges.**
 - **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.
   Re-validated against the anchor refactor 2026-08-16 — updated 2026-08-17.** *WIP — no session
   running; resumable from its plan.* ⚠️ Dev-guide edits the planner made directly are still
