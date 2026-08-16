@@ -29,7 +29,10 @@ capture, sync watchers, doc tooling) needed to close a real governance gap: most
 tooling had no Type 3 spec at all.
 
 **Needs you, right now:**
-- None blocking. Two coder-agent runs are in flight (S3 conv-rename); reconcile Addendum 6 (`/s-park`)
+- Per Dean 2026-08-16: this mission's checkpoint/sync/guard work is a **safety mechanism, not the
+  highest priority** — it doesn't block other work. What's actually needed now: **missing tools,
+  missing roles, the harvest.** Phase 4's checkpoint/sync governance gap (below) is CLOSED as of
+  today; Phases 5-7 (review, harvest, coverage) are the live front. Reconcile Addendum 6 (`/s-park`)
   with Addendum 9 (broadcast channel) whenever convenient — likely the same mechanism, not yet merged.
 
 **Checklist — phases, in order:**
@@ -37,22 +40,30 @@ tooling had no Type 3 spec at all.
 - [x] Phase 1 — four original specs written (harvest, step-gates, authoring, role-skills); all
   reviewed by Dean as "good."
 - [x] Phase 2 — read-side tooling built (`sec`/`conv`/`conv-list`/`conv-lint`, `conventions-tooling-spec.md`).
-- [~] Phase 3 — write-side tooling in progress (`conventions-authoring-spec.md`: S1/S2 landed, S3 in
-  progress, S4/S5 not started).
-- [x] Phase 4 — governance gap found and closed: retroactive specs for all previously-undocumented
-  scripts (`checkpoint-capture-spec.md`, `sync-watchers-spec.md`, `doc-tooling-spec.md`), plus a real
-  guard-mechanism redesign (Addendum 10) discovered while writing them.
-- [ ] Phase 5 — design review of the three new retroactive specs (Opus), before further coder work
-  against them.
-- [ ] Phase 6 — harvest itself (`conventions-harvest-spec.md`'s M1.2), blocked on the policy-writer
-  classification table — `harvest-classification.md` exists for the two convention files only; the
-  ~30 `feedback_*`/`project_*` memories and `governance-follow-ups.md` incidents are a separate,
-  not-yet-started pass.
+- [~] Phase 3 — write-side tooling in progress (`conventions-authoring-spec.md`: S1/S2/S3 landed,
+  S4/S5 not started).
+- [x] Phase 4 — governance gap found AND CLOSED, 2026-08-16: retroactive specs for all
+  previously-undocumented scripts, a real guard-mechanism redesign (Addendum 10, corrected same day
+  after a real pid-vs-session_id design error), the shared guard library actually built and migrated
+  into all five call sites (`session-snapshot.sh`, `tick-shared-scan.sh`, `sync-main-watch.sh`,
+  `sync-current-watch.sh`, plus `tier1-session-start.sh`'s launch line), the `sync-main` family
+  generalized over container/repo-identity/tracked-branch, and every live defect found along the way
+  fixed. Full detail below — this phase is done, not just "in progress."
+- [x] Phase 5 — design review of the three new retroactive specs (Opus, `checkpoint-specs-review.md`).
+  All 10 findings closed: Finding 2 resolved against the corrected Addendum 10 design (was framed
+  against a since-retracted premise); Findings 1/3/4/5/9 fixed in the specs and/or code; Findings 6-8/10
+  were "worth noting," folded in.
+- [ ] Phase 6 — harvest itself (`conventions-harvest-spec.md`'s M1.2). The repo-scope/global
+  classification axis is now designed (`harvest-classification.md`, 2026-08-16) but the harvest pass
+  over the ~30 `feedback_*`/`project_*` memories and `governance-follow-ups.md` incidents has not
+  run — **per Dean, this is now a live priority, not a deferred one.**
 - [ ] Phase 7 — coverage audit (M1.3), stop loading old files (M1.4). Not started; depends on Phase 6.
+- [ ] **New, not yet a phase**: missing roles (per Dean 2026-08-16, needed now, not designed yet —
+  `role-skills-spec.md` covers role *skills* mechanics, not which roles exist or what's missing).
 
 ---
 
-## Full script inventory (as of 2026-08-16)
+## Full script inventory (as of 2026-08-16, end of day)
 
 | Script | Spec | Status |
 |---|---|---|
@@ -62,52 +73,73 @@ tooling had no Type 3 spec at all.
 | `conv-lint.sh` | `conventions-tooling-spec.md` | landed |
 | `conv-new.sh` | `conventions-authoring-spec.md` S1 | landed, `65553806` |
 | `conv-edit.sh` | `conventions-authoring-spec.md` S2 | landed, `57f4874a` |
-| `conv-rename.sh` | `conventions-authoring-spec.md` S3 | **in progress**, coder `f1b28556` |
+| `conv-rename.sh` | `conventions-authoring-spec.md` S3 | landed, `afd17a4a`, reviewed clean (37/37 tests) |
 | pre-commit hook | `conventions-authoring-spec.md` S4 | not started |
 | README (write side) | `conventions-authoring-spec.md` S5 | not started |
-| `single-instance-guard.sh` | `checkpoint-capture-spec.md` S0/S0b | **not started** — new, per Addendum 10 |
-| `session-extract.sh` | `checkpoint-capture-spec.md` S1 | landed, unaffected by the guard redesign |
-| `session-snapshot.sh` | `checkpoint-capture-spec.md` S2 | landed; guard block needs migrating to S0 |
+| `single-instance-guard.sh` | `checkpoint-capture-spec.md` S0 | **landed**, `f9e1dba6`, corrected design (session_id/role-constant key, not pid) |
+| S0b handle registry | `checkpoint-capture-spec.md` S0b | still not designed in detail |
+| `session-extract.sh` | `checkpoint-capture-spec.md` S1 | landed, no defect |
+| `session-snapshot.sh` | `checkpoint-capture-spec.md` S2 | landed, guard migrated (`f9e1dba6`); marker-poisoning bug found+fixed (`31d9911a`) |
 | `tick-consolidate.sh` | `checkpoint-capture-spec.md` S3 | landed, no defect |
-| `tick-shared-scan.sh` | `checkpoint-capture-spec.md` S4 | built, sandbox-only; guard needs migrating to S0 |
-| `tick-live-index.sh` | `checkpoint-capture-spec.md` S5 | landed, no defect |
-| `tier1-session-start.sh` | `checkpoint-capture-spec.md` S6 | landed, **contains Defect 1** (missing `--origin-pid`), not wired into any hook |
-| `sync-main-session-start.sh` | `sync-watchers-spec.md` S1 | landed, **contains Defect A + Defect B** |
-| `sync-main-watch.sh` | `sync-watchers-spec.md` S2 | landed; guard block needs migrating to S0 |
-| `sync-main-once.sh` | `sync-watchers-spec.md` S3 | landed, no defect |
-| `sync-main-status.sh` | `sync-watchers-spec.md` S4 | landed, no defect |
-| `sync-current-watch.sh` | **none — explicitly out of scope, needs its own spec** | still on the old flock/`anchor_alive` pattern |
+| `tick-shared-scan.sh` | `checkpoint-capture-spec.md` S4 | landed, guard migrated (`f9e1dba6`); still not run live (operational, not a defect) |
+| `tick-live-index.sh` | `checkpoint-capture-spec.md` S5 | landed; known latent `stat -f %m` bug, tracked in CURRENT.md, left out of scope |
+| `tier1-session-start.sh` | `checkpoint-capture-spec.md` S6 | landed, Defect 1 **FIXED** (`5ae7fec2`); still not wired into `container-settings.json` — needs Dean's approval |
+| `sync-main-session-start.sh` | `sync-watchers-spec.md` S1 | landed, Defect A + Defect B **FIXED** (`d036c054`); config-driven (`4c6f646b`) |
+| `sync-main-watch.sh` | `sync-watchers-spec.md` S2 | landed, guard migrated + Defect C fixed (`f9e1dba6`); config-driven (`4c6f646b`) |
+| `sync-main-once.sh` | `sync-watchers-spec.md` S3 | landed, config-driven (`4c6f646b`) |
+| `sync-main-status.sh` | `sync-watchers-spec.md` S4 | landed, dead-watcher-reads-RUNNING bug **FIXED** (`4aa81218`); config-driven (`4c6f646b`) |
+| S5 `sync-main-config.sh` + `sync-main.conf` | `sync-watchers-spec.md` S5 | **new, landed** `4c6f646b` — generalizes the whole family over container/repo-identity/tracked-branch |
+| `sync-current-watch.sh` | `sync-watchers-spec.md`, own section | guard migrated + kill-switch fixed + status-lies bug fixed, `b60cb935` |
 | `toc-refresh.sh` | `doc-tooling-spec.md` S1 | landed, no defect, structurally superseded by the mission's own direction |
 
-**Not scripts, but part of this mission's output:** `harvest-classification.md` (partial — two
-convention files done, memories/incidents pass not started), ten design addenda
-(`atomic-step-protocol-design-addendum-1.md` through `-10.md`), this roadmap.
+**Not scripts, but part of this mission's output:** `harvest-classification.md` (repo-scope/global
+axis designed 2026-08-16; the ~30-memory harvest pass itself still not run — **now a live priority
+per Dean, not deferred**), eleven design addenda (`atomic-step-protocol-design-addendum-1.md` through
+`-11.md`), the call-stack convention generalized into `doc-and-session-model.md`, this roadmap.
 
-## Live defects found, not yet fixed
+## Live defects — ALL FIXED as of 2026-08-16
 
-1. **Defect 1** (`checkpoint-capture-spec.md` S6) — `tier1-session-start.sh` omits `--origin-pid` when
-   launching `session-snapshot.sh`, which requires it unconditionally (unless `--once`). Would fail
-   every invocation if the hook were ever wired into `container-settings.json` — it currently isn't.
-2. **Defect A** (`sync-watchers-spec.md` S1) — `sync-main-session-start.sh` omits `--origin-pid` when
-   launching `sync-main-watch.sh`, which requires it with no escape at all. Same failure shape as
-   Defect 1, independently discovered, in a sibling hook.
-3. **Defect B** (`sync-watchers-spec.md` S1) — the same hook's comment block still describes an flock
-   mechanism that no longer exists (superseded by Addendum 7's `mkdir`/`pgrep` guard, itself now being
-   further revised by Addendum 10).
+Every defect this roadmap previously tracked as open is now closed. Kept here as a record, not a
+todo list:
 
-None of these three block anything currently running — all three affect hooks that are not yet wired
-into `container-settings.json`, so nothing in production is actually broken by them today. They are
-real bugs waiting to bite the moment someone flips the switch these hooks are gated behind.
+1. **Defect 1** (`checkpoint-capture-spec.md` S6) — `tier1-session-start.sh` omitted `--origin-pid`/
+   `--session-id`. **Fixed**, `5ae7fec2`.
+2. **Defect A** (`sync-watchers-spec.md` S1) — `sync-main-session-start.sh` omitted `--origin-pid`.
+   **Fixed**, `d036c054`.
+3. **Defect B** (`sync-watchers-spec.md` S1) — stale flock/anchor comment. **Fixed**, `d036c054`.
+4. **Defect C** (`sync-watchers-spec.md` S2, found in design review) — `sync-main-watch.sh`'s status
+   file lied about liveness after a crash. **Fixed**, `f9e1dba6`.
+5. **`sync-main-status.sh`/`sync-main-session-start.sh` dead-watcher-reads-RUNNING** (`date -d ""`
+   succeeds and returns midnight, defeating the `|| echo 0` fallback) — found in the llm-scaler
+   portability sweep. **Fixed**, `4aa81218`.
+6. **`session-snapshot.sh` marker poisoning** — a user turn's own `## `-headed text could poison the
+   Tier-1 marker, causing silent multi-day capture loss (confirmed live on two real sessions). **Fixed**,
+   `31d9911a`.
+7. **`sync-current-watch.sh`'s kill-switch and status-lies bug** — was checking "any Claude process
+   anywhere," not the originating one; same status-hardcoding bug as Defect C. **Fixed**, `b60cb935`.
 
-## Duplication found and being fixed
+## Duplication — FIXED
 
-The single-instance guard block (`mkdir`-based atomic dedup + `pgrep` liveness check + stale-guard
-reclaim) is implemented near-identically in **three separate scripts**: `session-snapshot.sh`,
-`tick-shared-scan.sh`, `sync-main-watch.sh`. [Addendum 10](atomic-step-protocol-design-addendum-10.md)
-redesigns the staleness signal (pid-alive primary, mtime-age fallback) and specifies a shared library
-(`scripts/lib/single-instance-guard.sh`) all three should source instead. Not built yet — this is the
-S0/S0b step in `checkpoint-capture-spec.md`, blocking the guard-migration steps in both that spec and
-`sync-watchers-spec.md`.
+The single-instance guard block was implemented near-identically in five separate call sites.
+[Addendum 10](atomic-step-protocol-design-addendum-10.md) (corrected same day after a real
+pid-vs-session_id design error was found and fixed) specified a shared library; **built and migrated
+into all five**: `session-snapshot.sh`, `tick-shared-scan.sh`, `sync-main-watch.sh`,
+`sync-current-watch.sh` (`scripts/lib/single-instance-guard.sh`), plus the config-loading duplication
+across the four `sync-main-*` scripts, also collapsed into a shared library
+(`scripts/lib/sync-main-config.sh`, new with S5).
+
+## Low-priority backlog, tracked not urgent
+
+- **`planning-map.md` refresh tool** — no mechanism keeps `planning/planning-map.md` current as
+  docs land or get superseded. Two options floated, not decided: a `toc-refresh.sh`-style regen
+  script, or treat it as a point-in-time snapshot regenerated on request. Per
+  `plan__planning-map-refresh-tool-todo.md` (sync-session, 2026-08-15) — explicitly "not urgent,"
+  same family as this mission's own tooling but not blocking anything.
+- **Token accounting on automatic activity** — [Addendum 11](atomic-step-protocol-design-addendum-11.md)
+  states the requirement (every auto-tool records spend; total consumption from automatic protocols
+  must be bounded, per two prior incidents — chatty handoff cycles, 30s-cadence monitors). No general
+  bound mechanism exists yet beyond Tier-2's own `--daily-cap`; `sync-current-watch.sh`'s 30s poll
+  loop is the concrete example cited, left unchanged pending a real design pass.
 
 ## Background-agent infrastructure, built alongside the specs
 
