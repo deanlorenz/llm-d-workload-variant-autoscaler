@@ -17,10 +17,10 @@ writing this spec.
 - [Item Z — panel 4: move mean-KV legend off the colorbar {#item-z-panel4-legend}](#item-z--panel-4-move-mean-kv-legend-off-the-colorbar-item-z-panel4-legend) L89:101
 - [Item AA — panel 3: mean-running line color + secondary-axis direction {#item-aa-panel3-color}](#item-aa--panel-3-mean-running-line-color--secondary-axis-direction-item-aa-panel3-color) L102:119
 - [Item AB — panel 3: sort pods by scale-up order {#item-ab-panel3-sort}](#item-ab--panel-3-sort-pods-by-scale-up-order-item-ab-panel3-sort) L120:148
-- [Item AC — panel 3: add a per-pod color legend strip {#item-ac-panel3-colorlegend}](#item-ac--panel-3-add-a-per-pod-color-legend-strip-item-ac-panel3-colorlegend) L149:163
-- [Item AD — extractor: fall back to `per_request_estimated.json` when the real trace is absent {#item-ad-estimated-fallback}](#item-ad--extractor-fall-back-to-perrequestestimatedjson-when-the-real-trace-is-absent-item-ad-estimated-fallback) L164:190
-- [What NOT to change {#not-to-change}](#what-not-to-change-not-to-change) L191:202
-- [Verification {#verification}](#verification-verification) L203:237
+- [Item AC — panel 3: add a per-pod color legend strip {#item-ac-panel3-colorlegend}](#item-ac--panel-3-add-a-per-pod-color-legend-strip-item-ac-panel3-colorlegend) L149:179
+- [Item AD — extractor: fall back to `per_request_estimated.json` when the real trace is absent {#item-ad-estimated-fallback}](#item-ad--extractor-fall-back-to-perrequestestimatedjson-when-the-real-trace-is-absent-item-ad-estimated-fallback) L180:206
+- [What NOT to change {#not-to-change}](#what-not-to-change-not-to-change) L207:218
+- [Verification {#verification}](#verification-verification) L219:253
 
 ## Item X — anchor x=0 at warmup-end, not run-start {#item-x-anchor}
 
@@ -154,10 +154,26 @@ general position as panel 4's colorbar) showing one colored segment per pod, sta
 order (top-to-bottom or bottom-to-top — match whatever Item AB establishes as panel 3's own stack
 direction, for visual consistency between the main plot and this legend), each segment colored with
 that pod's `BAND_SHADES` color (the same per-pod color already used in the stack itself) and sized
-proportionally — "max/pod#" reads as: segment height proportional to that pod's own peak
-running-count (or similar per-pod magnitude — coder's call on the exact metric if "max running" is
-ambiguous, but default to peak running-count since that's the stack's own primary content) rather
-than all segments being equal height. Label each segment with its `pod_num`.
+proportionally to that pod's own peak running-count. Label each segment with its `pod_num`.
+
+**Correction, 2026-08-16 (post-implementation, amending the original spec — not a defect in the
+first pass, which correctly implemented what was originally written).** Dean's exact correction:
+"best number per pod is the maximal value ever seen on a not saturated pod (otherwise includes bad
+pods that can look too big and the value itself does not have much meaning for over saturated
+pods)." **Exclude any running-count sample taken while that pod's own `kv` (KV cache usage,
+`vllm:kv_cache_usage_perc`, the same real, directly-scraped value — confirmed NOT an estimate or a
+TA-derived calculation — already used by panel 4's heatmap) was at or above `k_sat`
+(`sat.get('threshold')`, the same threshold panel 4's color scale already anchors on) when
+computing `peak_run[pod]`.** A pod that spent time saturated should have its peak taken only from
+its own non-saturated samples; if a pod has no non-saturated samples at all, its peak is 0 (coder's
+call whether to render a zero-height segment or omit the pod from the strip entirely — either is
+acceptable, just don't crash or silently substitute a saturated-sample value).
+
+**Original commit's implementation is out of date against this correction** — the round-2 spec's
+own `peak_run[pod] = max(run_ys)` (unconditional over all samples) needs to become conditional on
+that same pod's `kv` at each sample's own timestamp. This is a follow-up amendment, not a re-review
+of the already-verified original behavior (which correctly matched what this doc said before this
+correction was added).
 
 [↑ TOC](#toc)
 
