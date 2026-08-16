@@ -15,11 +15,13 @@ they actually exist.
   (`scripts/lib/single-instance-guard.sh`), keyed on the fixed role constant `"sync"` (not a session,
   not a pid — see Addendum 10's corrected design).
 - S3 `sync-main-once.sh` — one-shot equivalent, no guard needed, no defect.
-- S4 `sync-main-status.sh` — read-only status check, no defect.
+- S4 `sync-main-status.sh` — read-only status check, contained a dead-watcher-reads-RUNNING bug,
+  **FIXED**.
+- S5 — generalize over (container, repo identity, tracked branch) — **PLANNED, not yet coded.**
 - `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
 
 **Needs you:** nothing blocking. `sync-current-watch.sh` still needs its own spec or a decision to
-fold it into this one — not resolved here.
+fold it into this one — not resolved here. S5 is planned but not yet coded.
 
 **Checklist:**
 - [x] Build `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) — landed, `f9e1dba6`.
@@ -31,6 +33,8 @@ fold it into this one — not resolved here.
   — landed by the coder, `f9e1dba6`.
 - [x] Migrate S2's guard block to the shared library, keyed on `"sync"` — landed, `f9e1dba6`.
 - [x] Fix the `date -d ""` dead-watcher-reads-RUNNING bug in S4 and S1's duplicate of the same logic.
+- [ ] Code S5: `session/sync-main.conf`, all four scripts + the skill's grant read from it, no-upstream
+  and no-tracked-branch as loud no-op states, coordinated with the still-open `.WIP` cwd-match handoff.
 - [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
 - [ ] Restart the two live production processes (`tick-shared-scan.sh`, `sync-main-watch.sh`) under
   the migrated code — deployment step, deliberately left to whichever session currently owns the
@@ -195,6 +199,67 @@ RUNNING) for roughly 2.5 minutes after local midnight, regardless of whether a w
 alive. Same bug class as the `stat -f %m` issue fixed elsewhere in this family — a command that
 succeeds on bad input defeats a `||` fallback that assumes the command errors. Fixed by checking
 `[ -n "$last_check" ]` before ever calling `date`, in both S4 and S1's duplicate of the same logic.
+
+**S5 — generalize over (container, repo identity, tracked branch) — planned 2026-08-16, not yet
+coded.** Per `plan__sync-main-generalize-for-second-repo.md`: three assumptions are baked into this
+whole family, and only one of them is a path. This is tool-migration work — it makes the scripts
+correct and portable regardless of whether a second repo ever actually uses them; it does **not**
+deploy anything for a second repo, and does not touch `llm-scaler-workspace-bootstrap-design.md`'s
+own content.
+
+| Baked-in today | Sites | Generalized to |
+|---|---|---|
+| `SYNC_WORKTREE` — hardcoded absolute path, exact-string `cwd` match | S1:5 | Config value, read once, still exact-match (no normalization needed — the hook payload's `cwd` is already absolute) |
+| `upstream` remote — assumed to exist and be distinct from `origin` | S1, S2, S3 (`git fetch upstream`, `git merge --ff-only upstream/main`) | Config value naming the remote; **"no upstream configured" becomes a supported, loud no-op state, not an error** — day one of a repo with no fork-of-upstream topology has this be simply true |
+| `main` — hardcoded in concept and in every variable/path name (`MAIN_WORKTREE`, `status/main.md`, `git merge ... main`) | all four scripts, `s-sync-main` skill | Config value for the tracked branch name; status file becomes `status/<tracked-branch>.md`; **"no tracked branch yet" becomes a supported, loud no-op state** — matching the upstream-remote case |
+
+**Mechanism: one config file, read once per invocation, not inferred.** Per
+`feedback_tools_take_explicit_paths` (the caller knows, the script shouldn't guess) — a
+`dirname $0`-style auto-derivation was considered and rejected in the originating handoff, since it
+solves only the path row and still asserts a `main`/`upstream` exist. Concretely:
+
+```
+plans/session/sync-main.conf   (new, one per container — analogous to a per-container settings file,
+                                 not committed if it should differ per clone; TBD whether it's
+                                 tracked or gitignored — decide when coding, not a design blocker)
+  WORKTREE=<absolute path to the worktree holding the tracked branch>
+  TRACKED_BRANCH=main            (default, for backward compat with this repo)
+  UPSTREAM_REMOTE=upstream       (empty string = "no upstream configured", a valid value)
+```
+
+All four scripts source this instead of hardcoding. `status/main.md` → `status/$TRACKED_BRANCH.md`
+in all four (S1, S2, S3, S4) — this repo's default config keeps `TRACKED_BRANCH=main`, so the status
+path is unchanged here; only a differently-configured container would see a different filename.
+
+**No-upstream / no-tracked-branch as first-class states, not errors** — this also gives S1's own
+`.WIP`-tracked cwd-match bug
+(`plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP`) a real fix in the same pass: an
+explicit config mismatch can be *reported* ("this container's cwd doesn't match `WORKTREE` in
+`sync-main.conf`") instead of silently `exit 0`. **Coordinating, not resolving that handoff itself**
+— whoever picks up S5 should read it first, since both land on `sync-main-session-start.sh:10` and
+fixing them separately would mean editing the same lines twice.
+
+**`s-sync-main` skill's `allowed-tools:` frontmatter has one absolute path in a permission grant**,
+not just a comment — grants match literally, so this can't simply become a variable. Two options,
+not yet chosen: per-container skill copies, or a fixed-path wrapper script that reads the config and
+calls the real script, with the grant on the wrapper (N pinned grants collapse to one) — the
+checkpoint work already needed an on-disk wrapper for a different reason (the `pgrep` self-match
+testing artifact, per `session/status/single-instance-guard.md`), so this isn't a new pattern.
+**Decide at coding time**, favoring the wrapper unless a concrete reason against it surfaces.
+
+**Config-copy hazard (Bug 3, `plan__tooling-bugs-found-in-portability-sweep.md`), noted not
+designed-against**: `git config` today carries `branch.main.remote = upstream` /
+`branch.ta-testing.remote = upstream` on two branches, made safe only by `pushdefault = origin` plus
+an invalid `pushurl` sentinel on `upstream`. Tooling that reproduces `branch.*.remote` into a new
+container while dropping `pushdefault` re-arms both branches — not this spec's problem to fix (it's
+about *this* repo's git config, not the scripts), but S5's own config file should not itself
+encourage copying `branch.*.remote` blindly; `UPSTREAM_REMOTE` as an explicit named value, checked
+before use, is already the safer shape.
+
+**Verification, once coded**: same behavioral checklist as the guard migration (Addendum 7) plus —
+run against this repo's real config (should be a no-op behavior change, since `TRACKED_BRANCH=main`/
+`UPSTREAM_REMOTE=upstream` matches today's hardcoded values exactly) and a synthetic config with an
+empty `UPSTREAM_REMOTE` (should loudly no-op, not silently or with an error).
 
 ## Explicitly out of scope — `sync-current-watch.sh` needs its own spec, not this one
 
