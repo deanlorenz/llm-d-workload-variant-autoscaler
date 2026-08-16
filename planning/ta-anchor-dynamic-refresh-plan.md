@@ -131,8 +131,8 @@ here records the answers rather than pointing at open questions.
 - [§4 Ship gate & tests](#4-ship-gate--tests) L2167:2456
 - [§5 Dev-guide sections (named, per commit)](#5-dev-guide-sections-named-per-commit) L2457:2720
 - [§6 Semantic-pivot grep steps](#6-semantic-pivot-grep-steps) L2721:2954
-- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2955:3162
-  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L3103:3162
+- [§7 Out of scope / deferred / separable follow-ons](#7-out-of-scope--deferred--separable-follow-ons) L2955:3189
+  - [§7.1 Design-level "what" questions surfaced by the currency fix (W1–W5) — all answered](#71-design-level-what-questions-surfaced-by-the-currency-fix-w1w5--all-answered) L3130:3189
 
 ## §0.0 FREEZE RECORD — 2026-08-08 {#freeze}
 
@@ -2953,6 +2953,33 @@ than inferring scope.
 
 <a id="7-scope"></a>
 ## §7 Out of scope / deferred / separable follow-ons
+
+**A pre-existing CURRENT.md item, verified against this PR's own tip, not this PR's own work — added
+2026-08-16 in response to a sync handoff.** CURRENT.md has carried an open item since 2026-08-03: whether
+`saturation:{enabled:false}` is a silent no-op (the "F1 pre-analysis-extraction gap"). Sync found that
+`satVotes := len(config.Analyzers) == 0 || effectiveEnabled(...)` (`saturation/engine_v2.go:150`, landed
+on `main` as a side effect of PR-1 #1516) looks like it closes the gap, but flagged it as unverified
+against an actual test and out of sync's write scope to document. **Verified here, read-only, at PR-2's
+own tip `14a5d6cc` (unmerged, still open — this evidence is current, not stale):**
+
+- **Config → `Enabled` wiring is proven, not assumed.**
+  `TestRunAnalyzersAndScore_ThroughputOnlySilencesSaturationVote`
+  (`saturation/engine_v2_enablement_test.go`) constructs a real `SaturationScalingConfig` with an explicit
+  analyzer list omitting saturation and asserts the resulting ballot entry comes back `Enabled: false` —
+  at `runAnalyzersAndScore`, the actual layer that derives `Enabled` from config, not hand-constructed.
+- **`Enabled: false` → the sizing outcome actually changes, refuting the "silent no-op" claim
+  directly.** `analyzer_helpers_test.go`'s *"leaves an omitted variant at PRC=0 under a throughput-only
+  (non-voting saturation) config"* hand-sets saturation's ballot entry to `Enabled: false` while it still
+  carries a real priced value (`110.0` for a variant throughput never prices) and asserts `bindingAnchor`
+  does **not** fall back to that value — the variant stays at `PRC = 0`. That is exactly the leak the
+  original F1 concern predicted and it does not happen.
+
+**This is a finding for the review doc, and I have not written it there — that is the reviewer's domain,
+not mine.** Routed by handoff (`review__sat-v2-f1-gap-verified-needs-numbered-finding.md`). Per Dean's own
+framing (quoted in the originating sync handoff): *"the disable_sat entry should sit there until we merge
+into main and can safely say it is resolved... it was not marked as being resolved in PR-2 and needs
+verification."* **This plan records the verification; it does not itself close the CURRENT.md item** —
+that needs the reviewer's numbered finding first, then a fresh `sync__` handoff, per that same framing.
 
 **In PR-2 (this stack):** §1 multi-vote combine + N2 + N7, §2 bugs #1/#2/#3/#5, §2b VG-up + N8, §2c
 notation, **§2d Score semantics — the `combineVotes` extraction, the dominance rule, the missing-entry
