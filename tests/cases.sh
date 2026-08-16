@@ -342,3 +342,36 @@ case_register plan-lint-line-ref \
 
 case_register plan-lint-no-conventions-warns \
     ./scripts/plan-lint --no-conventions tests/fixtures/plan-lint/minimal-spec.md
+
+# plan-lint — unresolved judgments (S6). judgments-spec.md is a clean
+# one-step spec (conventions: none, so nothing from S5 fires) built solely
+# to be the step a judgment/demo/S1-* tag can name; judgments-decided-spec.md
+# is the same file with a `decided: some-slug` line added to S1. Each
+# git-based case builds its own throwaway repo via
+# tests/plan-lint-judgments-run.sh, which — unlike tests/git-run.sh — never
+# cd's into the repo it builds, since plan-lint takes the repo as --judgments
+# rather than expecting to run from inside it.
+case_register plan-lint-judgments-none \
+    ./tests/plan-lint-judgments-run.sh tests/tmp/plan-lint-judgments-none none -- \
+    ./scripts/plan-lint --judgments tests/tmp/plan-lint-judgments-none tests/fixtures/plan-lint/judgments-spec.md
+
+case_register plan-lint-judgments-reverted \
+    ./tests/plan-lint-judgments-run.sh tests/tmp/plan-lint-judgments-reverted reverted -- \
+    ./scripts/plan-lint --judgments tests/tmp/plan-lint-judgments-reverted tests/fixtures/plan-lint/judgments-spec.md
+
+case_register plan-lint-judgments-decided \
+    ./tests/plan-lint-judgments-run.sh tests/tmp/plan-lint-judgments-decided decided -- \
+    ./scripts/plan-lint --judgments tests/tmp/plan-lint-judgments-decided tests/fixtures/plan-lint/judgments-decided-spec.md
+
+case_register plan-lint-judgments-unresolved \
+    ./tests/plan-lint-judgments-run.sh tests/tmp/plan-lint-judgments-unresolved unresolved -- \
+    ./scripts/plan-lint --judgments tests/tmp/plan-lint-judgments-unresolved tests/fixtures/plan-lint/judgments-spec.md
+
+case_register plan-lint-judgments-foreign-step \
+    ./tests/plan-lint-judgments-run.sh tests/tmp/plan-lint-judgments-foreign-step foreign-step -- \
+    ./scripts/plan-lint --judgments tests/tmp/plan-lint-judgments-foreign-step tests/fixtures/plan-lint/judgments-spec.md
+
+# --judgments omitted: skipped and announced, same fixture as the "no tags"
+# case above so the only difference in output is the announcement itself.
+case_register plan-lint-judgments-omitted \
+    ./scripts/plan-lint tests/fixtures/plan-lint/judgments-spec.md

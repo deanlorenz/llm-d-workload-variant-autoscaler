@@ -1,4 +1,5 @@
 exit: 20
 --- stdout ---
 --- stderr ---
+plan-lint: --judgments not given; unresolved-judgment checks skipped
 plan-lint: [20] tests/fixtures/plan-lint/missing-field.md: step S2 is missing required field(s): record

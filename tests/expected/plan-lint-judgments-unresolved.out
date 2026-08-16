@@ -1,0 +1,4 @@
+exit: 40
+--- stdout ---
+--- stderr ---
+plan-lint: [40] tests/fixtures/plan-lint/judgments-spec.md: unresolved judgment: tag judgment/demo/S1-some-slug (step S1, slug some-slug) is neither reverted nor decided (no 'decided: some-slug' line on that step)

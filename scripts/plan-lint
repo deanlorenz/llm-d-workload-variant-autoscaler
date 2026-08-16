@@ -2,10 +2,8 @@
 # plan-lint — turn a code spec's completeness into a machine check, instead
 # of something a reviewer has to notice by reading closely.
 #
-#   plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file>
-#
-# (the unresolved-judgment flag is added by a later step of the same spec;
-# this file grows in place per step.)
+#   plan-lint [--dir <conventions-dir>] [--no-conventions]
+#             [--judgments <repo-dir>] <spec-file>
 #
 # Step schema: every `## S<n>` step section must carry all eight fields —
 # `**brief**`, `**scope**`, `**do**`, `**conventions**`, `**verify**`,
@@ -41,6 +39,23 @@
 # `L<n>:<m>` range or `offset:<n> limit:<m>` occurrence, anywhere in the
 # file (not just inside a step), is a violation naming the line.
 #
+# Unresolved judgments: --judgments <repo-dir> points at the git repository
+# (a coder's own worktree, not this spec's own) whose `judgment/<branch>/
+# <step>-<slug>` tags (Addendum 1's proceed-and-mark mechanism, the same tags
+# step-check S3 verifies) are to be considered — omitted skips this check and
+# announces the skip on stderr, exactly like step-check's own --ledger. A tag
+# naming a step this spec does not have is silently ignored: it belongs to a
+# different spec's step numbering. A tag naming a step this spec *does* have
+# is resolved if either (a) some commit reachable from any ref in
+# --judgments carries `This reverts commit <full sha of the tagged commit>.`
+# in its message — the exact line `git revert` itself writes, so this is a
+# fact about git, not a guess about intent — or (b) that step's own section
+# has a line `decided: <slug>` naming the judgment. Neither present is a
+# violation: the next coder assigned this spec would walk into the same
+# ambiguity the judgment already recorded, now newly *permitted* to proceed
+# past it again under Addendum 1. This script never judges whether the
+# decision recorded is *correct* — only whether one exists.
+#
 # Exit codes are the contract, and are additive across this spec's steps:
 #   0   clean
 #   2   usage error
@@ -52,6 +67,8 @@
 #   30  convention resolution: a cited name does not resolve via conv-list.sh
 #   31  convention resolution: a step's conventions field is absent or empty
 #   32  addressing: a line-number reference survives somewhere in the file
+#   40  unresolved judgment: a judgment/* tag naming a step in this spec is
+#       neither reverted nor decided
 #
 # The exit code is the lowest-numbered class present, so a caller can branch
 # on the most structural failure while stderr still shows everything else.
@@ -66,6 +83,7 @@ die() {
 
 conv_dir=conventions
 no_conventions=0
+judgments_dir=
 spec=
 
 while [ "$#" -gt 0 ]; do
@@ -83,8 +101,18 @@ while [ "$#" -gt 0 ]; do
             no_conventions=1
             shift
             ;;
+        --judgments)
+            [ "$#" -ge 2 ] || die 2 '--judgments needs a directory argument'
+            judgments_dir=$2
+            shift 2
+            ;;
+        --judgments=*)
+            judgments_dir=${1#--judgments=}
+            shift
+            ;;
         -h|--help)
-            printf 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file>\n'
+            printf 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions]\n'
+            printf '                 [--judgments <repo-dir>] <spec-file>\n'
             exit 0
             ;;
         --*)
@@ -98,7 +126,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-[ -n "$spec" ] || die 2 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file> (no spec file given)'
+[ -n "$spec" ] || die 2 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions] [--judgments <repo-dir>] <spec-file> (no spec file given)'
 [ -f "$spec" ] || die 3 "no such spec file: $spec"
 [ -r "$spec" ] || die 3 "spec file is not readable: $spec"
 
@@ -118,6 +146,7 @@ fi
 #   STEPINDEXBRIEF step-id
 #   CONVLINE       step-id  manifest-value (may be empty)
 #   LINEREF        lineno   the offending line, verbatim
+#   DECIDED        step-id  judgment-slug
 records=$(awk '
 # Addressing is a whole-file property, not step-scoped, and must survive
 # every "next" below it — so it runs first and never short-circuits.
@@ -153,6 +182,14 @@ $0 ~ /L[0-9]+:[0-9]+/ || $0 ~ /offset:[0-9]+[[:space:]]+limit:[0-9]+/ {
         in_step_index = 1
         printf("STEPINDEXFOUND\t1\n")
     }
+    next
+}
+
+cur_step != "" && $0 ~ /^decided:[[:space:]]/ {
+    slug = $0
+    sub(/^decided:[[:space:]]+/, "", slug)
+    sub(/[^a-z0-9-].*/, "", slug)
+    if (slug != "") printf("DECIDED\t%s\t%s\n", cur_step, slug)
     next
 }
 
@@ -199,6 +236,7 @@ declare -A intent_seen=()
 declare -A step_index_brief=()
 declare -A conv_manifest=()
 declare -a lineref_lines=()
+declare -A decided_seen=()
 intent_found=0
 step_index_found=0
 
@@ -231,6 +269,9 @@ while IFS=$'\t' read -r kind f1 f2; do
             ;;
         LINEREF)
             lineref_lines+=("$spec:$f1: $f2")
+            ;;
+        DECIDED)
+            decided_seen["$f1|$f2"]=1
             ;;
         *)
             die 2 "internal: unrecognized parse record: $kind"
@@ -320,6 +361,48 @@ for step in ${step_order+"${step_order[@]}"}; do
     done
 done
 
+# Unresolved judgments (S6). --judgments omitted skips entirely and says so
+# — the same "announce, never run silently" rule --no-conventions and
+# step-check's own --ledger already follow.
+report_unresolved_judgments=()
+if [ -z "$judgments_dir" ]; then
+    printf 'plan-lint: --judgments not given; unresolved-judgment checks skipped\n' >&2
+else
+    [ -d "$judgments_dir" ] || die 2 "no such --judgments directory: $judgments_dir"
+    git -C "$judgments_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        || die 2 "--judgments directory is not a git working tree: $judgments_dir"
+
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        rest=${tag#judgment/}
+        [ "$rest" != "$tag" ] || continue
+        branch=${rest%%/*}
+        step_and_slug=${rest#"$branch"/}
+        [ "$step_and_slug" != "$rest" ] || continue
+        tag_step=${step_and_slug%%-*}
+        tag_slug=${step_and_slug#"$tag_step"-}
+        [[ $tag_step =~ ^S[0-9]+$ ]] || continue
+
+        # A tag naming a step this spec does not have belongs to a
+        # different spec's step numbering — ignored, not a violation.
+        [ -n "${step_seen[$tag_step]+set}" ] || continue
+
+        if [ -n "${decided_seen["$tag_step|$tag_slug"]+set}" ]; then
+            continue
+        fi
+
+        full_sha=$(git -C "$judgments_dir" rev-list -n1 "$tag" -- 2>/dev/null)
+        reverted=0
+        if [ -n "$full_sha" ]; then
+            git -C "$judgments_dir" log --all --format=%B 2>/dev/null \
+                | grep -qF "This reverts commit $full_sha" && reverted=1
+        fi
+        [ "$reverted" -eq 1 ] && continue
+
+        report_unresolved_judgments+=("$spec: unresolved judgment: tag $tag (step $tag_step, slug $tag_slug) is neither reverted nor decided (no 'decided: $tag_slug' line on that step)")
+    done < <(git -C "$judgments_dir" tag -l 'judgment/*' 2>/dev/null)
+fi
+
 exit_code=0
 note_class() {
     local code=$1
@@ -345,5 +428,6 @@ emit 22 ${intent_line+"${intent_line[@]}"}
 emit 30 ${report_unresolved+"${report_unresolved[@]}"}
 emit 31 ${report_absent+"${report_absent[@]}"}
 emit 32 ${lineref_lines+"${lineref_lines[@]}"}
+emit 40 ${report_unresolved_judgments+"${report_unresolved_judgments[@]}"}
 
 exit "$exit_code"

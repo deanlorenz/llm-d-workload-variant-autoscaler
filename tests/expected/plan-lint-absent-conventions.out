@@ -1,5 +1,6 @@
 exit: 20
 --- stdout ---
 --- stderr ---
+plan-lint: --judgments not given; unresolved-judgment checks skipped
 plan-lint: [20] tests/fixtures/plan-lint/absent-conventions.md: step S1 is missing required field(s): conventions
 plan-lint: [31] tests/fixtures/plan-lint/absent-conventions.md: step S1 has no conventions: declaration (absent, or present but empty)
