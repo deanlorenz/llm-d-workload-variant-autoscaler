@@ -1,6 +1,6 @@
-last_update: 2026-08-09
-state: CLOSED — session ended deliberately; no planner is standing by on this thread
-current_step: Nothing in flight. Plan doc verified current against PR #1523 @ `14a5d6cc` (open, pushed, all-green). All decisions closed; remaining items released to new owners.
+last_update: 2026-08-16
+state: CLOSED — briefly reopened once (2026-08-16) for a single routed verification task, now closed again
+current_step: Nothing in flight. Plan doc current against PR #1523 @ `14a5d6cc` (open, pushed, all-green). All decisions closed; remaining items released to new owners.
 blocked_on: —
 
 ## Read this first
@@ -85,8 +85,39 @@ spent (the freeze it waited on happened).
 `sync__ta-anchor-pr2-open-green-state-verified.md` + `sync__ta-anchor-pr2-planner-closing.md`; all four are
 unconsumed and sync should take the two newest as authoritative.
 
+## 2026-08-16 — one-off reopen: sat-v2 F1 gap, verified and routed, session re-closed
+
+Dean asked me to process one specific inbound handoff (`plan__sat-v2-disable-f1-gap-new-evidence-needs-
+verification.md`, from sync) despite the closure above — a pre-existing CURRENT.md item (open since
+2026-08-03: whether `saturation:{enabled:false}` is a silent no-op) that needed verification against PR-2's
+own tip, which is squarely this role's domain even though the session had formally closed. **This did not
+reopen the thread generally** — it was one bounded task, now finished, and closure stands again.
+
+**What I did, all within owned-doc scope (`touch only your owned docs`, Dean's instruction mid-task):**
+verified read-only at tip `14a5d6cc` (unchanged, still current — confirmed via fresh `gh pr view` before
+trusting old numbers) that the gap is genuinely closed: `TestRunAnalyzersAndScore_ThroughputOnlySilencesSaturationVote`
+proves config correctly derives `Enabled: false`, and `analyzer_helpers_test.go`'s throughput-only case
+proves a disabled saturation's priced value does **not** leak through the binder. Folded the verification
+into my own plan's §7 (committed `de52d903`). **Did not** write the review doc (reviewer's domain) or
+CURRENT.md (sync's) — instead wrote `session/handoffs/review__sat-v2-f1-gap-verified-needs-numbered-
+finding.md` asking the reviewer to add the numbered finding, since that's what actually closes the
+CURRENT.md item per Dean's own standing framing (*"needs verification... not resolved yet"* until someone
+with authority marks it so). The originating handoff is `.DONE`.
+
+**Then Dean flagged CURRENT.md's own note on this topic as too long** and asked for a summary+ref given
+it's now documented. Wrote `session/handoffs/sync__sat-v2-f1-gap-compress-to-summary-and-ref.md` with
+suggested replacement text — pointing at my plan's §7 rather than restating it, per the compression rule
+(verify-before-delete: content must have a permanent home before CURRENT.md's prose can shrink). **Both
+new handoffs are untracked** (2026-08-16 gitignore change, see Notes below) — present on disk, not in git
+log.
+
 ## Notes
 
+- **Handoffs are no longer git-tracked as of 2026-08-16** (`.gitignore` now excludes
+  `session/handoffs/*.md`/`.WIP`/`.DONE`/`.RETRACTED`; not retroactive). A `git add` on a new handoff
+  silently no-ops rather than erroring — I hit this mid-task and it was correct, not a bug. Recorded in
+  memory (`feedback_handoff_wip_state.md`) so this doesn't get rediscovered as a surprise. The three-state
+  `.md`/`.WIP`/`.DONE` machine itself is unchanged.
 - `planning/ta-anchor-dynamic-refresh-PENDING-EDITS.md` (417 lines) still exists. Its § A rows are largely
   applied; its **§ B/§ C rows are Dean-owned decisions and other roles' items, not planner to-dos.** Its own
   header says to delete it once the batch lands — **this session did not make that call**, and it should be
