@@ -1,0 +1,13 @@
+to: review
+reason: code-review-before-push
+refs:
+  - autoscaling-viz/ (worktree)
+  - planning/autoscaling-viz-panel3-visual-scheme-plan.md
+note: 1 commit (b7920cd3) on top of 062c1071 -- Task 8, Item K. Python-only worktree, no gofmt/lint/
+  test gates apply. Self-check: no /code-review run (single-file diff, +45/-12, all in the same
+  panel-3 block). One real defect self-caught during verification: an isolated single-color hatch
+  test suggested the dot-hatch thinning alone was sufficient, but a real multi-pod render showed the
+  dots had too little contrast against darker pod colors to actually be visible -- fixed by setting
+  an explicit light hatch color, re-verified on the real render (not just re-running the isolated
+  test, which would not have caught this a second time either). Manually verified against a 15-pod
+  run with real draining+waiting bands present, plus a 3-pod run as a smaller-scale regression check.

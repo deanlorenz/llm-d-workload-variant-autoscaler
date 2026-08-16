@@ -1,0 +1,15 @@
+to: benchmark
+reason: launch Stage A of the clean recapture campaign -- Dean approved
+refs:
+  - planning/ta-pokprod-clean-recapture-plan.md
+note: Dean said "start it" 2026-08-16. Full scope in the plan doc -- read it, not restated here.
+  Summary: prepend a fixed 4-5 min warmup stage (rate must actually cross the scale-up threshold,
+  not idle) to the gap-affected workloads and rerun fresh -- dwell (all 3 configs: sat/TA/satTA),
+  calibration-probe (all 3 configs), and the p4 parallelism variant. Fix the log-capture wiring
+  first (point the harvest at the gateway-log-follower's PVC file directly, D-63 option (a),
+  already validated via the one-off re-harvest) so these runs don't need the same rescue. Add
+  exploratory instrumentation liberally per Dean's direction -- capture now, decide what to keep
+  later. dean-20260813-005321-943 is NOT re-run (already resolved via re-harvest, D-66) -- Stage A
+  is new cluster work only. Existing 21-leaf dataset stays on disk untouched. Standard
+  preconditions apply (namespace-context guard, un-pause ScaledObject, restart controller between
+  runs, etc. -- architecture doc §2/§5).

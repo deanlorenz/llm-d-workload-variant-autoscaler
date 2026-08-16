@@ -1,0 +1,12 @@
+to: benchmark
+reason: is the Envoy-log truncation on dean-20260813-005321-943 still a live bug?
+refs:
+  - planning/envoy-per-request-recovery-tool-plan.md
+  - planning/ta-pokprod-execution-plan.md
+note: T9 (gateway-log-follower, BENCHMARK_GATEWAY_LOG_FOLLOWER=true default) landed 2026-08-12 but
+  was "not yet exercised against a live cluster" per the execution plan's own status. This run is
+  from 2026-08-13, after T9 landed, and shows stage-0 truncation (D-59) -- but no follower
+  artifacts exist under this run's directory. Please check: was the follower actually running
+  during this specific run, and if so why didn't it prevent the eviction; if not, why not given
+  the default is true. Answer determines whether this is a live gap to fix now or something
+  already covered going forward that just predates real verification.

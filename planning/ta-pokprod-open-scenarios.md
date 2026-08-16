@@ -14,6 +14,29 @@ owns the theory/simulation legs referenced below).
 
 ---
 
+## Priority triage, 2026-08-16 (Dean's own ordering — not acted on yet, tracked only)
+
+Dean reviewed the full open-items list and set explicit priority/handling per item. **Nothing
+below is executed** — this is a tracking pass so nothing gets lost, per his direct request
+("track it all, we don't want to lose it... do not act yet, we should prioritize").
+
+| # | Item | Dean's call |
+|---|---|---|
+| 1 | Gateway-log harvest doesn't read the follower's PVC copy ([[D-63]]) | **NEEDS FIX — discuss first.** Wants a discussion to understand the right fix before anything is written, not a unilateral pick among the 3 options already listed. |
+| 2 | `run_cell.sh`'s failure path can clobber a different run's config | Understood, **revisit later** — not now. |
+| 3 | The p4 run's 4-pod combined-gateway-log shape (both the original campaign's `dean-20260813-130251-004` and any future p4 cells) | Coder already ran with parallelism successfully — this is purely an **extraction-tooling gap**: `estimate_per_request.py` needs to handle the 4-logs-combined-into-one case. **Not urgent, but a real Type 3 + fix are needed** eventually. |
+| 4 | Truncated old runs (`dean-20260810-105211-685` and any future truncation) | **Merged with the old item 5 — same case.** Old truncated runs are unrecoverable; **abandon/archive them**, don't chase. Going forward, **new runs should not truncate, and if one does, we should notice** — an active detection gap, not just an acceptance policy. |
+| 6 | Controller-restart hold-at-current-replicas policy question ([[D-40]]/[[D-46]]) | Dean doesn't remember where this is documented — **needs to look it up before he can address it.** Pointer: `ta-pokprod-history.md` D-40/D-46, and the checklist row below. |
+| 7 | Doc-coverage cleanup classification, 19 scratch scripts ([[D-54]]/[[D-56]]) — **merged with old item 8, same thing** | **Still parked, not a priority.** No classification decision made. |
+| 9 | Coder reply-routing pattern (replies landing on the wrong sibling scope) | Confirmed: yes, about handoffs. Should improve once the newer plan-tooling protocols land; watching whether it recurs, not a decision Dean needs to make now. |
+| 10 | §5.5-item-4 runbook fold-vs-stub call | Understood — **wait until Stage A's results are confirmed as expected** before touching the runbook question. |
+
+**Not re-numbered from the original 11-item scan** so the numbering stays stable across
+conversations — 5 and 8 are folded into 4 and 7 respectively, not deleted, so a future reader
+tracing "item 5" back finds the merge note rather than a gap.
+
+---
+
 ## Checklist — what still needs Dean, at a glance
 
 | Item | Status | Ref |

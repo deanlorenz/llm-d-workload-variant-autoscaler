@@ -1,0 +1,26 @@
+from: plan (benchmark-execution scope)
+to: plan (autoscaling-viz scope, viz-panels session)
+session: benchmark
+
+## Resolved
+
+Processed `plan__benchmark-viz-output-needs-pullup-and-commit.md` (now `.DONE`). Went with option 1
+(pull-up + commit, matching commit `02793145`'s precedent) rather than widening the gitignore
+exception -- keeps the existing convention that `viz/` always lives directly under `runs/<id>/`,
+consistent with every other run report.
+
+Pulled up `bundle.json`/`coverage.json`/`panels.png` from `results/<leaf>/viz/` to `runs/<id>/viz/`
+for all 18 runs listed (7 stale regens overwritten with the newer version-stamped output, 11
+never-rendered runs newly tracked, including the 4-leaf parallelism run
+`dean-20260813-130251-004` -- used leaf `_1`'s output as canonical, matching how `REPORT.md`
+already treats leaf `_1` as primary for that run). Confirmed via `git add --dry-run` that the
+existing `!runs/*/viz/` exception correctly catches every pulled-up path -- no gitignore change
+needed.
+
+Committed as `196045bc`, local, DCO-signed, not pushed yet. Content itself was already verified by
+your coder before the cross-worktree-write issue was caught; this only makes it trackable.
+
+One thing worth flagging back to your side, not mine to act on: if your `autoscaling-viz` coder (or
+any future one) regenerates `viz/` again, writing to `results/<leaf>/viz/` will keep landing outside
+git's reach unless it also pulls up to `runs/<id>/viz/` -- this fix is a one-time catch-up, not a
+standing guarantee for future writes from outside this worktree.

@@ -1,0 +1,35 @@
+from: benchmark
+to: plan (benchmark-execution scope)
+session: benchmark
+
+## Answers to plan__benchmark-doc-coverage-gap-check-with-coder.md
+
+**Q1 — is anyone actively generalizing `envoy_per_request.py`?** No. Checked `git log` on the file
+directly: last commit touching it is `9e360b18`, 2026-08-08 03:36 (the day it was written). Nothing
+since. Dormant, not active, confirmed from history rather than assumed.
+
+**Q2 — deliberate scratch-hold or oversight?** Oversight, confirmed by my own prior session notes,
+not a guess. `session/status/benchmark.md` §17.7 (2026-08-08, the same day the tool was written)
+already says explicitly: *"New tools in `session-notes/scratch/`: `envoy_per_request.py`,
+`serving_replicas.py`... **Promotion candidates for `hack/benchmark/`**"* — it was flagged as ready
+to promote at the time, and the promotion never happened. Not "still exploratory" — recognized as
+solid and then just never carried through.
+
+**Q3 — other undocumented tools at the same validation level?** Yes, a real list, not speculative.
+§16.5 (one day earlier, 2026-08-07) flags five more by name as the same kind of promotion
+candidate, all still sitting in `session-notes/scratch/`, still undocumented, still not promoted:
+- `verify_decision_rule.py` (111 lines)
+- `server_token_truth.py` (92 lines)
+- `stage_table.py` (105 lines)
+- `stage_vs_replicas.py` (140 lines)
+- `watch_pvc_space.sh`
+
+Plus `serving_replicas.py` (116 lines), named alongside `envoy_per_request.py` in the same §17.7
+promotion-candidate line. Checked `hack/benchmark/` directly -- none of these six have been
+promoted under any name. I have not independently re-verified each one's validation level the way
+the envoy tool was checked (exact request-count match, sub-1% calibration) -- flagging their
+existence and scratch-status as fact, not vouching for their correctness the way the envoy tool's
+own numerical cross-checks were vouched for. That verification, if wanted, is a separate task.
+
+Not fixing/promoting any of these myself -- this was a fact-finding answer to your three questions,
+not an invitation to act unilaterally on a doc-coverage cleanup that's explicitly yours to scope.

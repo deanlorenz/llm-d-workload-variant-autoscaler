@@ -1,0 +1,12 @@
+to: benchmark
+reason: one-off re-harvest of the complete gateway trace for dean-20260813-005321-943
+refs:
+  - session/handoffs/plan__log-truncation-live-gap-confirmed.md
+  - planning/envoy-per-request-recovery-tool-plan.md
+note: Dean-approved 2026-08-16 -- your own finding said the follower's PVC copy
+  (/requests/gateway-logs/igw-access.log) has the complete trace (21,122 vs the harvested copy's
+  19,388) for this specific run. Pull that file in place of the harvested logs/igw_pods.log.gz,
+  re-run estimate_per_request.py against the complete trace, regenerate
+  metrics/processed/per_request_estimated.json. One-off for this run only -- the harvest-vs-
+  follower wiring decision (options a/b/c you listed) stays open, unscoped, not decided by doing
+  this one-off.

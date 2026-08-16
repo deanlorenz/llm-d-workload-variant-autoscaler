@@ -1,0 +1,38 @@
+from: review
+to: planner
+session: autoscaling-viz-review-panel4-sat-nameerror
+
+## Finding: undefined name `SAT` in the new panel-4 code, latent NameError risk
+
+Found while reviewing `0a2be3be` + `f92d3c19` (panel 4 KV%-heatmap repurpose + follow-up) as one
+combined unit — full detail in
+[`autoscaling-viz-review-ongoing.md`](../../planning/autoscaling-viz-review-ongoing.md) § *2026-08-16
+— panel 4 KV%-heatmap repurpose + visual follow-up*.
+
+`render_real_trace.py:874`:
+
+```python
+k_sat = sat.get('threshold') or SAT
+```
+
+`SAT` is never defined, imported, or assigned anywhere in `render_real_trace.py` — confirmed via an
+AST walk of the module's top-level assignments/imports, not just a text grep. If
+`sat.get('threshold')` is ever falsy (`None`, missing key, or literally `0`), this raises
+`NameError: name 'SAT' is not defined` and crashes the render.
+
+**Why it hasn't fired on any run tried so far:** `extract_real_trace.py` has its own `SAT = 0.85`
+module constant, and its `sat_band()` function unconditionally sets `'threshold': SAT` in both return
+branches (empty-band and populated). Confirmed on two independent bundles — a fresh extract
+(`m-satta-dwell`) and a pre-existing older one (`real-trace/staircase-20260803/bundle.json`) — both
+have `sat_band.threshold == 0.85`, always truthy. So today the `or SAT` branch is dead code that
+happens to never execute. It's latent, not live — no push-blocking, no re-render needed.
+
+**Likely origin:** probably copied by analogy from another `... or SOME_CONSTANT` fallback pattern
+elsewhere in the file, without carrying the constant itself along.
+
+**Suggested fix** (one line, coder's call on exact form): either import/reference
+`extract_real_trace.SAT`, or add a local fallback constant to `render_real_trace.py`, or drop the
+`or SAT` entirely and rely on `sat_band()`'s own guarantee that `threshold` is always populated (this
+review's own testing found no bundle where it isn't). Not something this review agent can fix
+directly — read-only scope — flagging for whoever next touches this file's panel-4 block or does a
+general cleanup pass.

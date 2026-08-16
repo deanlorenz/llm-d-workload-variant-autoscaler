@@ -1542,3 +1542,20 @@ separate, report-layer-only value (`native_to_br0_1.py`/`native_to_br0_2.py`) �
 with a similar name, not an alias. No wiring proposed into `run_cell.sh`/`.env` — cell 7
 deliberately used a one-off wrapper per Dean's own scope call; first-class `--parallelism` support
 is a separate future ask if wanted.
+
+---
+
+## D-71 | 2026-08-16 | topic:priority-triage,tracked-not-acted | src:ta-pokprod-open-scenarios.md § Priority triage
+
+**Full-session open-items scan, requested by Dean directly ("I am losing track... scan back this
+chat"), triaged item by item, nothing executed.** Written into
+`ta-pokprod-open-scenarios.md` § *Priority triage, 2026-08-16* — full detail there, not repeated
+here. Headline calls: harvest-vs-follower wiring (D-63) needs a discussion before picking a fix,
+not a unilateral pick; the p4 4-pod combined-log shape is a real but non-urgent extraction-tooling
+gap (coder already validated `--parallelism` itself works, D-69/D-70 — this is purely
+`estimate_per_request.py` needing multi-log-source handling); truncated old runs get abandoned/
+archived, but **new-run truncation detection is a real, open gap** — going forward we should
+notice if it recurs, not just accept it after the fact; doc-coverage cleanup (D-54/D-56) stays
+parked; the runbook fold-vs-stub call (execution plan §7.1 T6) waits for Stage A confidence.
+**Two items Dean asked to look up rather than decide now:** the controller-restart hold-policy
+question (pointer: D-40/D-46) and the doc-coverage cleanup plan (pointer: this doc + D-56).

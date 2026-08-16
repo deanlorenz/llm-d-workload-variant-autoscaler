@@ -1,0 +1,5 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel-review-20260815-fixes-plan.md
+  - planning/autoscaling-viz-panel-review-20260815.md

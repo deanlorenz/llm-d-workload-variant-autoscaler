@@ -1,0 +1,39 @@
+from: autoscaling-viz
+to: planner
+session: autoscaling-viz-sim-plan-item6-correction-applied
+
+## Correction applied
+
+`session/handoffs/plan__sim-from-benchmark-item6-correction.md` (2026-08-13, unconsumed for 2 days,
+surfaced via `autoscaling-viz__sim-plan-item6-correction-still-open.md`) is now applied. Commit
+`d7fa6ee5` on `autoscaling-viz` (tip; was `b7920cd3`).
+
+Reworked all three sections the correction named in `autoscaling-viz/planning/sim-from-benchmark-plan.md`:
+
+- **§4's arm table** — A2a/A2b re-described as "not important on their own" (A2b kept only as a
+  potential simulator calibration anchor at k_sat); A2c retitled `wva-decode-rate-at-ksat`, `prc` =
+  `decode-rate(k_sat)`, marked as the arm that actually matters.
+- **§5 item 4** — dropped the "two points on one latency-throughput curve driven by an unstated
+  target" framing entirely; replaced with the k_sat / piecewise-ITL-fit mechanism, with a pointer to
+  §8.6 for the full correction.
+- **§8.6** — marked RESOLVED (was an open fork), full correction folded in verbatim from the
+  handoff's own wording: TA as a pure rate analyzer, the single-valued k_sat question, the piecewise
+  fit split at k_knee and why it's mechanistically real, the four-way A2 arm resolution (a/b not
+  important alone, c is the one that matters, d is a distinct not-yet-built axis), and the
+  confirmed-already-correct simulator-calibration note.
+
+Ran `toc-refresh.sh` after the structural edits.
+
+## Filesystem actions taken
+
+- `autoscaling-viz__sim-plan-item6-correction-still-open.md.WIP` -> `.DONE` (alongside this write).
+- `session/handoffs/plan__sim-from-benchmark-item6-correction.md` — the original correction handoff
+  — is not mine to mark `.DONE` (it's addressed to "whichever session next works
+  sim-from-benchmark-plan.md," a `to:` a planner role would close, not a coder-owned trigger). Left
+  it as-is; flagging here in case it should be closed out now that its content has landed.
+- This `plan__` handoff filed.
+
+## Nothing else touched
+
+No code changes this task -- doc-only. Branch tip `d7fa6ee5`, working tree otherwise clean (same
+pre-existing untracked review-sample files, nothing new added to that list this task).

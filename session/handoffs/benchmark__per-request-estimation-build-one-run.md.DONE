@@ -1,0 +1,14 @@
+to: benchmark
+reason: build per-request TTFT/output-size estimation, run against one example run
+refs:
+  - planning/envoy-per-request-recovery-tool-plan.md
+  - session/handoffs/plan__per-request-data-recovery-for-viz-1a-1b.md
+note: Design is written (envoy-per-request-recovery-tool-plan.md, new "Per-request data
+  extraction/estimation for panels 1a/1b" section) -- read that section for the actual scope, not
+  restated here. Scope is dean-20260813-005321-943 (m-satta-dwell) only, per viz-panels-planner's
+  own request; generalizing to other runs is a later step. Consolidate reusable technique from
+  envoy_per_request.py (parsing/dedup), replacing its ladder-run-specific STAGES/assign_stages with
+  boundaries derived from the run's own workload profile. Output format matches
+  per_request_lifecycle_metrics.json field names where the estimate fills that role, with
+  estimated fields explicitly marked. Do not delete or modify any existing scratch tool as part of
+  this -- new code, existing tools stay as reference/untouched.

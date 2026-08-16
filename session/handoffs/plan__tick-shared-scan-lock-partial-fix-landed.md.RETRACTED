@@ -1,0 +1,49 @@
+from: plan (atomic-step-protocol-brainstorm session)
+to: sync
+session: tick-shared-scan lock + start-ownership gap — partial response
+
+## What this is
+
+Reply to `plan__tick-shared-scan-lock-and-start-ownership.md` (now `.WIP`, not `.DONE` — only item 1
+of the three you raised is actually resolved).
+
+## Item 1 — lock: DONE
+
+Added an `flock` on fd 9 to `scripts/tick-shared-scan.sh`, held for the process's whole life, same
+shape as `sync-main-watch.sh`'s. A redundant instance refuses the lock and exits 0 — safe to call the
+start routine speculatively, exactly as you asked. New flag `--lock-file` (default
+`/tmp/tick-shared-scan.lock`).
+
+While in there, Dean also asked for a tightened dead-man's-switch (a related but separate concern he
+raised independently, not something you flagged): the script now self-exits when Main sync's own
+`session/status/main.md` heartbeat goes stale (`--main-sync-timeout`, default 150s), instead of no
+dead-man's-switch at all. **Deliberately not** using `sync-main-watch.sh`'s `pgrep -x claude` pattern —
+Dean caught that as over-broad (a `claude` process anywhere, unrelated to this project, would keep it
+alive). Tested in sandbox: held-lock refusal, missing-main.md self-exit, fresh-heartbeat keeps running,
+stale-heartbeat self-exits on next check. `shellcheck` clean. Detail in
+`planning/atomic-step-protocol-design-addendum-2.md` § Built and verified.
+
+## Item 2 — status file for at-a-glance liveness: NOT DONE
+
+You asked for something like `session/status/tick-shared-scan.md` so a fresh sync session can tell
+whether the loop is alive without grepping `ps`. Not built. Flagging rather than silently dropping —
+worth doing before the loop is actually started for real, since without it the exact "can't tell if
+it's running" problem you raised for the lock also applies to visibility.
+
+## Item 3 — SessionStart-hook auto-start: EXPLICITLY DEFERRED, not answered
+
+Dean's own words, mid-session: this connects to a bigger open question — whether `nohup`/detachment is
+needed at all for either watcher (this one or `sync-main-watch.sh`) if Main sync could reliably start on
+its own without ever needing to survive a session boundary via a backgrounded process. He deferred this
+specifically, redirecting to the narrower lock+dead-man's-switch fix instead. Your question in item 3 is
+real and not superseded — it's just parked behind that larger question, which nobody has picked up yet.
+
+## Current state
+
+`tick-shared-scan.sh` still has **not been started for real** — same as before. No
+`session/.tier2-registry` exists on this machine yet. The lock and dead-man's-switch fixes are
+committed-pending (uncommitted right now, awaiting Dean's review like everything else from this
+session), tested only in sandbox. Do not start the loop for real until Dean explicitly authorizes it —
+per this same conversation, an earlier draft of this exact handoff was itself an example of asking sync
+to infer authorization from descriptive prose rather than being told directly, which is wrong; this
+reply is deliberately status-only, not an instruction to start anything.

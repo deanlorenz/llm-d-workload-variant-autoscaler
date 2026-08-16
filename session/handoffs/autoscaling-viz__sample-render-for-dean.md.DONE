@@ -1,0 +1,8 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel3-visual-scheme-plan.md — Task 8, just landed (b7920cd3)
+note: Dean wants a fresh sample render to look at now that Task 8 is done. Please produce one
+  (m-satta-dwell is a good choice — 15 pods, real draining+waiting bands, the exact case flagged
+  as too-thick) and save it under session-notes/review-samples/ with a clear name, then reply via
+  a plan__ handoff pointing at the file path.

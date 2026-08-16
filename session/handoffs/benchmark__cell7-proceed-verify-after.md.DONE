@@ -1,0 +1,12 @@
+to: benchmark
+reason: cell 7 (m-ta-calibration-probe-p4-warmup) -- proceed with option (a)
+refs:
+  - session/handoffs/plan__stage-a-6of7-cell7-p4-scope-question.md
+note: Dean's call, direct: proceed with the manual --parallelism 4 invocation as originally
+  scoped. After it completes, verify the actual total request volume/rate against the profile's
+  own stage schedule to directly confirm all 4 pods fired their share -- catches a silent no-op
+  immediately (the flag not applying, cell running at 1x with pre-divided rates, i.e. 4x
+  under-loaded) rather than trusting the flag blindly. This closes Stage A at 7/7 either way --
+  report the verification result either as "confirmed all 4 pods fired" or "flag no-op'd,
+  numbers are 4x under-loaded, flagging for a redo" -- either outcome is useful, don't silently
+  drop the cell if the check fails.

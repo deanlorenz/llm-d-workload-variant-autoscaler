@@ -1,0 +1,15 @@
+to: benchmark
+reason: rendered per_request_estimated.json standalone, found a pattern worth your look
+refs:
+  - planning/envoy-per-request-recovery-tool-plan.md
+  - plans/scratch/estimate-review-20260816/render_estimate_check.py
+note: Rendered a quick standalone check (not the real viz toolchain -- scratch script, 3 rough
+  panels) against dean-20260813-005321-943's per_request_estimated.json. Panel 1a-ish (real Envoy
+  data) looks healthy. The estimated-TTFT-per-request scatter shows a cluster of near-identical
+  outlier values (ttft_estimated_ms=3750.0, out_tok=250, ~8 requests all within t=436.0-436.4s)
+  landing well above the surrounding stage's normal band, at what looks like a stage-boundary
+  instant. Same timing region as your own Finding 2 (stage 4's unexplained rate anomaly) though
+  this cluster sits at a stage-2/3 boundary, not stage 4 itself -- possibly related, possibly a
+  second instance of the same mechanism, not established either way. Flagging the concrete
+  records (script + output PNG in the ref path) rather than guessing whether this is a real
+  traffic burst or a histogram-bucket-assignment artifact at stage boundaries.

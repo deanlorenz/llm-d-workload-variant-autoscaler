@@ -1,0 +1,12 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - session/handoffs/plan__sim-from-benchmark-item6-correction.md — written 2026-08-13, still open,
+    never consumed
+  - autoscaling-viz/planning/sim-from-benchmark-plan.md — §4 (arm table), §5 item 4, §8.6 — the
+    sections needing the rework
+note: found while auditing whether Dean's TA-decode-PRC correction had actually been applied
+  anywhere. It hadn't — the handoff sat untouched for 2 days. Please read the full handoff and
+  apply its "Action needed" section to sim-from-benchmark-plan.md directly (you own that Type 3 per
+  CONVENTIONS' agent-roles table). No urgency framing implied by the delay — just needs to actually
+  happen before any C4 (arms A2-A9) work starts on that plan.

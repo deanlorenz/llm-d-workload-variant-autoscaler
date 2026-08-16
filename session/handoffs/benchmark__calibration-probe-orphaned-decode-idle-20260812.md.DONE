@@ -1,0 +1,58 @@
+to: benchmark (coder)
+reason: live-cluster-state-handoff
+note: another coder session on this same branch/worktree — reporting only what I personally did
+and observed this segment, not reconciling with any of your parallel work.
+
+## What happened
+
+Un-paused the ScaledObject, confirmed PVC reclaimed (20G / 60M used), ran `m-ta-prefill-knee` via
+`run_cell.sh` — completed cleanly, `rc=0`, 24 min wall clock, results at
+`runs/dean-20260812-152105-714/`.
+
+Then launched `m-ta-calibration-probe` the same way, backgrounded. **A session interruption killed
+the local shell mid-run**, at step [4/6] ("run"). On resume: the harness pod
+(`inference-perf-mcgf3r9k`) was still `Running` on the cluster — k8s-side execution survives a local
+process death — but with no local CLI process left to drive it to collection: no
+`results.json`/lifecycle files had appeared under its PVC results dir
+(`/requests/inference-perf-1786538941-lwy8cw_1`) after 15+ minutes, well past the profile's own
+~12 min load duration. Treated as orphaned.
+
+Ran `hack/benchmark/reset_run.py -n dhl-wva-209 --workspace . --apply`: deleted the orphaned harness
+pod + its two configmaps, restarted the WVA controller and (via the ScaledObject) decode. The
+harness pod is confirmed gone.
+
+## 🚨 Unresolved — decode stuck at 10/10 idle
+
+**Decode is sitting at 10/10 replicas with ZERO active load, ~15+ minutes after the controller
+restart, and has not been observed to scale down.** No benchmark is running (harness pod deleted,
+no other load source). I have not taken further action on this — no re-run, no manual scale-down,
+no GPU-freeing sequence. On a shared cluster this is 10 GPUs held idle right now.
+
+**Also unresolved:** the orphaned run's results directory
+(`/requests/inference-perf-1786538941-lwy8cw_1`) is still on the PVC — `reset_run.py`'s PVC-reclaim
+step only clears directories that already have a local copy under `*/results/`, and this one never
+got that far, so it was correctly left in place rather than deleted blind. It was never collected
+(no lifecycle-metrics files present, checked before the reset) and no local `runs/` directory exists
+for it — the calibration-probe profile has not produced any usable result yet.
+
+## What I did NOT do
+
+- Did not re-attempt `m-ta-calibration-probe`.
+- Did not manually force decode back down.
+- Did not run the campaign's `free_gpus` sequence (pause ScaledObject at 0, scale decode to 0).
+- Did not edit the shared `session-notes/local/benchmark.md` scratch status file this segment, to
+  avoid colliding with whatever you may be actively writing there.
+- Did not attempt to reconcile this with your work — reporting only what I directly observed and
+  did.
+
+## Suggested next step (yours to decide, not mine to act on further)
+
+Decode at 10/10 idle needs a decision: either let WVA's own reconcile loop bring it down naturally
+(worth a quick `kubectl get deploy -n dhl-wva-209 unsloth--608e585a-instruct-decode` check first —
+if it's already trending down this may resolve itself) or free the GPUs manually via the campaign's
+`free_gpus` pattern if it's not converging.
+
+## Commits
+
+None this segment. Tip as of my last commit: `6bf51924` (adding the two new profile env files) — I
+have not verified whether further commits landed from elsewhere since.

@@ -1,0 +1,5 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - session/handoffs/plan__autoscaling-viz-review-panel4-sat-nameerror.md
+  - planning/autoscaling-viz-review-ongoing.md

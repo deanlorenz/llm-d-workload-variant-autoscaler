@@ -1,0 +1,10 @@
+to: autoscaling-viz
+reason: re-read plan
+refs: []
+note: Dean wants to see a fresh render of a run WITH real drain data, at current tip, before
+  deciding on Item R (panel 3 hatch style). Please extract+render m-satta-dwell
+  (dean-20260810-092644-320, results leaf inference-perf-1786343242-zr01gi_1 — 7 drain events, the
+  same run Task 4/8 were verified against) fresh against current tip (d7fa6ee5), confirm the
+  embedded stamp matches `git rev-parse --short HEAD`, save under session-notes/review-samples/
+  with a clear name, and reply via plan__ with the exact path. Existing viz/panels.png for this run
+  is stamped 870fff6d — stale, missing Task 7 (corner-info) and Task 8 (visual-scheme) entirely.

@@ -1,0 +1,9 @@
+to: benchmark
+reason: fact-finding test -- does vLLM v0.20.2 support --enable-per-request-metrics
+refs:
+  - planning/envoy-per-request-recovery-tool-plan.md
+note: Dean-approved 2026-08-15/16, small and cheap by design -- read the design doc's new "Fact-
+  finding test scoped" section for exact scope (1 bare vLLM pod, no gateway/EPP/harness, 2-3 curl
+  requests, inspect response bodies directly, teardown immediately after). Real cluster action --
+  same standing per-run approval as any other cluster contact, already given for this specific
+  probe. Report back the literal response bodies, not just a verdict.

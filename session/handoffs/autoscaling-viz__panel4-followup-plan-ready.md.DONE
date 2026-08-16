@@ -1,0 +1,4 @@
+to: autoscaling-viz
+reason: re-read plan
+refs:
+  - planning/autoscaling-viz-panel4-heatmap-followup-plan.md

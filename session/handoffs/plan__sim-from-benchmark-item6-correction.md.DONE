@@ -1,0 +1,66 @@
+from: viz-panels-planner (this session, 2026-08-13)
+to: whichever session next works sim-from-benchmark-plan.md (autoscaling-viz)
+session: viz-panels
+
+Dean corrected open decision #6 (`sim-from-benchmark-plan.md` §8.6) — the "SLO" framing in that
+section and the A2 arm table (§4) is wrong and needs reworking before C4 (arms A2-A9) starts. Full
+correction, his words folded in:
+
+**TA is a pure rate analyzer, not an SLO enforcer.** There is no latency target anywhere in its
+design. TA tracks (eventually) 3-4 different `prc` rates; only decode-tok/s is implemented today —
+req/sec and prefill-tok/s are ignored for now, planned but not built.
+
+**The question TA asks is always the same, single-valued question:** "for a *nearly saturated* pod,
+what is the decode rate?" — "nearly saturated" is defined as `kv% = k_sat` (default 0.85,
+configurable). For a given workload shape (in/out/hit%), `decode-rate(k_sat)` is **always exactly one
+number** — there's no ambiguity about *what* is being asked, only about *how to estimate it* when the
+run hasn't actually reached k_sat yet. If a run has already been observed at k_sat, there's nothing to
+estimate — read it off directly.
+
+**The estimation path is ITL, not rate, and it's piecewise, not one line.** TA doesn't estimate
+decode-rate directly — it estimates ITL(k_sat) via a linear fit of ITL vs. concurrency on sub-knee
+data, then converts ITL→rate. **Correction to my first pass at this** (I initially said the knee was
+just a "the fit might not hold past here" caveat — wrong): it's a genuine two-segment piecewise-linear
+model, split exactly at `k_knee`, with a much steeper slope above the knee than below. This is
+mechanistically real, not a fitting artifact: past the knee there are no longer enough decodes per
+prefill to amortize prefill cost on average, so each iteration's cost ratio flips toward
+`prefill_time >> single_token_decode_time`. That drives `#running` (concurrency) up rapidly, which
+drives ITL up rapidly, which is why decode-rate saturates very fast once past the knee. **Practical
+consequence: if `k_sat` falls above `k_knee` for a given workload shape, the fit must use the
+post-knee segment's slope/intercept to extrapolate to k_sat, not the pre-knee one** — using the wrong
+segment badly misestimates `decode-rate(k_sat)`. This is consistent with (and now explains
+mechanistically) what `autoscaling-viz-design.md` § *The ITL model* already implements —
+`itl_fit()` (sub-band) and `itl_fit_sat()` (kv≥0.85) are already two separate, never-merged fits; that
+section doesn't need correcting, it just didn't have this mechanism spelled out.
+
+**ITL as an SLO is explicitly a non-goal of current TA** — ITL is purely the intermediate variable
+used to back into decode-rate(k_sat); TA has no opinion on what ITL itself should be.
+
+**k_knee is not a target, not an estimate, and not something TA cares about directly** — it's a
+diagnostic for whether the linear extrapolation to k_sat crossed into the steep regime. Its only
+relevance to C4 is telling you which segment's coefficients to use.
+
+**Reframe §4's A2 arms accordingly** (this directly changes the arm table):
+- **(a) knee (4994 tok/s)** — not important on its own.
+- **(b) band mean (3943 tok/s)** — not important on its own, but potentially useful as a calibration
+  anchor for the simulator's service-rate curve *at k_sat specifically* (see next point).
+- **(c) decode-rate(k_sat)** — this is the one that matters. This is "the" `prc`, correctly framed.
+  §8.6's A2c should be re-specified as this, not as "the curve point at a stated ITL" — drop the
+  ITL-as-SLO framing entirely.
+- **(d) a prefill-rate bound** — a distinct signal, not yet implemented, analogous to saturation
+  analyzer's K2 signal, giving a PRC bound for prefill-heavy workloads. Separate axis, out of scope
+  for C4 until built — don't conflate with (a)-(c).
+
+**Simulator calibration note (Dean confirmed this is already right, no change needed):** the
+simulator already has its own synthetic non-linear service-rate-vs-concurrency curve. Where a real
+run has enough evidence to characterize actual service rate across a range of concurrencies, swap the
+real curve in for the simulated one (useful generally — even for purely synthetic workloads, this
+only touches the service side). Where the real run doesn't have that range, keep the simulated
+curve, but it must be calibrated to agree with the real data **at k_sat**, specifically — that one
+point has to be right regardless of how much range the run's data covers.
+
+**Action needed:** rework §4's arm table (A2a/A2b/A2c descriptions), §5 item 4 (currently frames the
+knee/band spread as "two points on one latency-throughput curve" driven by an unstated latency
+target — needs the k_sat framing instead, not a latency SLO), and §8.6 itself, before C4 starts. This
+session did not edit that Type 3 directly — it's autoscaling-viz-coder-owned per CONVENTIONS'
+agent-roles table, review agent/plan agent write into different domains than a coder's own Type 3.

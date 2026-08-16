@@ -1,0 +1,12 @@
+from: planner
+to: autoscaling-viz
+session: extract-render-two-real-runs
+
+Dean wants to review the current panel fixes (Items Q/R/T/U/W, panel 4 KV%-heatmap + follow-up,
+the SAT fix) against real campaign data, not review-sample bundles.
+
+Per `planning/benchmark-runs-inventory.md`'s table: pick one run with clean SUCCESS collection from
+the 2026-08-16 warmup batch, and one with clean SUCCESS collection from an older (pre-2026-08-16)
+dwell/staircase run — extract+render both fresh at current tip, same protocol as every other render
+this session (confirm stamp match in both coverage.json and PNG metadata, report back via a `plan__`
+handoff with exact paths). No code changes expected; this is pure extract+render on existing data.

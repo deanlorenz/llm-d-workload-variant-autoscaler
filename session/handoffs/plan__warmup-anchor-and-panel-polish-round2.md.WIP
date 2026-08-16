@@ -1,0 +1,8 @@
+from: planner
+to: autoscaling-viz
+session: warmup-anchor-and-panel-polish-round2
+
+Dean's direct feedback on the first two real-campaign renders, resolved into
+`planning/autoscaling-viz-warmup-anchor-and-panel-polish-plan.md` (Items X, Y, Z, AA, AB, AC, AD).
+Bundles a real anchor-logic fix and an extractor-fallback addition with panel 3/4/6 visual polish —
+see the spec's own verification section for what needs separate call-out in your report.

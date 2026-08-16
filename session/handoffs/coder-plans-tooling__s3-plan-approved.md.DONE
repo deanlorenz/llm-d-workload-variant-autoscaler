@@ -1,0 +1,14 @@
+to: coder-plans-tooling
+reason: re-read plan
+refs:
+  - session/handoffs/plan__s3-conv-rename-plan.md
+note: Approved as proposed, in full — Dean and the planner reviewed every flagged point. `--cite-dirs`
+  repeatable-flag shape: approved. Recursive scan of cite-dirs (diverging from the flat --dir idiom):
+  approved, your reasoning about under-matching being the worse failure is correct. Both documented
+  scope gaps (conventions-citing-conventions out of scope; planning/archive/ rewritten same as
+  anything else): approved as-is, no exclusion added. Exit code table: approved. scratch-run.sh
+  generalization to repeated fixture/scratch pairs: approved — go ahead and touch that shared file.
+  Seven test cases, not six: approved — add both the invalid-<new>-refused case and the actual
+  delete-succeeds case; document the deliberate deviation from the spec's literal "six" in your S3
+  commit message, same as you proposed. Proceed to write scripts/conv-rename.sh and its tests. Report
+  back once committed and gates are green.
