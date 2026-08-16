@@ -333,6 +333,53 @@ above is the more direct path to the same data without needing a collector deplo
   Envoy's — doesn't exist; `igw_pods.log` already *is* the gateway's access log, fully
   characterized above and in D-55.
 
-**Not yet done:** the estimation build (handed to the coder, in progress) and verifying the
-`--enable-per-request-metrics` flag (not yet started, not yet handed off — needs Dean's
-prioritization call on sequencing first).
+**Both done as of 2026-08-16** — the estimation build (D-59/D-60/D-62) and the flag verification
+(D-61, definitive negative). See below for generalization to the rest of the campaign.
+
+## Generalization to the rest of the campaign (2026-08-16) — D-64's batch, results in
+
+**Re-harvest (the one run this whole design started from), exact.** Pulled the follower's
+complete PVC trace for `dean-20260813-005321-943`, replacing the truncated harvested copy:
+**21,120/21,120, delta +0** (was 19,388/21,120). Stage 0 now has 550 requests at 5.10 req/s
+observed vs 5.0 configured — the gap that started this whole thread is closed for this run.
+Confirmed the stage-4 rate anomaly (D-59 Finding 2) is unchanged after the fix (still 2,430
+requests, still 3.16 vs 2.0 observed/configured) — proves it was never caused by the truncation,
+a genuinely separate, still-open question.
+
+**Batch of 13 more leaves — 9 exact matches, 1 small residual gap, 2 genuinely skipped (not
+forced through).** Full table: `session/status/benchmark.md` §20.45. 9 leaves went from no-data
+to exact per-request estimates (21,120/21,120 or 7,110/7,110); 1
+(`dean-20260810-100827-539`) has a small residual gap even in the follower's own PVC capture
+(20,979/21,120, 0.67%) — confirmed no more data exists anywhere, not a tool bug, not chased
+further.
+
+**Two leaves correctly refused, not silently forced:**
+1. **`dean-20260810-105211-685`** — severely truncated at the source (campaign paused mid-run, no
+   stage files, no `harness_stop`, `stdout.log` stops right after tokenizer setup). No
+   ground-truth total to validate an estimate against. Flagged, not processed — matches what the
+   campaign report already said about this run.
+2. **`dean-20260813-130251-004`'s 4 leaves (the p4 parallelism run)** — each leaf's Envoy log
+   captures **all 4 pods' combined traffic**, not its own 1/4-rate share (confirmed: leaf 1's
+   count is a slice of the combined total, not what the per-pod stage schedule alone would
+   predict). The tool's one-harness-process-per-log design doesn't fit this shape. Needs its own
+   design, not a mechanical run — flagged, not processed, not decided here.
+
+**A real bug found and fixed mid-batch** (`5900a914`), same shape as D-62's earlier one — a
+verification pass that didn't stop at "the numbers don't match" but traced *why*. Processing
+`dean-20260812-203217-894` (calibration-probe OOM, no local log at all — extracted from the
+follower after checking with Dean, outside the original re-harvest's named scope) first
+undercounted by 370/7,110, which looked like more truncation. It wasn't: the tool's own
+hardcoded `+120s` trailing-drain margin was sized for the dwell profile's long tail and was 18s
+too tight for calibration-probe's shape. Fixed: both window margins are now CLI flags, default
+trailing margin widened 120s→300s, and the tool now warns explicitly when a shortfall is a margin
+problem vs. real truncation, so this exact silent misdiagnosis can't recur unnoticed. Verified no
+regression against both already-processed runs.
+
+**Coverage after this batch:** 7 leaves already had real non-empty per-request data (never needed
+estimation) + the re-harvested run + 9 more exact-match leaves = 18 of 21 total leaves now have
+usable per-request data (real or estimated). 2 leaves genuinely can't (severely truncated at
+source) and 4 (the p4 run) need a shape-specific redesign not yet scoped.
+
+**Same routing pattern as D-59/D-61, third occurrence same day:** this reply also landed
+addressed to the autoscaling-viz scope rather than this one. Folding the results in regardless;
+see the separate note on escalating this pattern rather than re-flagging it a fourth time.

@@ -1423,3 +1423,30 @@ campaign is 65-96s (10 REPORT.md files checked); 4-5 min covers the controller's
 plus the dwell-deep-dive's own concurrent-boot-lag finding, without building a live
 readiness-check mechanism across 6 differently-shaped workloads. Rate must actually cross the
 scale-up threshold, not sit near-idle.
+
+---
+
+## D-66 | 2026-08-16 | topic:reharvest-exact,batch-13-leaves,margin-bug-fixed,two-shapes-refused | src:session/status/benchmark.md §20.45
+
+**Re-harvest closed the exact gap this whole thread started from.** `dean-20260813-005321-943`:
+21,120/21,120, delta +0 (was 19,388/21,120). Stage 0 now has 550 requests, 5.10 vs 5.0 configured.
+Stage-4 anomaly (D-59) confirmed unchanged — proves it was never the truncation's doing.
+
+**13-leaf batch: 9 exact, 1 small residual (not chased, confirmed no more data exists), 2
+correctly refused rather than forced.** Coverage after this batch: 18 of 21 total leaves now have
+usable per-request data (7 already-real + this run + 9 more). Refused: `dean-20260810-105211-685`
+(severely truncated at source, no ground truth to validate against) and
+`dean-20260813-130251-004`'s 4 leaves (each captures all 4 pods' combined traffic, not its own
+1/4 share — needs a shape-specific redesign, not decided here).
+
+**Second margin bug found and fixed the same way as D-62** — verification that traces *why*
+numbers don't match, not just that they don't. `estimate_per_request.py`'s hardcoded `+120s`
+trailing-drain margin (sized for dwell) was 18s too tight for calibration-probe's shape,
+undercounting by 370/7,110 in a way that looked like more truncation. Fixed (`5900a914`): both
+margins are now CLI flags, default widened to 300s, explicit warn on margin-vs-truncation
+ambiguity so this can't recur silently.
+
+**Routing pattern, third occurrence same day — worth a structural fix, not a fourth flag.**
+D-59/D-61/D-66 all landed addressed to the autoscaling-viz scope instead of this one, despite
+each build/test/batch being scoped and triggered here. Escalating as its own item rather than
+re-flagging individually going forward.
