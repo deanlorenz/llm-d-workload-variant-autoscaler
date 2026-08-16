@@ -46,7 +46,16 @@
             "command": "bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-session-start.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/tier1-session-start.sh"
+          }
+        ]
       }
     ]
-  }
+  },
+  "_note": "user-approved-settings-change: tier1-session-start.sh SessionStart hook added 2026-08-16, approved by Dean"
 }
