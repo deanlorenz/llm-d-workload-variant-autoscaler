@@ -7,7 +7,25 @@ it names. Additive — proposes a new, small always-loaded layer alongside the e
 mechanism, not a replacement for it.
 
 **Status: proposed 2026-08-13, with supporting measurement; mechanism not yet built, one open sub-question
-(recognition reliability) explicitly unresolved.**
+(recognition reliability) explicitly unresolved. "OK for now, see how it works after impl" — Dean,
+2026-08-15.**
+
+## At a glance
+
+**Mission:** an always-loaded index that triggers on-demand fetch of full conventions, without
+loading them all up front — the "conventions must not be auto-loaded" rule was measured, not just
+argued: a thin index is ~4.7× cheaper than today's two full files.
+
+**Approach:**
+- Two-tier: main index (broad categories, always loaded) → sub-index (memory-shaped, per category,
+  loaded only when relevant) → full convention (fetched via `conv <name>` as today).
+- Sub-indices are project-scoped, not global memory — Dean's explicit preference.
+- Worst case (every rule triggered) converges to today's bulk-load cost, never worse.
+
+**Needs you:** nothing right now — build and see how it works, per your own call.
+
+**Checklist:**
+- [ ] Not started. Revisit after `single-instance-guard.sh`/spec work settles, or whenever convenient.
 
 ---
 

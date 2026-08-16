@@ -9,6 +9,32 @@ addendum replaces only how a session discovers that a new handoff exists.
 
 **Status: designed 2026-08-16, following a live demonstration of the problem it fixes. Not built.**
 
+## At a glance
+
+**Mission:** a coder's approval handoff sat unread because it had no standing watch loop — fix
+wake-up cheaply, and fix the addressing gap that caused it, without new git machinery.
+
+**Approach:**
+- Per-channel mailbox files (`session/mailboxes/<channel>.log`), append-only, never truncated —
+  cheap to check (line-count comparison), no filename pattern-matching.
+- Git notes considered for the same job, corrected twice on re-examination: mailbox files are simpler
+  AND at least as safe for concurrency, not just more ergonomic. Notes add nothing here.
+- A shared broadcast/discovery channel (one file, everyone reads/writes) solves addressing — role
+  lookup, presence/takeover announcements, and general broadcast (including a working answer to the
+  long-open `/s-park` question) all ride the same rails.
+- Cost model: a shared, parameterized shell script does all the grepping/addressing at shell cost —
+  only genuinely relevant output ever reaches the model.
+- Cleanup (archive-and-truncate, sync-owned) designed but explicitly deferred — "handle it when files
+  start to grow."
+
+**Needs you:** nothing right now — designed, not built. Revisit `/s-park` (Addendum 6) against this
+before building that separately; they likely share the same mechanism.
+
+**Checklist:**
+- [ ] Not started. Channel-naming convention still undecided.
+- [ ] Reconcile with Addendum 6 (`/s-park`).
+- [ ] Build the shared lookup/relevance script once channel naming is settled.
+
 ---
 
 ## What prompted it

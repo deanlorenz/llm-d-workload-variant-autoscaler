@@ -10,6 +10,29 @@ this script family was being drafted.
 **Status: decided 2026-08-16. Not yet built — this is the design the pending retroactive spec
 ([`checkpoint-capture-spec.md`](checkpoint-capture-spec.md)) will document once revised to match.**
 
+## At a glance
+
+**Mission:** the guard mechanism from Addendum 7 is duplicated near-identically in 3+ scripts and has
+a weak staleness signal (mtime-only). Fix both.
+
+**Approach:**
+- Keep `mkdir` for the instant-race case (already correct, already cheap).
+- Staleness detection upgraded: pid-alive check (`kill -0`) as primary signal, existing mtime-age
+  threshold kept as fallback for the pid-reuse edge case — never worse than today, better in the
+  common case.
+- Git-native locking (commit-race leader election) considered and rejected for this — `mkdir` already
+  solves it for free.
+- Deduplicate into `scripts/lib/single-instance-guard.sh`, sourced by every affected script.
+- Additive handle registry so external cleanup can find running instances without parsing `ps`.
+
+**Needs you:** nothing right now.
+
+**Checklist:**
+- [ ] Build `single-instance-guard.sh`.
+- [ ] Migrate `session-snapshot.sh`, `tick-shared-scan.sh`, `sync-main-watch.sh` to use it.
+- [ ] Design the handle registry's exact path/naming (open).
+- [ ] `checkpoint-capture-spec.md` and `sync-watchers-spec.md` already revised to reflect this.
+
 ---
 
 ## What prompted it

@@ -5,7 +5,31 @@ flock guard in [Addendum 2](atomic-step-protocol-design-addendum-2.md). Supersed
 `tick-shared-scan.sh`, the `anchor_alive()` check in `sync-main-watch.sh`.
 
 **Status: written retroactively 2026-08-14 (code came first — that was the process failure this
-document exists to correct). Linux only.**
+document exists to correct). Linux only. Its own mechanism further revised by
+[Addendum 10](atomic-step-protocol-design-addendum-10.md) — pid-based staleness, shared library,
+handle registry.**
+
+## At a glance
+
+**Mission:** give the checkpoint-script family (session-snapshot, tick-shared-scan, sync-main-watch)
+a real single-instance guard and a guaranteed drain-before-exit, replacing an flock/anchor_alive
+mechanism that had two real defects.
+
+**Approach:** `--origin-pid` dead-man's-switch (unchanged, still correct) + two guards for the
+startup race (`mkdir` atomic dedup, `pgrep` liveness check) + a 1-week stale-guard reclaim.
+
+**Needs you:** nothing right now — but see Addendum 10, which changes the staleness signal and
+deduplicates this mechanism into a shared library. Don't build fresh against this doc alone; read
+Addendum 10 too.
+
+**Checklist:**
+- [x] Guards designed and behaviorally verified (5 scenarios, all pass).
+- [ ] `tier1-session-start.sh` still needs `--origin-pid "$PPID"` wiring (tracked in
+  `checkpoint-capture-spec.md`).
+- [ ] `container-settings.json` hook entry still unapplied — needs your explicit approval.
+- [ ] Four production loops still run the old interface — restart is separate, approved step.
+- [ ] `tick-live-index.sh:111` still carries the `stat -f %m` bug, out of scope here.
+- [ ] Superseded by Addendum 10's shared-library redesign — don't build fresh copies of this guard.
 
 ---
 

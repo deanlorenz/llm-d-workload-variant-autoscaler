@@ -6,7 +6,22 @@
 names. Additive; records an open question, not a decision.
 
 **Status: raised by Dean 2026-08-13 as an open question during the `harvest-classification.md` review, not
-designed, explicitly uncertain ("we shall see").**
+designed, explicitly uncertain ("we shall see"). Confirmed "ok for now" 2026-08-15 — stays parked as a
+question, not escalated to a decision.**
+
+## At a glance
+
+**Mission:** record an open question, not answer it — should some standing rules be re-surfaced at
+the specific moment a risky action becomes plausible, instead of only living in a role kernel or being
+cited per-step?
+
+**Approach:** no mechanism proposed. Named as a real gap in today's two-category scheme
+(per-step convention vs. standing role kernel) — some rules are absolute but only matter at a
+specific moment (e.g. "never push," relevant only near a commit).
+
+**Needs you:** nothing right now — explicitly "we shall see."
+
+**Checklist:** none — this is a parked question, not a task.
 
 ---
 

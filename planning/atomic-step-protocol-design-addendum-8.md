@@ -7,6 +7,29 @@ edited: this is the amendment channel it names.
 
 **Status: decided by Dean, 2026-08-15.**
 
+## At a glance
+
+**Mission:** `plans-tooling` stops being a throwaway kickoff worktree and becomes the main dev branch
+for all code and rules-migration work going forward.
+
+**Approach:**
+- The planned "atomic kickoff copy into plans/" step is superseded — not decided how yet.
+- Push/DCO stays off by default until you explicitly revisit it.
+- Two background agents (coder + reviewer) launched and tested there 2026-08-15/16 — findings on
+  launch mechanics, SendMessage (doesn't reach `--bg` agents), and one real defect caught before
+  transcript deletion are all recorded below.
+
+**Needs you:**
+- What happens to the "copy into plans/" step (rename/merge `plans-tooling` into `plans`, or keep it
+  as a long-lived feature branch)?
+- Governance implications for dual-branch write rules — not yet worked out.
+
+**Checklist:**
+- [ ] Decide the copy-vs-merge-vs-separate-branch question above.
+- [ ] Revisit push/DCO posture once the branch-role question settles.
+- [ ] Resolve the S3 coder situation (went `done` without seeing its approval handoff — separate,
+  still open as of 2026-08-16).
+
 ---
 
 ## What changed

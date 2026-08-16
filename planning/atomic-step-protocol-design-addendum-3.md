@@ -6,6 +6,23 @@ re-litigate" line *"Coders never read `CURRENT.md`"*. The parent is **not edited
 channel it names. Additive; narrows scope for coders, extends it for every other role.
 
 **Status: requirement stated by Dean 2026-08-13; not yet designed in detail, not built.**
+**Deprioritized by Dean 2026-08-15/16 — not a priority, left for later.**
+
+## At a glance
+
+**Mission:** make CURRENT.md indexable so any session can fetch just its own slice, without ever
+reading the whole file — coders still never touch it at all.
+
+**Approach:**
+- Extend the existing `sec`/`conv` fetch-by-name mechanism to CURRENT.md's own sections.
+- A session may only take this on once the fetch tooling exists — never as an excuse to read the
+  whole file today.
+- Also covers: session self-declared identity block (landed, see CONVENTIONS.md 2026-08-13) and a
+  sync-maintained live-session index (still undesigned).
+
+**Needs you:** nothing right now — deprioritized, revisit when it matters.
+
+**Checklist:** none active — parked.
 
 ---
 

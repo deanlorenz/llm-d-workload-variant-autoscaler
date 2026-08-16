@@ -5,7 +5,24 @@
 § Handoffs/Triggers' existing model. The parent is **not edited**: this is the amendment channel it
 names. Additive; introduces one new mechanism, reuses everything else as-is.
 
-**Status: designed 2026-08-14, not yet built. No skill exists yet.**
+**Status: designed 2026-08-14, not yet built. No skill exists yet. Superseded in part by
+[Addendum 9](atomic-step-protocol-design-addendum-9.md)'s broadcast channel, which solves the same
+"reach every live session" need via a different, more general mechanism — see that doc.**
+
+## At a glance
+
+**Mission:** `/s-park` — a signal every live session can act on before laptop sleep/VS Code close/
+restart, so nothing is left mid-edit and everything is cold-resumable.
+
+**Approach:** each session finishes its current unit of work, reports ready, coders exit their
+worktrees (preserves session history in plans), all hand off to sync or sync collects state.
+
+**Needs you:** nothing right now. Note: Addendum 9's broadcast log may make this simpler to build than
+originally scoped here — worth checking before building `/s-park` as its own thing.
+
+**Checklist:**
+- [ ] Not started — no skill exists.
+- [ ] Reconcile with Addendum 9 before building (may be largely the same mechanism).
 
 ---
 

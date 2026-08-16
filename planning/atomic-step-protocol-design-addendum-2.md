@@ -8,6 +8,26 @@ amendment channel it names. Additive; governs where the two overlap.
 **Status: decisions confirmed by Dean 2026-08-13; scripts built and sandbox-verified same day,
 not yet handed to a live sync session.**
 
+## At a glance
+
+**Mission:** replace N independent per-session Tier-2 loops with one shared, sync-owned scanner.
+
+**Approach:**
+- Tier-1 unchanged (free, per-session).
+- One shared `tick-shared-scan.sh`, owned/started/monitored by the sync session — pauses when no
+  sync session is active, next one restarts it.
+- Retirement bounds the scan (stale >7 days → one final sweep → marker → self-heals on wake).
+- Daily token cap (50k combined) as a bug backstop, not a tight budget.
+- Guard mechanism superseded by [Addendum 10](atomic-step-protocol-design-addendum-10.md) — see that
+  doc, not the flock described here originally.
+
+**Needs you:** authorize starting the shared loop for real (never has been — sandbox-only so far).
+
+**Checklist:**
+- [ ] Rebuild guard per Addendum 10 before first live run.
+- [ ] Hand ownership to a live sync session.
+- [ ] Authorize the first real start.
+
 ---
 
 ## What prompted it

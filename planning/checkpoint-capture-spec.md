@@ -1,7 +1,38 @@
 # Code spec — checkpoint capture (Tier-1/Tier-2, session-start hook)
 
-**code spec** · **Status: DRAFT — mixed retroactive and forward-looking, revised 2026-08-16.** Most of
-this spec documents what already exists, closing the governance gap
+**code spec** · **Status: DRAFT — mixed retroactive and forward-looking, revised 2026-08-16.**
+
+## At a glance
+
+**Mission:** document the six checkpoint-capture scripts as they exist, and specify the new shared
+guard library (Addendum 10) they should be rewritten to use.
+
+**Approach:**
+- S0/S0b — new: `scripts/lib/single-instance-guard.sh` (pid-based staleness + mtime fallback) and an
+  additive handle registry. Build first; everything else depends on it.
+- S1 `session-extract.sh` — unchanged, no defect.
+- S2 `session-snapshot.sh` — Tier-1, free. Guard block forward-looking (must source S0).
+- S3 `tick-consolidate.sh` — Tier-2, cheap-model. No defect.
+- S4 `tick-shared-scan.sh` — shared Tier-2. Guard block forward-looking (must source S0). Never run
+  live yet.
+- S5 `tick-live-index.sh` — session identity snapshot. No defect.
+- S6 `tier1-session-start.sh` — `SessionStart` hook. Contains Defect 1.
+
+**Needs you:** nothing blocking. Defect 1 (hook omits a required flag, would fail every invocation if
+ever wired up) is documented for whoever picks this up; the hook itself still needs your explicit
+approval before it's wired into `container-settings.json` at all (per Addendum 7's own "Still open"
+list), separate from fixing the bug.
+
+**Checklist:**
+- [ ] Build S0/S0b (`single-instance-guard.sh` + handle registry).
+- [ ] Migrate S2 and S4 to source it.
+- [ ] Fix Defect 1 in S6 (`--origin-pid "$PPID"`), verify `$PPID` is really the session's own pid in a
+  `SessionStart` hook context.
+- [ ] Fix S6's stale header comment (still describes the superseded flock mechanism).
+- [ ] Behavioral verification per Addendum 7's checklist before any production restart.
+- [ ] Your call, separately: approve wiring S6 into `container-settings.json`.
+
+Most of this spec documents what already exists, closing the governance gap
 [`atomic-step-protocol-design-addendum-7.md`](atomic-step-protocol-design-addendum-7.md) already
 diagnosed in its own postmortem: *"Root cause: no written purpose statement to check the code against, so
 the template was existing code rather than intent."* **The guard mechanism specifically (S2/S4's
