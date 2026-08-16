@@ -88,6 +88,17 @@ tooling had no Type 3 spec at all.
   values, which reads as a genuinely new mechanism, not just a naming question for the existing
   `conventions:` field. Needs a real Type-3-or-addendum-level design pass before building; not
   attempted here.
+- [ ] **Mid-turn note handling (Addendum 12) — raised 2026-08-17, not designed.** Dean observed this
+  session handling mid-turn notes well by carrying full conversational context, and asked to
+  formalize the pattern — but flagged two real, separate open questions rather than just "make it a
+  skill": (1) disruption to the main thread (a note lands unannounced, mid-task — does a fix need to
+  be async/background, or can a bounded synchronous procedure be enough?), and (2) whether a fresh or
+  different session produces the same routing outcome without this session's accumulated context. The
+  redesigned `/s-note` (above, landed 2026-08-16/17) is adjacent but doesn't answer either — it routes
+  a note explicitly handed to it, not one arriving unannounced. Same category as Addendum 4's
+  "pre-baked template" idea per Dean's own framing (fixed procedure fetched on demand instead of
+  re-derived from context each time), possibly not the same mechanism — relate the two designs when
+  either is picked up, don't build in isolation.
 - [ ] **Channel protocol (Addendum 9) — designed 2026-08-16, real detail, NOT yet an executable
   spec.** Mailbox files (`session/mailboxes/<channel>.log`, one per relationship, append-only,
   two event types) plus a shared broadcast/discovery channel (`session/mailboxes/broadcast.log`,
