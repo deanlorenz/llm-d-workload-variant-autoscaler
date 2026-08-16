@@ -511,6 +511,49 @@ the main context clean. Not done, because spawning agents is not something a ses
 **Whether `source trace`, `analysis`, `explainer`, `register` and `release artifact` become named types**
 or stay informal (§ Kinds the audit found).
 
+**Five items from Dean, 2026-08-16, not yet designed — recorded verbatim where it matters, none acted
+on unilaterally:**
+
+1. **Plan-doc naming should be easier to follow: `<type>-<topic>-<subject>.md`.** Current names are
+   inconsistent — `<topic>-plan.md`, `<TOPIC>-PR<n>-plan.md`, dated variants
+   (`autoscaling-viz-panel-review-20260813.md`), and type is a *suffix* when present at all, never a
+   *prefix*. A real survey of `planning/*.md` (2026-08-16) found no consistent pattern across ~140
+   files. Needs a decision on which type tokens are the prefix vocabulary (the eight names from
+   § Artifact types, presumably) before any renaming or new-doc convention can be written down.
+2. **Need a skill for "random notes" — `s-note` is the wrong shape.** `s-note` (`.claude/skills/s-note/`)
+   is narrowly a coding-session decision note bound to one plan doc, hardcodes the pre-redesign
+   `to: plan-agent`/`body:` handoff format (already flagged as a defect elsewhere — see
+   `state-commands-design.md` § 9.2), and grants a wildcard `Bash(git -C plans *)` this design
+   otherwise rules out. Dean wants something closer to a scratch memory — "anytime I find myself
+   typing the exact same prompt (with slightly different wording each time)" — not tied to a specific
+   plan doc.
+3. **A class of "chat-instruction snippets" sits below conventions/micro-rules and above skills.**
+   Dean's framing, verbatim: *"some conventions/micro-rules are just a snippet of chat instructions
+   that I would have inserted at that point in the chat if I invoked the operation manually. It is not
+   a script and much less than a skill (no permission, abstract, etc.)."* Named examples: a **"role
+   check"** sequence — wake up → check status → confirm role → verify still watching what needs
+   watching → verify right worktree/dir → check pending handoffs to/from you — currently done
+   inconsistently, at some model effort, with a result format that "changed a lot," purely from typing
+   "GM, confirm state and role" and letting the model reconstruct the checklist each time. "Send
+   handoff" and "check watchers" are the same shape. Not yet clear which CC mechanism fits (a skill is
+   probably too heavy per Dean's own framing above) — candidate is closer to a canned prompt/macro than
+   a skill; needs a real design pass, not a guess.
+4. **The doc-taxonomy templates need to be written down, not just implied by example.** § Artifact
+   types names the eight kinds; none has an actual template a new doc can be started from.
+5. **Formalize `<topic/task>-<role>` as the session's identity, not just its display title.** Dean's
+   framing: *"I want the topic to be part of the 'identity' of the session... Every session should list
+   role, topic, CWD, etc. as its status, starting lines in chat. A new session may take a topic/task's
+   role, but then it is identifiable — the new and old sessions can complain if they see the other."*
+   This is bigger than the existing session-title mechanism (`~/.claude/bin/session-mgr.py`,
+   `s-session-name`, the `[icon] short-slug Role` display convention) — that names the session for the
+   VSCode history panel; this asks for `<topic>-<role>` to be the addressable identity used in handoff
+   `to:`/`from:` fields (superseding the existing "role + task" framing in `CONVENTIONS.md`'s handoff
+   section), with collision detection between two sessions claiming the same topic+role, an id/number
+   suffix to disambiguate, and a hard rule that a session with no known topic/task must ask rather than
+   proceed unnamed. Overlaps but does not duplicate the existing per-status-file "Identity block"
+   (name/id/role/branch/worktree/…) added 2026-08-13 — that's per-status-file metadata; this is the
+   session's own addressable name. Needs its own design pass before any skill or hook change.
+
 [↑ Contents](#contents)
 
 ---
