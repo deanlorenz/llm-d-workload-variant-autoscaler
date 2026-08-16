@@ -12,9 +12,10 @@
 # files). Firing this hook on every source closes that gap without waiting on
 # session behavior to reliably self-correct.
 #
-# Safety: session-snapshot.sh carries its own per-transcript flock (added alongside
-# this hook), so calling this speculatively on every SessionStart is safe -- a
-# transcript that already has a live Tier-1 loop just gets a quiet refuse-and-exit,
+# Safety: session-snapshot.sh's own single-instance guard (lib/single-instance-guard.sh,
+# keyed on --session-id since the 2026-08-16 migration -- not a flock, that predates
+# the Addendum-7/10 rework) makes calling this speculatively on every SessionStart safe --
+# a transcript that already has a live Tier-1 loop just gets a quiet refuse-and-exit,
 # never a duplicate.
 #
 # Unlike sync-main-session-start.sh, this is NOT scoped to one designated worktree:
@@ -43,7 +44,23 @@ script="$(cd "$(dirname "$0")" && pwd)/session-snapshot.sh"
 digest="$cwd/session/digests/session-${session_id}.raw.md"
 mkdir -p "$(dirname "$digest")" 2>/dev/null
 
-nohup bash "$script" --out "$digest" --file "$transcript" --interval 120 \
+# --session-id fixes Defect 1: session-snapshot.sh has required --origin-pid + --session-id
+# unconditionally (unless --once) since the 2026-08-16 guard migration; this hook omitted both,
+# so every hook-started loop would die on launch. $PPID here is this hook's own parent -- the
+# Claude session process that triggered SessionStart, same value class as sync-main-session-start.sh
+# now captures for its own hook (not independently verified against a real SessionStart firing,
+# for the same reason noted there: no pid field in the hook's own JSON payload to cross-check).
+#
+# --digest deliberately NOT passed (per checkpoint-specs-review.md Finding 5): tick-consolidate.sh
+# hard-dies without a digest file that already carries a "Captured through:" marker, and no digest
+# with that marker exists until a session creates one by hand (there is no seeding mechanism today).
+# Passing --digest here without seeding would break every consolidation attempt for hook-started
+# sessions; seeding one is a design decision (what marker value, what header) left open, not made
+# here. Hook-started sessions get Tier-1 (free, the actual fix this defect is about) but not Tier-2
+# self-registration -- a session that wants Tier-2 still creates its own digest and re-launches with
+# --digest, same as before this fix.
+nohup bash "$script" --out "$digest" --file "$transcript" --origin-pid "$PPID" \
+  --session-id "$session_id" --interval 120 \
   >> /tmp/tier1-session-start.log 2>&1 &
 disown 2>/dev/null || true
 

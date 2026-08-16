@@ -30,17 +30,18 @@ approval before it's wired into `container-settings.json` at all (per Addendum 7
 list), separate from fixing the bug.
 
 **Checklist:**
-- [ ] Build S0/S0b (`single-instance-guard.sh`, keyed on logical identity; handle registry re-keyed,
-  not yet designed).
-- [ ] Migrate S2 (session_id key) and S4 (fixed `"sync"` key) to source it.
-- [ ] Add `--session-id` to S2 and S6's launch of it.
-- [ ] Decide + fix Defect 1's `--digest` gap (seed a digest file with a marker, or leave hook-started
-  sessions deliberately unregistered for Tier-2 — a decision, not a mechanical flag add).
-- [ ] Fix Defect 1 in S6 (`--origin-pid "$PPID"`), verify `$PPID` is really the session's own pid in a
-  `SessionStart` hook context.
-- [ ] Fix S6's stale header comment (still describes the superseded flock mechanism).
-- [ ] Behavioral verification per Addendum 7's checklist before any production restart.
-- [ ] Your call, separately: approve wiring S6 into `container-settings.json`.
+- [x] Build S0/S0b guard part (`single-instance-guard.sh`, keyed on logical identity) — landed,
+  `f9e1dba6`. Handle registry (S0b's second half) still not designed.
+- [x] Migrate S2 (session_id key) and S4 (fixed `"sync"` key) to source it — landed, `f9e1dba6`.
+- [x] Add `--session-id` to S2's and S6's launch of it — S2 landed `f9e1dba6`; S6 landed 2026-08-16.
+- [x] Decide + fix Defect 1's `--digest` gap — decided: hook-started sessions get Tier-1, not Tier-2
+  self-registration; `--digest` deliberately not passed. Landed 2026-08-16.
+- [x] Fix Defect 1 in S6 (`--origin-pid "$PPID"`) — landed 2026-08-16, not independently verified
+  against a real `SessionStart` firing (same caveat as `sync-main-session-start.sh`'s equivalent fix).
+- [x] Fix S6's stale header comment — landed 2026-08-16.
+- [x] Behavioral verification per Addendum 7's checklist — done for S2/S4/S2(sync-main-watch) by the
+  coder; S6 itself not independently fireable outside a real hook, per its own Defect-1 note above.
+- [ ] Your call, separately: approve wiring S6 into `container-settings.json`. Still not attempted.
 
 Most of this spec documents what already exists, closing the governance gap
 [`atomic-step-protocol-design-addendum-7.md`](atomic-step-protocol-design-addendum-7.md) already
@@ -280,32 +281,25 @@ mtime age (shared `--stale-days` threshold with S4, deliberately one number not 
 before the absolute threshold fires). `--format json` (default) or `table`. No defect found; verified
 2026-08-13 against both real (no-identity-block) and synthetic (fresh + stale) status files.
 
-**S6 — `tier1-session-start.sh` (`SessionStart` hook, not wired up, contains Defect 1).** Fires on every
-`SessionStart` source (startup/resume/clear/compact/fork) — deliberately unconditional, per
-`CONVENTIONS.md`'s own unconditional "what every session does" framing — and is meant to auto-start S2
-for that session's own transcript, keyed by `session_id` rather than a human-chosen topic name. Reads
-the hook's JSON payload (`session_id`, `transcript_path`, `cwd`) from stdin; no-ops loudly (logs to
-`/tmp/tier1-session-start.log`) on a malformed payload rather than guessing. **Contains Defect 1**: the
-`nohup bash "$script" --out "$digest" --file "$transcript" --interval 120` call omits `--origin-pid`,
-which S2 requires. Fix is mechanical — pass `--origin-pid "$PPID"` (the hook process's own parent, i.e.
-the Claude session that triggered `SessionStart`) — but is a real behavioral change to verify, not a
-one-line edit to apply blindly: confirm `$PPID` inside a `SessionStart` hook's execution context is
-actually the session's own pid and not some intermediate shell, since a wrong pid here would make S2's
-`kill -0` dead-man's-switch check the wrong process and either never fire (leak) or fire immediately
-(the loop dies right away). Also carries the stale header-comment defect noted in `## Intent` above —
-fix by rewriting the comment to describe the current `--origin-pid` guard, not the superseded flock.
-Per this spec's new `--session-id` requirement on S2, the same launch line also needs
-`--session-id "$session_id"` added (the hook payload already carries this field — no new lookup
-needed) so S2's guard has a key to acquire on at all once the S0 migration lands.
+**S6 — `tier1-session-start.sh` (`SessionStart` hook, not wired up, Defect 1 FIXED 2026-08-16).**
+Fires on every `SessionStart` source (startup/resume/clear/compact/fork) — deliberately
+unconditional, per `CONVENTIONS.md`'s own unconditional "what every session does" framing — and is
+meant to auto-start S2 for that session's own transcript, keyed by `session_id` rather than a
+human-chosen topic name. Reads the hook's JSON payload (`session_id`, `transcript_path`, `cwd`) from
+stdin; no-ops loudly (logs to `/tmp/tier1-session-start.log`) on a malformed payload rather than
+guessing. **Defect 1, fixed**: the launch line omitted `--origin-pid`, which S2 requires. Fixed by
+passing `--origin-pid "$PPID"` and `--session-id "$session_id"` (the hook payload already carries
+the latter). **Not independently verified against a real `SessionStart` firing** — same caveat as
+`sync-main-session-start.sh`'s equivalent fix: no pid field in the hook's own JSON payload to
+cross-check `$PPID` against. Stale header-comment defect (still describing a "flock") also fixed in
+the same pass.
 
-**Defect 1 also omits `--digest`, found in design review (`checkpoint-specs-review.md` Finding 5) —
-not a second flag to bolt on blindly.** The launch line builds only a `--out <digest>.raw.md` sidecar
-path; without `--digest`, S2's Tier-2 self-registration never fires (`session-snapshot.sh` gates
-registration on both `$tfile` and `$digest` being non-empty) and `--consolidate-every` can never
-trigger either. This isn't a one-flag mechanical fix: `tick-consolidate.sh` hard-dies without a digest
-file that already carries a "Captured through:" marker, so fixing this means deciding — before a
-coder touches it — whether the hook should also create/seed a digest file with that marker, or leave
-hook-started sessions deliberately without Tier-2 registration. **Left as an explicit open decision
-for whoever picks up this defect, not resolved here.**
-Also **not wired into `container-settings.json`** — per Addendum 7's own "Still open" list, applying that
-hook entry needs Dean's explicit approval, separate from fixing the script's own bug.
+**`--digest` deliberately NOT passed — the decision Finding 5 asked for, made.** Passing it without
+seeding a digest file with a `Captured through:` marker would make `tick-consolidate.sh` hard-die on
+every consolidation attempt for hook-started sessions (no seeding mechanism exists today). Chose:
+hook-started sessions get Tier-1 (the free, correctness-critical half this defect was actually about)
+but not Tier-2 self-registration — a session wanting Tier-2 still creates its own digest by hand and
+re-launches with `--digest`, same as before this fix. Revisit if a seeding mechanism is ever built.
+
+Still **not wired into `container-settings.json`** — needs Dean's explicit approval, separate from
+fixing the script's own bugs, per Addendum 7's own "Still open" list. Not attempted here.
