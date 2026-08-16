@@ -34,6 +34,8 @@ list), separate from fixing the bug.
   not yet designed).
 - [ ] Migrate S2 (session_id key) and S4 (fixed `"sync"` key) to source it.
 - [ ] Add `--session-id` to S2 and S6's launch of it.
+- [ ] Decide + fix Defect 1's `--digest` gap (seed a digest file with a marker, or leave hook-started
+  sessions deliberately unregistered for Tier-2 — a decision, not a mechanical flag add).
 - [ ] Fix Defect 1 in S6 (`--origin-pid "$PPID"`), verify `$PPID` is really the session's own pid in a
   `SessionStart` hook context.
 - [ ] Fix S6's stale header comment (still describes the superseded flock mechanism).
@@ -168,6 +170,20 @@ match on the caller's actual identity key (`session_id`, or a fixed role constan
 exactly as designed, but it now does exactly one job (the kill-switch's
 `kill -0` check in each script's main loop), fully decoupled from this guard's identity key.
 
+The `<script>` half of the pattern is derived, not hand-typed per call site: the calling script's own
+basename with `.sh` stripped (e.g. `session-snapshot.sh` → `session-snapshot`), so `guard_acquire`
+takes the script name as an explicit argument rather than a coder re-deriving or hardcoding it per
+caller — `guard_acquire <script-name> <key-flag> <key>`. The escaped `[.]sh` (not `.sh`, which matches
+any character) is load-bearing, per Addendum 7.
+
+The pgrep match must exclude the calling process's own pid, via `| grep -qv "^$$\$"` **evaluated inside
+the sourced function itself** — `$$` resolves to the sourcing script's own pid because `source` doesn't
+fork, so this is correct as written, but only as long as no coder "fixes" it into `$BASHPID` or a
+subshell-captured value (either would silently break the self-exclusion). This exact bug — pgrep-only
+dedup with no working self-exclusion — is what left **zero** survivors on two simultaneous launches
+(4/4) during Addendum 7's own verification; state this constraint as a code comment directly on the
+`grep -qv` line, not only here, so a future edit can't drift from it unnoticed.
+
 Must build first — S2 and S4 both source this file rather than inlining their own copies. **This is the
 one step in this spec that is pure new code, not a fix to something shipped.**
 
@@ -263,5 +279,18 @@ actually the session's own pid and not some intermediate shell, since a wrong pi
 `kill -0` dead-man's-switch check the wrong process and either never fire (leak) or fire immediately
 (the loop dies right away). Also carries the stale header-comment defect noted in `## Intent` above —
 fix by rewriting the comment to describe the current `--origin-pid` guard, not the superseded flock.
+Per this spec's new `--session-id` requirement on S2, the same launch line also needs
+`--session-id "$session_id"` added (the hook payload already carries this field — no new lookup
+needed) so S2's guard has a key to acquire on at all once the S0 migration lands.
+
+**Defect 1 also omits `--digest`, found in design review (`checkpoint-specs-review.md` Finding 5) —
+not a second flag to bolt on blindly.** The launch line builds only a `--out <digest>.raw.md` sidecar
+path; without `--digest`, S2's Tier-2 self-registration never fires (`session-snapshot.sh` gates
+registration on both `$tfile` and `$digest` being non-empty) and `--consolidate-every` can never
+trigger either. This isn't a one-flag mechanical fix: `tick-consolidate.sh` hard-dies without a digest
+file that already carries a "Captured through:" marker, so fixing this means deciding — before a
+coder touches it — whether the hook should also create/seed a digest file with that marker, or leave
+hook-started sessions deliberately without Tier-2 registration. **Left as an explicit open decision
+for whoever picks up this defect, not resolved here.**
 Also **not wired into `container-settings.json`** — per Addendum 7's own "Still open" list, applying that
 hook entry needs Dean's explicit approval, separate from fixing the script's own bug.
