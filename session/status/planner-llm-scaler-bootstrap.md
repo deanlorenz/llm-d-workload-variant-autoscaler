@@ -3,16 +3,89 @@ id: (not surfaced to this session)
 role: planner
 branch: plans
 worktree: /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans
-owned_doc: planning/llm-scaler-workspace-bootstrap-design.md
-task: design doc for standing up a second VSCode workspace for deanlorenz/llm-scaler (effort 2 = WVA refactor)
+owned_doc: planning/llm-scaler-workspace-bootstrap-design.md (original scope — see pivot note below)
+task: SCOPE WIDENED since last park (2026-08-16 → 2026-08-17): doc-coverage audit across missions, then
+  ownerless-doc cleanup, then optimizer-pd-role-ceiling revalidation. The llm-scaler bootstrap doc itself
+  had no further work this window — still exactly where the last park left it, gated on R1.
 status_file: session/status/planner-llm-scaler-bootstrap.md
 
-last_update: 2026-08-16T05:35:00Z
+last_update: 2026-08-17T00:00:00Z
 state: idle — parked
-current_step: doc DRAFT complete through three rounds of Dean's rulings; three handoffs sent to the tooling planner; nothing in flight
-blocked_on: (not blocked) — execution is GATED on the new plans tooling + atomic-step rules completing (R1), which this session does not own
+current_step: nothing in flight. Two handoffs to the atomic-step-protocol planner closed (both .DONE,
+  confirmed by direct check, not assumed from rename alone — see below). No open questions of my own
+  pending anyone's answer right now.
+blocked_on: not blocked on anything of mine. llm-scaler bootstrap (original owned_doc) remains gated on
+  R1 (new plans tooling + atomic-step rules completing) — unchanged, not re-checked this pass.
 recent_commits:
-  - (see commit made by this park)
+  - c5e91514 planning(doc-coverage): audit doc, ownerless-doc cleanup, optimizer-pd-role-ceiling revalidation
+  - 359f3c55 planning(optimizer-pd-role-ceiling): correct Q2 -- D1's construct is retired by PR-2, not relocated
+  - ecc33bd1 planning(optimizer-pd-role-ceiling): revalidation report
+
+---
+
+## This park's findings (2026-08-17)
+
+**1. Both handoffs to the atomic-step-protocol planner are closed — verified by reading commits, not
+by trusting the `.DONE` rename alone.** This is the load-bearing lesson from this session, worth
+carrying forward: **a handoff's state (open/WIP/DONE) tells you whether the recipient has acted, not
+whether the underlying work has landed as code.** Concretely this run:
+
+- `plan__sync-main-generalize-for-second-repo.md` → `.DONE`. Verified via `git log`: the tooling
+  planner first landed a **plan-only** commit (`bb38347e`, "S5 — generalize... Plan only, not coded
+  yet"), then the actual code landed later (`4c6f646b feat(sync-main): S5`), plus the BUG 1
+  (`date -d ""` fallback) and Defect A/B fixes from my earlier bug report (`4aa81218`, `d036c054`),
+  plus a bonus fix to `sync-current-watch.sh`'s guard/status-lies bug (`b60cb935`) that the earlier
+  audit had flagged as the one load-bearing script with zero spec coverage. All confirmed landed, not
+  just claimed — I read the actual diffs before reporting this to Dean.
+- `plan__call-stack-process-two-asks.md` → `.DONE`. **NOT YET READ what they decided** — confirmed only
+  that the handoff closed; Dean asked to review it directly rather than have me relay it. **This is a
+  genuine follow-up if picked back up**: read `planning/atomic-step-protocol-roadmap.md` (touched
+  recently per `fcc78440 full refresh`) and whatever addendum documents the call-stack scoping decision,
+  to see whether it matches Dean's two asks (Type-3 stacks scoped to only-affected-paths; an interim
+  Type-2 home for the aggregate stack).
+
+**2. Dean corrected the optimizer-pd-role-ceiling revalidation's Q2 finding, and the correction is
+committed.** Original claim (wrong): "the denominator bug persists one layer up in `main`'s code,
+countered by a contradicting plan-doc passage." Actual: that "countervailing" citation was a
+conflation of two unrelated passages that both used the word "denominator." Direct diff of
+`analyzer_helpers.go` between `main` and the PR-2 branch showed PR-2 further rewrote
+`allocateForModelPaired`'s `roleAggRemaining` — it now finds the actual vote-winning analyzer via
+`combineVotes` and reads its remaining demand directly, with no `achievedByRole`/numerator
+reconstruction left for D1's defect to apply to. **D1 is retired by the code no longer existing, not
+relocated.** Full correction: `planning/optimizer-pd-role-ceiling-plan.md` § "Re-validation..." Q2
+(commit `359f3c55`). One genuinely open, Dean's-call question surfaced by the correction, not resolved
+by it: is PR-2's new find-the-winner approach equivalent to, better than, or a different design from
+the clean model's "achieved = current+anticipated+committed" framing? Not mine to answer — flagged as
+open in `planning/optimizer-pd-role-ceiling-revalidation-report.md`.
+
+**3. The sync session already consumed this work — confirmed, not assumed.** `git status --short`
+this park shows `sync__track-optimizer-pd-role-ceiling-revalidate.md` **deleted** (not present as
+`.DONE` either — genuinely gone, meaning sync already `git rm`'d it in a commit cycle). This means
+CURRENT.md likely already reflects the revalidation outcome. **Did not re-verify CURRENT.md's content
+directly this pass** — noting the absence as a strong signal, not confirmed by reading CURRENT.md's
+actual text. Worth a direct check before assuming it's accurately reflected there.
+
+**4. Ownerless-doc cleanup from the 2026-08-16 audit — done, narrow, as authorized.**
+`planning/benchmark-observability-plan.md` got one supersession-pointer paragraph (points to
+`wva-saturation-cycle-log-plan.md`/PR #1277); nothing else in that file touched. No other ownerless
+Type 2 needed touching — `ENGINE-multi-analyzer-plan.md` already self-flags SUPERSEDED. **Full
+findings, still accurate as of this park:** `planning/doc-coverage-audit-20260816.md`. Two of its
+"not decided" items are still genuinely open and are Dean's calls, not superseded by anything since:
+whether to promote "source trace" to a named type (`doc-and-session-model.md:114`, Dean's 2026-08-07
+ruling never got promoted), and whether `planning-map.md` itself should be corrected now.
+
+## Not done this pass, and why
+
+- Did not read what the atomic-step planner decided on the call-stack process asks — Dean's explicit
+  instruction was to review that one himself.
+- Did not re-verify CURRENT.md reflects the optimizer-pd-role-ceiling outcome — noted the `sync__`
+  handoff's disappearance as a signal, not confirmed the actual text.
+- Did not touch any of the concurrent working-tree changes visible in `git status` at park time
+  (`.claude/settings.json`, several status files, several other deleted handoffs) — all belong to
+  other active sessions, correctly left alone.
+- Did not re-open or restructure `planning/llm-scaler-workspace-bootstrap-design.md` — still exactly
+  as the 2026-08-16 park left it, still gated on R1. No new information affecting that gate surfaced
+  this pass.
 
 ---
 
