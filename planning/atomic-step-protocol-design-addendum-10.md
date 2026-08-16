@@ -1,5 +1,17 @@
 # Addendum 10 — checkpoint-guard redesign: pid-based staleness, shared library, handle registry
 
+**⚠️ RETRACTED 2026-08-16, same day as written. Superseded by § Corrected design below.** This
+addendum's original content (kept intact below the retraction notice, per this project's own
+never-silently-rewrite discipline) proposed keying the single-instance guard on `--origin-pid`. That
+premise is wrong: **`--origin-pid` identifies a Claude *process*, not a Claude *session*, and a
+session's underlying process pid can and does change across a restart/resume while the logical
+session persists.** A pid-keyed lock cannot express "one running copy per session, for the session's
+whole life" — the exact semantic this mechanism needs. Root-caused by Dean during a live walkthrough
+of a real running process (see § Corrected design). Everything downstream of the wrong premise in the
+original content — the pid-based staleness check, the pid-reuse fallback reasoning, the handle-registry
+sketch keyed on `<origin-pid>.<own-pid>` — inherits the same error and must not be built as originally
+written here.
+
 **Amends** [`atomic-step-protocol-design-addendum-7.md`](atomic-step-protocol-design-addendum-7.md)
 (single-instance guards and drain-before-exit) and, by extension,
 [`atomic-step-protocol-design-addendum-2.md`](atomic-step-protocol-design-addendum-2.md) (the original
@@ -7,33 +19,156 @@ flock guard Addendum 7 superseded). Addendum 7 is **not edited**: this is a furt
 same mechanism, triggered by Dean questioning the mechanism's shape while a retroactive Type 3 spec for
 this script family was being drafted.
 
-**Status: decided 2026-08-16. Not yet built — this is the design the pending retroactive spec
-([`checkpoint-capture-spec.md`](checkpoint-capture-spec.md)) will document once revised to match.**
+**Status: original content decided-then-retracted 2026-08-16. Corrected design below, same day,
+following a careful step-by-step semantics discussion. Not yet built.**
 
 ## At a glance
 
-**Mission:** the guard mechanism from Addendum 7 is duplicated near-identically in 3+ scripts and has
-a weak staleness signal (mtime-only). Fix both.
+**Mission:** fix the single-instance guard's identity key. It is currently `--origin-pid` (a process
+pid); it must be the session's own stable identifier (`session_id`, a UUID stable across
+resume/reload/wake) — `--origin-pid` stays, but only for the unrelated kill-switch check.
 
-**Approach:**
-- Keep `mkdir` for the instant-race case (already correct, already cheap).
-- Staleness detection upgraded: pid-alive check (`kill -0`) as primary signal, existing mtime-age
-  threshold kept as fallback for the pid-reuse edge case — never worse than today, better in the
-  common case.
-- Git-native locking (commit-race leader election) considered and rejected for this — `mkdir` already
-  solves it for free.
-- Deduplicate into `scripts/lib/single-instance-guard.sh`, sourced by every affected script.
-- Additive handle registry so external cleanup can find running instances without parsing `ps`.
+**Approach (corrected, see full section below):**
+- `session_id` is the key for both discoverability (`pgrep`) and the momentary start-time lock
+  (`mkdir`) — never a pid.
+- `--origin-pid` stays exactly as it is today, doing exactly one job: the kill-switch's `kill -0`
+  check, decoupled entirely from lock identity.
+- The lock is **momentary, not held** — taken only for the duration of "am I the one starting this,"
+  released immediately once that question is answered. There is no "holder" to go stale while a script
+  runs; the running script itself is discovered via `pgrep` on `session_id`, not via anything the lock
+  tracks.
+- Semantics: **at most one** running copy per session (for `session-snapshot.sh`) or per worktree (for
+  `sync-main-watch.sh`) — never "exactly one" (idle-with-zero is fine) and never "at least one" (nothing
+  guarantees restart).
+- A live, running production process (pid `16342`, this session, alive since 2026-08-13) was checked
+  directly and confirmed to have **no `--origin-pid` at all** — it predates the kill-switch entirely and
+  cannot be killed by it. Not a "maybe broken" — confirmed structurally absent.
+- Git-native locking, socket-bind, and FD/EOF-based liveness detection were all explored and are
+  recorded in the discussion history below for their own reasoning, but none is the mechanism going
+  forward — `pgrep` + momentary `mkdir`, both keyed on `session_id`, is.
 
-**Needs you:** nothing right now.
+**Needs you:** nothing right now on this addendum specifically — the semantics are agreed. Building
+`single-instance-guard.sh` against the corrected key, and fixing the four confirmed old-interface
+production loops, are the next steps.
 
 **Checklist:**
-- [ ] Build `single-instance-guard.sh`.
-- [ ] Migrate `session-snapshot.sh`, `tick-shared-scan.sh`, `sync-main-watch.sh` to use it.
-- [ ] Design the handle registry's exact path/naming (open).
-- [ ] `checkpoint-capture-spec.md` and `sync-watchers-spec.md` already revised to reflect this.
+- [ ] Rewrite `checkpoint-capture-spec.md` S0/S0b and `sync-watchers-spec.md` S2 to key on
+  `session_id`, not `--origin-pid`, for the lock/lookup; keep `--origin-pid` solely for the
+  kill-switch.
+- [ ] Build `single-instance-guard.sh` against the corrected key.
+- [ ] Confirm whether all four "old-interface" production loops CURRENT.md names are missing
+  `--origin-pid` entirely (like pid `16342`, confirmed) or just the guard mechanism — different fix.
+- [ ] Re-verify `checkpoint-specs-review.md`'s Finding 2 against this corrected design — it was raised
+  against the retracted premise and needs re-examination, not blind acceptance.
 
 ---
+
+## Corrected design (2026-08-16, same day, following a careful step-by-step discussion)
+
+### What are we protecting, and what semantics do we actually want
+
+Dean's own framing, which the discussion started from rather than assuming: *"what semantics do we
+want? exactly one script running per session? at least one? at most one? what are we protecting?"*
+Worked through per script, since the two scripts in this family answer differently:
+
+- **`session-snapshot.sh` — one per session**, not one per pid. *"session comes alive, resumes, window
+  reloaded — script fires — need one copy only, always running, until session is dead. pid was used to
+  track the session for the deadman kill switch. why would 2 claude sessions have same pid? but even if
+  they do, should still have 2 copies. so a pid is wrong lock. good for kill switch only."* On every
+  resume/wake — still the same logical session — the session must check whether its own snapshot loop is
+  still running, and (re)start it if not.
+- **`sync-main-watch.sh` — one per worktree**, started by the sync session. Every time sync starts or
+  resumes, it must check whether main's watcher is still running. If sync itself is dead, main's watcher
+  should die too — a different dependency chain than the per-session case.
+- **Protection wanted, both cases: at most one.** Not "exactly one" (an idle period with zero running
+  copies is a perfectly normal state — a session that hasn't started its loop yet, or whose loop
+  correctly exited when the session died) and not "at least one" (nothing in either script's purpose
+  requires guaranteeing a copy is always running; that would need a separate restart-guarantee mechanism
+  this addendum doesn't provide).
+
+Three distinct sub-problems, named explicitly rather than conflated: (1) checking whether the script
+itself is alive, (2) checking whether the owning session is alive (the kill-switch, unrelated to (1)),
+and (3) the lock that prevents two starts from both succeeding.
+
+### The identity-key error, found by checking a real running process
+
+The corrected key is `session_id` (the Claude session's own stable UUID, unchanged across resume/
+reload/wake/compaction) for both (1) and (3) above. `--origin-pid` stays exactly where it is, doing
+exactly (2) — nothing else.
+
+This was root-caused, not asserted, by checking a real live process rather than reasoning in the
+abstract. Pid `16342` is a `session-snapshot.sh` loop for **this exact session**
+(`f0196004-c4a5-494c-8b98-1d4176b68ba0`), running continuously since 2026-08-13 — three days, across at
+least one restart of the Claude Code process itself (today's actual `claude` process is a different pid,
+`3363929`, started 2026-08-15). Direct inspection (`ps -p 16342`, `/proc/16342/cmdline`) confirmed **this
+running process has no `--origin-pid` argument at all** — it predates the kill-switch mechanism entirely.
+Dean's read, and the correct one: *"maybe indicate that kill switch did not work"* was the wrong framing
+to jump to — the actual finding is sharper: **there is no kill-switch here to be broken; this process was
+never given one to check.** It will run forever regardless of whether the session is alive, since nothing
+in it watches anything. This is one of the four "old-interface production loops" CURRENT.md already
+names — now confirmed structurally, not just by inventory count.
+
+### Mechanisms explored, and why they were set aside
+
+Two alternative mechanisms were investigated directly (not just discussed) before returning to `pgrep`:
+
+- **`git`-native locking** (a dedicated commit per attempt, atomicity via ref-update CAS, "only one wins
+  the latest commit" as leader election) — raised again in this discussion, same verdict as
+  [Addendum 9](atomic-step-protocol-design-addendum-9.md) reached for the mailbox-vs-notes question:
+  `mkdir` already solves the momentary-lock problem for free, with no repository, no commit churn, and no
+  cleanup discipline beyond what already exists. Git-native locking is not needed here either.
+- **Unix domain socket bind** — a real candidate (Dean's own proposal: bind a socket, the OS releases the
+  bind automatically if the process dies, avoiding a lingering-lock-file problem entirely). Tested
+  directly, not assumed: **a SIGKILL'd process's socket *file* does NOT disappear from disk** — only the
+  kernel's internal bind is released; a fresh bind attempt against the stale file fails with
+  `EADDRINUSE` until something unlinks it first. Worse, testing the natural detection method (`connect()`
+  to check if anything is still listening) produced a **false positive** — a successful connect to a
+  socket with zero live listeners, a real and non-obvious kernel-backlog subtlety that was not fully
+  chased down before Dean redirected: *"go back to pgrep mechanism."* Recorded here so this path is not
+  reattempted without knowing why it surprised us once already.
+- **FD/EOF-based session-liveness detection** (`exec FD< <(:)`, a script blocking on `cat <FD` and reacting
+  to the pipe's EOF when the session dies) — proposed as an alternative to the kill-switch specifically,
+  but Dean's own framing puts it out of scope for the moment: *"the EOF mechanism is only [relevant] if
+  the current kill switch is broken."* Since the kill-switch (`--origin-pid` + `kill -0`) itself was not
+  found to be broken — only *absent* from old-interface processes that never had it — this mechanism is
+  not needed to fix what was actually found. Kept as a candidate for later if the existing kill-switch
+  mechanism itself is ever shown to fail while genuinely present.
+
+### The corrected mechanism
+
+- **Discoverability (was Guard 2, `pgrep`)**: unchanged in shape, corrected in key. `pgrep -f
+  "session-snapshot[.]sh .*--session-id <session_id>"` (or the equivalent per-script pattern), matching
+  on the stable session UUID instead of a pid that can change across a restart.
+- **Momentary start-lock (was Guard 1, `mkdir`)**: unchanged in shape, corrected in key. `mkdir
+  "${TMPDIR:-/tmp}/<script>.dedup.<session_id>"`, held only for the instant it takes to decide "am I the
+  one starting this," released immediately after — **the lock is never held by the running script
+  itself.** Dean's own restatement, confirmed as the intended model: *"the lock is only taken, per
+  session, when checking if script is already running. multiple starts are bad."* There is no ongoing
+  "holder" to go stale while a script runs — the running script is discovered via the `pgrep` check
+  above, not via anything the lock tracks. This makes the retracted content's entire pid-based staleness
+  design (§ above) moot, not merely wrong: staleness detection was solving for a "held lock" model that
+  was never actually how the mechanism worked, once the identity key is corrected.
+- **Kill-switch (unchanged, unrelated to the above)**: `--origin-pid <pid>` + `kill -0` each pass, exactly
+  as designed in Addendum 7 — decoupled entirely from lock identity. A session's underlying process pid
+  is re-derivable at any point the kill-switch needs to check; it is never used to *find* or *lock* the
+  script, only to decide whether the owning session is still alive.
+
+### Still open, carried forward from the retracted content where still relevant
+
+- The handle-registry idea (external cleanup without parsing `ps`) may still have value, but its
+  original sketch (`<script-name>.<origin-pid>.<own-pid>`) needs re-keying on `session_id` before it's
+  worth designing further — not done here.
+- `checkpoint-specs-review.md`'s Finding 2 was raised against the retracted pid-based-staleness premise
+  and needs re-examination against this corrected design, not blind carry-forward.
+- Whether the other three named-in-CURRENT.md "old-interface" production loops share pid `16342`'s exact
+  defect (no `--origin-pid` at all) or a different gap is not yet checked here.
+
+---
+
+## Retracted original content (kept for the record, not to be built as written)
+
+The section below is the addendum's original text, dated 2026-08-16 before the correction. Preserved
+intact rather than deleted, per this project's discipline that migration/correction is not removal.
 
 ## What prompted it
 
