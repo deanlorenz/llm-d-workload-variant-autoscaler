@@ -1,7 +1,33 @@
 # Code spec — sync-main watcher family
 
-**code spec** · **Status: DRAFT — mixed retroactive and forward-looking, written 2026-08-16.** Most of
-this spec documents what already exists. **The guard mechanism in S2 (`sync-main-watch.sh`) is
+**code spec** · **Status: DRAFT — mixed retroactive and forward-looking, written 2026-08-16.**
+
+## At a glance
+
+**Mission:** document the four sync-main scripts (watcher, one-shot, status, session-start hook) as
+they actually exist, and record two live bugs found while doing so.
+
+**Approach:**
+- S1 `sync-main-session-start.sh` — the `SessionStart` hook. Contains both live defects.
+- S2 `sync-main-watch.sh` — the continuous watcher. Guard block is forward-looking (must move to the
+  shared library `checkpoint-capture-spec.md` S0 specifies).
+- S3 `sync-main-once.sh` — one-shot equivalent, no guard needed, no defect.
+- S4 `sync-main-status.sh` — read-only status check, no defect.
+- `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
+
+**Needs you:**
+- Nothing blocking right now. Two defects (A: hook launches the watcher without a required flag,
+  always fails; B: a stale comment describing a mechanism that no longer exists) are documented for
+  whoever picks this spec up — no decision from you needed to record them, only to prioritize the fix.
+
+**Checklist:**
+- [ ] Assign a coder once `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) exists.
+- [ ] Fix Defect A (`--origin-pid "$PPID"` on the launch line).
+- [ ] Fix Defect B (rewrite the stale flock comment).
+- [ ] Migrate S2's guard block to the shared library.
+- [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
+
+Most of this spec documents what already exists. **The guard mechanism in S2 (`sync-main-watch.sh`) is
 forward-looking**, per [`atomic-step-protocol-design-addendum-10.md`](atomic-step-protocol-design-addendum-10.md)
 — it must be rewritten to source the shared `scripts/lib/single-instance-guard.sh` library specified in
 [`checkpoint-capture-spec.md`](checkpoint-capture-spec.md) S0, not keep its own inline copy of the guard
