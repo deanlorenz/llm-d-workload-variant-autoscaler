@@ -16,6 +16,8 @@
 #
 #   --origin-pid    pid of the Claude session that started this loop. Required unless --once.
 #                    Checked with `kill -0` each pass; when it is gone, run one final scan and exit.
+#                    This is the kill-switch only -- it is not the single-instance identity, which
+#                    is the fixed role constant "sync" (see the guard block below).
 #   --interval      seconds between passes (default 300)
 #   --retire-days   transcript mtime staleness before retirement (default 7)
 #   --daily-cap     combined token cap per UTC day across all sessions (default 50000)
@@ -40,6 +42,7 @@ consolidate="$here/tick-consolidate.sh"
 registry="$plans_dir/session/.tier2-registry"
 retired_dir="$plans_dir/session/.retired"
 usage_log="$plans_dir/session/.tier2-usage.log"
+guard_lib="$here/lib/single-instance-guard.sh"
 
 die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
 
@@ -50,7 +53,7 @@ while [ $# -gt 0 ]; do
     --retire-days)          retire_days="${2:-}";         [ -n "$retire_days" ]        || die "--retire-days needs a value";        shift 2 ;;
     --daily-cap)            daily_cap="${2:-}";           [ -n "$daily_cap" ]          || die "--daily-cap needs a value";          shift 2 ;;
     --origin-pid)           origin_pid="${2:-}";          [ -n "$origin_pid" ]         || die "--origin-pid needs a value";         shift 2 ;;
-    -h|--help)              sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)              sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)                      die "unknown argument: $1" ;;
   esac
 done
@@ -67,33 +70,29 @@ fi
 mkdir -p "$retired_dir" || die "cannot create $retired_dir"
 touch "$usage_log" || die "cannot write $usage_log"
 
-# Single-instance guards; see planning/atomic-step-protocol-design-addendum-7.md.
-# Guard 1 (mkdir, atomic): are two instances starting at the same instant?
-# Guard 2 (pgrep): is a fully-started scanner already running?
-# Neither covers the other's window. Held only during startup, removed inline.
+# At most one shared scanner system-wide. Keyed on the fixed role constant "sync", not on any
+# session and not on --origin-pid: this loop belongs to whichever session currently acts as sync,
+# so a different session taking the role over must still recognize the instance the previous one
+# started. --origin-pid keeps doing exactly one, unrelated job -- the kill-switch in the loop
+# below, tied to whichever sync session started this instance.
+# Mechanism and the constraints on it: lib/single-instance-guard.sh.
 if [ "$once" -ne 1 ]; then
-  dedup_dir="${TMPDIR:-/tmp}/tick-shared-scan.dedup.$origin_pid"
+  [ -r "$guard_lib" ] || die "cannot read $guard_lib"
+  # shellcheck source=lib/single-instance-guard.sh
+  . "$guard_lib"
 
-  # Reclaim a guard abandoned by a process that died before its own rmdir (SIGKILL, OOM, sleep).
-  # 1 week: far longer than any startup, so age alone is a safe abandonment signal.
-  if [ -d "$dedup_dir" ] && [ "$(( $(date +%s) - $(date -r "$dedup_dir" +%s) ))" -gt 604800 ]; then
-    rmdir "$dedup_dir" 2>/dev/null
-  fi
-
-  mkdir "$dedup_dir" 2>/dev/null || {
-    printf '%s: another instance starting for --origin-pid %s -- exiting quietly\n' \
-      "${0##*/}" "$origin_pid" >&2
-    exit 0
-  }
-
-  # $$ must be excluded: pgrep -f matches this script's own argv, which contains the pattern.
-  if pgrep -f "tick-shared-scan[.]sh .*--origin-pid $origin_pid" 2>/dev/null | grep -qv "^$$\$"; then
-    printf '%s: another instance already running for --origin-pid %s -- exiting quietly\n' \
-      "${0##*/}" "$origin_pid" >&2
-    rmdir "$dedup_dir" 2>/dev/null
-    exit 0
-  fi
-  rmdir "$dedup_dir" 2>/dev/null   # startup done; guard no longer needed
+  guard_acquire "tick-shared-scan" "" "sync"
+  case $? in
+    0) # Momentary by design: release now, before becoming the loop, not on exit.
+       guard_release "tick-shared-scan" "sync" ;;
+    1) printf '%s: another instance starting for the sync role -- exiting quietly\n' \
+         "${0##*/}" >&2
+       exit 0 ;;
+    2) printf '%s: another instance already running for the sync role -- exiting quietly\n' \
+         "${0##*/}" >&2
+       exit 0 ;;
+    *) die "single-instance guard rejected its arguments -- see stderr above" ;;
+  esac
 fi
 
 # Stable, filesystem-safe key for a transcript path; used as the retirement marker filename.

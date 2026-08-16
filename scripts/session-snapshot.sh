@@ -20,13 +20,19 @@
 # silent non-save. Durability by commit is the tick's business, not this loop's.
 #
 # Usage:
-#   session-snapshot.sh --out <file> --origin-pid <pid> [--interval <seconds>] [--once]
+#   session-snapshot.sh --out <file> --origin-pid <pid> --session-id <id>
+#                       [--interval <seconds>] [--once]
 #
 #   --out          raw sidecar to append to (created if absent)
 #   --origin-pid   pid of the Claude session that started this loop. Required unless --once.
 #                  Checked with `kill -0` each pass; when it is gone, run one final pass and exit.
+#                  This is the kill-switch only -- it is not the single-instance identity.
+#   --session-id   the Claude session's own id. Required unless --once. Identity for the
+#                  single-instance guard: at most one snapshot loop per session, across restarts
+#                  and window reloads (a session's pid changes then, its session id does not).
 #   --interval     seconds between passes (default 120)
-#   --once         single pass then exit, for testing. Skips --origin-pid and the dedup guards.
+#   --once         single pass then exit, for testing. Skips --origin-pid, --session-id and the
+#                  dedup guards.
 #
 # Linux only: uses `date -r <file>` (GNU coreutils) for mtime. BSD/macOS `date -r` takes seconds.
 
@@ -39,10 +45,12 @@ tfile=""
 digest=""
 consolidate_every=0
 origin_pid=""
+session_id=""
 passes=0   # deliberately not "pass": that is the function name below
 
 here="$(cd "$(dirname "$0")" && pwd)"
 extract="$here/session-extract.sh"
+guard_lib="$here/lib/single-instance-guard.sh"
 
 die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
 
@@ -53,10 +61,11 @@ while [ $# -gt 0 ]; do
     --file)        tfile="${2:-}";       [ -n "$tfile" ]       || die "--file needs a value";        shift 2 ;;
     --digest)      digest="${2:-}";      [ -n "$digest" ]      || die "--digest needs a value";      shift 2 ;;
     --origin-pid)  origin_pid="${2:-}";  [ -n "$origin_pid" ]  || die "--origin-pid needs a value";  shift 2 ;;
+    --session-id)  session_id="${2:-}";  [ -n "$session_id" ]  || die "--session-id needs a value";  shift 2 ;;
     --consolidate-every)
                 consolidate_every="${2:-}"; [ -n "$consolidate_every" ] || die "--consolidate-every needs a value"; shift 2 ;;
     --once)     once=1; shift ;;
-    -h|--help)  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)          die "unknown argument: $1" ;;
   esac
 done
@@ -67,39 +76,36 @@ case "$interval" in ''|*[!0-9]*) die "--interval must be a whole number of secon
 if [ "$once" -ne 1 ]; then
   [ -n "$origin_pid" ] || die "--origin-pid is required (unless --once) -- see -h"
   case "$origin_pid" in ''|*[!0-9]*) die "--origin-pid must be a numeric pid" ;; esac
+  [ -n "$session_id" ] || die "--session-id is required (unless --once) -- see -h"
+  case "$session_id" in *[!A-Za-z0-9._-]*) die "--session-id must be [A-Za-z0-9._-]+" ;; esac
 fi
 
 mark="$(dirname "$out")/.$(basename "$out").mark"
 log="$(dirname "$out")/.$(basename "$out").log"
 mkdir -p "$(dirname "$out")" || die "cannot create $(dirname "$out")"
 
-# Single-instance guards; see planning/atomic-step-protocol-design-addendum-7.md.
-# Guard 1 (mkdir, atomic): are two instances starting at the same instant?
-# Guard 2 (pgrep): is a fully-started watcher already running?
-# Neither covers the other's window. Held only during startup, removed inline.
+# At most one snapshot loop per Claude session. Keyed on --session-id, not --origin-pid: a
+# session's process pid changes across a restart or window reload while the logical session
+# persists, so a pid-keyed guard cannot see the loop the session already has running.
+# --origin-pid keeps doing exactly one, unrelated job -- the kill-switch in the loop below.
+# Mechanism and the constraints on it: lib/single-instance-guard.sh.
 if [ "$once" -ne 1 ]; then
-  dedup_dir="${TMPDIR:-/tmp}/session-snapshot.dedup.$origin_pid"
+  [ -r "$guard_lib" ] || die "cannot read $guard_lib"
+  # shellcheck source=lib/single-instance-guard.sh
+  . "$guard_lib"
 
-  # Reclaim a guard abandoned by a process that died before its own rmdir (SIGKILL, OOM, sleep).
-  # 1 week: far longer than any startup, so age alone is a safe abandonment signal.
-  if [ -d "$dedup_dir" ] && [ "$(( $(date +%s) - $(date -r "$dedup_dir" +%s) ))" -gt 604800 ]; then
-    rmdir "$dedup_dir" 2>/dev/null
-  fi
-
-  mkdir "$dedup_dir" 2>/dev/null || {
-    printf '%s: another instance starting for --origin-pid %s -- exiting quietly\n' \
-      "${0##*/}" "$origin_pid" >&2
-    exit 0
-  }
-
-  # $$ must be excluded: pgrep -f matches this script's own argv, which contains the pattern.
-  if pgrep -f "session-snapshot[.]sh .*--origin-pid $origin_pid" 2>/dev/null | grep -qv "^$$\$"; then
-    printf '%s: another instance already running for --origin-pid %s -- exiting quietly\n' \
-      "${0##*/}" "$origin_pid" >&2
-    rmdir "$dedup_dir" 2>/dev/null
-    exit 0
-  fi
-  rmdir "$dedup_dir" 2>/dev/null   # commit point: proceeding to become the watcher
+  guard_acquire "session-snapshot" --session-id "$session_id"
+  case $? in
+    0) # Momentary by design: release now, before becoming the loop, not on exit.
+       guard_release "session-snapshot" "$session_id" ;;
+    1) printf '%s: another instance starting for --session-id %s -- exiting quietly\n' \
+         "${0##*/}" "$session_id" >&2
+       exit 0 ;;
+    2) printf '%s: another instance already running for --session-id %s -- exiting quietly\n' \
+         "${0##*/}" "$session_id" >&2
+       exit 0 ;;
+    *) die "single-instance guard rejected its arguments -- see stderr above" ;;
+  esac
 fi
 
 # Register (transcript -> digest) for the shared Tier-2 scanner; only this loop knows the pairing.
