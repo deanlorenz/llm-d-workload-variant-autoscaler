@@ -35,18 +35,18 @@ drifting into `benchmark`'s territory):**
 ## TOC {#toc}
 
 - [Item 1 — scaling-decision-reason panel {#item-1-decision-panel}](#item-1--scaling-decision-reason-panel-item-1-decision-panel) L51:68
-- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L69:80
-- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L81:96
-- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L97:108
-- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L109:120
-- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L121:131
-- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L132:199
-- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L200:231
-- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L232:270
-- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L271:290
-- [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L291:304
-- [Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}](#item-12--2026-08-15-panel-review-mostly-ready-to-spec-panel-4-open-one-doc-gap-item-12-panel-review-0815) L305:349
-- [Cross-references](#cross-references) L350:356
+- [Item 2 — panel 4 queue-source design {#item-2-panel4}](#item-2--panel-4-queue-source-design-item-2-panel4) L69:91
+- [Item 3 — estimation-model open questions {#item-3-estimation}](#item-3--estimation-model-open-questions-item-3-estimation) L92:107
+- [Item 4 — EPP scorer debug-log signal {#item-4-epp-signal}](#item-4--epp-scorer-debug-log-signal-item-4-epp-signal) L108:119
+- [Item 5 — coverage-check reference doc {#item-5-coverage-doc}](#item-5--coverage-check-reference-doc-item-5-coverage-doc) L120:131
+- [Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}](#item-6--folder-structure--make-target-consistency-item-6-folder-structure) L132:142
+- [Item 7 — 2026-08-13 panel review: bug-fix cluster + panel 3/1b/6 redesign {#item-7-panel-review}](#item-7--2026-08-13-panel-review-bug-fix-cluster--panel-31b6-redesign-item-7-panel-review) L143:210
+- [Item 8 — backlog: viz output missing for 7 post-campaign runs {#item-8-rerun-viz-backlog}](#item-8--backlog-viz-output-missing-for-7-post-campaign-runs-item-8-rerun-viz-backlog) L211:242
+- [Item 9 — version stamp renders + regenerate stale/missing viz output {#item-9-version-stamp-regen}](#item-9--version-stamp-renders--regenerate-stalemissing-viz-output-item-9-version-stamp-regen) L243:281
+- [Item 10 — 2026-08-14 panel review: drain-offset defect + per-request-data gap {#item-10-panel-review-0814}](#item-10--2026-08-14-panel-review-drain-offset-defect--per-request-data-gap-item-10-panel-review-0814) L282:301
+- [Item 11 — per-request data recovery for panels 1a/1b: handed to `benchmark` scope {#item-11-per-request-recovery}](#item-11--per-request-data-recovery-for-panels-1a1b-handed-to-benchmark-scope-item-11-per-request-recovery) L302:315
+- [Item 12 — 2026-08-15 panel review: mostly ready-to-spec, panel 4 open, one doc gap {#item-12-panel-review-0815}](#item-12--2026-08-15-panel-review-mostly-ready-to-spec-panel-4-open-one-doc-gap-item-12-panel-review-0815) L316:360
+- [Cross-references](#cross-references) L361:367
 
 ## Item 1 — scaling-decision-reason panel {#item-1-decision-panel}
 
@@ -68,13 +68,24 @@ the shipped reason-code-marker design is now **superseded** by
 
 ## Item 2 — panel 4 queue-source design {#item-2-panel4}
 
-**PARKED 2026-08-13** (was OPEN). `render_real_trace.py` panel 4 is explicitly titled
-`INTERIM: … which one panel 4 should draw is an open design question` in the renderer itself.
-[`autoscaling-viz-panel-review-20260813.md`](autoscaling-viz-panel-review-20260813.md) § Item G
-records Dean's call: the felt need for a panel-4 redesign was largely a panel-3 readability
-problem, resolved by that review's Item F instead. Panel 4 stays exactly as-is (all three queue
-sources drawn) and is explicitly reserved as a sandbox for future experiments — "brainstorm on p4
-later." Do not schedule panel-4 work against this item; it is deliberately not a task.
+**DECIDED 2026-08-16** (was PARKED 2026-08-13, before that OPEN). Panel 4's current queue-source
+content is retired: checked against real data first (not just on feel) — series (b) duplicates
+panel 5's `L(t)`, series (c) duplicates panel 3's own per-pod waiting sum, and series (a) (the one
+series unique to panel 4) can't carry real signal on either sample run checked (entirely absent on
+`m-satta-dwell`, negligible — max value 11 against a ~2000 y-axis — on `m-ta-prefill-knee`). Slot
+repurposed for a per-pod KV% heatmap (Item S's floated alternative, now decided): one horizontal row
+per pod in pod-number order, colored by `kv` value via a colormap anchored at the run's own
+saturation threshold (`sat.get('threshold')`, not a plain linear [0,1] scale — this run's KV%
+distribution is heavily skewed low, so a plain scale would render almost everything pale), plus a
+live-pod average line and a first-pass outlier-marking rule. GPS/PPS per-pod stats are explicitly
+out of scope — checked and confirmed no per-pod throughput metric exists anywhere in this codebase's
+tooling today (only `benchmark/`'s gateway-level throughput does); building that extraction is a
+separate, unscoped future item.
+
+**Code spec:** [`autoscaling-viz-panel4-kv-heatmap-plan.md`](autoscaling-viz-panel4-kv-heatmap-plan.md)
+(Type 3, this session, 2026-08-16). Also folds in a small, separately-noted panel 3 gap (a missing
+per-pod running-count average line), per Dean's explicit fold-in decision. Dispatched to the coder;
+not yet implemented.
 
 [↑ TOC](#toc)
 
@@ -320,9 +331,9 @@ falling rather than rising demand).
   Task 8 regression was my own mis-paraphrase of a distinction requirement into a mechanism
   requirement; draining stays dots, overlay border weight/color from Task 8 confirmed good
   otherwise. Small, ready to spec with the exact wording from the review doc.
-- **Item S** — panel 4 feedback (stack a/b, (a)'s values look wrong, maybe panel 5 already covers
-  this, floated alternative: per-pod KV%/running/GPS/PPS stats instead) — panel 4 stays parked per
-  Item 2; this is discussion material for whenever it's actually picked up, not scheduled now.
+- **Item S** — **DECIDED 2026-08-16, see Item 2 above.** Confirmed panel 5 already covers panel 4's
+  useful content and (a) can't carry real signal; repurposed the slot for a per-pod KV% heatmap.
+  Code spec dispatched to the coder.
 - **Item T** — panel 6: y-axis label → "replica-delta"; annotate each marker's reason-code label at
   its first occurrence rather than relying on the legend alone. Small, ready to spec.
 - **Item U** — **updated 2026-08-16:** not just an explanation gap — Dean's correction is that
