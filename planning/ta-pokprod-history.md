@@ -1586,3 +1586,23 @@ change authorized (439 existing tracked files stay exactly as they are).
 (finding + proposal: gitignore `session/handoffs/` going forward, no retroactive rewrite) — picked
 up and marked `.DONE` by the protocol-design scope, no reply needed or received. Nothing further
 pending here; whether/how it's actioned is that scope's call.
+
+---
+
+## D-73 | 2026-08-17 | topic:reply-routing-root-cause,trigger-format-gap | src:plan__reply-routing-root-cause-found.md
+
+**Closes checklist item 9 (D-71) with a real root cause, not just "watching."** The coder traced
+precisely why 3 replies today landed on the wrong sibling scope: the triggers they were replying
+to (`benchmark__per-request-estimation-build-one-run.md` and 2 others) carry **no `from:` field**
+— confirmed directly against `CONVENTIONS.md`: the handoff format has both `from:`/`to:`, the
+trigger format has only `to:`/`reason:`/`refs:`. With no sender recorded, the coder fell back to
+`refs:`-chain provenance, which tracked "whose idea this ultimately was" instead of "who sent this
+specific message" — and those diverge exactly when a design doc gets picked up and re-triggered
+by a different scope than the one that originally asked for it (this session's own triggers, same
+format, same gap — not a one-sided habit issue).
+
+**Forwarded as a real protocol-format gap**, not a per-session fix:
+`plan__trigger-format-missing-from-field.md`, to the same protocol-design owner as D-72's finding
+— proposing a mandatory/recommended `from:` field on triggers, matching handoffs. Not decided
+here. Coder's own interim mitigation (check for `from:`, ask if absent) acknowledged as correct
+regardless of whether the format itself changes.
