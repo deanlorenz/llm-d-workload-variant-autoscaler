@@ -13,7 +13,9 @@ later at no cost — nothing here is destructive, and nothing is removed from it
 
 Scope: this pass covers only the two convention files, per Dean's request to validate the classification
 scheme on the largest, clearest source before extending it to the ~30 `feedback_*`/`project_*` memories
-and `governance-follow-ups.md` incidents (a separate, messier pass, not done here).
+and `governance-follow-ups.md` incidents (a separate, messier pass, not done as a full pass here — one
+memory was pulled in early, 2026-08-15, at Dean's specific request; see the section below the two
+tables).
 
 Column `dest` uses:
 - `conv:<topic>` → `conventions/<topic>.md` (fetched per-step by name)
@@ -99,7 +101,19 @@ Column `dest` uses:
 
 ---
 
-## Summary — proposed `conventions/` and `roles/` file list from this pass
+## From `feedback_*`/`project_*` memories — partial, started 2026-08-15
+
+**Not the deferred full pass** (see the scope note at the top of this file — that pass, over ~30
+memories plus `governance-follow-ups.md` incidents, is still not done). This section exists because
+Dean asked for one specific memory to be harvested now, on its own — recorded here rather than
+squeezed into the two tables above (which are scoped to the two convention files only) or held back
+until the full memory pass happens. Expect this section to grow piecemeal, ahead of the full pass.
+
+| # | Source (memory name) | dest | Why |
+|---|---|---|---|
+| M1 | `feedback_handoff_own_reply_never_marked_done` — never mark your own outgoing handoff `.DONE`; only the recipient does, when they've processed it | `conv:handoffs` | A sharper corollary of C31 (state machine, recipient owns transitions), not a duplicate: C31 states the general rule, this memory adds the specific failure mode (sender marks their own reply done) and its own mechanism for avoiding it (name out loud, before running `mv`, who sent the file and who is marking it done — if the answer is "I sent it," stop). Same convention family as C24/C25/C27/C28/C31/CC13; belongs alongside them rather than as a separate file, since it's the same artifact and the same rule, just learned the hard way. |
+
+
 
 **`conventions/`** (20 files, revised 2026-08-13): `checkpoint-capture`, `skills-layout`,
 `semantic-pivot-grep`, `review-pipeline`, `plan-authoring`, `worktree-scope`, `status-files`, `handoffs`,
@@ -160,6 +174,69 @@ precedence, and no actual content contradiction was found between the two on any
 None of these change the file-list totals above; all three land in categories already counted. The
 correction changes C44's destination only (from a `conv:` file to role kernels), so **`conv:git-remotes`**
 now holds only C43 and C45.
+
+## Repo-scope axis — designed 2026-08-16, not yet applied (harvest pass itself stays deferred)
+
+**Why this exists.** A second VSCode workspace is being stood up
+([`llm-scaler-workspace-bootstrap-design.md`](llm-scaler-workspace-bootstrap-design.md)) for a
+different repo. Memories live under a bare-repo-path-keyed project directory
+(`~/.claude/projects/-home-dean-code-...-repo/memory/`), so **no memory follows a new workspace
+automatically** — a container at a different path gets a different, empty project dir. When the
+deferred `feedback_*`/`project_*` harvest pass eventually runs (still ~30 memories, still not started
+— this section only designs the axis it will need, per Dean's explicit scoping 2026-08-16: design now,
+run later), each memory needs a second, independent classification alongside its existing `dest`
+placement: **does this rule travel to a new repo, or does it stay behind?**
+
+**The axis is orthogonal to `dest`, not a replacement for it.** `dest` answers *where within one
+workspace's conventions/roles/model this rule lives*; the new axis answers *which workspaces should
+ever see it at all*. A rule can be any combination — `conv:worktree-scope` is global (worktree
+discipline has nothing to do with which repo), while a hypothetical `conv:ta-benchmark-setup` would be
+repo-specific (WVA-only tooling) even though it's still a `conv:` placement, not a `model` or `role:`
+one. The two axes answer different questions and must both be recorded, not merged into one.
+
+**Two values, decided by one test — does the rule's truth depend on which repo you're in?**
+
+- **global** — true regardless of repo: how Dean wants work done, not what the work is about. American
+  English, no-push-without-confirmation, `uv` for Python, no in-place shell edits via `sed -i`, DCO
+  discipline, worktree locality, the handoff-protocol mechanics themselves (`.md`/`.WIP`/`.DONE`,
+  `sync__` vs `plan__`). Every convention-file row in the two tables above that survives the harvest
+  test is a strong candidate for **global**, precisely because `session/CONVENTIONS.md` is largely
+  Dean's cross-cutting process preferences wearing this-repo's file paths — the repo-specific part is
+  almost entirely in the *paths and PR numbers*, not the *rule*.
+- **repo-specific** — true only because of *this* repo's own state or history: WVA mission content (TA,
+  multi-analyzer, pokprod), PR numbers, branch names, `Main`/`plans` worktree layout specifics beyond
+  the generic bare-repo+worktrees pattern, any incident whose lesson is really "check this specific
+  file" rather than "check files like this."
+
+**Destination, per Dean's own ruling (handoff #2, 2026-08-16): global memories eventually live in
+`dean-ai-overlay`**, the one thing that's already cross-repo — it's already wired into this container
+via `.vscode/tasks.json` → `dean-ai-overlay/vscode/tasks.json`, so it's the only existing candidate that
+*is* cross-repo rather than becoming so. Repo-specific memories stay exactly where they are, in this
+project's own `memory/` directory. **Not designed here, left for the harvest pass itself**: the exact
+mechanics of writing into `dean-ai-overlay` (a new memory type? a plain file drop? does it need its own
+frontmatter schema distinct from the per-repo `memory/*.md` format?) — this section answers the
+classification question, not the write-mechanics question.
+
+**Why capture both axes in the same read, not two passes.** Sorting only by `dest` (today's two tables)
+answers "which convention file" but leaves "does this survive to a new repo" completely undone — a
+later pass would have to re-read the same ~30 files again just to answer the second question. The two
+questions are answered by the same read of the same source text; splitting them into two passes is pure
+waste, not a safety margin. This is the entire content of handoff #2's ask, and it's now satisfied by
+recording the axis's existence and test here — **no memory has been re-classified under it yet**, since
+that would be running the pass, which stays deferred.
+
+**Content-loss discipline carries over unchanged.** The verify-or-copy-then-delete rule this table's
+own top section already states ("nothing removed from a source file until `coverage-check` (M1.3)
+confirms the mapping is total") applies identically once the harvest pass adds this second axis — a
+`feedback_*`/`project_*` memory is deleted only once its content demonstrably exists as a rule *and*
+its repo-scope classification is recorded, not before.
+
+**One candidate check for whoever runs the eventual pass, not resolved here:** the convention-file rows
+already classified above (C1-C45, CC1-CC20) were harvested for `dest` only, without this second axis in
+mind. Re-running the global/repo-specific test against those same ~65 rows once the axis exists is cheap
+(the read already happened; this is a second pass over notes already taken, not new research) and would
+let the `conventions/` files themselves carry a global/repo-specific marker per rule — worth doing in the
+same session that runs the `feedback_*`/`project_*` pass, not a separate task.
 
 ## ⚠️ Rows flagged — review status as of 2026-08-13 (second pass)
 
