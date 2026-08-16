@@ -1395,3 +1395,23 @@ directly, including Dean's own "red density" observation from viewing the rough 
 myself first: stage 4 spans 7 distinct TTFT buckets across 2430 requests, a plausible density
 effect of more requests over the same bucket count rather than an obviously distinct bug — not
 declared resolved, handed to viz to judge through the real panel).
+
+---
+
+## D-65 | 2026-08-16 | topic:clean-recapture-campaign,scoped,phase9 | src:ta-pokprod-clean-recapture-plan.md
+
+**New mission phase scoped, Dean-directed: rerun with warmup + fixed log capture, capture
+liberally.** Three fixes: (1) D-63's harvest-vs-follower gap, resolved as option (a) — point the
+harvest directly at the follower's already-validated-complete PVC file, no fallback logic needed
+since the follower runs by default; (2) a fixed-duration low-rate warmup stage prepended to every
+workload, discarded from analysis but present in the raw capture, so no stage's first moments are
+hit by unbuffered startup variance; (3) verify no other capture gap exists beyond the one already
+found — not assumed closed by (1) alone. **Exploratory instrumentation encouraged, decided
+later** — Dean: "might as well capture the data, we can decide later if we keep it" (candidates:
+D-57's vLLM detailed-trace OTel spans, D-55's EPP per-request pod-state snapshot, anything else
+found along the way). **Staged: gap-affected runs first** (the 3 dwell cells, calibration-probe
+OOM/retry, the p4 run's 4 leaves, plus the already-in-flight one-off re-harvest folds in rather
+than re-running again), **then the full 6-workload × config campaign.** Existing 21-leaf dataset
+stays on disk, cited as historical, not deleted or superseded. **Not yet executed** — warmup
+duration/rate still needs Dean's sign-off, and any cluster run needs his explicit go-ahead per
+the standing rule, same as always.
