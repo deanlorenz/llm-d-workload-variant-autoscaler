@@ -211,29 +211,65 @@ case_register conv-rename-delete-succeeds \
 # step-check — scope containment (S1). Each case builds its own throwaway git
 # repo via tests/git-run.sh + tests/step-check-scope-repo.sh rather than
 # touching a real worktree; step-check is found on PATH (see run.sh).
+#
+# --lineage plans on every case below (added in S2, when the flag became
+# mandatory): the builder's baseline commit is never signed off, so plans —
+# which forbids Signed-off-by — is the lineage that keeps these S1 cases
+# passing on the sign-off check without changing anything the scope check
+# itself proves.
 case_register step-check-scope-clean \
     ./tests/git-run.sh tests/tmp/step-check-scope-clean \
     ./tests/step-check-scope-repo.sh clean -- \
-    step-check --scope src/a.md
+    step-check --scope src/a.md --lineage plans
 
 case_register step-check-scope-out-of-scope-modified \
     ./tests/git-run.sh tests/tmp/step-check-scope-out-of-scope-modified \
     ./tests/step-check-scope-repo.sh out-of-scope-modified -- \
-    step-check --scope src/a.md
+    step-check --scope src/a.md --lineage plans
 
 case_register step-check-scope-out-of-scope-untracked \
     ./tests/git-run.sh tests/tmp/step-check-scope-out-of-scope-untracked \
     ./tests/step-check-scope-repo.sh out-of-scope-untracked -- \
-    step-check --scope src/a.md
+    step-check --scope src/a.md --lineage plans
 
 # The scope path is a directory, and the mutation is two levels under it —
 # proves the beneath-a-declared-directory rule, not just exact-path matches.
 case_register step-check-scope-nested-in-scope \
     ./tests/git-run.sh tests/tmp/step-check-scope-nested-in-scope \
     ./tests/step-check-scope-repo.sh nested-in-scope -- \
-    step-check --scope src
+    step-check --scope src --lineage plans
 
 case_register step-check-scope-empty-scope-refused \
     ./tests/git-run.sh tests/tmp/step-check-scope-empty-scope-refused \
     ./tests/step-check-scope-repo.sh empty-scope -- \
-    step-check
+    step-check --lineage plans
+
+# step-check — sign-off policy per lineage (S2). Each case commits a clean
+# baseline (signed off, or not) and leaves the working tree clean, so scope
+# containment passes trivially and only the sign-off check has anything to
+# report. --scope README.md is a real, uninteresting path — present only so
+# these cases don't also trip the empty-scope refusal.
+case_register step-check-signoff-code-with-signoff \
+    ./tests/git-run.sh tests/tmp/step-check-signoff-code-with-signoff \
+    ./tests/step-check-signoff-repo.sh code-with-signoff -- \
+    step-check --scope README.md --lineage code
+
+case_register step-check-signoff-code-without-signoff \
+    ./tests/git-run.sh tests/tmp/step-check-signoff-code-without-signoff \
+    ./tests/step-check-signoff-repo.sh code-without-signoff -- \
+    step-check --scope README.md --lineage code
+
+case_register step-check-signoff-plans-without-signoff \
+    ./tests/git-run.sh tests/tmp/step-check-signoff-plans-without-signoff \
+    ./tests/step-check-signoff-repo.sh plans-without-signoff -- \
+    step-check --scope README.md --lineage plans
+
+case_register step-check-signoff-plans-with-signoff \
+    ./tests/git-run.sh tests/tmp/step-check-signoff-plans-with-signoff \
+    ./tests/step-check-signoff-repo.sh plans-with-signoff -- \
+    step-check --scope README.md --lineage plans
+
+case_register step-check-signoff-missing-lineage-refused \
+    ./tests/git-run.sh tests/tmp/step-check-signoff-missing-lineage-refused \
+    ./tests/step-check-signoff-repo.sh missing-lineage -- \
+    step-check --scope README.md

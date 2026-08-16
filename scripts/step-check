@@ -2,27 +2,45 @@
 # step-check — post-step gate. Replaces a human eyeballing every write with a
 # mechanical check, run once a coder believes a step is finished.
 #
-#   step-check --scope <path> [--scope <path> ...] [--allow-untracked <glob>]...
+#   step-check --scope <path> [--scope <path> ...] --lineage code|plans
+#               [--allow-untracked <glob>]...
 #
-# (--lineage and --ledger are added by later steps of the same spec; this file
-# grows in place rather than being rewritten per step.)
+# (--ledger is added by a later step of the same spec; this file grows in
+# place rather than being rewritten per step.)
 #
-# Scope containment (this step): a changed path is in scope if it equals a
-# declared --scope path exactly, or sits beneath a declared --scope directory
-# — a path-prefix match on normalised paths, never a glob. "Changed" means
+# Scope containment: a changed path is in scope if it equals a declared
+# --scope path exactly, or sits beneath a declared --scope directory — a
+# path-prefix match on normalised paths, never a glob. "Changed" means
 # modified, staged, and untracked: an untracked file outside scope is exactly
 # the drift this exists to catch, so it counts the same as a tracked edit.
-#
 # Bias is toward refusal, deliberately: anything this script cannot place
 # inside scope counts as outside it, and a --scope list with nothing in it is
 # refused outright rather than treated as "everything is permitted" — an
 # empty scope is a spec defect, not a grant.
 #
+# Sign-off policy: the two lineages have opposite rules, so --lineage has no
+# default — an unspecified or unrecognised value is a usage error, never a
+# guess. code requires Signed-off-by on the tip commit (HEAD); plans forbids
+# it. Checked by scanning HEAD's commit message body for a line starting
+# `Signed-off-by:`, the same signal `git commit -s`/`--signoff` write and the
+# same one CONVENTIONS.md's own pre-push checklist greps for. A caller with
+# no obvious source for --lineage can default it from the branch name: this
+# worktree's own convention is that the plans lineage is the literal branch
+# `plans` (an orphan) plus any branch built to feed it (e.g. `plans-tooling`,
+# built as its own orphan and later copied in rather than merged), and every
+# other branch is a code branch — see CONVENTIONS.md § Repository Layout.
+# On a pass, the rule that was applied is reported so a clean run says what
+# it checked, not only that it passed — but only once the *whole* invocation
+# is otherwise clean: a run that also fails scope containment stays silent on
+# this point rather than mixing a success note into a failure report.
+#
 # Exit codes are the contract, and are additive across this spec's steps:
 #   0   clean
-#   2   usage error (bad arguments, not inside a git working tree)
+#   2   usage error (bad arguments, not inside a git working tree, no
+#       commits yet, --lineage missing or not code/plans)
 #   20  scope containment: a change landed outside every declared scope path
 #   21  scope containment: no --scope was given at all
+#   30  sign-off policy: the tip commit violates the declared lineage's rule
 #
 # All violations found are reported before exiting; the exit code is the
 # lowest-numbered class present, so a caller can branch on the most
@@ -38,6 +56,7 @@ die() {
 
 scopes=()
 allow_untracked=()
+lineage=
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -50,6 +69,15 @@ while [ "$#" -gt 0 ]; do
             scopes+=("${1#--scope=}")
             shift
             ;;
+        --lineage)
+            [ "$#" -ge 2 ] || die 2 '--lineage needs an argument (code|plans)'
+            lineage=$2
+            shift 2
+            ;;
+        --lineage=*)
+            lineage=${1#--lineage=}
+            shift
+            ;;
         --allow-untracked)
             [ "$#" -ge 2 ] || die 2 '--allow-untracked needs a glob argument'
             allow_untracked+=("$2")
@@ -60,7 +88,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         -h|--help)
-            printf 'usage: step-check --scope <path>... [--allow-untracked <glob>]...\n'
+            printf 'usage: step-check --scope <path>... --lineage code|plans [--allow-untracked <glob>]...\n'
             exit 0
             ;;
         --*)
@@ -72,7 +100,50 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+[ -n "$lineage" ] || die 2 '--lineage is required (code|plans); it has no default'
+case $lineage in
+    code|plans) ;;
+    *) die 2 "invalid --lineage value: $lineage (must be code or plans)" ;;
+esac
+
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 2 'not inside a git working tree'
+git rev-parse HEAD >/dev/null 2>&1 || die 2 'no commits yet: nothing to check sign-off against'
+
+exit_code=0
+note_class() {
+    local code=$1
+    if [ "$exit_code" -eq 0 ] || [ "$code" -lt "$exit_code" ]; then
+        exit_code=$code
+    fi
+}
+
+# Sign-off policy. The two lineages have opposite rules, so this is a
+# direction check against HEAD's own commit message, never a hard-coded
+# default. HEAD's body (not just the subject) is scanned for a trailer-shaped
+# line, matching how `git commit -s`/`--signoff` write it and how the
+# project's own pre-push checklist greps for it.
+lineage_note=
+tip_has_signoff=0
+git log -1 --format=%B HEAD | grep -q '^Signed-off-by:' && tip_has_signoff=1
+
+case $lineage in
+    code)
+        if [ "$tip_has_signoff" -eq 1 ]; then
+            lineage_note='lineage=code: Signed-off-by present on the tip commit, as required'
+        else
+            printf 'step-check: [30] lineage=code requires Signed-off-by on the tip commit; none found\n' >&2
+            note_class 30
+        fi
+        ;;
+    plans)
+        if [ "$tip_has_signoff" -eq 0 ]; then
+            lineage_note='lineage=plans: no Signed-off-by on the tip commit, as required'
+        else
+            printf 'step-check: [30] lineage=plans forbids Signed-off-by on the tip commit; one was found\n' >&2
+            note_class 30
+        fi
+        ;;
+esac
 
 # Strip a leading ./ and any trailing /. Two scope arguments that normalise to
 # the same string are harmless duplicates, not an error. plan-lint reads this
@@ -87,18 +158,9 @@ normalise() {
     printf '%s' "$p"
 }
 
-exit_code=0
-note_class() {
-    local code=$1
-    if [ "$exit_code" -eq 0 ] || [ "$code" -lt "$exit_code" ]; then
-        exit_code=$code
-    fi
-}
-
 if [ "${#scopes[@]}" -eq 0 ]; then
     printf 'step-check: [21] empty scope list refused: an empty scope is a spec defect, not permission\n' >&2
     note_class 21
-    exit "$exit_code"
 fi
 
 norm_scopes=()
@@ -133,33 +195,41 @@ is_allowed_untracked() {
 
 offenders=()
 
-while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    status=${line:0:2}
-    rest=${line:3}
-    # A rename/copy entry carries "old -> new"; both sides count as changed,
-    # since either one landing outside scope is drift.
-    case $rest in
-        *' -> '*)
-            paths=("${rest%% -> *}" "${rest#* -> }")
-            ;;
-        *)
-            paths=("$rest")
-            ;;
-    esac
-    for path in "${paths[@]}"; do
-        path=$(normalise "$path")
-        in_scope "$path" && continue
-        if [ "$status" = '??' ] && is_allowed_untracked "$path"; then
-            continue
-        fi
-        offenders+=("$path")
-    done
-done < <(git status --porcelain=v1)
+# An empty scope has already been refused above (class 21); skip the drift
+# scan rather than let every changed path double-report as an offender too.
+if [ "${#scopes[@]}" -gt 0 ]; then
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        status=${line:0:2}
+        rest=${line:3}
+        # A rename/copy entry carries "old -> new"; both sides count as
+        # changed, since either one landing outside scope is drift.
+        case $rest in
+            *' -> '*)
+                paths=("${rest%% -> *}" "${rest#* -> }")
+                ;;
+            *)
+                paths=("$rest")
+                ;;
+        esac
+        for path in "${paths[@]}"; do
+            path=$(normalise "$path")
+            in_scope "$path" && continue
+            if [ "$status" = '??' ] && is_allowed_untracked "$path"; then
+                continue
+            fi
+            offenders+=("$path")
+        done
+    done < <(git status --porcelain=v1)
+fi
 
 if [ "${#offenders[@]}" -gt 0 ]; then
     printf 'step-check: [20] change outside declared scope: %s\n' "${offenders[@]}" >&2
     note_class 20
+fi
+
+if [ "$exit_code" -eq 0 ] && [ -n "$lineage_note" ]; then
+    printf 'step-check: %s\n' "$lineage_note"
 fi
 
 exit "$exit_code"

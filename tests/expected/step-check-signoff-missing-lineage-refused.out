@@ -1,0 +1,4 @@
+exit: 2
+--- stdout ---
+--- stderr ---
+step-check: --lineage is required (code|plans); it has no default

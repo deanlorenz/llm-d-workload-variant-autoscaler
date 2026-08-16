@@ -1,0 +1,4 @@
+exit: 0
+--- stdout ---
+step-check: lineage=code: Signed-off-by present on the tip commit, as required
+--- stderr ---

@@ -1,0 +1,4 @@
+exit: 30
+--- stdout ---
+--- stderr ---
+step-check: [30] lineage=code requires Signed-off-by on the tip commit; none found

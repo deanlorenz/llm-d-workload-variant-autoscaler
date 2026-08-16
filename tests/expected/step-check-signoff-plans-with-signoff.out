@@ -1,0 +1,4 @@
+exit: 30
+--- stdout ---
+--- stderr ---
+step-check: [30] lineage=plans forbids Signed-off-by on the tip commit; one was found
