@@ -333,3 +333,42 @@ Deliberately NOT done (park is additive, and accepts no work):
   - Did not run /s-state-sweep despite the doc set being large — no drift suspected this pass,
     all docs were already internally consistent as of their last commits.
 ```
+
+## state-park report — 2026-08-17, second call
+
+```
+state-park — pokprod-benchmark-execution scope
+
+Subagent addresses recorded (2a):
+  - vLLM/EPP metric survey — id: a8351539ecd1d9127 — completed — already referenced in the
+    prior park's report and folded into D-57; no new agent spawned since.
+Nudges sent (2b): none running.
+
+Sources read this pass:
+  - git status (full working tree) — confirmed nothing of mine is uncommitted
+  - planning/ta-pokprod-architecture-design.md — confirmed the KUBECONFIG isolation recipe
+    (from the chat answer immediately before this park call) was already captured, from an
+    earlier commit (D-69) — nothing new to flush
+
+Not read (and why):
+  - All ta-pokprod-* docs besides architecture-design.md — no new content generated since
+    the last commit (8533234f), nothing to check against
+  - Every other session's modified/deleted files in git status — not mine, out of scope
+
+Written to: nothing this pass — state was already fully flushed before this park was invoked
+  (D-73 committed at 8533234f prior to this call).
+
+Handoffs emitted: none this pass.
+
+Committed: none this pass — nothing new to commit.
+
+Worktree exit: was never in a worktree this session — skipped, not performed.
+
+Verified from final location:
+  - planning/ta-pokprod-history.md — D-73 present, tail matches last commit
+  - commit 8533234f — visible in `git log -1`
+
+Deliberately NOT done:
+  - Did not touch any other session's modified/deleted files in git status.
+  - Did not act on any open priority-triage item — all correctly remain open.
+```
