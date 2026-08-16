@@ -540,19 +540,43 @@ on unilaterally:**
    a skill; needs a real design pass, not a guess.
 4. **The doc-taxonomy templates need to be written down, not just implied by example.** § Artifact
    types names the eight kinds; none has an actual template a new doc can be started from.
-5. **Formalize `<topic/task>-<role>` as the session's identity, not just its display title.** Dean's
+5. **Formalize `<topic/task>-<role>` as the session's identity, not just its display title —
+   identity and display name are two different problems, only the first is in scope now.** Dean's
    framing: *"I want the topic to be part of the 'identity' of the session... Every session should list
    role, topic, CWD, etc. as its status, starting lines in chat. A new session may take a topic/task's
    role, but then it is identifiable — the new and old sessions can complain if they see the other."*
-   This is bigger than the existing session-title mechanism (`~/.claude/bin/session-mgr.py`,
-   `s-session-name`, the `[icon] short-slug Role` display convention) — that names the session for the
-   VSCode history panel; this asks for `<topic>-<role>` to be the addressable identity used in handoff
+   Refined 2026-08-16: the **displayed session name is a separate, lower-priority problem, not this
+   one.** `session-mgr.py`/`s-session-name`/the `[icon] short-slug Role` convention exist to give Dean
+   a hint for locating an editor tab or history entry, and its known problems (default name set before
+   identity is established; VSCode-extension/webview-vs-CLI display quirks — see
+   [[project_session_naming_mechanism]]) are all display-layer only. **Identity is what this item is
+   actually about: role, topic/scope, CWD as the session's own self-knowledge**, used in handoff
    `to:`/`from:` fields (superseding the existing "role + task" framing in `CONVENTIONS.md`'s handoff
-   section), with collision detection between two sessions claiming the same topic+role, an id/number
-   suffix to disambiguate, and a hard rule that a session with no known topic/task must ask rather than
-   proceed unnamed. Overlaps but does not duplicate the existing per-status-file "Identity block"
-   (name/id/role/branch/worktree/…) added 2026-08-13 — that's per-status-file metadata; this is the
-   session's own addressable name. Needs its own design pass before any skill or hook change.
+   section) — separate from, and more important than, what gets shown in a tab. Overlaps but does not
+   duplicate the existing per-status-file "Identity block" (name/id/role/branch/worktree/…) added
+   2026-08-13 — that's per-status-file metadata written *by* an identified session; this item is about
+   how a session becomes identified in the first place, and stays correctly identified as work
+   continues.
+   - **"Task" is probably the wrong word — "scope" fits better.** Dean's own correction: role is
+     stable for a session's life, but *what it's working on* can change mid-flight ("now I want to
+     work on X") without the role changing. The identity model needs a role (stable) and a scope
+     (can shift), not a single fixed topic/task pair chosen once at session start.
+   - **A session with no known scope must ask, not proceed unnamed or self-assign one** — Dean's
+     standing instruction elsewhere in this doc (any halt/decision point defaults to asking, never
+     guessing) applies here directly.
+   - **Multiple identities can exist at once — checked live, 2026-08-16, real finding, not
+     hypothetical.** `claude agents --json` at the time Dean asked showed four separate interactive
+     sessions all rooted at this same worktree (`plans-a3`/`c1b50362`, `plans-f0`/`bf65d3af`,
+     `plans-6b`/`caa88c11`, this session `plans-4c`/`f0196004`), plus two background agents also
+     rooted here (`identity-internal-code-reviewer-session`/`b42c8494`,
+     `brainstorm-discussion-tooling-fork`/`797c27df`). **None of the four plain interactive ones carries
+     any role/scope information in this listing at all** — only the auto-generated `plans-<hex>`
+     display name, which is exactly the gap this item names: from outside, there is no way to tell
+     whether two of those four are unknowingly working the same role+scope without opening each
+     transcript individually. This is the collision surface the design needs to close, demonstrated
+     directly rather than assumed.
+
+   Needs its own design pass before any skill or hook change — not resolved here.
 
 [↑ Contents](#contents)
 
