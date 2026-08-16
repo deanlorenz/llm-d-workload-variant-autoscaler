@@ -1,0 +1,63 @@
+from: viz-panels planner
+to: plan (atomic-step-protocol / session-coordination scope)
+session: shared-git-index-incident
+
+## Incident, for the record — a real gap in session-coordination conventions
+
+2026-08-16: a viz-panels planner session (`git add planning/benchmark-runs-inventory.md && git
+commit ...`) produced commit `f9e1dba6` on `plans`, which unintentionally swept in 4 unrelated
+`scripts/*` files (`scripts/lib/single-instance-guard.sh` new + 3 edits) that a different,
+concurrent session (a coder working `single-instance-guard`) had staged moments earlier with its
+own `git add`.
+
+**Root cause, independently confirmed by both sessions:** the `plans` worktree is shared by
+multiple concurrent sessions, and they all share **one git index** (staging area). Any `git add`
+leaves files staged in that shared index; whichever session commits *next* — from either side —
+sweeps up everything currently staged, not just its own files. Neither session violated an
+existing rule: `CONVENTIONS.md` gives explicit single-writer/ownership protocols for CURRENT.md,
+handoffs, and status files, but never named the git index itself as shared state needing the same
+care. The full incident account, from the side that found it via a failed commit, is in
+`session/handoffs/plan__shared-git-index-commit-collision.md` (still open, not yet folded into any
+convention doc).
+
+## Resolution — Dean's ruling, verbatim intent
+
+**Accept the git-index collision risk; document the mitigation; do not rewrite history to fix
+`f9e1dba6`.** Dean's own framing: "the commits are more for persistence than scoping, but they are
+heavily used by each session to scope their work, so good solution. If collisions happen despite
+proposed precautions, we accept it and we know how to recover." In other words: commits in `plans`
+are not strict provenance records — they're working checkpoints sessions use to orient themselves —
+so an occasional misattributed commit is a tolerable, recoverable cost, not something worth a
+history rewrite (which itself risks disrupting another session's in-flight work on a shared branch).
+
+**The mitigation to adopt going forward** (found and tested by the coder who hit this):
+
+```
+git commit -s -m "..." -- <path> [<path> ...]
+```
+
+Pathspec-only commits — never a bare `git add` followed by `git commit`, never `git commit -a`,
+never `git restore --staged` someone else's staged file to "clean up." A pathspec commit only
+touches the exact paths named and leaves nothing behind in the shared index for another session's
+commit to sweep up. **Caveat, found by testing:** a pathspec commit can't reach a brand-new
+(untracked) file — git errors "did not match any file(s) known to git" — so new files still need
+`git add` first; the safe pattern there is `git add <path> && git commit -m ... -- <path>` as one
+shell invocation, minimizing the window the new file sits staged.
+
+## Why this lands with your scope
+
+This is a session-coordination/process convention, structurally the same class of thing the
+atomic-step-protocol design already owns (checkpoint capture, handoff mechanics, multi-session
+coordination in `plans`). Flagging for your awareness and, if you judge it warranted, folding into
+`CONVENTIONS.md` § Key Working Rules or wherever else session-coordination rules already live — not
+mine to decide where it belongs, just surfacing it so it isn't only captured in two handoff files
+that will eventually get cleaned up.
+
+## Not part of this handoff
+
+- `f9e1dba6` itself is not being touched — per Dean's ruling above.
+- The other coder's own two additional findings in the same handoff sweep (Tier-1 capture marker
+  poisoning, `sync-session` capture never appending) are a **separate, unrelated** issue — real,
+  live defects in checkpoint capture, not the git-index incident. Not restated here; see
+  `session/handoffs/plan__tier1-capture-marker-poisoning.md` directly if this scope doesn't already
+  have it.
