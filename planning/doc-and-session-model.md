@@ -111,7 +111,7 @@ rather than forced, because most are legitimate kinds we simply had not named:
 
 | Kind | Examples | Disposition |
 |---|---|---|
-| **source trace** | `multi-analyzer-dataflow-map.md`, `multi-analyzer-postrefactor-map.md` | Already ruled by Dean (2026-08-07) to be **traces, not authorities** — cite for per-site line evidence only; the design governs on disagreement. Deserves its own type name. |
+| **source trace** | `multi-analyzer-dataflow-map.md`, `multi-analyzer-postrefactor-map.md` | Already ruled by Dean (2026-08-07) to be **traces, not authorities** — cite for per-site line evidence only; the design governs on disagreement. **Promoted 2026-08-16 — see § Call-stack convention below.** |
 | **analysis** | `scale-from-to-zero-analysis.md` | Output of an investigation. Neither a design (proposes nothing) nor a review (judges nothing). |
 | **explainer** | `p-d-logic-explainer.md` | Written for Dean, not shipped in a PR — so it is not a reference. |
 | **register** | `governance-follow-ups.md`, `open-items-roadmap.md`, `ta-0.9-epic-issues.md` | Backlogs and incident collections. Feed the policy-writer and the epic. |
@@ -123,6 +123,45 @@ rather than forced, because most are legitimate kinds we simply had not named:
 
 Four documents named as designs in `CONVENTIONS.md` — `TA-notation.md`, `TA-demand.md`,
 `TA-supply.md`, `TA-overview.md` — simply predate the `*-design.md` suffix. They are designs.
+
+### Call-stack convention — generalized 2026-08-16, two distinct mechanisms
+
+Two things named "call stack" in this workspace turned out to be different mechanisms that rhyme,
+not one at two granularities (found by `doc-coverage-audit-20260816.md`):
+
+1. **A named, fixed field.** `atomic-step-protocol-design.md`'s `## Intent` has `current call stack` /
+   `planned call stack` as two of its five fixed fields, explicitly to make review bounded rather than
+   diligence-dependent. Already spreading inside that cluster (11 code specs carry it as of the audit).
+2. **A standalone reference doc.** The "source trace" kind above (`multi-analyzer-dataflow-map.md`
+   and siblings) — reviewer-facing, file:line citations, its own TOC, cited for per-site evidence only.
+
+**Dean's rulings, both his decisions, generalized here rather than left as one-off asks:**
+
+- **The fixed-field shape generalizes to Type-3/code-spec docs outside the atomic-step cluster,
+  scoped narrower than the source-trace kind's own shape**: *"type 3 should have a current call
+  stack like atomic-step, but scoped only to the specific type 3 (only show affected stacks)."* A
+  Type-3 author adopting this shows only the stack paths that Type 3 itself touches — not a
+  whole-mission tour. `multi-analyzer-postrefactor-map.md`'s own tag vocabulary (`[this PR]`/
+  `[next PR]`) is a candidate precedent for *wording*, even though that doc's own *scope* (the entire
+  optimize-cycle) is the wrong shape for this narrower use.
+- **A Type 6 (review) may add the same scoped shape at review time**: *"review type 6 docs can add
+  it — makes the review easier to follow and understand where changes were made. again scoped to
+  particular change."*
+- **The accumulated, many-Type-3s'-and-Type-6's-worth call stack gets a temporary home in Type 2**:
+  *"post coding call stack... should also be tied to type 4 (maybe not committed in guides, but
+  traceable in my plans). type 4 say what exists. They accumulate all code changes that actually
+  happened... I think this is still the right approach, we just need a good home for it. I suggest
+  we put it in the type 2 for now. Type 2 already aggregates multiple type 3 docs... We move it
+  later."* Not Type 4 itself — Type 4 ships in the PR and must never run ahead of code; the aggregate
+  stack is `planning/`-side, tied to Type 4's content without living inside it. **Explicitly interim
+  — do not read this as settling the source-trace type's permanent home.**
+
+**What is not yet decided, left genuinely open rather than guessed:** the exact enforcement
+mechanism for "only affected stacks" (author judgment, a review-time check, or a future `plan-lint`
+rule); exactly where inside a Type 2 doc the aggregate section goes and what triggers updating it;
+and whether this field reuses the name `current call stack` outside the atomic-step cluster or needs
+its own. **Not retroactive** — existing Type 1-6 docs outside the atomic-step cluster are not being
+backfilled with this field; it applies going forward, to new or substantially-revised docs.
 
 [↑ Contents](#contents)
 
