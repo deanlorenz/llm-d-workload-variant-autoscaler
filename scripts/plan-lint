@@ -2,10 +2,10 @@
 # plan-lint — turn a code spec's completeness into a machine check, instead
 # of something a reviewer has to notice by reading closely.
 #
-#   plan-lint <spec-file>
+#   plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file>
 #
-# (convention resolution/addressing and unresolved-judgment flags are added
-# by later steps of the same spec; this file grows in place per step.)
+# (the unresolved-judgment flag is added by a later step of the same spec;
+# this file grows in place per step.)
 #
 # Step schema: every `## S<n>` step section must carry all eight fields —
 # `**brief**`, `**scope**`, `**do**`, `**conventions**`, `**verify**`,
@@ -22,6 +22,25 @@
 # violation, then exits non-zero — never stops at the first, the same
 # philosophy conv-lint.sh already established for this worktree's tools.
 #
+# Convention resolution: a step's `**conventions**` field's value, up to the
+# first period, is either the literal `none` or a comma-separated manifest of
+# names — the same "`**conventions** — name, other`" shape conv-rename's own
+# S3 commit message documents this field as taking. Every cited name is
+# resolved against `conv-list.sh --dir <dir>` (default `conventions/`, same
+# default conv-list.sh itself uses); an unresolved name is a violation naming
+# the step and the name. `none` is valid and passes; an *absent*
+# `**conventions**` line, or one present but empty, is a violation — the
+# asymmetry is deliberate: omission halts, explicit `none` proceeds.
+# --no-conventions skips name resolution (for use before `conventions/`
+# exists) but always warns on stderr that it did — silence would look like
+# "checked and clean" rather than "not checked". It does not disable the
+# absent-vs-none check or the addressing check below, since neither depends
+# on `conventions/` existing.
+#
+# Addressing: no document may reintroduce line-number addressing. Any
+# `L<n>:<m>` range or `offset:<n> limit:<m>` occurrence, anywhere in the
+# file (not just inside a step), is a violation naming the line.
+#
 # Exit codes are the contract, and are additive across this spec's steps:
 #   0   clean
 #   2   usage error
@@ -30,6 +49,9 @@
 #   21  step schema: no Step index section, or a step has no brief in it
 #   22  step schema: the Intent block is missing one or more of its five
 #       fields (including when the whole ## Intent heading is absent)
+#   30  convention resolution: a cited name does not resolve via conv-list.sh
+#   31  convention resolution: a step's conventions field is absent or empty
+#   32  addressing: a line-number reference survives somewhere in the file
 #
 # The exit code is the lowest-numbered class present, so a caller can branch
 # on the most structural failure while stderr still shows everything else.
@@ -42,18 +64,47 @@ die() {
     exit "$code"
 }
 
-case ${1-} in
-    -h|--help)
-        printf 'usage: plan-lint <spec-file>\n'
-        exit 0
-        ;;
-esac
+conv_dir=conventions
+no_conventions=0
+spec=
 
-[ "$#" -eq 1 ] || die 2 "usage: plan-lint <spec-file> (got $# argument(s))"
-spec=$1
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --dir)
+            [ "$#" -ge 2 ] || die 2 '--dir needs a directory argument'
+            conv_dir=$2
+            shift 2
+            ;;
+        --dir=*)
+            conv_dir=${1#--dir=}
+            shift
+            ;;
+        --no-conventions)
+            no_conventions=1
+            shift
+            ;;
+        -h|--help)
+            printf 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file>\n'
+            exit 0
+            ;;
+        --*)
+            die 2 "unknown option: $1"
+            ;;
+        *)
+            [ -z "$spec" ] || die 2 "unexpected argument: $1"
+            spec=$1
+            shift
+            ;;
+    esac
+done
 
+[ -n "$spec" ] || die 2 'usage: plan-lint [--dir <conventions-dir>] [--no-conventions] <spec-file> (no spec file given)'
 [ -f "$spec" ] || die 3 "no such spec file: $spec"
 [ -r "$spec" ] || die 3 "spec file is not readable: $spec"
+
+if [ "$no_conventions" -eq 1 ]; then
+    printf 'plan-lint: --no-conventions: convention name resolution skipped\n' >&2
+fi
 
 # Single parse pass over the whole file, emitting tab-separated records in
 # file order — the same shape conv-lint.sh uses, so a reader who already
@@ -65,7 +116,15 @@ spec=$1
 #   INTENTFIELD    fieldname
 #   STEPINDEXFOUND 1
 #   STEPINDEXBRIEF step-id
+#   CONVLINE       step-id  manifest-value (may be empty)
+#   LINEREF        lineno   the offending line, verbatim
 records=$(awk '
+# Addressing is a whole-file property, not step-scoped, and must survive
+# every "next" below it — so it runs first and never short-circuits.
+$0 ~ /L[0-9]+:[0-9]+/ || $0 ~ /offset:[0-9]+[[:space:]]+limit:[0-9]+/ {
+    printf("LINEREF\t%d\t%s\n", NR, $0)
+}
+
 /^#+[[:space:]]/ {
     rest = $0
     sub(/^#+/, "", rest)
@@ -94,6 +153,17 @@ records=$(awk '
         in_step_index = 1
         printf("STEPINDEXFOUND\t1\n")
     }
+    next
+}
+
+cur_step != "" && $0 ~ /^\*\*conventions\*\* — / {
+    manifest = $0
+    sub(/^\*\*conventions\*\* — /, "", manifest)
+    sub(/\..*/, "", manifest)
+    gsub(/^[[:space:]]+/, "", manifest)
+    gsub(/[[:space:]]+$/, "", manifest)
+    printf("CONVLINE\t%s\t%s\n", cur_step, manifest)
+    printf("FIELD\t%s\tconventions\n", cur_step)
     next
 }
 
@@ -127,6 +197,8 @@ declare -A step_seen=()
 declare -A field_seen=()
 declare -A intent_seen=()
 declare -A step_index_brief=()
+declare -A conv_manifest=()
+declare -a lineref_lines=()
 intent_found=0
 step_index_found=0
 
@@ -153,6 +225,12 @@ while IFS=$'\t' read -r kind f1 f2; do
             ;;
         STEPINDEXBRIEF)
             step_index_brief[$f1]=1
+            ;;
+        CONVLINE)
+            conv_manifest[$f1]=$f2
+            ;;
+        LINEREF)
+            lineref_lines+=("$spec:$f1: $f2")
             ;;
         *)
             die 2 "internal: unrecognized parse record: $kind"
@@ -196,6 +274,52 @@ else
     done
 fi
 
+# Convention resolution and addressing (S5). valid_names is built once,
+# only when name resolution is actually going to run — a directory that
+# does not exist yet (before --no-conventions is dropped) must not make
+# plan-lint itself fail; every citation just reports unresolved instead,
+# which is the same "unknown means refuse" outcome by a different route.
+declare -A valid_names=()
+if [ "$no_conventions" -eq 0 ]; then
+    while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        name=${rec%% | *}
+        valid_names[$name]=1
+    done < <(conv-list.sh --dir "$conv_dir" 2>/dev/null)
+fi
+
+report_absent=()
+report_unresolved=()
+for step in ${step_order+"${step_order[@]}"}; do
+    if [ -z "${conv_manifest[$step]+set}" ] || [ -z "${conv_manifest[$step]}" ]; then
+        report_absent+=("$spec: step $step has no conventions: declaration (absent, or present but empty)")
+        continue
+    fi
+    manifest=${conv_manifest[$step]}
+    # "none" may carry a trailing parenthetical or other prose before the
+    # period this manifest was already truncated at (e.g. "none (see §
+    # Intent)") — the literal word "none" as the *first* token is what
+    # matters, not an exact match on the whole remainder.
+    first_token=${manifest%%[^a-z0-9-]*}
+    [ "$first_token" = none ] && continue
+    [ "$no_conventions" -eq 1 ] && continue
+    IFS=',' read -ra cited <<<"$manifest"
+    for raw in "${cited[@]}"; do
+        name=$raw
+        name=${name#"${name%%[![:space:]]*}"}
+        name=${name%"${name##*[![:space:]]}"}
+        name=${name#\`}
+        name=${name%\`}
+        # Trailing prose after the name itself (a parenthetical aside, a
+        # following clause) is not part of the citation — truncate at the
+        # first character outside the charset conv-lint.sh itself validates
+        # convention names against ([a-z0-9-]+).
+        name=${name%%[^a-z0-9-]*}
+        [ -n "$name" ] || continue
+        [ -n "${valid_names[$name]+set}" ] || report_unresolved+=("$spec: step $step cites unknown convention: $name")
+    done
+done
+
 exit_code=0
 note_class() {
     local code=$1
@@ -218,5 +342,8 @@ emit() {
 emit 20 ${report_fields+"${report_fields[@]}"}
 emit 21 ${report_stepindex+"${report_stepindex[@]}"}
 emit 22 ${intent_line+"${intent_line[@]}"}
+emit 30 ${report_unresolved+"${report_unresolved[@]}"}
+emit 31 ${report_absent+"${report_absent[@]}"}
+emit 32 ${lineref_lines+"${lineref_lines[@]}"}
 
 exit "$exit_code"

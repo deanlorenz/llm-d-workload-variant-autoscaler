@@ -323,3 +323,22 @@ case_register plan-lint-no-brief \
 
 case_register plan-lint-missing-intent-field \
     ./scripts/plan-lint tests/fixtures/plan-lint/missing-intent-field.md
+
+# plan-lint — convention resolution and addressing (S5). The spec's own
+# "none passes" case is already fully proven by plan-lint-clean-spec above
+# (every step in that fixture declares literal none), so it is not repeated
+# here under a second name. minimal-spec.md is a small, self-built fixture
+# (not derived from a real spec) so each remaining case can isolate exactly
+# one S5 violation; --dir points at the read-side tools' own
+# tests/fixtures/conventions, which already declares one-commit-per-step.
+case_register plan-lint-unknown-convention \
+    ./scripts/plan-lint --dir tests/fixtures/conventions tests/fixtures/plan-lint/minimal-spec.md
+
+case_register plan-lint-absent-conventions \
+    ./scripts/plan-lint --dir tests/fixtures/conventions tests/fixtures/plan-lint/absent-conventions.md
+
+case_register plan-lint-line-ref \
+    ./scripts/plan-lint --dir tests/fixtures/conventions tests/fixtures/plan-lint/line-ref.md
+
+case_register plan-lint-no-conventions-warns \
+    ./scripts/plan-lint --no-conventions tests/fixtures/plan-lint/minimal-spec.md

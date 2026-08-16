@@ -1,0 +1,4 @@
+exit: 0
+--- stdout ---
+--- stderr ---
+plan-lint: --no-conventions: convention name resolution skipped

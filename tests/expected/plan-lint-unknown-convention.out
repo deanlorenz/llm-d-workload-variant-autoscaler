@@ -1,0 +1,4 @@
+exit: 30
+--- stdout ---
+--- stderr ---
+plan-lint: [30] tests/fixtures/plan-lint/minimal-spec.md: step S1 cites unknown convention: made-up-name

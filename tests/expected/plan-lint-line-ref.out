@@ -1,0 +1,5 @@
+exit: 32
+--- stdout ---
+--- stderr ---
+plan-lint: [32] tests/fixtures/plan-lint/line-ref.md:41: 1. Fetch the relevant section via `Read <file> offset:12 limit:5` rather than by heading — exactly the
+plan-lint: [32] tests/fixtures/plan-lint/line-ref.md:42:    line-number addressing this spec shape is supposed to have retired. See also L26:30 for a second,
