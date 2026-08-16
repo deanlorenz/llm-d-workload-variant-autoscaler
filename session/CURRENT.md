@@ -458,14 +458,27 @@
   (a settled `.env`-contract redesign superseding part of the architecture doc §5) and
   `benchmark__pokprod-plan-tooling-track.md` (a stale coder trigger, unrepaired since the coder
   re-reads the plan fresh rather than trusting old line numbers).
-- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap).** *Blocked on Dean.* Not a regression:
-  `saturation/engine_v2.go` unconditionally prepends the saturation result and `effectiveEnabled` only
-  skips it by name, so `saturation:{enabled:false}` is a silent no-op. The lifecycle plan's Commit-2c
-  "zero-signal" design is **REJECTED** ("risky hack", warnings committed `663a9624`); a real fix needs
-  the F1 pre-analysis extraction so `VariantCapacities` is sourced independently of the saturation
-  contribution. **Owed by Dean:** spawn the dedicated planner and scope it — do not start before that.
-  Keep separate from the TA-lead benchmark thread, which runs TA+SAT combined and does **not** need
-  sat_v2 disabled. State: `planning/wva-analyzer-lifecycle-plan.md` +
+- **2026-08-03 — sat_v2 cannot be disabled via config (F1 gap). STILL OPEN — new evidence found
+  2026-08-16, needs verification in PR-2 before this can be called resolved, NOT resolved yet.**
+  The original claim (`saturation/engine_v2.go` unconditionally prepends the saturation result;
+  `effectiveEnabled` only skips it by name, making `saturation:{enabled:false}` a silent no-op)
+  predates PR-1 (`57f3fe64`, merged `main` 2026-08-07), which added a `satVotes` gate — confirmed
+  present on `main` directly (`engine_v2.go:147`), not just on a branch: saturation is still
+  computed and appended as an "identity carrier," but tagged `Enabled: satVotes` where
+  `satVotes = len(config.Analyzers) == 0 || effectiveEnabled(...)`, and `votingResults()`
+  (`analyzer_helpers.go:341-344`) filters strictly on `e.Enabled && e.Live` before the combine
+  math — a config-disabled saturation entry looks genuinely excluded from RC/SC, not just
+  cosmetically marked, from reading the code alone. **This is a finding to verify, not a
+  resolution to declare** — it has NOT been checked against PR-2's own test suite/review, and
+  nobody has confirmed this specific behavior was an intended, reviewed fix rather than an
+  incidental side effect that might have its own gaps. Keep this entry open until: (a) someone
+  (ideally PR-2's own reviewer) explicitly verifies and marks this in PR-2's review doc, and
+  (b) PR-2 actually merges to `main` — until both, treat the F1 gap as unconfirmed, not closed.
+  If verified, the `wva-analyzer-lifecycle-plan.md` Half-B carve (disabling saturation, previously
+  blocked on this gap) may be unblocked — not re-scoped here, flagging for whoever owns that plan
+  and for PR-2's reviewer. Historical context: the lifecycle plan's Commit-2c "zero-signal" design
+  was REJECTED (`663a9624`) as the wrong fix; this finding, if verified, would be a different fix
+  that landed independently, not that one. State: `planning/wva-analyzer-lifecycle-plan.md` +
   [`multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511.
 - **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.**
   *WIP — no session running; resumable from its plan. Untouched ~3½ weeks.* ⚠️ Dev-guide edits the planner made directly are still
@@ -492,7 +505,7 @@ rows stay here.
 
 | Branch                | PR    | Status                                                            | Tip       |
 |-----------------------|-------|-------------------------------------------------------------------|-----------|
-| wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack; needs F1 "pre-analysis extraction" to solve `VariantCapacities` sourcing; unscoped). Dean spawning a **separate planner** to scope the real sat_v2-disable fix; awaiting his call: carve Half-A-only vs scope Half-B/F1 vs hold. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
+| wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack). ⚠️ **This row's "needs F1 pre-analysis extraction, unscoped" claim has new counter-evidence, found 2026-08-16 — see § Recent activity's sat_v2 entry. NOT confirmed resolved** — a `satVotes` gate exists on `main` via PR-1 #1516 that looks like it does what F1 asked for, but this needs verification in PR-2's own review before Half B's carve decision changes. Not re-scoped here. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 | ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN but now a NO-OP — needs only a close call (Dean's; GitHub write).** Characterization "golden" gate (test-only, +409/−0, 1 file: `internal/engines/pipeline/optimizer_characterization_test.go`) freezing the saturation-only optimizer decision SET keyed by VariantName; was the land-first ship gate for the anchor refactor. **Its content is already in `main`:** PR-1 #1516 was rebased onto this branch's tip before opening, and #1516's **squash** merge (`57f3fe64`, 2026-08-07 17:48:05Z) therefore landed the file — `git diff 57f3fe64 a2f49ccf -- <that file>` is **empty**, so the PR has nothing left to contribute and its purpose was served. No code action; the coder must still **NOT** rewrite the goldens commits. Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note, carried into PR-1 and landed there). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
 | ta-anchor-dynamic-refresh | [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) | **OPEN, pushed, CI all-green.** Tip `14a5d6cc`, 28 commits on `main@a6b39809`; local ≡ origin ≡ PR head. `MERGEABLE` / `REVIEW_REQUIRED` — internal review clean (Findings 76/77/78), **no external review yet**. All decisions closed (`AD8` (b) → `C12`; `ceil`/`floor` retracted; §4a reword executed; rebase clean). Open, none blocking merge: `B2` (**UNCLAIMED**), and Dean's PR-body accuracy + 0.9 call + review request. ⚠️ The **"Unsigned commits detected!"** bot comment is stale — `signed-commits` passes. Detail: [`session/status/planner-ta-anchor-pr2.md`](status/planner-ta-anchor-pr2.md) (CLOSED). | `14a5d6cc` |
 | optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
@@ -621,14 +634,12 @@ rows stay here.
 - **TA forward plan — P0 items all DONE** (I-21/22/23 via A #1478, I-5 both halves via A′ #1479 + E #1502).
   Next: review [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md) with Dean before coding P1 items
   (collector key unification I-1 = highest-risk correctness; test-rot I-11 unlocks reviewability).
-- **sat_v2 cannot be disabled via config (F1 gap) — awaiting Dean's separate planner + scope call (2026-08-03).**
-  Root cause: `saturation/engine_v2.go` unconditionally prepends the saturation result and
-  `effectiveEnabled` only skips it by name, so `saturation:{enabled:false}` is a silent no-op. The real
-  fix requires F1 "pre-analysis extraction" ([`planning/multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511)
-  to source `VariantCapacities` independent of the saturation scaling contribution. The
-  `wva-analyzer-lifecycle-plan.md` Commit-2c "zero-signal" design is **REJECTED** (risky hack; warnings
-  committed `663a9624`). Dean is spawning a dedicated planner; do NOT start the real fix until he scopes
-  it. Interacts with the benchmark TA-lead thread below (that coder wants sat_v2 off) — keep separate.
+- **sat_v2 cannot be disabled via config (F1 gap) — STILL OPEN, new evidence 2026-08-16, needs
+  verification, not resolved.** The claim below predates PR-1 #1516's `satVotes` gate, confirmed
+  present on `main` by reading code directly (see § Recent activity for full detail). This is a
+  finding, not a closed item — stays open until verified in PR-2's own review and until PR-2
+  merges. Do not treat the "do NOT start until Dean scopes it" instruction as lifted based on this
+  alone.
 - **wva-analyzer-lifecycle (PLAN — PARTIALLY REJECTED / re-scoping):** ManagedAnalyzer lifecycle
   (Activate/Deactivate/Reactivate), config-driven registration, live-set refactor, effectiveEnabled fix,
   remove startup gate. **Split**: Half A (lifecycle/live-set — Commits 1/3/4/5, low-risk, ~1–2 days; note
