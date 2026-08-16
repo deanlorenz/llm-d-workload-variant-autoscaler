@@ -1415,3 +1415,11 @@ than re-running again), **then the full 6-workload × config campaign.** Existin
 stays on disk, cited as historical, not deleted or superseded. **Not yet executed** — warmup
 duration/rate still needs Dean's sign-off, and any cluster run needs his explicit go-ahead per
 the standing rule, same as always.
+
+**Warmup decided same day: 4-5 minutes fixed, not readiness-gated.** Every workload starts cold
+at `minReplicas: 1` (confirmed across every variant config), so warmup must trigger and complete
+the initial scale-up, not just run idle traffic. Real single-boot time observed across the
+campaign is 65-96s (10 REPORT.md files checked); 4-5 min covers the controller's decision cycle
+plus the dwell-deep-dive's own concurrent-boot-lag finding, without building a live
+readiness-check mechanism across 6 differently-shaped workloads. Rate must actually cross the
+scale-up threshold, not sit near-idle.

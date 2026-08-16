@@ -63,17 +63,29 @@ its own commit/run-IDs same as any other landed data.
 
 - Does not change the per-request-collection-disable policy (D-12) — estimation (D-57 onward)
   remains the fallback path regardless of this campaign's other fixes.
-- Does not decide the warmup's exact duration or rate — a Dean call before Stage A executes, not
-  fixed here.
+- Warmup duration/rate is decided (below) — not open anymore.
 - Does not commit to keeping any exploratory instrumentation captured — that's a later, separate
   decision per workload/scrape.
 - Does not affect the doc-coverage cleanup thread (D-51/D-56) or the dwell-forecast Type-1
   scoping (D-21) — both stay exactly where they are, unrelated to this campaign.
 
+## Warmup, decided 2026-08-16
+
+**4-5 minutes fixed, not a readiness-gated wait.** Every workload starts cold at
+`minReplicas: 1` (confirmed — every variant config checked has this), so warmup has to actually
+*trigger and complete* the initial scale-up, not just run traffic at replica 1 for a while.
+Single-pod boot time observed across this campaign is consistently 65-96s (`Avg pod startup`
+across 10 real REPORT.md files) — but that's one pod's boot only, not the full
+decision-cycle-then-scale-up loop, and the dwell deep-dive found created→ready lag *worsens* with
+concurrent boot count. 4-5 min is a generous margin over the observed single-boot number,
+covering the controller's own decision cycle plus concurrent-boot lag, without needing to build
+and validate a live readiness-check mechanism across 6 differently-shaped workloads with
+different target replica counts. **Rate: whatever's needed to actually cross the scale-up
+threshold** (not idle/near-zero traffic) — the point is to trigger and observe the real scale-up,
+not merely wait out a clock while nothing happens.
+
 ## Open, before Stage A can launch
 
-- **Warmup duration/rate** — not decided. A reasonable default (e.g. 60-120s at a low fixed rate)
-  needs Dean's sign-off before it's written into every workload profile.
 - **Exact workload-file diffs** — prepending a warmup stage touches every `.yaml.in` profile;
   per the semantic-pivot cross-reference convention, needs a grep-verification step once written
   (does anything downstream assume stage 0 is the first *real* stage — the coverage-matrix doc,
