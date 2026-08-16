@@ -88,6 +88,30 @@ tooling had no Type 3 spec at all.
   values, which reads as a genuinely new mechanism, not just a naming question for the existing
   `conventions:` field. Needs a real Type-3-or-addendum-level design pass before building; not
   attempted here.
+- [ ] **Channel protocol (Addendum 9) — designed 2026-08-16, real detail, NOT yet an executable
+  spec.** Mailbox files (`session/mailboxes/<channel>.log`, one per relationship, append-only,
+  two event types) plus a shared broadcast/discovery channel (`session/mailboxes/broadcast.log`,
+  three usage patterns — lookup, presence announcement, general broadcast — riding the same file).
+  Directly answers today's own C11 fix (the addressless "broadcast handoff" mess) and the
+  live-session-identity gap from `doc-and-session-model.md` item 5 — this is the actual mechanism
+  that should replace both, once built. **Not hand-to-coder-ready like step-gates/coverage-check
+  above**: no do/verify/done_when steps exist yet, and several things are explicitly "not yet
+  decided" in the addendum itself (exact line grammar/prefixes, whether `announce` lines get
+  pruned, the shared lookup script's own name). Needs a Type-3 code spec written from this design
+  before dispatch. Also explicitly gated on reconciling with Addendum 6 (`/s-park`) first — likely
+  the same underlying mechanism, not yet merged into one design.
+- [ ] **Addendum 2 (shared Tier-2 consolidation) — built, its own checklist is now stale.** Guard
+  rebuild it asked for is done (`f9e1dba6`, today). Two items from its own checklist never made it
+  into this roadmap: hand ownership of `tick-shared-scan.sh` to a live sync session, and authorize
+  the first real (non-sandbox) start. Both still open; not urgent per Dean's own "safety mechanism,
+  not blocking" framing for this whole cluster.
+- [ ] **Addendum 3 (CURRENT.md indexable) — correctly self-parked, cross-referencing here so it
+  isn't invisible.** Deprioritized by Dean 2026-08-15/16, "not a priority, left for later." No
+  active checklist in the addendum itself; nothing to do until revisited.
+- [ ] **Addendum 6 (`/s-park`) — designed, not built, blocked on the Addendum 9 reconciliation
+  above.** No skill exists yet. Addendum 9's broadcast channel may make `/s-park` largely free once
+  built (a `please-park` broadcast line rides the same mechanism) — do not build `/s-park`
+  separately before checking this.
 
 ---
 

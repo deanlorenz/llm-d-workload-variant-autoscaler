@@ -24,7 +24,7 @@ not yet handed to a live sync session.**
 **Needs you:** authorize starting the shared loop for real (never has been — sandbox-only so far).
 
 **Checklist:**
-- [ ] Rebuild guard per Addendum 10 before first live run.
+- [x] Rebuild guard per Addendum 10 before first live run — done, `f9e1dba6`, 2026-08-16.
 - [ ] Hand ownership to a live sync session.
 - [ ] Authorize the first real start.
 
