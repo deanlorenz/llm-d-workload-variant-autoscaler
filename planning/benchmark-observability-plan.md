@@ -1,5 +1,16 @@
 # Benchmark Observability Plan
 
+> **Status: SUPERSEDED (Parts 1-4)** — the INFO decision-summary log line (Goal 1) and its downstream
+> post-processing/correctness steps (Goals 2-4) were superseded by
+> [`wva-saturation-cycle-log-plan.md`](wva-saturation-cycle-log-plan.md), which shipped a different log
+> schema (R2 implemented at `c8712fc8`, PR #1277) — see
+> [`docs/developer-guide/cycle-log.md`](../../Main/docs/developer-guide/cycle-log.md) on `main` for the
+> log format that actually shipped. Goal 5 (workload-validation gate) and the deferred items (Prometheus
+> metrics, concurrent workload profile) were not verified as part of this pointer — check current state
+> before citing. Found stale during the 2026-08-16 doc-coverage audit
+> ([`doc-coverage-audit-20260816.md`](doc-coverage-audit-20260816.md)); this pointer is the only change
+> made, no other content touched.
+
 **Branch:** `benchmark`
 **Type:** Type 3 task plan — implementation guide for benchmark agent
 **Status:** Ready for implementation

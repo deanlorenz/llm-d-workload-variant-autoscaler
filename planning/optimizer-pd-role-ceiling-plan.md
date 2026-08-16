@@ -26,16 +26,17 @@ Do not read past the TOC unless fetching a specific section.
 
 ## TOC {#toc}
 
-- [Background](#background) L40:65
-- [Problem statement](#problem-statement) L66:112
-- [Related work](#related-work) L113:139
-- [Design — corrected algorithm](#design--corrected-algorithm) L140:296
-- [Open implementation questions](#open-implementation-questions) L297:314
-- [Test plan](#test-plan) L315:395
-- [Dev-guide impact](#dev-guide-impact) L396:428
-- [Deletion / behavior-change classification](#deletion--behavior-change-classification) L429:453
-- [Implementation phases — 6 commits landed, 1 dev-guide gap pending](#implementation-phases--6-commits-landed-1-dev-guide-gap-pending) L454:491
-- [Branch / worktree](#branch--worktree) L492:500
+- [Background](#background) L41:66
+- [Problem statement](#problem-statement) L67:113
+- [Related work](#related-work) L114:140
+- [Design — corrected algorithm](#design--corrected-algorithm) L141:297
+- [Open implementation questions](#open-implementation-questions) L298:315
+- [Test plan](#test-plan) L316:396
+- [Dev-guide impact](#dev-guide-impact) L397:429
+- [Deletion / behavior-change classification](#deletion--behavior-change-classification) L430:454
+- [Implementation phases — 6 commits landed, 1 dev-guide gap pending](#implementation-phases--6-commits-landed-1-dev-guide-gap-pending) L455:492
+- [Branch / worktree](#branch--worktree) L493:504
+- [Re-validation against the anchor refactor (2026-08-16) — no planner active, taken over per Dean's 7-day rule](#re-validation-against-the-anchor-refactor-2026-08-16--no-planner-active-taken-over-per-deans-7-day-rule) L505:598
 
 ## Background
 
@@ -496,5 +497,102 @@ Worktree at `optimizer-pd-role-ceiling/`, branch `optimizer-pd-role-ceiling`, of
 yet pushed to origin — per CONVENTIONS, every code branch needs a matching origin branch, but
 only after explicit push confirmation; propose the push once the dev-guide gap lands and the
 pending code review is done.
+
+[↑ TOC](#toc)
+
+---
+
+## Re-validation against the anchor refactor (2026-08-16) — no planner active, taken over per Dean's 7-day rule
+
+**This thread has had no commit or status update since 2026-07-28 (19 days) — inactive by Dean's
+standing rule ("any planner not committing in the last week is inactive; take over their docs so
+everything is documented if they come back").** A fact-finding handoff sent 2026-08-09
+(`plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md`) sat unanswered for a week; it is
+answered here, read-only — **no code was changed, nothing was pushed, no rebase was performed.**
+This section documents findings only, so a returning planner (or Dean) has everything needed to
+make the park/revive/close call themselves.
+
+**Corrected context vs. the week-old handoff, first:** PR-2 is
+[#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523), not an unpushed
+local branch — **OPEN, pushed, CI all-green**, tip `14a5d6cc` (28 commits), not `6d55fbd7`/26
+commits as the handoff said. `main`'s current tip is `bebbe88f` (2026-08-12), which already
+includes PR-1 (`57f3fe64`) and its `RoleBoth` follow-up fix (`a38d7b73`). The uncommitted
+dev-guide edit noted in § Implementation phases item 7 was confirmed **still present and
+undisturbed** (`git status --short` only, no other command touched it) — it remains the only copy.
+
+**Q1 — do the 10 landed tests still assert something true and reachable?** No, for a concrete
+mechanical reason plus a deeper one. Mechanically: `main`'s `NamedAnalyzerResult` gained `Live` and
+`Enabled` fields (from PR-1's analyzer-enablement work); this branch's `withSatEntry`/
+`withSatEntryPD` fixture helpers never set either, so `bindingAnchor` now returns `nil` for every
+fixture and `CostAwareOptimizer.Optimize` silently skips the model (`cost_aware_optimizer.go:49-51`)
+— every test's expectations would fail against an empty decision map. `main`'s own equivalent
+fixture helper was updated with exactly `Enabled: true, Live: true` when PR-1 landed
+(`cost_aware_optimizer_test.go:14-30` on `main`), confirming the fix shape. But fixing the fixtures
+only rescues **4 of the 10** to genuine value — those 4 already have equivalent coverage on `main`
+today. The other **6 — including this mission's own last two commits** (fractional round-up,
+mid-call cap transition) — assert against `jointCap`/`achievedByRole`/`denomByRole`, a formula
+`main`'s rewritten `allocateForModelPaired` (`analyzer_helpers.go:469-573`) no longer computes at
+all; it derives `demand` fresh from `pickerState` each iteration and sizes via `deltaUtil`/
+`utilByRole` instead. Those 6 test titles are absent from both `main` and PR-2's test files —
+never merged anywhere. Porting them means **re-deriving expected values against the new formula**,
+not a mechanical fixture fix, and they cover ground `main` currently has zero coverage for
+(multi-analyzer achieved-so-far isolation, cross-iteration next-cheapest-variant switching, 3-role
+generalization, plus the two corner cases above).
+
+**Q2 — is the suspected bug still live** (anticipated supply in the denominator, not counted toward
+achieved)? **Unresolved, and now with a documented contradiction.** The formula itself —
+`RequiredCapacity = TotalDemand/scaleUp − TotalAnticipatedSupply` in `applyUniversalThreshold`
+(`saturation/engine_v2.go`) — is **byte-identical across the dormant branch, `main`, and PR-2**;
+neither refactor touched it. The optimizer-side code this doc's D1 finding cited
+(`analyzer_helpers.go:307-354` on the dormant branch, the `achievedByRole` reconstruction) was
+rewritten away by `main`'s new `allocateForModelPaired`, so **that specific line-level citation is
+dead** — but the same conflation persists one layer up: `main`'s `demand` (denominator of
+`utilByRole`) is seeded from `RequiredCapacity`, which already has anticipated supply subtracted at
+the source, so anticipated supply still shrinks the remaining-demand target rather than adding to
+an achieved numerator — the same shape Open issue #2 describes, reached through a different path.
+**Countervailing evidence this may not be a bug at all:** `ta-anchor-dynamic-refresh-plan.md:1689-
+1695` states, from a separate investigation into this exact formula, *"The engine's threshold
+post-step is correct and is not the bug... do not 'fix' it... Recorded because the opposite
+conclusion was reached once and abandoned."* This is a genuine, unresolved disagreement between two
+planning threads, not a stale finding to quietly close.
+
+**Q3 — does the clean-design model in `optimizer-coordination-design.md` still hold?**
+**Partially.** The supply taxonomy and its data-layer mapping (`aggregation.go`'s `SumTotalSupply`/
+`SumTotalAnticipatedSupply`/`SumTotalDemand`) are unchanged in name and purpose on `main` — that part
+holds. `applyUniversalThreshold`'s formula (Q2) is unchanged — that part holds too. **What's stale
+is the doc's Phase-3 code-verification artifact**: every line citation (`analyzer_helpers.go:307-
+354` etc.) points at the now-rewritten `allocateForModelPaired`; D1/D2/D3 as *code citations* are
+dead, though D1's underlying *claim* is not (see Q2). One doc caveat is now resolvable and closes
+cleanly: D4 flagged `effectiveAvailable`/#1129 as "not verifiable on this branch" — confirmed
+present on `main` at `greedy_score_optimizer.go:373`, and the doc's own provisional verdict ("the
+current `NamespaceAwareInventory` + `NamespacePools` path is a correct approximation") stands. The
+two Phase-2 framing questions (fair-share "what is share measured in," "what does priority do") are
+still unanswered by any thread since. **Net: the taxonomy survives; the verification pass against
+code needs to be redone, not resumed** — Phase 3 ran once against code that no longer exists.
+
+**Q4 — rebase cost onto current `main`, and does `make lint` pass under 2.10.0?** **Small footprint
+by line count, high conflict risk by location, lint status genuinely unknown.** This branch's own
+unique work touches only 4 files (~600 lines net: `analyzer_helpers.go`, two test files, the
+dev-guide). But `analyzer_helpers.go` is exactly where `main` independently rewrote
+`allocateForModelPaired` — the same function this branch's fix commits (`a694012a`, `911e13b7`)
+modified — so a real rebase would very likely stop mid-function with a substantive conflict, not a
+clean line-shift; re-deriving the fix against the new formula, not a textual reapply.
+`greedy_score_optimizer_test.go` is the second collision point (`main` grew it to +708 lines for
+new limiter-aware paths). Toolchain: this branch pins `go 1.25.0`/lint `v2.8.0`; `main` is on
+`go 1.26.0`/lint `v2.10.0` (PR #1512) — **`optimizer-pd-role-ceiling` is now the only tracked branch
+that hasn't re-verified `make lint` under the new toolchain** (PR-2 already has). Not run in this
+pass, deliberately — a read-only fact-finding task doesn't build against a worktree whose own
+dependent code has since been replaced upstream.
+
+**Summary for whoever makes the park/revive/close call:** 4 of the 10 tests are cheap to fix but
+low-value (redundant with `main`). The other 6 are the actual asset this branch was building —
+coverage `main` still lacks — but reviving them costs a real re-derivation against the rewritten
+formula, not a mechanical port. The suspected bug (Q2) is a live, unresolved disagreement between
+this mission's design doc and PR-2's plan doc, not something either refactor settled. The rebase
+(Q4) is small in scope but lands on the one file both sides rewrote. None of this was acted on;
+all of it is now documented per Dean's standing rule.
+
+Handoff `plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md` closed (`.DONE`) on landing this
+section — its fact-finding request is fully answered above.
 
 [↑ TOC](#toc)
