@@ -1,44 +1,43 @@
 # Code spec — sync-main watcher family
 
-**code spec** · **Status: DRAFT — mixed retroactive and forward-looking, written 2026-08-16.**
+**code spec** · **Status: DRAFT — retroactive, written 2026-08-16, all three found defects and the
+guard migration now landed 2026-08-16.**
 
 ## At a glance
 
 **Mission:** document the four sync-main scripts (watcher, one-shot, status, session-start hook) as
-they actually exist, and record three live bugs found while doing so.
+they actually exist.
 
 **Approach:**
-- S1 `sync-main-session-start.sh` — the `SessionStart` hook. Contains Defect A and Defect B.
-- S2 `sync-main-watch.sh` — the continuous watcher. Contains Defect C (status lies about liveness).
-  Guard block forward-looking, keyed on the fixed role constant `"sync"` (not a session, not a pid —
-  see Addendum 10's corrected design), must move to the shared library `checkpoint-capture-spec.md`
-  S0 specifies.
+- S1 `sync-main-session-start.sh` — the `SessionStart` hook. Defect A and Defect B, both **FIXED**.
+- S2 `sync-main-watch.sh` — the continuous watcher. Defect C (status lied about liveness), **FIXED**
+  by the coder who built the guard library. Guard block **migrated** to the shared library
+  (`scripts/lib/single-instance-guard.sh`), keyed on the fixed role constant `"sync"` (not a session,
+  not a pid — see Addendum 10's corrected design).
 - S3 `sync-main-once.sh` — one-shot equivalent, no guard needed, no defect.
 - S4 `sync-main-status.sh` — read-only status check, no defect.
 - `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
 
-**Needs you:**
-- Nothing blocking right now. Three defects (A: hook launches the watcher without a required flag,
-  always fails; B: a stale comment describing a mechanism that no longer exists; C, found in design
-  review: the status file lies about liveness after a crash, so the auto-start hook's own success
-  check reports false positives) are documented for whoever picks this spec up — no decision from you
-  needed to record them, only to prioritize the fix.
+**Needs you:** nothing blocking. `sync-current-watch.sh` still needs its own spec or a decision to
+fold it into this one — not resolved here.
 
 **Checklist:**
-- [ ] Assign a coder once `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) exists.
-- [ ] Fix Defect A (`--origin-pid "$PPID"` on the launch line).
-- [ ] Fix Defect B (rewrite the stale flock comment, and the separate stale "any Claude process
-  anywhere" claim in the same comment block, per `checkpoint-specs-review.md` Finding 9).
-- [ ] Fix Defect C (`write_status` must set `state` from its actual liveness, not a hardcoded string).
-- [ ] Migrate S2's guard block to the shared library, keyed on `"sync"`.
+- [x] Build `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) — landed, `f9e1dba6`.
+- [x] Fix Defect A (`--origin-pid "$PPID"` on the launch line) — landed, not independently verified
+  against a real `SessionStart` firing (see Defect A's own text for why).
+- [x] Fix Defect B (rewrite the stale flock comment, and the separate stale "any Claude process
+  anywhere" claim in the same comment block).
+- [x] Fix Defect C (`write_status` now sets `state` from its actual liveness, not a hardcoded string)
+  — landed by the coder, `f9e1dba6`.
+- [x] Migrate S2's guard block to the shared library, keyed on `"sync"` — landed, `f9e1dba6`.
 - [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
+- [ ] Restart the two live production processes (`tick-shared-scan.sh`, `sync-main-watch.sh`) under
+  the migrated code — deployment step, deliberately left to whichever session currently owns the
+  sync role (see `session/handoffs/plan__sync-role-restart-tier1-tier2-main-under-fixed-guard.md`).
 
-Most of this spec documents what already exists. **The guard mechanism in S2 (`sync-main-watch.sh`) is
-forward-looking**, per [`atomic-step-protocol-design-addendum-10.md`](atomic-step-protocol-design-addendum-10.md)
-— it must be rewritten to source the shared `scripts/lib/single-instance-guard.sh` library specified in
-[`checkpoint-capture-spec.md`](checkpoint-capture-spec.md) S0, not keep its own inline copy of the guard
-block. Two live defects were found while writing this spec, both unrelated to the guard mechanism —
-recorded below, not fixed by the planner.
+This spec documents what already exists. All defects found while writing it, and the guard-library
+migration it called for, have since landed — see each step below for the fix detail and what was and
+was not independently verified.
 
 ---
 
@@ -70,28 +69,35 @@ one-shot alternative                     → sync-main-once.sh (same fetch/merge
 read-only check                          → sync-main-status.sh (RUNNING/STALE/NOT-RUNNING verdict + cat status)
 ```
 
-**Defect A, live, found while writing this spec, not yet fixed.** `sync-main-session-start.sh` (S1)
-launches `sync-main-watch.sh` (S2) **without `--origin-pid`** (its line 55: `nohup bash "$watch_script"
-...`), but S2 requires that flag **unconditionally** — unlike `session-snapshot.sh`, there is no
-`--once` escape at all; S2's argument-parsing does a hard `die` on a missing `--origin-pid` with no
-exception. **This means the hook's auto-start attempt fails every time it actually reaches line 55.**
-Related to, but distinct from, the previously-reported symptom in
-`session/handoffs/plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP` (sync's own finding:
-S1's `cwd` string-match at line 10 can silently no-op before ever reaching the launch line at all) — that
-handoff diagnosed one failure mode; this spec adds a **second, independent** one that would still fire
-even if the `cwd` match succeeds. Both need fixing for the hook to actually work. Fix for Defect A is
-mechanical (pass `--origin-pid "$PPID"`, same fix shape as `checkpoint-capture-spec.md`'s Defect 1 for
-`tier1-session-start.sh` — the same class of bug, in a sibling hook, not previously connected).
+**Defect A — FIXED 2026-08-16.** `sync-main-session-start.sh` (S1) launched `sync-main-watch.sh` (S2)
+**without `--origin-pid`**, but S2 requires that flag **unconditionally** — unlike
+`session-snapshot.sh`, there is no `--once` escape at all; S2's argument-parsing does a hard `die` on
+a missing `--origin-pid` with no exception. **This meant the hook's auto-start attempt failed every
+time it actually reached the launch line.** Fixed by passing `--origin-pid "$PPID"` — the same fix
+shape as `checkpoint-capture-spec.md`'s Defect 1 for `tier1-session-start.sh`. **Not independently
+verifiable against a real `SessionStart` firing** (no pid field exists in the hook's own JSON payload
+to cross-check `$PPID` against, and simulating the hook's exact process-parentage outside a real
+session resume is not reliable) — confirmed only indirectly: the currently-running watcher (started
+by hand before this fix existed) carries the real long-lived Claude session pid as its
+`--origin-pid`, the same value class `$PPID` now captures automatically in the same position.
+**Lower-severity than it looks even if wrong**: since the 2026-08-16 guard migration, `--origin-pid`
+is only the kill-switch, not the single-instance identity — a wrong pid here leaks or exits early, it
+does not create a duplicate watcher.
 
-**Defect B, live, found while writing this spec, not yet fixed.** `sync-main-session-start.sh`'s own
-comment block (lines 30-48) says *"the authoritative single-instance guard is an flock inside
-sync-main-watch.sh itself"* — stale. `sync-main-watch.sh` (confirmed by direct read) uses the
-`mkdir`/`pgrep` dual-guard from Addendum 7, not flock; that comment predates the Addendum 7 migration
-and was never updated when the mechanism changed, matching the pattern already found and fixed in
-`tier1-session-start.sh`'s own header (`checkpoint-capture-spec.md` Defect 1). The comment's
-*substance* (heartbeat check is a racy early-out, not the real guard; do not remove either check) is
-still correct and should be preserved — only the "it's an flock" detail needs updating to name the
-actual current mechanism.
+Still separate and still open: `session/handoffs/plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP`
+(sync's own finding: S1's `cwd` string-match at line 10 can silently no-op before ever reaching the
+launch line at all) — that is a different failure mode from Defect A and is not touched by this fix.
+
+**Defect B — FIXED 2026-08-16.** `sync-main-session-start.sh`'s own comment block said *"the
+authoritative single-instance guard is an flock inside sync-main-watch.sh itself"* — stale.
+`sync-main-watch.sh` now sources `lib/single-instance-guard.sh`'s momentary mkdir+pgrep dedup, keyed
+on the fixed role constant `"sync"` (not the mkdir/pgrep-keyed-on-pid shape this comment was already
+stale against before today, and not an flock either — that mechanism predates Addendum 7 entirely).
+The comment's separate stale claim (self-exits once "neither a VS Code-WSL connection nor a Claude
+process remains anywhere in this WSL instance") is also corrected — the kill-switch checks one
+specific `--origin-pid`, not "any Claude process anywhere." Both corrected in place; the comment's
+*substance* (heartbeat check is a racy early-out, not the real guard; do not remove either check) was
+already correct and is preserved.
 
 **new components** — none beyond what `checkpoint-capture-spec.md` S0 already specifies
 (`scripts/lib/single-instance-guard.sh`) — S2 below is a second consumer of that same library, not a
@@ -116,7 +122,7 @@ DCO, no `make test`.
 
 ## Step index
 
-**S1 — `sync-main-session-start.sh` (`SessionStart` hook, contains Defect A and Defect B).** Fires for
+**S1 — `sync-main-session-start.sh` (`SessionStart` hook, Defect A and Defect B both FIXED).** Fires for
 every worktree's session (container-level `settings.json` is shared) but no-ops everywhere except the
 one designated sync-main worktree (`SYNC_WORKTREE`, a hardcoded absolute path — string-compared against
 the hook payload's `cwd`, exactly, with no normalization; a mismatch here is the previously-reported,
