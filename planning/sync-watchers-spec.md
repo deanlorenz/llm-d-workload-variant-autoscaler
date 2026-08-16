@@ -1,12 +1,12 @@
-# Code spec — sync-main watcher family
+# Code spec — sync watcher family
 
-**code spec** · **Status: DRAFT — retroactive, written 2026-08-16, all three found defects and the
-guard migration now landed 2026-08-16.**
+**code spec** · **Status: DRAFT — retroactive, written 2026-08-16, all found defects and the guard
+migration landed same day; `sync-current-watch.sh` folded in as S6.**
 
 ## At a glance
 
-**Mission:** document the four sync-main scripts (watcher, one-shot, status, session-start hook) as
-they actually exist.
+**Mission:** document the five sync watcher scripts (four `sync-main-*` plus
+`sync-current-watch.sh`) as they actually exist.
 
 **Approach:**
 - S1 `sync-main-session-start.sh` — the `SessionStart` hook. Defect A and Defect B, both **FIXED**.
@@ -20,13 +20,12 @@ they actually exist.
 - S5 — generalize over (container, repo identity, tracked branch) — **CODED and behaviorally
   verified 2026-08-16.** Also fixes the `.WIP` cwd-match-silent-no-op handoff's root cause in the
   same pass (logs the actual cwd it saw on the no-op path now, instead of silence).
-- `sync-current-watch.sh` — different purpose, guard **migrated 2026-08-16** to the shared library,
-  kill-switch fixed (was checking "any Claude process," not the originating one), same status-lies
-  bug as Defect C found and fixed. See its own section below the step index.
-- `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
+- S6 `sync-current-watch.sh` — different purpose (CURRENT.md-freshness check, not an upstream
+  fast-forward), **folded into this spec's step index 2026-08-16** (was previously an unnumbered
+  callout). Guard **migrated** to the shared library, kill-switch fixed (was checking "any Claude
+  process," not the originating one), same status-lies bug as Defect C found and fixed.
 
-**Needs you:** nothing blocking. `sync-current-watch.sh` still needs its own spec or a decision to
-fold it into this one — not resolved here. S5 is planned but not yet coded.
+**Needs you:** nothing blocking.
 
 **Checklist:**
 - [x] Build `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) — landed, `f9e1dba6`.
@@ -43,7 +42,7 @@ fold it into this one — not resolved here. S5 is planned but not yet coded.
   needed no change for this repo — the scripts' own paths didn't move, only what they read did;
   a second-container copy/wrapper question only arises if this is ever deployed elsewhere, out of
   scope here. `.WIP` cwd-match handoff closed in the same pass (now logs the actual cwd on no-op).
-- [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
+- [x] Decide whether `sync-current-watch.sh` gets folded into this spec or its own — folded in as S6.
 - [ ] Restart the two live production processes (`tick-shared-scan.sh`, `sync-main-watch.sh`) under
   the migrated code — deployment step, deliberately left to whichever session currently owns the
   sync role (see `session/handoffs/plan__sync-role-restart-tier1-tier2-main-under-fixed-guard.md`).
@@ -275,13 +274,12 @@ run against this repo's real config (should be a no-op behavior change, since `T
 `UPSTREAM_REMOTE=upstream` matches today's hardcoded values exactly) and a synthetic config with an
 empty `UPSTREAM_REMOTE` (should loudly no-op, not silently or with an error).
 
-## `sync-current-watch.sh` — different purpose, own section, guard migrated 2026-08-16
-
-Genuinely different purpose from the rest of this family (watching for pending `sync__*.md`
-handoffs against `session/CURRENT.md`'s own last-sync commit — a CURRENT.md-freshness check, not an
-upstream fast-forward), so it does not get its own S-number in the step index above — but its guard
-mechanism is the same class of fix as S2/S4, so it's recorded here rather than left as a permanently
-untracked gap.
+**S6 — `sync-current-watch.sh` (different purpose, guard migrated 2026-08-16).** Folded into this
+spec's step index as its own numbered step (Dean, 2026-08-16 — was previously an unnumbered
+callout). Genuinely different purpose from S1-S5 (watching for pending `sync__*.md` handoffs against
+`session/CURRENT.md`'s own last-sync commit — a CURRENT.md-freshness check, not an upstream
+fast-forward), but its guard mechanism is the same class of fix as S2/S4, so it belongs in this
+family's spec rather than needing its own.
 
 **Was on the old flock + `anchor_alive()` pattern** (confirmed 2026-08-13, again 2026-08-16) — the
 one script in the family never migrated in the earlier guard-rework pass, and not named in Addendum
