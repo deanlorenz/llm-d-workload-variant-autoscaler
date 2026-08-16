@@ -28,7 +28,7 @@ restate Type-3 detail or the ledger's 55 decisions, it points into them.
 | 6 | Deep-dive investigations (dwell limit cycle, OOM root cause, controller-restart policy) | 🔵 ACTIVE — mechanisms found, several open design questions deliberately deferred |
 | 7 | Doc-coverage cleanup (undocumented scratch tools) | 🔵 ACTIVE — draft plan written, Dean's classification call pending |
 | 8 | Per-request data recovery for viz (panels 1a/1b) | 🆕 NEW 2026-08-15 — this roadmap entry, see below |
-| 9 | Clean recapture campaign — warmup + log-capture fix + exploratory instrumentation | 🔵 Stage A LAUNCHED 2026-08-16 — [`ta-pokprod-clean-recapture-plan.md`](ta-pokprod-clean-recapture-plan.md) |
+| 9 | Clean recapture campaign — warmup + log-capture fix + exploratory instrumentation | ✅ Stage A COMPLETE 2026-08-16, 7/7 cells clean, GPUs freed — Stage B (full campaign) not yet launched — [`ta-pokprod-clean-recapture-plan.md`](ta-pokprod-clean-recapture-plan.md) |
 
 Full execution detail for phases 0-5: [`ta-pokprod-execution-plan.md`](ta-pokprod-execution-plan.md).
 

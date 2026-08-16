@@ -47,6 +47,21 @@ command can silently land in the wrong namespace or mutate cluster-global state.
    cluster-scoped or against a different namespace than the workload it serves, but every pokprod run
    in this mission is namespace-scoped for both the llm-d stack and the WVA controller — so the
    single-namespace check is sufficient here and does not need a multi-namespace variant.
+
+   **Gap found and fixed [[D-69]]: the guard's own scope has a real, exploitable edge.**
+   `benchmark-guard`/`env_guard.py` covers every *Makefile-target* action — by design, read-only
+   and local-only targets aren't gated, since they can't mutate the cluster. But verification and
+   teardown steps often issue **bare `kubectl`/`oc` calls directly**, outside any Makefile target,
+   passing `-n <namespace>` but relying on *current-context* for which cluster that namespace
+   resolves against. `~/.kube/config` (or whatever `KUBECONFIG` resolves to) is shared across every
+   shell that hasn't explicitly overridden it — `oc project`/`oc login` in one shell changes what
+   "current context" means for *every other shell* immediately, not just the one that ran the
+   command. **Standing rule: every bare `kubectl`/`oc` call — verification, teardown, any ad-hoc
+   check — must pin `--context <full-context-name>` explicitly, never rely on current-context.**
+   For genuine cross-shell isolation (e.g. running unrelated `oc` work in parallel with a live
+   benchmark), the other shell needs its own `KUBECONFIG`: `cp ~/.kube/config
+   ~/.kube/config-other && export KUBECONFIG=~/.kube/config-other` there, not assumed to already
+   be shell-local by default.
 2. **Every environment value comes from an explicit `.env`** — namespace, model, instance, image,
    accelerator, URLs. This binds any invocation of the benchmark Makefile targets, structurally, not
    as a matter of personal discipline. [[D-16]]

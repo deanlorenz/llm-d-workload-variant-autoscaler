@@ -1491,3 +1491,42 @@ file directly.
 **Remaining:** cells 5-6 (calibration-probe TA/satTA-warmup), cell 7 (p4-warmup, needs
 `--parallelism 4` passed manually). Coder continuing autonomously per standing authorization for
 this campaign; will report completion or flag sooner if something needs a planner decision.
+
+---
+
+## D-69 | 2026-08-16 | topic:stage-a-complete-7of7,cell7-verified,context-switch-safe | src:plan__stage-a-complete-7of7.md
+
+**Stage A COMPLETE — all 7 cells landed, clean, GPUs freed.** Commits:
+`1d6ba2c4`/`73ceb160`/`4b67109a` (dwell-warmup trio), `3650c0dc`/`4855702a`/`83f5abe3`
+(calibration-probe-warmup trio), `590e8b91` (p4-warmup). Plus the underlying fixes:
+log-capture wiring (`28f1ed3`), 3 warmup profiles (`eb20ef53`), 7 env files (`e1b65272`), the
+96Gi harness-memory fix (`49ea6b42`).
+
+**Cell 7's `--parallelism 4` verified with real numbers, not just pod count** — per Dean's
+explicit ask. `treatment_comparison.csv` shows all 4 parallel leaves with IDENTICAL per-stage
+request counts and rates matching the pre-divided-by-4 schedule exactly: 3,127 requests/leaf,
+12,508 total. A silent no-op would show one leaf carrying the full load and three empty — this is
+the opposite, confirming genuine 4x fan-out. Cross-confirmed via the harness's own log ("Running 1
+treatment(s) x 4 parallel pod(s)," all 4 completed successfully).
+
+**Mid-campaign safety thread, resolved.** Dean asked whether switching `oc project` in a separate
+shell (different namespace) could affect the live Stage A run. Traced precisely: every
+Makefile-target action is namespace-flagged + `env_guard.py`-checked (refuses on context
+mismatch, fail-closed) — safe by construction. The **real, found-not-hypothetical** exposure was
+narrower: the coder's own bare `kubectl`/`oc` verification and teardown calls (outside any guarded
+target, by the guard's own explicit design — read-only/local-only isn't gated) pass `-n
+<namespace>` but no `--context`, so they were relying on current-context matching by coincidence.
+Coder mitigated on their own side (pinned `--context` explicitly for the rest of the wrap-up)
+rather than just noting the risk. **Confirmed to Dean: safe to switch now.** Separately, corrected
+my own earlier claim that `KUBECONFIG` is "already per-shell" — true as a mechanism, but only if
+explicitly exported to a different file; with it unset (the actual state in both shells), they
+share `~/.kube/config` and a switch in one is visible in both immediately. Real fix: `cp
+~/.kube/config ~/.kube/config-other && export KUBECONFIG=~/.kube/config-other` in the other shell.
+
+**Guard-gap fix, scoped, not yet written into a doc.** Dean's ask ("default should refuse,
+explicit target on a specific NS should not block") is already true of `benchmark-guard`/
+`env_guard.py` for anything routed through a Makefile target — traced the code directly. The real
+gap is exactly what the coder found above: bare verification/teardown calls that never go through
+the guard at all. Fix agreed: pin `--context` explicitly on every such call, formalized as a
+standing pattern (not just this session's ad-hoc fix) — not yet written into the architecture doc,
+next step.
