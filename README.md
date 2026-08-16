@@ -1,7 +1,8 @@
-# Section and convention tooling
+# Section, convention, and step-gate tooling
 
-Four scripts for fetching documentation by heading instead of by line number, plus a golden-file test
-harness. Run them from the root of this worktree.
+Scripts for fetching documentation by heading instead of by line number, plus two gates that check a
+coder's work and a spec's shape mechanically, plus a golden-file test harness. Run everything from the
+root of this worktree.
 
 | Tool | Purpose |
 |---|---|
@@ -9,6 +10,12 @@ harness. Run them from the root of this worktree.
 | `scripts/conv.sh` | print named conventions, finding which topic file holds each one |
 | `scripts/conv-list.sh` | print the computed convention index: name, status, description |
 | `scripts/conv-lint.sh` | check that the conventions are structurally fetchable |
+| `scripts/step-check` | post-step gate: scope containment, sign-off policy, judgment mark |
+| `scripts/plan-lint` | check a code spec's step schema, convention citations, and judgments |
+
+`scripts/conv-new.sh`, `scripts/conv-edit.sh`, and `scripts/conv-rename.sh` are the write-side
+counterparts already built in this worktree — they add, edit, and rename conventions — but are
+documented under their own migration step rather than here.
 
 ## Two addressing rules that are easy to get wrong
 
@@ -198,6 +205,129 @@ $ echo $?
 12
 ```
 
+## `scripts/step-check`
+
+```
+step-check --scope <path> [--scope <path> ...] --lineage code|plans
+           [--allow-untracked <glob>]...
+           [--ledger <file> --step <id> [--handoffs-dir <dir>]]
+```
+
+Runs once a coder believes a step is finished, replacing a human eyeballing every write with a
+mechanical check. Three independent checks, run from inside the git working tree the step happened in:
+
+- **Scope containment.** Every changed path — `git status --porcelain`: modified, staged, and
+  untracked alike — must equal a declared `--scope` path or sit beneath one. Bias is toward refusal:
+  a path this script cannot place inside scope counts as outside it, and calling it with no `--scope`
+  at all is refused rather than read as "everything is permitted".
+- **Sign-off policy.** `--lineage` has **no default** — an unspecified or unrecognised value is a
+  usage error, never a guess. The two lineages want opposite things from the tip commit (`code`
+  requires `Signed-off-by`, the plans lineage forbids it), so defaulting to either would be silently
+  wrong on the other half of the time. On a pass, the applied rule is printed to stdout so a clean run
+  says what it checked, not only that it passed.
+- **Judgment mark.** With `--ledger` and `--step` both given, verifies the proceed-and-mark obligations
+  for a coder allowed to proceed past a reversible ambiguity rather than halt on it, against that
+  coder's own `session/status/<branch>.md`: an isolated, tagged, surfaced commit for every judgment
+  the ledger names, and — independent of `--step` — no `judgment/*` tag left with no ledger entry at
+  all. `--ledger` omitted skips this whole check and says so on stderr, so a caller cannot mistake "no
+  flag" for "checked and clean".
+
+| Exit | Meaning |
+|---|---|
+| 0 | clean |
+| 2 | usage error (bad arguments, not inside a git working tree, no commits yet, `--lineage`/`--step` missing or invalid) |
+| 20 | scope containment: a change landed outside every declared scope path |
+| 21 | scope containment: no `--scope` was given at all |
+| 30 | sign-off policy: the tip commit violates the declared lineage's rule |
+| 40 | judgment mark: no tag for a ledger-named judgment |
+| 41 | judgment mark: tag not isolated (out-of-scope path, shares a commit with recorded step work, or isolation cannot be established) |
+| 42 | judgment mark: no handoff surfaces the judgment |
+| 43 | judgment mark: a `judgment/*` tag has no ledger entry at all |
+
+All violations found are reported before exiting; the exit code is the lowest-numbered class present.
+
+Worked example — a clean step, checked against its own scope (the test suite's own throwaway-repo
+builder, run by hand here rather than through `tests/run.sh`):
+
+```
+$ ./tests/git-run.sh /tmp/demo ./tests/step-check-scope-repo.sh clean -- \
+      step-check --scope src/a.md --lineage plans
+step-check: --ledger not given; judgment-mark checks skipped
+step-check: lineage=plans: no Signed-off-by on the tip commit, as required
+$ echo $?
+0
+```
+
+and a change outside the declared scope refuses (output on stderr; the judgment-mark skip notice
+still prints regardless, since `--ledger` was not given either way):
+
+```
+$ ./tests/git-run.sh /tmp/demo ./tests/step-check-scope-repo.sh out-of-scope-modified -- \
+      step-check --scope src/a.md --lineage plans
+step-check: [20] change outside declared scope: other/c.md
+step-check: --ledger not given; judgment-mark checks skipped
+$ echo $?
+20
+```
+
+## `scripts/plan-lint`
+
+```
+plan-lint [--dir <conventions-dir>] [--no-conventions]
+          [--judgments <repo-dir>] <spec-file>
+```
+
+Turns a code spec's completeness into a machine check: every `## S<n>` step section must carry all
+eight fields (`brief`, `scope`, `do`, `conventions`, `verify`, `done_when`, `on_fail`, `record`), the
+`## Intent` block must carry its own five, every step must have a brief inside `## Step index`, every
+cited convention name must resolve, no line-number addressing may survive anywhere in the file, and no
+`judgment/*` tag naming one of this spec's steps may sit unresolved.
+
+`--no-conventions` is a **temporary migration flag**, for use before `conventions/` exists yet: it
+skips name resolution, but always warns on stderr that it did — resolution silently not running would
+look identical to "resolved and clean". It is expected to be dropped once every spec citing a
+convention has a `conventions/` to resolve against. `--judgments` works the same way for the
+unresolved-judgment check: omitted skips and announces, given points at the git repository (a coder's
+own worktree, not this one) whose `judgment/*` tags to consider.
+
+Clean input produces no output (besides any skip announcements above) and exits 0. Bad input reports
+every violation before exiting non-zero — never stops at the first.
+
+| Exit | Meaning |
+|---|---|
+| 0 | clean |
+| 2 | usage error |
+| 3 | spec file missing or unreadable |
+| 20 | step schema: a step is missing one or more of the eight fields |
+| 21 | step schema: no Step index section, or a step has no brief in it |
+| 22 | step schema: the Intent block is missing one or more of its five fields |
+| 30 | convention resolution: a cited name does not resolve via `conv-list.sh` |
+| 31 | convention resolution: a step's conventions field is absent or empty |
+| 32 | addressing: a line-number reference survives somewhere in the file |
+| 40 | unresolved judgment: a `judgment/*` tag naming a step in this spec is neither reverted nor decided |
+
+The exit code is the lowest-numbered class present.
+
+Worked example — a spec fixture copied from a real spec, clean:
+
+```
+$ ./scripts/plan-lint --dir tests/fixtures/conventions tests/fixtures/plan-lint/clean-spec.md
+plan-lint: --judgments not given; unresolved-judgment checks skipped
+$ echo $?
+0
+```
+
+and one citing a convention that does not exist (output on stderr; a real citation in the same
+manifest, `one-commit-per-step`, resolves silently alongside it):
+
+```
+$ ./scripts/plan-lint --dir tests/fixtures/conventions tests/fixtures/plan-lint/minimal-spec.md
+plan-lint: --judgments not given; unresolved-judgment checks skipped
+plan-lint: [30] tests/fixtures/plan-lint/minimal-spec.md: step S1 cites unknown convention: made-up-name
+$ echo $?
+30
+```
+
 ## Tests
 
 ```
@@ -214,7 +344,20 @@ paths are registered exactly like success paths.
 Fixtures live under `tests/fixtures/`. `doc-a.md` carries the awkward heading shapes on purpose:
 nested levels, a level-4 subsection inside a level-2 section, two headings that slug identically, and
 a section running to end-of-file. The `bad/` subdirectories hold one defect each, so a failing case
-names its own violation and nothing else.
+names its own violation and nothing else. `tests/fixtures/plan-lint/` holds `plan-lint`'s own spec
+fixtures the same way — `clean-spec.md` is a copy of a real spec, the rest are that shape with one
+defect each.
+
+`step-check`'s sign-off and judgment-mark cases, and `plan-lint`'s unresolved-judgment cases, need
+real git state — commits, tags, sometimes a real `git revert` — that no static markdown fixture can
+represent. Each such case builds a throwaway repository via a small per-suite builder script
+(`tests/step-check-scope-repo.sh`, `tests/step-check-signoff-repo.sh`,
+`tests/step-check-judgment-repo.sh`, `tests/plan-lint-judgments-run.sh`), and never touches this
+worktree's own git state. `tests/git-run.sh` wipes a scratch directory, hands it to one of those
+builders, `cd`s in, and runs the command under test — `step-check` expects to run from inside the
+repo it is checking. `plan-lint` does not: it takes a judgments repo as one argument among several
+rather than expecting to run from inside it, so `tests/plan-lint-judgments-run.sh` builds without
+ever changing directory.
 
 There is no Go here and nothing that ships in a pull request, so the usual build and test gates do
 not apply. What replaces them: `bash -n` on every script, `shellcheck` where it is installed, the
