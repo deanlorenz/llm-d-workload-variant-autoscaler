@@ -4,12 +4,22 @@
 # First line is the gate verdict (RUNNING / STALE-NOT-RUNNING / NOT-RUNNING);
 # the rest is the status file. The verdict's date math lives here (not on the
 # interactive command line) so the caller runs a single allowlistable command
-# with no $(...) substitution → no permission prompt.
+# with no $(...) substitution → no permission prompt. This script's own path is
+# still fixed and absolute (that half of the grant is unchanged) — only the status
+# file it reads is now config-driven instead of hardcoded to session/status/main.md,
+# per planning/sync-watchers-spec.md S5.
 #
 # Usage:  bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-status.sh
 set -uo pipefail
 
-S=/home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/session/status/main.md
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLANS="$(cd "$here/.." && pwd)"
+
+# shellcheck source=lib/sync-main-config.sh
+. "$here/lib/sync-main-config.sh"
+sync_main_load_config "$PLANS/session/sync-main.conf" || exit 1
+
+S="$PLANS/session/status/$TRACKED_BRANCH.md"
 
 if [ ! -f "$S" ]; then
   echo "NOT RUNNING (no status file — never started on this machine)"

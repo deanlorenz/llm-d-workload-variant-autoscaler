@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Keeps local main fast-forwarded to upstream/main. Polls with git ls-remote (ref query only)
-# and does the real fetch/ff-merge/push only when the SHA moves. Started by the sync session,
-# not run by hand.
+# Keeps the tracked branch fast-forwarded from the configured upstream remote. Polls with
+# git ls-remote (ref query only) and does the real fetch/ff-merge/push only when the SHA moves.
+# Started by the sync session, not run by hand.
+#
+# WORKTREE/TRACKED_BRANCH/UPSTREAM_REMOTE come from session/sync-main.conf, not hardcoded here --
+# see planning/sync-watchers-spec.md S5. An empty UPSTREAM_REMOTE is a supported "not configured
+# yet" state: the watcher still runs (status/guard/kill-switch all still make sense with nothing to
+# sync), it just never has a SHA change to act on, so sync_pass becomes a permanent no-op rather
+# than an error.
 #
 # Two independent mechanisms, deliberately kept separate (see lib/single-instance-guard.sh):
 #   * single-instance guard -- keyed on the fixed role constant "sync", because this watcher
@@ -19,8 +25,14 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAIN_WORKTREE="$(cd "$here/../../Main" && pwd)"
-STATUS="$(cd "$here/.." && pwd)/session/status/main.md"
+PLANS="$(cd "$here/.." && pwd)"
+
+# shellcheck source=lib/sync-main-config.sh
+. "$here/lib/sync-main-config.sh"
+sync_main_load_config "$PLANS/session/sync-main.conf" || exit 1
+
+MAIN_WORKTREE="$WORKTREE"
+STATUS="$PLANS/session/status/$TRACKED_BRANCH.md"
 POLL_SECONDS=60
 STALE_AFTER_SECONDS=150 # ~2.5x poll interval; used by callers checking last_check, not by this script
 origin_pid=""
@@ -31,7 +43,7 @@ die() { printf '%s: %s\n' "${0##*/}" "$1" >&2; exit "${2:-2}"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --origin-pid) origin_pid="${2:-}"; [ -n "$origin_pid" ] || die "--origin-pid needs a value"; shift 2 ;;
-    -h|--help)    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            die "unknown argument: $1" ;;
   esac
 done
@@ -83,7 +95,7 @@ write_status() {
     echo "current_step: $step"
     echo ""
     echo "## Branch"
-    echo "main at Main worktree ; tip $tip"
+    echo "$TRACKED_BRANCH at $(basename "$MAIN_WORKTREE") worktree ; tip $tip"
     echo ""
     echo "## Recent commits"
     echo "$shortlog" | sed 's/^/- /'
@@ -99,27 +111,31 @@ cleanup() {
 trap cleanup EXIT
 
 sync_pass() {
-  remote=$(git ls-remote upstream main 2>/dev/null | awk '{print $1}')
-  # Compare against local main, not the upstream/main tracking ref or a cached baseline, so
-  # "local main == live upstream tip" self-corrects whenever main lags for any reason.
-  localmain=$(git rev-parse main 2>/dev/null || echo "")
-  if [ -n "$remote" ] && [ "$remote" != "$localmain" ]; then
-    if git fetch upstream >/tmp/main-sync-fetch.log 2>&1 && git merge --ff-only upstream/main >/tmp/main-sync-merge.log 2>&1; then
-      pushout=$(git push origin main 2>&1)
+  if [ -z "$UPSTREAM_REMOTE" ]; then
+    write_status "watching" "idle" "no upstream remote configured for '$TRACKED_BRANCH' -- nothing to sync from"
+    return 0
+  fi
+  remote=$(git ls-remote "$UPSTREAM_REMOTE" "$TRACKED_BRANCH" 2>/dev/null | awk '{print $1}')
+  # Compare against the local tracked branch, not the remote-tracking ref or a cached baseline, so
+  # "local == live upstream tip" self-corrects whenever it lags for any reason.
+  localtip=$(git rev-parse "$TRACKED_BRANCH" 2>/dev/null || echo "")
+  if [ -n "$remote" ] && [ "$remote" != "$localtip" ]; then
+    if git fetch "$UPSTREAM_REMOTE" >/tmp/main-sync-fetch.log 2>&1 && git merge --ff-only "$UPSTREAM_REMOTE/$TRACKED_BRANCH" >/tmp/main-sync-merge.log 2>&1; then
+      pushout=$(git push origin "$TRACKED_BRANCH" 2>&1)
       pushrc=$?
-      prevshort=${localmain:0:8}
+      prevshort=${localtip:0:8}
       tip=$(git rev-parse --short=8 HEAD)
       last_sync=$(date -Iseconds)
       if [ "$pushrc" -eq 0 ]; then
-        write_status "watching" "idle" "push origin main: OK"
-        echo "main synced: ${prevshort:-none} -> $tip, pushed to origin"
+        write_status "watching" "idle" "push origin $TRACKED_BRANCH: OK"
+        echo "$TRACKED_BRANCH synced: ${prevshort:-none} -> $tip, pushed to origin"
       else
-        write_status "watching" "idle" "push origin main: FAILED — $pushout"
+        write_status "watching" "idle" "push origin $TRACKED_BRANCH: FAILED — $pushout"
         echo "WARN: merged to $tip but push to origin FAILED — $pushout"
       fi
     else
       write_status "watching" "idle" "fetch/ff-only-merge FAILED for new-sha=${remote:0:8}"
-      echo "WARN: fetch/ff-only-merge failed for upstream/main new-sha=${remote:0:8} — manual intervention needed (see /tmp/main-sync-fetch.log, /tmp/main-sync-merge.log)"
+      echo "WARN: fetch/ff-only-merge failed for $UPSTREAM_REMOTE/$TRACKED_BRANCH new-sha=${remote:0:8} — manual intervention needed (see /tmp/main-sync-fetch.log, /tmp/main-sync-merge.log)"
     fi
   else
     write_status "watching" "idle" "no change"
@@ -127,7 +143,11 @@ sync_pass() {
 }
 
 write_status "watching" "idle" "watcher started"
-echo "sync-main watcher started (pid $$), polling upstream/main every ${POLL_SECONDS}s"
+if [ -n "$UPSTREAM_REMOTE" ]; then
+  echo "sync-main watcher started (pid $$), polling $UPSTREAM_REMOTE/$TRACKED_BRANCH every ${POLL_SECONDS}s"
+else
+  echo "sync-main watcher started (pid $$), no upstream remote configured -- polling loop is a permanent no-op until sync-main.conf sets one"
+fi
 
 while true; do
   # Origin gone: sync once more, THEN exit. write_status runs after, so the file says "stopped".

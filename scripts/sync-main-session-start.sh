@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 # SessionStart hook. Fires for every worktree's sessions (container-level
 # settings.json is shared), but only produces output when cwd is the
-# designated sync-main session worktree — everywhere else it's a silent no-op.
-SYNC_WORKTREE="/home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans"
+# designated sync-main session worktree — everywhere else it exits 0, now
+# logged rather than silent (see the no-op branch below; fixes the symptom in
+# plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP — a failed
+# restart attempt was previously indistinguishable from "never fired at all").
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYNC_WORKTREE="$(cd "$here/.." && pwd)"
 
 input=$(cat)
 cwd=$(printf '%s' "$input" | grep -o '"cwd"[^,}]*' | sed -E 's/.*: *"([^"]*)".*/\1/')
 
-[ "$cwd" = "$SYNC_WORKTREE" ] || exit 0
+if [ "$cwd" != "$SYNC_WORKTREE" ]; then
+  printf '[%s] no-op: cwd=%s does not match SYNC_WORKTREE=%s\n' \
+    "$(date -u +%FT%TZ)" "${cwd:-<empty>}" "$SYNC_WORKTREE" >> /tmp/sync-main-session-start.log
+  exit 0
+fi
 
-status_file="$SYNC_WORKTREE/session/status/main.md"
+# shellcheck source=lib/sync-main-config.sh
+. "$SYNC_WORKTREE/scripts/lib/sync-main-config.sh"
+if ! sync_main_load_config "$SYNC_WORKTREE/session/sync-main.conf"; then
+  printf '[%s] no-op: sync-main.conf failed to load, see stderr above\n' \
+    "$(date -u +%FT%TZ)" >> /tmp/sync-main-session-start.log
+  exit 0
+fi
+
+status_file="$SYNC_WORKTREE/session/status/$TRACKED_BRANCH.md"
 watch_script="$SYNC_WORKTREE/scripts/sync-main-watch.sh"
 
 # Is a watcher alive right now? Heartbeat under 150s (~2.5x the 60s poll) = yes.
@@ -81,7 +97,7 @@ else
   sleep 2   # let it write its first heartbeat so the report below is truthful
   if [ -f "$status_file" ] && grep -q '^state: watching' "$status_file" 2>/dev/null; then
     newpid=$(grep -m1 '^watcher_pid:' "$status_file" | cut -d' ' -f2-)
-    context="sync-main watcher was not running; AUTO-STARTED it (pid ${newpid}) — no action needed. It polls upstream/main every 60s and pushes to origin/main on change, and self-exits once no VS Code/Claude process remains (stateless by design). Sync events will NOT appear as notifications, so read session/status/main.md (or /s-sync-main status) to see what it has done; stop it early with /s-sync-main stop."
+    context="sync-main watcher was not running; AUTO-STARTED it (pid ${newpid}) — no action needed. It polls $UPSTREAM_REMOTE/$TRACKED_BRANCH every 60s and pushes to origin/$TRACKED_BRANCH on change, and self-exits once the Claude session that started it is gone (stateless by design). Sync events will NOT appear as notifications, so read session/status/$TRACKED_BRANCH.md (or /s-sync-main status) to see what it has done; stop it early with /s-sync-main stop."
   else
     context="sync-main watcher was not running and the auto-start did NOT come up cleanly — check /tmp/sync-main-watch-autostart.log, then run /s-sync-main watch to start it in-session."
   fi

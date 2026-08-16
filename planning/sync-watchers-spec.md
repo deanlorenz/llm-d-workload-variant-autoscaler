@@ -17,7 +17,9 @@ they actually exist.
 - S3 `sync-main-once.sh` — one-shot equivalent, no guard needed, no defect.
 - S4 `sync-main-status.sh` — read-only status check, contained a dead-watcher-reads-RUNNING bug,
   **FIXED**.
-- S5 — generalize over (container, repo identity, tracked branch) — **PLANNED, not yet coded.**
+- S5 — generalize over (container, repo identity, tracked branch) — **CODED and behaviorally
+  verified 2026-08-16.** Also fixes the `.WIP` cwd-match-silent-no-op handoff's root cause in the
+  same pass (logs the actual cwd it saw on the no-op path now, instead of silence).
 - `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
 
 **Needs you:** nothing blocking. `sync-current-watch.sh` still needs its own spec or a decision to
@@ -33,8 +35,11 @@ fold it into this one — not resolved here. S5 is planned but not yet coded.
   — landed by the coder, `f9e1dba6`.
 - [x] Migrate S2's guard block to the shared library, keyed on `"sync"` — landed, `f9e1dba6`.
 - [x] Fix the `date -d ""` dead-watcher-reads-RUNNING bug in S4 and S1's duplicate of the same logic.
-- [ ] Code S5: `session/sync-main.conf`, all four scripts + the skill's grant read from it, no-upstream
-  and no-tracked-branch as loud no-op states, coordinated with the still-open `.WIP` cwd-match handoff.
+- [x] Code S5: `session/sync-main.conf` + `scripts/lib/sync-main-config.sh` (new), all four scripts
+  read from it. No-upstream is a loud no-op state, verified. The skill's `allowed-tools:` grant
+  needed no change for this repo — the scripts' own paths didn't move, only what they read did;
+  a second-container copy/wrapper question only arises if this is ever deployed elsewhere, out of
+  scope here. `.WIP` cwd-match handoff closed in the same pass (now logs the actual cwd on no-op).
 - [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
 - [ ] Restart the two live production processes (`tick-shared-scan.sh`, `sync-main-watch.sh`) under
   the migrated code — deployment step, deliberately left to whichever session currently owns the
@@ -104,9 +109,9 @@ specific `--origin-pid`, not "any Claude process anywhere." Both corrected in pl
 *substance* (heartbeat check is a racy early-out, not the real guard; do not remove either check) was
 already correct and is preserved.
 
-**new components** — none beyond what `checkpoint-capture-spec.md` S0 already specifies
-(`scripts/lib/single-instance-guard.sh`) — S2 below is a second consumer of that same library, not a
-new one.
+**new components** — beyond what `checkpoint-capture-spec.md` S0 already specifies
+(`scripts/lib/single-instance-guard.sh`, of which S2 below is a second consumer, not a new one): S5
+adds `session/sync-main.conf` and `scripts/lib/sync-main-config.sh`, both landed 2026-08-16.
 
 **new conventions** — none identified beyond what harvest-classification.md already covers for this
 family under `conv:checkpoint-capture` and the sync role generally.
@@ -200,11 +205,11 @@ alive. Same bug class as the `stat -f %m` issue fixed elsewhere in this family �
 succeeds on bad input defeats a `||` fallback that assumes the command errors. Fixed by checking
 `[ -n "$last_check" ]` before ever calling `date`, in both S4 and S1's duplicate of the same logic.
 
-**S5 — generalize over (container, repo identity, tracked branch) — planned 2026-08-16, not yet
-coded.** Per `plan__sync-main-generalize-for-second-repo.md`: three assumptions are baked into this
-whole family, and only one of them is a path. This is tool-migration work — it makes the scripts
-correct and portable regardless of whether a second repo ever actually uses them; it does **not**
-deploy anything for a second repo, and does not touch `llm-scaler-workspace-bootstrap-design.md`'s
+**S5 — generalize over (container, repo identity, tracked branch) — planned AND coded 2026-08-16,
+behaviorally verified.** Per `plan__sync-main-generalize-for-second-repo.md`: three assumptions are
+baked into this whole family, and only one of them is a path. This is tool-migration work — it makes
+the scripts correct and portable regardless of whether a second repo ever actually uses them; it does
+**not** deploy anything for a second repo, and does not touch `llm-scaler-workspace-bootstrap-design.md`'s
 own content.
 
 | Baked-in today | Sites | Generalized to |
@@ -213,39 +218,45 @@ own content.
 | `upstream` remote — assumed to exist and be distinct from `origin` | S1, S2, S3 (`git fetch upstream`, `git merge --ff-only upstream/main`) | Config value naming the remote; **"no upstream configured" becomes a supported, loud no-op state, not an error** — day one of a repo with no fork-of-upstream topology has this be simply true |
 | `main` — hardcoded in concept and in every variable/path name (`MAIN_WORKTREE`, `status/main.md`, `git merge ... main`) | all four scripts, `s-sync-main` skill | Config value for the tracked branch name; status file becomes `status/<tracked-branch>.md`; **"no tracked branch yet" becomes a supported, loud no-op state** — matching the upstream-remote case |
 
-**Mechanism: one config file, read once per invocation, not inferred.** Per
-`feedback_tools_take_explicit_paths` (the caller knows, the script shouldn't guess) — a
+**Mechanism, as built: one config file, one shared loader, read once per invocation, not inferred.**
+Per `feedback_tools_take_explicit_paths` (the caller knows, the script shouldn't guess) — a
 `dirname $0`-style auto-derivation was considered and rejected in the originating handoff, since it
-solves only the path row and still asserts a `main`/`upstream` exist. Concretely:
+solves only the path row and still asserts a `main`/`upstream` exist.
 
-```
-plans/session/sync-main.conf   (new, one per container — analogous to a per-container settings file,
-                                 not committed if it should differ per clone; TBD whether it's
-                                 tracked or gitignored — decide when coding, not a design blocker)
-  WORKTREE=<absolute path to the worktree holding the tracked branch>
-  TRACKED_BRANCH=main            (default, for backward compat with this repo)
-  UPSTREAM_REMOTE=upstream       (empty string = "no upstream configured", a valid value)
-```
+`session/sync-main.conf` (new, tracked — this repo's own values, `WORKTREE=.../Main`,
+`TRACKED_BRANCH=main`, `UPSTREAM_REMOTE=upstream`, are not secrets and describe this repo's actual
+structure, not something that should vary per developer clone) holds three lines; a new shared
+library `scripts/lib/sync-main-config.sh` (`sync_main_load_config`, same sourced-not-executed
+pattern as `single-instance-guard.sh`) parses it into the calling script's own `WORKTREE`/
+`TRACKED_BRANCH`/`UPSTREAM_REMOTE` variables and validates `WORKTREE` is a real directory and
+`TRACKED_BRANCH` is non-empty (both required — there is no supported "no worktree" state, unlike
+`UPSTREAM_REMOTE`, which may legitimately be empty). All four scripts source it instead of
+hardcoding. `status/main.md` → `status/$TRACKED_BRANCH.md` in all four (S1, S2, S3, S4) — this
+repo's config keeps `TRACKED_BRANCH=main`, so the status path is unchanged here; only a
+differently-configured container would see a different filename.
 
-All four scripts source this instead of hardcoding. `status/main.md` → `status/$TRACKED_BRANCH.md`
-in all four (S1, S2, S3, S4) — this repo's default config keeps `TRACKED_BRANCH=main`, so the status
-path is unchanged here; only a differently-configured container would see a different filename.
+**No-upstream as a first-class state, not an error** — verified directly: `sync-main-once.sh` and
+`sync-main-watch.sh`'s `sync_pass` both loudly no-op (`rc 0`, a message naming the branch, no error)
+when `UPSTREAM_REMOTE` is empty, tested with a synthetic config in an isolated `/tmp` copy. (No
+equivalent "no tracked branch" state was needed in the end — `TRACKED_BRANCH` is one of the two
+values `sync_main_load_config` treats as always-required, since a script in this family has nothing
+useful to do at all without knowing which branch it watches — narrower than the plan originally
+framed it, and simpler.)
 
-**No-upstream / no-tracked-branch as first-class states, not errors** — this also gives S1's own
-`.WIP`-tracked cwd-match bug
-(`plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP`) a real fix in the same pass: an
-explicit config mismatch can be *reported* ("this container's cwd doesn't match `WORKTREE` in
-`sync-main.conf`") instead of silently `exit 0`. **Coordinating, not resolving that handoff itself**
-— whoever picks up S5 should read it first, since both land on `sync-main-session-start.sh:10` and
-fixing them separately would mean editing the same lines twice.
+**Also fixes S1's `.WIP`-tracked cwd-match bug in the same pass, as coordinated.**
+`plan__sync-main-hook-silent-noop-and-tier1-tier2-boundary.md.WIP` asked for one specific thing —
+make a failed restart attempt visible, log the actual `cwd` seen on the no-op path — not a full
+redesign of the match itself. Done exactly that: the no-op branch now appends to
+`/tmp/sync-main-session-start.log` with the actual `cwd` value and the config path it tried, instead
+of silent `exit 0`. Handoff closed.
 
-**`s-sync-main` skill's `allowed-tools:` frontmatter has one absolute path in a permission grant**,
-not just a comment — grants match literally, so this can't simply become a variable. Two options,
-not yet chosen: per-container skill copies, or a fixed-path wrapper script that reads the config and
-calls the real script, with the grant on the wrapper (N pinned grants collapse to one) — the
-checkpoint work already needed an on-disk wrapper for a different reason (the `pgrep` self-match
-testing artifact, per `session/status/single-instance-guard.md`), so this isn't a new pattern.
-**Decide at coding time**, favoring the wrapper unless a concrete reason against it surfaces.
+**`s-sync-main` skill's `allowed-tools:` grant needed no change.** The concern in the plan (a literal
+absolute path in a permission grant can't become a variable) turned out not to apply here: the
+grant pins the *script's own path* (`.../plans/scripts/sync-main-status.sh` etc.), and none of those
+paths moved — only the *config values those scripts read* changed from hardcoded to file-driven. The
+per-container-copy-vs-wrapper question the plan raised is real, but only arises if this is ever
+deployed to a second container running these same scripts — explicitly out of scope for this repo's
+own generalization.
 
 **Config-copy hazard (Bug 3, `plan__tooling-bugs-found-in-portability-sweep.md`), noted not
 designed-against**: `git config` today carries `branch.main.remote = upstream` /
