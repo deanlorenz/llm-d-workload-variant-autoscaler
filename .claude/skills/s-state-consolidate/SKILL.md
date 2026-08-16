@@ -164,6 +164,19 @@ Genuinely unresolved:
   - <item> — owner: <who> — closes when: <what>
 ```
 
+<!-- user-approved-settings-change: note added 2026-08-17 (Dean, correcting an earlier draft that
+     required committing the full report) -- consolidate's job is fixing/placing content, and that work
+     already lands durably wherever Step D put it. The report is a receipt, not a second copy of state.
+     Grants unchanged. -->
+
+**Receipt, not a second copy of state (Dean, 2026-08-17).** Consolidate's job is deciding placement and
+fixing drift — that work already lands durably wherever Steps B-D wrote it. The report is a short
+confirmation the pass ran, not state needing its own permanent home. One line in your status file —
+`consolidated <artifact>, <n> claims verified, <n> items removed/archived, see commit <sha>` — is enough;
+do not duplicate the full report there. (Contrast with `/s-state-park`, whose whole job *is* persisting
+state — its own report is the record of what got flushed, and does need the durable append-and-commit
+treatment park's own Step 8 gives it.)
+
 ---
 
 ## Notes

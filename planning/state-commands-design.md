@@ -35,10 +35,10 @@ read-only reference — only the three command definitions were taken)
   - [9.2 `s-note` cleanup](#92-s-note-cleanup) L411:421
   - [9.3 Open questions](#93-open-questions) L422:434
 - [10. Lifecycle boundary](#10-lifecycle-boundary) L435:447
-- [11. First-use findings (2026-08-15, day of landing)](#11-first-use-findings-2026-08-15-day-of-landing) L448:514
+- [11. First-use findings (2026-08-15, day of landing)](#11-first-use-findings-2026-08-15-day-of-landing) L448:529
   - [11.1 What was confirmed working](#111-what-was-confirmed-working) L454:484
-  - [11.2 The real gap: report compliance is not enforceable from inside the skill](#112-the-real-gap-report-compliance-is-not-enforceable-from-inside-the-skill) L485:503
-  - [11.3 Still untested](#113-still-untested) L504:514
+  - [11.2 The real gap: report compliance is not enforceable from inside the skill](#112-the-real-gap-report-compliance-is-not-enforceable-from-inside-the-skill) L485:518
+  - [11.3 Still untested](#113-still-untested) L519:529
 
 ## 1. What this is and why it exists
 
@@ -498,6 +498,21 @@ caveat. **Not scoped.**
 Note the asymmetry this creates today: a park that *claims* completeness and a park that *is* complete are
 distinguishable only when the report is present. That is precisely the failure mode § 2 describes, one level
 up — applied to the state command itself rather than to a document.
+
+**Partially closed 2026-08-17, without a hook.** Dean asked directly whether park's output was captured
+anywhere besides the chat transcript — it was not (checked directly: Tier-1's `session-extract.sh` only
+records `type=="user"` transcript records, never the assistant's own text output, so it structurally cannot
+see a state command's report regardless of whether it runs). Fix landed in `/s-state-park`'s own new Step 8:
+append the finished report verbatim to the status file already being committed, as a second small commit
+(not an amend — the report cites facts, like the main commit's SHA, that do not exist until after that
+commit runs). This does not fully close the gap the `Stop`-hook idea above was aimed at (a skill can still
+skip Step 8 the same way it could skip emitting the report at all — nothing external enforces either), but it
+does close the narrower, more common failure this section actually observed: a report that *was* honestly
+generated but survived nowhere durable. **`/s-state-sweep` and `/s-state-consolidate` deliberately did NOT
+get the same treatment** — Dean's correction: their job is fixing drift in docs they already write to
+durably (Step 5 / Steps B-D), so their own report is a receipt that the pass ran, not a second copy of state
+needing its own permanent home the way park's report — which *is* the record of what got flushed — does.
+Both get a one-line status-file entry instead (`swept/consolidated <scope>, <n> items, see commit <sha>`).
 
 [↑ TOC](#toc)
 

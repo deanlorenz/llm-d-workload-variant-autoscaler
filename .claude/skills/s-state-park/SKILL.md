@@ -288,6 +288,36 @@ an unconfirmed message read as preserved state — the exact false-completion th
 
 Park is allowed to read zero files — but the report must show that, so nobody mistakes it for a sweep.
 
+## Step 8 — commit the report itself (MANDATORY, not optional)
+
+<!-- user-approved-settings-change: Step 8 added 2026-08-17 (Dean) -- the source report was previously
+     chat-text only, unreachable by Tier-1 capture (which only records type=="user" transcript records,
+     never the assistant's own text output) and unqueryable by any future session. Grants unchanged --
+     this step uses only Write/Edit/git add/git commit, already present. Rationale:
+     planning/state-commands-design.md § 11.2 (the confirmed gap), § 9.3 (the related open question). -->
+
+**The report above, printed as chat text alone, is not durable.** Tier-1 checkpoint capture only records
+`type=="user"` transcript records — a session's own words — never the assistant's tool-free text output,
+which is exactly what Step 7's report is. Without this step, the report exists only in a transcript the
+next session cannot query, and whether a given park actually emitted one becomes unverifiable after the
+fact — confirmed as a real gap on day one (one park's report survived nowhere outside its own transcript).
+
+Append the finished Step 7 report **verbatim** to the status file you wrote in Step 4/5, then commit again:
+
+```bash
+git add <your status file>
+git commit -m "state(park): <topic> — source report"
+```
+
+A second small commit, not an amend — this project never amends a prior commit to add unrelated content,
+and the report references facts (the Step 5 commit SHA, Step 6's exit verification) that do not exist
+until after those steps ran, so it genuinely cannot land in the same commit.
+
+If your write scope has no status file this pass (nothing else to write, park found nothing to flush),
+still write the report somewhere durable — append it to your owned Type 3, or create the status file for
+this purpose alone. **A report that exists only in chat is the same false-completion risk Step 7 exists
+to prevent, one level up.**
+
 ---
 
 ## Notes

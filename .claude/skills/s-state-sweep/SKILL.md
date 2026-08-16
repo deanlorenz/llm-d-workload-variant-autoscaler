@@ -177,6 +177,18 @@ Committed:
 
 If you read zero files, the report must say so, and you must label the pass a park rather than a sweep.
 
+<!-- user-approved-settings-change: note added 2026-08-17 (Dean, correcting an earlier draft of this
+     step that required committing the full report) -- sweep's job is fixing drift in the docs it
+     touches, and that fix already lands durably wherever Step 5 wrote it. The report is a receipt, not
+     a second copy of state. Grants unchanged. -->
+
+**Receipt, not a second copy of state (Dean, 2026-08-17).** Sweep's job is fixing drift in the docs it
+touches — that fix already lands durably wherever Step 5 wrote it. The report itself is a short
+confirmation that the pass ran, not state needing its own permanent home the way park's report does
+(park's whole job *is* persisting state, so its own report is the record of what got flushed). One line
+in your status file — `swept <scope>, <n> gaps fixed, see commit <sha>` — is enough; do not duplicate the
+full report there.
+
 ---
 
 ## Notes
