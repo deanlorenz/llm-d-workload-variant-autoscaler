@@ -100,7 +100,12 @@ tooling had no Type 3 spec at all.
   periodically, by one specific role) — substantially eases both original questions without fully
   closing either (see the addendum's own § for exactly what remains open). Confirmed same day, checked
   directly: this is not Addendum 4 raised twice — it *is* Addendum 4 (2026-08-13), same idea, correctly
-  cross-referenced.
+  cross-referenced. **Second pass, same day, raises the bar rather than closing it**: no policy-writer
+  session will typically be alive to consolidate, so (a) a candidate entry must be rich enough for a
+  cold-start rework, not a pointer a live consolidator would flesh out from memory, and (b) something
+  needs to actively surface that candidates are pending — Dean's own suggestion, whichever session is
+  "always running (like sync__)" alerts him, rather than relying on anyone noticing unprompted. Neither
+  designed yet.
 - [ ] **Channel protocol (Addendum 9) — designed 2026-08-16, real detail, NOT yet an executable
   spec.** Mailbox files (`session/mailboxes/<channel>.log`, one per relationship, append-only,
   two event types) plus a shared broadcast/discovery channel (`session/mailboxes/broadcast.log`,

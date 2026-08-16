@@ -1,7 +1,7 @@
 # Addendum 12 — mid-turn note handling as a named, bounded procedure
 
-**Status: raised by Dean 2026-08-17. A real candidate mechanism proposed same day (§ Candidate
-mechanism below) — not yet designed in full or built.**
+**Status: raised by Dean 2026-08-17, refined in a same-day second pass (§ Candidate mechanism below,
+cold-start content bar + discovery/alert requirement). Not yet designed in full or built.**
 
 ## At a glance
 
@@ -28,17 +28,31 @@ mechanism.
 **Checklist:**
 - [ ] Design the candidates-file format and location (plan-like, per Dean — presumably similar shape
   to a Type-3/code-spec doc's own structure, or `harvest-classification.md`'s row-per-item table).
+  **Content bar raised (Dean, 2026-08-17, second pass):** the policy-writer will typically NOT be a
+  live, running session — so a candidate entry must be rich enough for a **cold start** rework, not a
+  quick pointer a live consolidator would flesh out from memory of the conversation. Design what
+  "rich enough" means concretely (verbatim quote? surrounding context? why it seemed rule-worthy?)
+  before assuming a short line is sufficient.
 - [ ] Decide whether capture is the redesigned `/s-note` itself (append-only mode, no routing), a
   distinct lighter mechanism, or the same skill with a flag.
 - [ ] Design the policy-writer's periodic consolidation pass over the candidates file — likely the
   same skill invoked in a different mode, per Dean's own framing ("you can use the same skill for
   that").
+- [ ] **New (Dean, 2026-08-17, second pass): design a discovery/alert mechanism, since nobody is
+  routinely watching the candidates file.** A session that is "always running" (Dean's own example:
+  "like sync__") could alert Dean that pending candidates exist, rather than relying on a policy-writer
+  session happening to check. Not yet decided: whether this is literally sync's own job (it already
+  owns session-state alerting), a new watcher in the same family as `sync-current-watch.sh`, or
+  something else — and how it surfaces the alert (a status-file line Dean reads, a broadcast per
+  Addendum 9, something else).
 - [ ] The disruption question is largely closed by this reframing (append is cheap/bounded, no need
   for background/async) — confirm this is actually true once the append mechanism is designed, not
   assumed.
 - [ ] The session-independence question is substantially eased (capturing faithfully is a lower bar
   than routing correctly) but not fully closed — a candidate still needs *some* minimal context (which
-  file, whose note) to be useful; design how much a capturing session actually needs to know.
+  file, whose note) to be useful; design how much a capturing session actually needs to know. **The
+  cold-start requirement above sets a firmer bar for this than "some minimal context" — revise this
+  item once that's designed, the two are the same underlying question from two angles.**
 - [ ] Relate to the Addendum 4 "pre-baked prompt template" idea — same shape (fixed procedure fetched
   on demand instead of re-derived from context every time), different trigger (a step reaching a risky
   action, vs. a mid-turn note arriving) — decide whether one design covers both or they stay separate.
@@ -105,7 +119,27 @@ belongs. Splitting them:
   needing separate sign-off per `conventions-harvest-spec.md`'s own M1.2 distinction. Dean's own
   suggestion: the same skill mechanism, invoked in a different mode, does this pass too.
 
-## Why this substantially eases, but does not fully close, either open question
+**Second pass, same day — two corrections to the framing above, not yet designed against.** Dean,
+immediately after the proposal above: *"small extra point — if I won't have the policy writer alive
+typically. So whatever is captured should be rich enough for cold start rework. Maybe some session that
+is always running (like sync__) can alert me to the fact that there are pending new rules to
+process."*
+
+This changes two things the framing above glossed over:
+
+1. **"Periodically, when you have time" assumed a policy-writer session would exist to periodically
+   check.** It typically won't — there is no standing policy-writer session the way there is a standing
+   sync session. So consolidation is not "whenever the policy-writer happens to run," it's "whenever
+   someone cold-starts a policy-writer pass" — which raises the bar on what a candidate entry must
+   contain. A short pointer that a live consolidator (with the original conversation still fresh) would
+   flesh out from memory is not sufficient if the consolidating session has none of that context. The
+   candidates file needs to carry enough on its own for a cold, from-scratch rework.
+2. **Nobody is watching the file for new entries at all**, since nothing prompts a policy-writer pass to
+   start. Dean's own candidate: whichever session is "always running (like sync__)" could alert him that
+   candidates are pending, rather than relying on anyone noticing unprompted. Not decided whether this is
+   sync's own job, a dedicated new watcher, or something else — see the checklist.
+
+## Why this substantially eases, but does not fully close, the open questions
 
 The `/s-note` redesign from 2026-08-16/17 (`planning/state-commands-design.md` § 9.2) answers a
 narrower question than either framing: given a note someone explicitly hands to the skill, split it and
@@ -115,16 +149,19 @@ route each piece. Against the candidate-mechanism reframing above:
   gets; it does not obviously need to run out-of-band. **Not fully closed**: the capturing session still
   needs to notice a note-shaped message arrived and interrupt itself briefly to append it — the question
   is now "how cheap is that interruption," not "does this need to be async," but it is not zero.
-- **Session-independence** — substantially eased. Capturing faithfully is a much lower bar than routing
-  correctly, and does not obviously depend on this session's accumulated context the way routing did.
-  **Not fully closed**: a candidate still needs *some* minimal context to be useful later (which
-  file/topic it's about, roughly, even if not its final home) — how much a capturing session must know
-  to write a usable candidate, versus how much can be deferred entirely to the policy-writer's
-  consolidation pass, is not yet designed.
+- **Session-independence** — substantially eased on the *capturing* side (capturing faithfully is a
+  much lower bar than routing correctly), but **the second-pass correction above raises the bar on the
+  *consolidating* side**: since no live policy-writer session will typically exist, "how much a capturing
+  session must know" is no longer "enough for a live consolidator to flesh out from memory" — it is
+  "enough for a cold-start rework with zero shared context." That is a firmer, more specific requirement
+  than the first-pass framing assumed, and is not yet designed against.
+- **Discovery — a third question this addendum did not originally have.** Even a perfectly-captured
+  candidates file is useless if nobody knows to consolidate it. Not fully closed: which always-running
+  session (Dean's example: `sync__`) takes this on, and how it surfaces to Dean.
 
 ## Not attempted here
 
-No skill written, no candidates-file format decided, no policy-writer role built. A real mechanism is
-now proposed (§ Candidate mechanism) and substantially eases both of Dean's original questions without
-fully closing either — the checklist above is what remains to actually design and build, not a blank
-slate.
+No skill written, no candidates-file format decided, no policy-writer role built, no discovery/alert
+mechanism designed. A real mechanism is proposed in two passes (§ Candidate mechanism) that substantially
+eases Dean's original two questions and surfaces a third (discovery) without fully closing any of them —
+the checklist above is what remains to actually design and build, not a blank slate.
