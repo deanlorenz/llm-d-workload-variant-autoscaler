@@ -60,6 +60,34 @@ tooling had no Type 3 spec at all.
 - [ ] Phase 7 — coverage audit (M1.3), stop loading old files (M1.4). Not started; depends on Phase 6.
 - [ ] **New, not yet a phase**: missing roles (per Dean 2026-08-16, needed now, not designed yet —
   `role-skills-spec.md` covers role *skills* mechanics, not which roles exist or what's missing).
+- [ ] **Coverage-audit and step-gate tooling — specced but never built, absent from this roadmap's
+  own tracking until 2026-08-16.** `conventions-harvest-spec.md` S1 (`coverage-check`) and
+  `step-gates-spec.md` S1-S6 (`step-check`, `plan-lint`) are both fully executable specs (do/verify/
+  done_when present throughout) sitting in `DRAFT — awaiting Dean's finalization` status, but were
+  never assigned to a coder or listed in the script inventory below. Both are **hand-to-coder now**
+  per Dean's direct instruction — `step-gates-spec.md` has no dependency on the harvest and can build
+  immediately; `conventions-harvest-spec.md` S1 (`coverage-check`) can run against an empty
+  `conventions/` and record a baseline, so it doesn't need to wait for Phase 6's actual harvest pass
+  either.
+- [ ] **Rule-outline/trigger-index mechanism (Addendum 5) — deliberately delayed** (Dean, 2026-08-16):
+  *"important but let's delay this. Start from full list (still saves 3x over current conventions).
+  We can switch later, see if mechanism works."* The two/three-tier index (main index always loaded →
+  sub-index per category → full convention on demand) stays a "try later" idea; the harvest proceeds
+  on the current flat `conv <name>` fetch-by-name mechanism, which is already ~4.7× cheaper than
+  today's always-loaded `CONVENTIONS.md`/`CODER-CONVENTIONS.md`. Memory-shaped sub-index question
+  (Addendum 5 §"memory to fetch rule outlines") folds into the same delayed item — Dean: *"seems
+  identical to [the trigger-index question]. Should be captured in same doc."* Both should live
+  together wherever Addendum 5 is revisited, not as two separate future items.
+- [ ] **Reaffirmed rule bundle (Addendum 4) — approved, needs a real design pass, not yet done.**
+  Dean, 2026-08-16: *"yes. must plan."* Extends the original question with a template mechanism:
+  *"a rule or step could fetch a 'pre-baked' prompt template — here is a list of things you need to
+  do to fulfill this step, here is the checklist... can that be written as a rule? I suppose so, but
+  as a template it can fill with concrete values."* So the design isn't just "cite a bundle of
+  existing rules to reaffirm them" (Addendum 4's original framing) — it now also covers a
+  **parameterized checklist template** a step can fetch and fill with the step's own concrete
+  values, which reads as a genuinely new mechanism, not just a naming question for the existing
+  `conventions:` field. Needs a real Type-3-or-addendum-level design pass before building; not
+  attempted here.
 
 ---
 
