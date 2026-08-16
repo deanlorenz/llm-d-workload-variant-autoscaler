@@ -157,8 +157,33 @@ pass() {
   } >> "$out"
 
   # Advance to the newest captured timestamp, not "now", so a turn landing mid-pass is not skipped.
-  printf '%s\n' "$new" | grep '^## ' | tail -1 \
-    | sed 's/^## //; s/  *(mid-turn)$//' > "$mark"
+  #
+  # $new can contain a line starting "## " that is NOT one of the extractor's own headings: a
+  # user turn's own text may itself be, or contain, a markdown heading (e.g. "## Verdict"), and
+  # grep '^## ' cannot tell that apart from "## 2026-08-14T20:27:33.254Z". Naively taking the
+  # LAST such line as the new marker can therefore pick up the user's heading instead of a real
+  # timestamp -- poisoning the marker with un-parseable text. Every later pass then calls
+  # --since <garbage>, which the extractor's own $ts > $since comparison satisfies for nothing,
+  # so it reports "0 new turns" forever -- identical in shape to "genuinely caught up". This is
+  # exactly what happened to two live loops (found 2026-08-16; see
+  # plans/session/handoffs/plan__tier1-capture-marker-poisoning.md and CODER-CONVENTIONS.md).
+  #
+  # Fix: take the LAST line that is actually shaped like the extractor's own heading -- an ISO
+  # timestamp, optionally with "  (mid-turn)" -- not merely the last line starting "## ". Reject
+  # and refuse to advance the marker if none matches, rather than write something unparseable.
+  local candidate
+  candidate="$(printf '%s\n' "$new" \
+    | grep -E '^## [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -1 \
+    | sed 's/^## //; s/  *(mid-turn)$//')"
+  if [ -z "$candidate" ]; then
+    # Loud, not silent: this is the load-bearing half of the fix. A garbage/absent candidate
+    # must not look like "nothing new" -- log it distinctly so it can be noticed and repaired,
+    # and leave the existing marker (if any) untouched rather than advance to nothing.
+    printf '[%s] WARNING: no parseable timestamp heading in this pass -- marker NOT advanced (content still appended to %s)\n' \
+      "$(date -u +%FT%TZ)" "$out" >> "$log"
+    return 0
+  fi
+  printf '%s\n' "$candidate" > "$mark"
 }
 
 # Tier 2: cheap model call, driven off accumulated passes rather than a clock.

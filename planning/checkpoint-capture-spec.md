@@ -225,6 +225,21 @@ pid. **Consumer of Defect 1 above** — this script's own contract (require `--o
 (S6), not here. Same caller also needs to start passing `--session-id`, since the hook payload
 already carries `session_id` (confirmed in S6's own code).
 
+**Contained Defect 2 in its non-guard logic (`pass()`'s marker derivation), found and fixed
+2026-08-16 — the guard-mechanism review had no findings here, but this script's own marker logic
+did.** `pass()` advanced its marker to the last line matching `grep '^## '` in the extracted text —
+but a user turn's own body can contain a markdown heading (`## Verdict`, `## Findings`, …), which
+that grep cannot distinguish from the extractor's own `## <timestamp>` heading. Two live loops
+were poisoned this way (confirmed live, not hypothetical): `.atomic-step-protocol-brainstorm.raw.md.mark`
+held the literal string `Findings`, and a second loop's marker was never written at all because its
+transcript's very first extraction ended on a `## `-headed user turn. Both then called
+`session-extract.sh --since <garbage>`, which matched nothing, forever — indistinguishable from
+"genuinely caught up," `rc 0`, no error. **Fixed**: the marker candidate must match the extractor's
+actual heading shape (`## ` followed by an ISO-8601 timestamp), not merely start with `## `; a pass
+with no such candidate leaves the marker untouched and logs a distinct, loud warning rather than
+silently advancing to nothing. Poisoned markers repaired by hand for the affected loops (the fix
+alone does not retroactively un-poison an already-corrupted marker file).
+
 **S3 — `tick-consolidate.sh` (Tier-2, per-session, cheap-model).** Invoked by S2 (via
 `--consolidate-every`) or by the shared scanner S4. Sends only the new-since-marker turns to a small
 model (default `aws/claude-haiku-4-5`) from a neutral `cd /tmp` (so the model never inherits this
