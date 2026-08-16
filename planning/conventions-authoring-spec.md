@@ -2,6 +2,28 @@
 
 **code spec** · **Status: DRAFT** — awaiting Dean's finalization.
 
+## At a glance
+
+**Mission:** the write side of the convention system — `conv-new`, `conv-edit`, `conv-rename` (+
+refusal-to-delete), a pre-commit hook, README — so `conventions/` is never hand-edited.
+
+**Approach:** S1/S2 landed (`conv-new` commit `65553806`, `conv-edit` commit `57f4874a`, both on the
+`plans-tooling` worktree). S3 (`conv-rename`) has an approved plan and a coder actively implementing it
+as of 2026-08-16 (second attempt — the first coder session ended before seeing the approval; see
+[`atomic-step-protocol-design-addendum-9.md`](atomic-step-protocol-design-addendum-9.md) for why that
+kept happening and the fix). S4 (pre-commit hook) and S5 (README) not started.
+
+**Needs you:** the open gap flagged in this spec's own Intent (no tool-mediated way to move a
+convention between topic files) — still undecided, not blocking S3.
+
+**Checklist:**
+- [x] S1 `conv-new.sh` — landed.
+- [x] S2 `conv-edit.sh` — landed.
+- [ ] S3 `conv-rename.sh` — plan approved, coder in progress.
+- [ ] S4 pre-commit hook — not started.
+- [ ] S5 README — not started.
+- [ ] Decide the move-between-topics gap (flagged, not designed).
+
 Second of the migration specs. Depends on
 [`conventions-tooling-spec.md`](conventions-tooling-spec.md) having landed (`sec`, `conv`, `conv-list`,
 `conv-lint`).
@@ -45,6 +67,22 @@ step, and this spec's own subject matter is the first harvest candidate.
 nothing to scan until step manifests exist". That was wrong as a blocker — fixtures can supply citations,
 so it is testable now. What is still true is that its *real* input set is empty until the harvest runs.
 
+**Open gap, flagged by Dean 2026-08-13, not yet designed:** `conv-new <name> --topic <file>` sets a
+convention's topic file once, at creation, and `conv-rename <old> <new>` (S3) only renames the
+convention's *name* — rewriting citations to match — within whatever topic file it already lives in.
+Neither handles **moving an existing convention's content to a different topic file** while keeping its
+name. This is a real, distinct operation, not a variant of either existing one: `conv-edit`'s "extract,
+replace in place, neighbours untouched" mechanics assume the convention stays in its current file, and a
+cross-file move needs the same atomicity discipline S3 already requires for rename (stage all edits,
+restore everything on any failure) but applied to a delete-from-file-A + insert-into-file-B rather than an
+in-place text replace. Concretely useful for the harvest itself: a first-pass classification (see
+`harvest-classification.md`) can guess a convention's topic wrong, and today there is no tool-mediated way
+to correct that — only hand-editing, which is exactly what this spec exists to prevent. Left as an open
+item for finalization rather than designed here; a plausible shape is a `--move-to <file>` flag on
+`conv-rename` (reusing its existing citation-rewrite machinery, since citations reference the convention by
+name, not by topic file, so a move alone needs no citation rewrite at all — only a rename does) but this is
+not decided.
+
 ---
 
 ## Prerequisites
@@ -82,6 +120,13 @@ human or agent, any harness. Git-level on purpose: the portable layer, not a Cla
 
 ## S1 — `conv-new`
 
+**Status: LANDED, commit `65553806` on `plans-tooling`.** As-built deviation from the brief below,
+worth recording rather than silently accepted: the coder implemented the duplicate-name check by
+scanning the target `--dir`'s markers directly (same technique `conv.sh` itself uses to find a
+convention's holder file) rather than shelling out to `conv-list.sh` as line 131 below implies —
+`conv-list.sh` hard-fails with exit 3 on a directory holding zero `.md` files, which is exactly the
+"fresh topic file" case S1 needs to handle cleanly. A deliberate, reasoned deviation, not an oversight.
+
 **brief** — `conv-new <name> --topic <file>` appends a new convention section with the marker and the
 five required fields. It refuses if the name exists in any topic file. Provenance is a required field, not
 an optional nicety: without `origin`, a probation judgment years later is guesswork.
@@ -114,6 +159,14 @@ flags is honest, a plausible generated one is not.
 [↑ Step index](#step-index)
 
 ## S2 — `conv-edit`
+
+**Status: LANDED, commit `57f4874a` on `plans-tooling`.** As-built note, not a deviation: the trickiest
+part in practice was the section boundary on write, not on read — trailing blank lines between a
+convention's content and whatever follows (next heading, or EOF) belong to the file's structure, not to
+the section being replaced. A naive splice at the untrimmed boundary glued the replacement directly onto
+the next heading; the fix mirrors `sec.sh`'s own read-side trim. Caught by testing against the fixture
+before writing the golden, not by the golden itself — worth recording as a real instance of "verify by
+running, not by reading," the same discipline this spec's own S1 already names.
 
 **brief** — Replace a single convention's body in place. Everything above and below must come out
 byte-identical; that is the whole correctness claim and it must be proven by comparison, not inspection.
