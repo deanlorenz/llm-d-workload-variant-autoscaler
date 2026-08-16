@@ -17,7 +17,16 @@ if [ ! -f "$S" ]; then
 fi
 
 last_check=$(grep -m1 '^last_check:' "$S" | cut -d' ' -f2-)
-lc_epoch=$(date -d "$last_check" +%s 2>/dev/null || echo 0)
+# `date -d ""` succeeds (rc 0) and returns midnight-today, not an error -- so an empty/missing
+# last_check must be caught explicitly before calling date, or the `|| echo 0` fallback below never
+# fires and a genuinely dead watcher can read as "last check 0-149s ago" for ~2.5 minutes after
+# midnight local time. Found 2026-08-16 (llm-scaler portability sweep); same bug class as the
+# `stat -f %m` issue already fixed elsewhere (a command that succeeds on bad input defeats `||`).
+if [ -n "$last_check" ]; then
+  lc_epoch=$(date -d "$last_check" +%s 2>/dev/null || echo 0)
+else
+  lc_epoch=0
+fi
 age=$(( $(date +%s) - lc_epoch ))
 
 # Watcher heartbeats every 60s; allow ~150s slack before calling it dead.

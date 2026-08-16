@@ -30,6 +30,7 @@ fold it into this one — not resolved here.
 - [x] Fix Defect C (`write_status` now sets `state` from its actual liveness, not a hardcoded string)
   — landed by the coder, `f9e1dba6`.
 - [x] Migrate S2's guard block to the shared library, keyed on `"sync"` — landed, `f9e1dba6`.
+- [x] Fix the `date -d ""` dead-watcher-reads-RUNNING bug in S4 and S1's duplicate of the same logic.
 - [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
 - [ ] Restart the two live production processes (`tick-shared-scan.sh`, `sync-main-watch.sh`) under
   the migrated code — deployment step, deliberately left to whichever session currently owns the
@@ -177,13 +178,23 @@ when the last real sync actually happened. Refuses to run if the `Main` worktree
 `main` (a real safety check, not a formality — a one-shot sync on the wrong branch would silently do
 nothing useful while reporting success-shaped output). No defect found.
 
-**S4 — `sync-main-status.sh` (read-only, no defect found).** Prints a one-line verdict
-(RUNNING/STALE-NOT-RUNNING/NOT RUNNING) computed from the status file's `last_check` age against a
-150s threshold (~2.5× S2's 60s poll interval — the same multiplier `tier1`/Tier-2 family uses elsewhere
-for "how much slack before calling a heartbeat dead"), then dumps the full status file. Deliberately
-does the date-math itself rather than leaving it to the caller's command line, specifically so the
-command a session runs has no `$(...)` substitution and is therefore allowlistable without a permission
-prompt — a real, load-bearing design choice, not an arbitrary implementation detail. No defect found.
+**S4 — `sync-main-status.sh` (read-only, contained a dead-watcher-reads-RUNNING bug, FIXED
+2026-08-16).** Prints a one-line verdict (RUNNING/STALE-NOT-RUNNING/NOT RUNNING) computed from the
+status file's `last_check` age against a 150s threshold (~2.5× S2's 60s poll interval — the same
+multiplier `tier1`/Tier-2 family uses elsewhere for "how much slack before calling a heartbeat dead"),
+then dumps the full status file. Deliberately does the date-math itself rather than leaving it to the
+caller's command line, specifically so the command a session runs has no `$(...)` substitution and is
+therefore allowlistable without a permission prompt — a real, load-bearing design choice, not an
+arbitrary implementation detail.
+
+**Found (llm-scaler portability sweep, 2026-08-16), same bug duplicated in S1's own heartbeat
+early-out:** `date -d "$last_check" +%s` **succeeds** (rc 0) when `$last_check` is empty, returning
+midnight-today's epoch rather than erroring — so the `|| echo 0` fallback never fires on this path,
+and a status file with an empty or missing `last_check:` line reads as "last check 0-149s ago" (i.e.
+RUNNING) for roughly 2.5 minutes after local midnight, regardless of whether a watcher is actually
+alive. Same bug class as the `stat -f %m` issue fixed elsewhere in this family — a command that
+succeeds on bad input defeats a `||` fallback that assumes the command errors. Fixed by checking
+`[ -n "$last_check" ]` before ever calling `date`, in both S4 and S1's duplicate of the same logic.
 
 ## Explicitly out of scope — `sync-current-watch.sh` needs its own spec, not this one
 

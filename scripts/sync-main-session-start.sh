@@ -16,7 +16,16 @@ watch_script="$SYNC_WORKTREE/scripts/sync-main-watch.sh"
 alive=0
 if [ -f "$status_file" ]; then
   last_check=$(grep -m1 '^last_check:' "$status_file" | cut -d' ' -f2-)
-  last_check_epoch=$(date -d "$last_check" +%s 2>/dev/null || echo 0)
+  # `date -d ""` succeeds (rc 0, returns midnight-today) rather than erroring, so an empty/missing
+  # last_check must be caught before calling date -- the existing "-gt 0" check below does NOT catch
+  # this, since midnight's epoch is > 0. Found 2026-08-16 (llm-scaler portability sweep); same class
+  # as the `stat -f %m` bug already fixed elsewhere. See scripts/sync-main-status.sh for the sibling
+  # fix (this exact logic is duplicated in both files).
+  if [ -n "$last_check" ]; then
+    last_check_epoch=$(date -d "$last_check" +%s 2>/dev/null || echo 0)
+  else
+    last_check_epoch=0
+  fi
   age=$(( $(date +%s) - last_check_epoch ))
   [ "$last_check_epoch" -gt 0 ] && [ "$age" -lt 150 ] && alive=1
 fi
