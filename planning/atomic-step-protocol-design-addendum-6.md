@@ -5,9 +5,18 @@
 § Handoffs/Triggers' existing model. The parent is **not edited**: this is the amendment channel it
 names. Additive; introduces one new mechanism, reuses everything else as-is.
 
-**Status: designed 2026-08-14, not yet built. No skill exists yet. Superseded in part by
-[Addendum 9](atomic-step-protocol-design-addendum-9.md)'s broadcast channel, which solves the same
-"reach every live session" need via a different, more general mechanism — see that doc.**
+**Status: designed 2026-08-14. Corrected 2026-08-17 (Dean) — only HALF is built.** The per-session
+*action* half is built and live: `s-state-park` (`.claude/skills/s-state-park/`, part of the
+`s-state-*` trio alongside `s-state-sweep`/`s-state-consolidate`) does exactly the flush this
+addendum describes — additive-only, run proactively at risk points including "Dean says he's
+closing the laptop or going to sleep." **Checked directly**: it is self-invoked, one session
+flushing its own context; it sends nothing that reaches other live sessions. The still-missing half
+is specifically the **broadcast** — a signal reaching *every* live session at once, which is this
+addendum's own original ask (see § What prompted it) and is not something `s-state-park` does or was
+ever meant to do on its own. That missing half is [Addendum 9](atomic-step-protocol-design-addendum-9.md)'s
+broadcast/discovery channel, which solves "reach every live session" more generally than this
+addendum originally scoped — see that doc, and do not build a separate `/s-park` broadcast skill
+before checking whether Addendum 9's mechanism already covers it.
 
 ## At a glance
 
@@ -16,9 +25,11 @@ restart, so nothing is left mid-edit and everything is cold-resumable.
 
 **Approach:** each session finishes its current unit of work, reports ready, coders exit their
 worktrees (preserves session history in plans), all hand off to sync or sync collects state.
+**The per-session action half of this is `s-state-park`, already built — see the corrected Status
+line above.** The broadcast half (reaching every session in the first place) is not.
 
 **Needs you:** nothing right now. Note: Addendum 9's broadcast log may make this simpler to build than
-originally scoped here — worth checking before building `/s-park` as its own thing.
+originally scoped here — worth checking before building the broadcast half as its own thing.
 
 **Checklist:**
 - [ ] Not started — no skill exists.

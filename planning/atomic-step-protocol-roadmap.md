@@ -108,10 +108,18 @@ tooling had no Type 3 spec at all.
 - [ ] **Addendum 3 (CURRENT.md indexable) — correctly self-parked, cross-referencing here so it
   isn't invisible.** Deprioritized by Dean 2026-08-15/16, "not a priority, left for later." No
   active checklist in the addendum itself; nothing to do until revisited.
-- [ ] **Addendum 6 (`/s-park`) — designed, not built, blocked on the Addendum 9 reconciliation
-  above.** No skill exists yet. Addendum 9's broadcast channel may make `/s-park` largely free once
-  built (a `please-park` broadcast line rides the same mechanism) — do not build `/s-park`
-  separately before checking this.
+- [ ] **Addendum 6 (`/s-park`) — corrected 2026-08-17 (Dean): only HALF is built.** `s-state-park`
+  (`.claude/skills/s-state-park/`) exists and does the *flush* half well — a session's own decisions,
+  findings, footguns, subagent resume addresses, additive-only, run proactively at risk points
+  including "Dean says he's closing the laptop." **Checked directly**: it is self-invoked, one
+  session flushing its own context — it does not send anything that reaches *other* live sessions.
+  Addendum 6's original ask was specifically the other half — a signal reaching **every** live
+  session at once (*"I run this to notify all... all would finish what they do, stop, and report
+  ready for parking"*) — which is exactly the still-missing broadcast/discovery channel from
+  Addendum 9, not a duplicate of `s-state-park`. So: the *action* each session takes on being told to
+  park is built; the *telling* is not. Still blocked on Addendum 9 as stated above, now for the
+  precise reason (Addendum 9's broadcast log is the mechanism that would carry the `please-park`
+  signal to `s-state-park` in each session, not a separate `/s-park` skill to build from scratch).
 
 ---
 
