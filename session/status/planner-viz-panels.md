@@ -137,3 +137,84 @@ notes: |
   resume from them right now (one completed cleanly with findings already folded in; one's
   transcript could not be resumed via SendMessage, its findings were already fully relayed and acted
   on before that failure was discovered, so nothing is lost).
+
+---
+
+## state-park report (Step 7, verbatim)
+
+```
+state-park — viz-panels planner, 2026-08-17 parked mid-session
+
+Subagent addresses recorded (2a — the durable part):
+  - Review commit deaf4886 on autoscaling-viz — id: a122254d6b4afdc5f — completed — asked: review
+    deaf4886 (Items X/Y/Z/AA/AB/AC/AD) against the Type 3 spec, verify Item AC proportionality and
+    the panel-5 in-system-vs-served discrepancy with a definitive root cause
+    output: /tmp/claude-1000/.../tasks/a122254d6b4afdc5f.output (symlink to its transcript) —
+    exists — findings fully relayed to Dean in-chat and folded into
+    planning/autoscaling-viz-review-ongoing.md (committed by the agent itself per its own report;
+    section confirmed present at line 489 when I read it back). Referenced from this status file
+    now; was previously only in chat.
+  - Persistent background reviewer for autoscaling-viz — id: a135af978c21e9081 — died (transcript
+    unresumable) — asked: originally, ongoing commit-by-commit review of autoscaling-viz; later
+    redirected several times as new commits landed
+    output: /tmp/claude-1000/.../tasks/a135af978c21e9081.output (symlink target exists on disk)
+    — SendMessage to this ID failed with "No transcript found for agent ID" when I tried to
+    re-park it explicitly. Its last several findings were already fully relayed to Dean in-chat
+    and acted on (e.g. the SAT-fallback fix confirmation) before this was discovered, so no
+    unflushed content is believed lost — but the address itself is now dead, flagged here so a
+    future session doesn't waste a SendMessage attempt on it.
+Nudges sent (2b — best effort, NOT a flush):
+  - a122254d6b4afdc5f — nudged (asked to park), no confirmation received before this report was
+    written
+  - a135af978c21e9081 — nudge attempt itself failed (transcript gone) — not a "sent, unconfirmed"
+    case, an outright delivery failure
+Sources read this pass:
+  - session/handoffs/plan__batch-refresh-all-success-runs-done.md — full content, previously
+    unread; real state (35/35 renders succeeded, stamp-verified, 4 spot-checked) now captured
+    above and in this file
+  - planning/autoscaling-viz-review-ongoing.md (grep + offset read at line 489, then 620-689) —
+    confirmed the panel-5 root-cause section's exact content before summarizing it above, not
+    trusting my own earlier chat recollection of it
+  - session/handoffs/ directory listing — confirmed the shared-git-index handoff is already
+    .DONE on the receiving end; confirmed no other viz-panels-addressed handoff is sitting unread
+  - git log --oneline -3 (autoscaling-viz) — confirmed current tip a1a815a7 matches what I
+    believed before writing this report
+Not read (and why):
+  - The 33 individual batch-refresh PNGs/bundles themselves — Dean has not yet asked me to
+    review any specific one; symlinked all 35 into scratch/viz-review/ per standing habit, but
+    did not open/verify each — that's real, deliberately-deferred work, not an oversight
+  - planning/benchmark-runs-inventory.md — not re-read this pass; already known stale (Stage A's
+    final 3 cells + this session's own batch-refresh outdate its table) and captured as such
+    above from existing knowledge, not re-verified line-by-line this pass
+Written to:
+  - session/status/planner-viz-panels.md — full WIP state, all open questions, subagent
+    addresses, VS Code webview bug investigation closure, process-incident cross-reference
+Handoffs emitted:
+  - (none this pass — everything routed to my own status file; the one handoff this thread
+    produced earlier this session, plan__shared-git-index-incident-and-resolution.md, was
+    already sent and is already .DONE on the receiving end, confirmed by directory listing)
+Committed:
+  - ba5ed673 state(park): viz-panels planner — flush WIP state, batch-refresh report,
+    panel-5/AE-AF open questions
+Worktree exit:
+  - was never in an EnterWorktree-tracked worktree switch this session (plans is my home
+    worktree throughout) — but CWD had drifted via a plain `cd` into autoscaling-viz earlier in
+    the session for direct rendering checks and was never returned; caught and corrected during
+    this park pass before staging anything (confirmed via `pwd`/`git branch --show-current`
+    showing the wrong worktree before the fix). Flagging this as a real near-miss: park's own
+    Step 1 identity check is what caught it, exactly as designed.
+Verified from final location:
+  - session/status/planner-viz-panels.md — present
+  - commit ba5ed673 — visible in git log
+  - session/handoffs/ — 454 entries present, listing intact
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not update planning/benchmark-runs-inventory.md's now-stale table — noted as stale, left
+    for a future pass (it has its own refresh protocol for exactly this)
+  - Did not clean up the three VS Code webview test artifacts
+    (scratch/viz-review/test-real-copy.png, test.txt, test-tmp-symlink.png) — asked Dean once,
+    no answer yet, not removing without one
+  - Did not ask Dean the open "should the coder go find a real gap-exercising run for
+    Items AE/AF" question — flagged in this file as owed, not asked yet
+  - Did not review any of the 35 batch-refresh renders myself — Dean's own next look, not mine
+    to pre-empt
+```
