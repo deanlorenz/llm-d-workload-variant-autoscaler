@@ -5,26 +5,32 @@
 ## At a glance
 
 **Mission:** document the four sync-main scripts (watcher, one-shot, status, session-start hook) as
-they actually exist, and record two live bugs found while doing so.
+they actually exist, and record three live bugs found while doing so.
 
 **Approach:**
-- S1 `sync-main-session-start.sh` — the `SessionStart` hook. Contains both live defects.
-- S2 `sync-main-watch.sh` — the continuous watcher. Guard block is forward-looking (must move to the
-  shared library `checkpoint-capture-spec.md` S0 specifies).
+- S1 `sync-main-session-start.sh` — the `SessionStart` hook. Contains Defect A and Defect B.
+- S2 `sync-main-watch.sh` — the continuous watcher. Contains Defect C (status lies about liveness).
+  Guard block forward-looking, keyed on the fixed role constant `"sync"` (not a session, not a pid —
+  see Addendum 10's corrected design), must move to the shared library `checkpoint-capture-spec.md`
+  S0 specifies.
 - S3 `sync-main-once.sh` — one-shot equivalent, no guard needed, no defect.
 - S4 `sync-main-status.sh` — read-only status check, no defect.
 - `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
 
 **Needs you:**
-- Nothing blocking right now. Two defects (A: hook launches the watcher without a required flag,
-  always fails; B: a stale comment describing a mechanism that no longer exists) are documented for
-  whoever picks this spec up — no decision from you needed to record them, only to prioritize the fix.
+- Nothing blocking right now. Three defects (A: hook launches the watcher without a required flag,
+  always fails; B: a stale comment describing a mechanism that no longer exists; C, found in design
+  review: the status file lies about liveness after a crash, so the auto-start hook's own success
+  check reports false positives) are documented for whoever picks this spec up — no decision from you
+  needed to record them, only to prioritize the fix.
 
 **Checklist:**
 - [ ] Assign a coder once `single-instance-guard.sh` (S0 in `checkpoint-capture-spec.md`) exists.
 - [ ] Fix Defect A (`--origin-pid "$PPID"` on the launch line).
-- [ ] Fix Defect B (rewrite the stale flock comment).
-- [ ] Migrate S2's guard block to the shared library.
+- [ ] Fix Defect B (rewrite the stale flock comment, and the separate stale "any Claude process
+  anywhere" claim in the same comment block, per `checkpoint-specs-review.md` Finding 9).
+- [ ] Fix Defect C (`write_status` must set `state` from its actual liveness, not a hardcoded string).
+- [ ] Migrate S2's guard block to the shared library, keyed on `"sync"`.
 - [ ] Decide whether `sync-current-watch.sh` gets folded into this spec or its own.
 
 Most of this spec documents what already exists. **The guard mechanism in S2 (`sync-main-watch.sh`) is
@@ -123,22 +129,38 @@ unconditionally. Fix: pass `--origin-pid "$PPID"`, same verification caution as
 `checkpoint-capture-spec.md` S6 (confirm `$PPID` inside this hook's execution context really is the
 Claude session's own pid).
 
-**S2 — `sync-main-watch.sh` (continuous watcher, guard mechanism forward-looking).** Polls
-`git ls-remote upstream main` every 60s (a ref query only — cheap, no fetch unless the SHA actually
-moved); on a real change, fetches, `merge --ff-only` (never a merge commit; a non-fast-forward means
-main has diverged and needs a human, so the push is skipped entirely rather than attempted), then pushes
-to `origin/main`. Writes `session/status/main.md` every pass via `write_status()`, and via a `trap ...
-EXIT` on any exit path (so a killed or crashing watcher still leaves an accurate "stopped" status, not a
-stale "watching" one that lies about liveness). `--origin-pid <pid>` dead-man's-switch, unchanged, stays
-exactly as designed — checked with `kill -0` each poll, one final sync before exiting when the origin is
-gone. **Guard mechanism changes**: today this script inlines its own `mkdir`/`pgrep`/mtime-only
-staleness block (lines 31-55), identical in shape to the ones already flagged for extraction in
-`checkpoint-capture-spec.md` S0. Per Addendum 10, must be rewritten to source
-`single-instance-guard.sh` and call `guard_acquire`/`guard_release`, gaining the pid-based staleness
-check and the handle-registry drop as a byproduct, exactly like `checkpoint-capture-spec.md`'s S2/S4.
-This is the third confirmed site of the same duplicated block (alongside `session-snapshot.sh` and
-`tick-shared-scan.sh`) — three independent copies of the identical ~20-line guard, now one shared
-consumer count for `single-instance-guard.sh`.
+**S2 — `sync-main-watch.sh` (continuous watcher, guard mechanism forward-looking, contains Defect C).**
+Polls `git ls-remote upstream main` every 60s (a ref query only — cheap, no fetch unless the SHA
+actually moved); on a real change, fetches, `merge --ff-only` (never a merge commit; a non-fast-forward
+means main has diverged and needs a human, so the push is skipped entirely rather than attempted), then
+pushes to `origin/main`. Writes `session/status/main.md` every pass via `write_status()`, and via a
+`trap ... EXIT` on any exit path.
+
+**Contains Defect C, found in design review (`checkpoint-specs-review.md` Finding 4), not by the
+planner directly.** `write_status()` hardcodes `state: watching` unconditionally (its own line 69) —
+`cleanup() { write_status "stopped" ...; }` passes `"stopped"` as the `step` parameter, which lands in
+`current_step`, never in `state`. **The trap does NOT make the status honest** — after any exit,
+clean or crashed, the file still reads `state: watching`. This matters beyond cosmetics:
+`sync-main-session-start.sh`'s own auto-start success check (`grep -q '^state: watching'`) will report
+success for a watcher that has already crashed. Fix: `write_status` must actually set the `state` field
+from its own `step`/liveness argument, not a fixed string.
+
+`--origin-pid <pid>` dead-man's-switch, unchanged, stays exactly as designed for the kill-switch —
+checked with `kill -0` each poll, one final sync before exiting when the origin is gone. **Guard
+mechanism, corrected 2026-08-16 — keyed on a logical role, not a session or a pid.** This script (like
+`tick-shared-scan.sh` in `checkpoint-capture-spec.md` S4) is run by whichever session currently acts as
+**sync** — per Dean, verbatim: *"both sync-main and tier-2 tick are run by sync__ — that is a logical
+id not a Claude session id. Whoever runs, runs under that ID."* Today this script inlines its own
+`mkdir`/`pgrep` block keyed on `$origin_pid` (lines 31-55) — the wrong key, same class of error
+addendum-10 retracted for the per-session scripts, just wrong for a different reason here (this
+script's own identity isn't per-session at all). Per Addendum 10's corrected design, must be rewritten
+to source `single-instance-guard.sh` and call `guard_acquire "sync-main-watch" "sync"` (the fixed role
+constant, same one `tick-shared-scan.sh` uses) — a different sync session resuming ownership recognizes
+"already running" by matching the same constant, not any session-specific value. This is the third
+confirmed site of the same duplicated guard block (alongside `session-snapshot.sh` and
+`tick-shared-scan.sh`) — three independent copies, now one shared consumer count for
+`single-instance-guard.sh`, two of the three keyed on the `"sync"` role constant and one keyed on
+`session_id`.
 
 **S3 — `sync-main-once.sh` (one-shot, no guard needed, no defect found).** Same fetch/`ff-only`-merge/
 push work as S2's `sync_pass()`, without a loop and without `--origin-pid` — a single invocation is its
