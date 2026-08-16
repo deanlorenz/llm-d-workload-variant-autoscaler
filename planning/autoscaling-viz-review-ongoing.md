@@ -11,12 +11,13 @@
 
 ## TOC {#toc}
 
-- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L21:75
-- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L76:133
-- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L134:146
-- [2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}](#2026-08-14--version-stamp-renders-part-11b-870fff6d-no-trigger-yet-session-2026-08-14-stamp) L147:208
-- [2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}](#2026-08-15--per-panel-corner-info-allocation-062c1071-session-2026-08-15-corner) L209:275
-- [2026-08-15 — panel 3 visual scheme (`b7920cd3`) {#session-2026-08-15-panel3-visual}](#2026-08-15--panel-3-visual-scheme-b7920cd3-session-2026-08-15-panel3-visual) L276:351
+- [2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}](#2026-08-13--panel-6-redesign-3f12aaa1-session-2026-08-13-panel6) L22:76
+- [2026-08-13 — drain-window fix (`e188d244`) {#session-2026-08-13-drain}](#2026-08-13--drain-window-fix-e188d244-session-2026-08-13-drain) L77:134
+- [2026-08-13 — backlog rerun (`cf76a238`, no trigger) {#session-2026-08-13-backlog}](#2026-08-13--backlog-rerun-cf76a238-no-trigger-session-2026-08-13-backlog) L135:147
+- [2026-08-14 — version-stamp renders, Part 1/1b (`870fff6d`, no trigger yet) {#session-2026-08-14-stamp}](#2026-08-14--version-stamp-renders-part-11b-870fff6d-no-trigger-yet-session-2026-08-14-stamp) L148:209
+- [2026-08-15 — per-panel corner-info allocation (`062c1071`) {#session-2026-08-15-corner}](#2026-08-15--per-panel-corner-info-allocation-062c1071-session-2026-08-15-corner) L210:276
+- [2026-08-15 — panel 3 visual scheme (`b7920cd3`) {#session-2026-08-15-panel3-visual}](#2026-08-15--panel-3-visual-scheme-b7920cd3-session-2026-08-15-panel3-visual) L277:353
+- [2026-08-16 — panel 4 KV%-heatmap repurpose + visual follow-up (`0a2be3be` + `f92d3c19`) {#session-2026-08-16-kv-heatmap}](#2026-08-16--panel-4-kv-heatmap-repurpose--visual-follow-up-0a2be3be--f92d3c19-session-2026-08-16-kv-heatmap) L354:472
 
 ## 2026-08-13 — panel 6 redesign (`3f12aaa1`) {#session-2026-08-13-panel6}
 
@@ -347,5 +348,125 @@ the reviewer's side, not a defect claim — the source-level check (item 2 above
 scan, which is the part most likely to be wrong and was checked directly against the interpreter.
 Low priority: worth a look next time this panel is touched with a run/crop that has a taller isolated
 waiting segment, not worth a re-render cycle on its own.
+
+[↑ TOC](#toc)
+
+## 2026-08-16 — panel 4 KV%-heatmap repurpose + visual follow-up (`0a2be3be` + `f92d3c19`) {#session-2026-08-16-kv-heatmap}
+
+**Reports:** `plan__autoscaling-viz-panel4-kv-heatmap-done.md` (for `0a2be3be`) +
+`plan__autoscaling-viz-panel4-followup-done.md` (for `f92d3c19`) — no `review__` trigger was filed
+for either; both were routed as `plan__` reports per the coder's own "not marking push-ready, needs
+Dean's visual sign-off" instruction, and reviewed here as one combined unit per the planner's explicit
+direction, since the second commit is execution-polish on the first with no design questions
+reopened. **Plans:** [`autoscaling-viz-panel4-kv-heatmap-plan.md`](autoscaling-viz-panel4-kv-heatmap-plan.md)
+(original spec) + [`autoscaling-viz-panel4-heatmap-followup-plan.md`](autoscaling-viz-panel4-heatmap-followup-plan.md)
+(6-item visual follow-up).
+
+**Verdict: functionally correct, all items from both specs verified present and working as
+specified. One real (currently latent, not push-blocking) defect found: an undefined name that would
+raise `NameError` if ever reached — see below. Not re-litigating the heatmap concept per the
+planner's framing; this review checked execution against both specs only.**
+
+**Original spec (`0a2be3be`) — verified point by point:**
+
+- **Retirement is genuinely complete**, not deprecation-in-place: grepped the post-commit file for
+  every symbol the old panel 4 used (`q_engine`, `q_dispatch`, `q_flow`, the `drawn` flag, the
+  `'INTERIM...'` title string) — zero hits outside unrelated comment prose in other panels. The old
+  three-series queue plot and its `empty(...)` message are both gone; the new empty-state message
+  (`'no metrics/raw/ scrapes — per-pod KV% unavailable'`) replaces it correctly.
+- **Layout/data source**: one `imshow` row per pod, `kv` field read directly from each pod's
+  `series`, matching the spec's "nothing new to extract" claim — confirmed the field is populated
+  end-to-end via `extract_real_trace.py`'s existing `GAUGE['kv']` mapping, not a new extractor commit.
+- **Color scale anchored at `k_sat`, not linear [0,1]**: `LinearSegmentedColormap.from_list` called
+  with `(0.0, white), (k_sat, green), (1.0, red)` — **independently checked the API against
+  matplotlib's own docstring** (`inspect.signature`/`getdoc`) rather than trusting the code comment:
+  `from_list` genuinely accepts `(value, color)` pairs with values increasing monotonically 0→1, so
+  the three-tuple anchoring is valid, documented usage, not a lucky accident.
+- **Dead/live distinction**: `None` cells render as an explicit `to_rgba('#d1d5db')` gray, distinct
+  from a real 0.0's white — confirmed visually on both a 15-pod run (`m-satta-dwell`, re-rendered
+  fresh at this review's own tip, see below) and an existing 2-pod bundle
+  (`real-trace/staircase-20260803/bundle.json`) rendered fresh for this review as an independent
+  backward-compat check (the coder's own claim, re-run rather than trusted) — no crash, gray/live
+  distinction holds at both pod-count extremes.
+- **Average line + colorbar**: `twinx()` overlay with ticks/label hidden (avoiding the collision the
+  commit message describes catching by eye), colorbar present and labeled with the `k_sat` value
+  baked into the label text. Both visible and legible on the full re-render.
+- **Panel 3 average line**: added on its own `twinx()`, `run_tot`/`live_count` computed inline,
+  reuses the existing per-pod loop rather than a second pass over the data — reasonable, no
+  duplicate iteration introduced.
+- **What NOT to change**: grepped the diff against panel 5's own code block and `pod_drain_windows()`
+  — neither touched; the diff's insertions land entirely before panel 5's comment marker. Panel 3's
+  existing stack/hatch/color calls are untouched by this commit (the line addition is a pure
+  insertion after the existing waiting-band block, per the diff).
+
+**Follow-up spec (`f92d3c19`) — all 6 items independently verified, mostly by re-rendering rather
+than reading the diff:**
+
+Re-extracted and re-rendered `m-satta-dwell` fresh against this review's own checkout of tip
+`f92d3c19` (not reusing the coder's own render) — `coverage.json`'s `extractor_sha` confirmed
+`f92d3c19`, matching `git rev-parse --short HEAD` at render time.
+
+1. **Row separators**: confirmed at 2x-3x crop zoom — a visible thin horizontal line at every row
+   boundary, all 15 rows crisply distinguished, not just antialiasing.
+2. **Scale-up row ordering**: **independently recomputed the expected row-label sequence from the raw
+   bundle**, not by eyeballing the render — read every pod's first-sample `t` out of
+   `bundle.json['pods']`, sorted ascending, mapped through the same alphabetical `pod_num` scheme
+   panel 3 uses (`sorted(pods.items())`, 1-indexed). Got
+   `[10, 11, 13, 14, 3, 1, 7, 5, 4, 2, 12, 6, 8, 15, 9]` — **exact match** to the row labels read off
+   the rendered heatmap, top to bottom. Confirmed panel 3's own legend line
+   (`1=2qvfm 2=2vxwj ... 15=w2sm2`) is byte-identical to the pre-existing scheme, i.e. `pod_num` was
+   not resequenced globally — only panel 4's row position changed, exactly as the spec required.
+3. **Outlier styling**: confirmed at high zoom — solid gold/amber (`#eab308`) rectangle outlines, no
+   hatch, clearly distinct from the shared ink/red/blue dashed `axvline`s and from every cell's own
+   green/red/white/gray fill. Not confusable with a decision-event line at any zoom level tried.
+4. **Panel 3 line color**: confirmed solid red (`#dc2626`), not dotted black.
+5. **Secondary-axis zero alignment**: confirmed visually — panel 3's primary (0-800, "requests") and
+   secondary (0-20+, "mean running/pod") axes both bottom out at the same height; the line correctly
+   touches the shared zero baseline during the run's wind-down, matching `d3.set_ylim(bottom=0)` in
+   the diff.
+6. **Panel 6 label overlap**: confirmed on the exact region the plan cites (t≈150-350) — 4 labels
+   (`T2-default`, `P3-k2`, `P1-obs`, `P2-hist`) land close together in time and are cleanly staggered
+   onto different vertical offsets, no overlapping text at any zoom level tried.
+
+**The infinite-loop bug fix (caught by the coder, not shipped) — spot-checked, not re-litigated**:
+the diff's `float('-inf')` sentinel replacing a `-min_label_gap` default is correct reasoning (no real
+`x - min_label_gap` can be more negative than negative infinity, whereas a record before the bundle's
+own `t0` genuinely can be more negative than a finite `-min_label_gap`) — this matches the commit
+message's own explanation exactly and needed no independent reproduction; the fix is narrow and
+obviously sufficient, and the coder already root-caused it methodically (bisected against the prior
+commit, instrumented per-panel timing) rather than guessing.
+
+**Real finding — undefined name `SAT` at `render_real_trace.py:874`, in the new panel-4 code:**
+
+```python
+k_sat = sat.get('threshold') or SAT
+```
+
+`SAT` is never defined, imported, or assigned anywhere in `render_real_trace.py` — confirmed by an
+AST walk of the module's top-level assignments and imports, not just a text grep (to rule out e.g. a
+conditional or aliased definition). If `sat.get('threshold')` is ever falsy (`None`, missing key, or
+literally `0`), this line raises `NameError: name 'SAT' is not defined`, crashing the render.
+
+**Why this hasn't fired on any run tried so far, and won't on any bundle from the current
+extractor**: `extract_real_trace.py` has its own `SAT = 0.85` module constant, and its `sat_band()`
+function (line 963) **unconditionally** sets `'threshold': SAT` in both of its return branches — the
+empty-band case (`{'threshold': SAT, 'n': 0}`) and the populated case. Confirmed on two independent
+bundles, one fresh (`m-satta-dwell`, this review's own extract) and one pre-existing/older
+(`real-trace/staircase-20260803/bundle.json`, extracted well before this commit) — both have
+`sat_band.threshold == 0.85`, always present, always truthy. So on every bundle this codebase
+currently produces, the `or SAT` branch is dead code that happens to never execute — a real defect,
+but latent rather than live. It would surface the moment `sat_band()`'s own always-populate contract
+ever changes (a future refactor, or a bundle produced by some other/older extractor version that
+didn't guarantee a `threshold` key). Likely origin: `render_real_trace.py`'s own copy of this pattern
+(`sat = der.get('sat_band') or {}` then reading `.get('threshold')`) elsewhere in the file probably
+had a real local `SAT` fallback constant in mind, copied by analogy into the new panel-4 code without
+carrying the constant itself along.
+
+**Not independently re-derived:** the exact numeric outlier-marking threshold's tuning quality (the
+spec's own "provisional, expect it may need adjusting" framing) — checked that the rule fires
+correctly (population stdev, `>` not `>=`, skips when `sd <= 0` or fewer than 2 live pods) and that
+its visual result is legible, but did not independently judge whether one-stdev is the "right" bar
+for what counts as an outlier on this data — that's a Dean visual-call, matching the spec's own
+framing, not a correctness question this review can settle.
 
 [↑ TOC](#toc)
