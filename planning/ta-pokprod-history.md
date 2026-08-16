@@ -1450,3 +1450,13 @@ ambiguity so this can't recur silently.
 D-59/D-61/D-66 all landed addressed to the autoscaling-viz scope instead of this one, despite
 each build/test/batch being scoped and triggered here. Escalating as its own item rather than
 re-flagging individually going forward.
+
+---
+
+## D-67 | 2026-08-16 | topic:stage-a-launched | src:ta-pokprod-clean-recapture-plan.md
+
+**Stage A launched — Dean said "start it."** Handed to the benchmark coder: fix the log-capture
+wiring first (D-63 option (a)), prepend the 4-5 min warmup, rerun the gap-affected workloads fresh
+— dwell (3 configs), calibration-probe (3 configs), the p4 variant. Add exploratory
+instrumentation liberally. `dean-20260813-005321-943` is not re-run (already resolved via
+re-harvest, D-66) — Stage A is new cluster work only. Existing 21-leaf dataset untouched.

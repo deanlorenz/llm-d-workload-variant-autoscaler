@@ -1,8 +1,8 @@
 # TA on pokprod — Clean recapture campaign (Type 3)
 
-**Status:** SCOPED, Dean-approved 2026-08-16, not yet executed. Supersedes nothing — the existing
-21-run-leaf dataset stays on disk and cited as-is; this is a fresh, deliberately staged re-run to
-get a clean dataset with warmup + fixed log capture, not a correction to prior results.
+**Status:** Stage A LAUNCHED 2026-08-16 ("start it"), coder has it. Supersedes nothing — the
+existing 21-run-leaf dataset stays on disk and cited as-is; this is a fresh, deliberately staged
+re-run to get a clean dataset with warmup + fixed log capture, not a correction to prior results.
 
 **Companion docs:** [`ta-pokprod-roadmap.md`](ta-pokprod-roadmap.md) (Type 2 — this is Phase 9) ·
 [`ta-pokprod-history.md`](ta-pokprod-history.md) (D-63/D-64 — the gaps this campaign fixes) ·
