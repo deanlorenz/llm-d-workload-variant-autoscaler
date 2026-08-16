@@ -30,15 +30,15 @@ read-only reference — only the three command definitions were taken)
   - [6.3 Best-effort nudge — decided 2026-08-15](#63-best-effort-nudge--decided-2026-08-15) L290:310
 - [7. Worktree exit is load-bearing](#7-worktree-exit-is-load-bearing) L311:336
 - [8. Permission grants and why each absence is deliberate](#8-permission-grants-and-why-each-absence-is-deliberate) L337:388
-- [9. Forward work — documented, not built](#9-forward-work--documented-not-built) L389:434
+- [9. Forward work — documented, not built](#9-forward-work--documented-not-built) L389:438
   - [9.1 `SubagentStop` hook for genuine flush-on-termination](#91-subagentstop-hook-for-genuine-flush-on-termination) L391:410
-  - [9.2 `s-note` cleanup](#92-s-note-cleanup) L411:421
-  - [9.3 Open questions](#93-open-questions) L422:434
-- [10. Lifecycle boundary](#10-lifecycle-boundary) L435:447
-- [11. First-use findings (2026-08-15, day of landing)](#11-first-use-findings-2026-08-15-day-of-landing) L448:529
-  - [11.1 What was confirmed working](#111-what-was-confirmed-working) L454:484
-  - [11.2 The real gap: report compliance is not enforceable from inside the skill](#112-the-real-gap-report-compliance-is-not-enforceable-from-inside-the-skill) L485:518
-  - [11.3 Still untested](#113-still-untested) L519:529
+  - [9.2 `s-note` — CLOSED 2026-08-17, full redesign rather than cleanup](#92-s-note--closed-2026-08-17-full-redesign-rather-than-cleanup) L411:425
+  - [9.3 Open questions](#93-open-questions) L426:438
+- [10. Lifecycle boundary](#10-lifecycle-boundary) L439:451
+- [11. First-use findings (2026-08-15, day of landing)](#11-first-use-findings-2026-08-15-day-of-landing) L452:533
+  - [11.1 What was confirmed working](#111-what-was-confirmed-working) L458:488
+  - [11.2 The real gap: report compliance is not enforceable from inside the skill](#112-the-real-gap-report-compliance-is-not-enforceable-from-inside-the-skill) L489:522
+  - [11.3 Still untested](#113-still-untested) L523:533
 
 ## 1. What this is and why it exists
 
@@ -408,14 +408,18 @@ designed here; auto-firing a write-capable skill needs its own thinking.
 
 [↑ TOC](#toc)
 
-### 9.2 `s-note` cleanup
+### 9.2 `s-note` — CLOSED 2026-08-17, full redesign rather than cleanup
 
-The existing narrow skill (`/s-note <plan-doc> <text>`) is the one-decision case of park. Two known defects,
-neither urgent:
-
-- its handoff body uses the **pre-redesign format** (`to: plan-agent`, `body:`) rather than the current
-  three-line `from:`/`to:`/`session:` convention
-- its grants include `Bash(git -C plans *)` — the exact wildcard § 8 rules out, including `git rm`
+Both known defects (pre-redesign handoff format; the `Bash(git -C plans *)` wildcard) are moot: Dean asked
+for a genuinely different mechanism, not a fix to the old one, and both defects were in the old mechanism
+entirely. New shape: `/s-note` (no plan-doc argument — that was the old design's core limitation, forcing
+every note into one fixed destination) takes a fenced block, splits it into independent sub-notes, and
+routes each one using the **same routing table `/s-state-park` Step 4 already uses** — own doc, `sync__`
+handoff, `plan__` handoff, or memory — asking via `AskUserQuestion` when a sub-note's home is genuinely
+ambiguous, per Dean's explicit instruction not to guess. Grants dropped the wildcard entirely in favor of
+plain CWD git with explicit pathspec commits, matching every other skill in this family. Kept
+model-invocable (not restricted to Dean-only) — closer in spirit to park (a session may reasonably want to
+jot something on its own initiative) than to sweep/consolidate's Dean-only gate.
 
 [↑ TOC](#toc)
 
