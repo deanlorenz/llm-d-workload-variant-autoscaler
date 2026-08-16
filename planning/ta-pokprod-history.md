@@ -1360,3 +1360,38 @@ Finding 2's numbers unchanged by this fix.
 **Validates the render-check exercise directly:** this bug was invisible to every text-only
 verification pass (counts, field shapes) and only surfaced as a visual/temporal pattern once the
 output was actually viewed — the concrete case for "did you run viz to see the result" mattering.
+
+---
+
+## D-63 | 2026-08-16 | topic:log-truncation-root-caused,harvest-vs-follower-wiring-gap | src:plan__log-truncation-live-gap-confirmed.md
+
+**The stage-0 truncation (D-59) is a LIVE gap, root-caused precisely — T9's fix exists but was
+never connected to the path that actually runs.** The gateway-log-follower (T9, D-27) has been
+running since before this run and its PVC capture has the complete trace (21,122 vs the harvest's
+19,388 — matches the profile's expected 21,120). The post-run harvest
+(`capture_infrastructure_logs`/`capture_label_logs` in `kube_helpers.py`) still runs a plain
+`kubectl logs` against the gateway pod's own stdout — exactly the rotation-vulnerable path the
+follower exists to bypass — and nothing wires the harvest to read from, or fall back to, the
+follower's durable copy. T9 landed a correct second path without connecting it to the one that
+gets used. **Not fixed — three options identified (point harvest at the follower's PVC file;
+fall back to it on a count mismatch; fix upstream in `kube_helpers.py` vs. benchmark-side), none
+decided, Dean's design call.** Practical near-term unblock: the follower's PVC file has the
+complete trace right now — a one-off re-harvest for `dean-20260813-005321-943` specifically is in
+progress, separate from the wiring decision.
+
+## D-64 | 2026-08-16 | topic:one-off-reharvest,batch-extraction-scoped,viz-verify-asked | src:this session
+
+**Three actions taken from viewing the post-fix render (D-62) together with Dean.** (1) One-off
+re-harvest handed to the coder: pull the follower's complete PVC trace for
+`dean-20260813-005321-943` specifically, re-run `estimate_per_request.py` against it — closes the
+stage-0 gap for this run without waiting on the D-63 wiring decision. (2) Full inventory checked
+directly: 7 of 21 run-leaves already have real non-empty per-request lifecycle data (estimation
+unneeded); 14 have neither real data nor an estimate — handed to the coder as a batch, explicitly
+excluding `dean-20260813-005321-943` (handled by the re-harvest instead, to avoid double-
+processing with stale harvested data). (3) **Confirmed a real process gap and fixed it: viz-
+panels-planner was never asked to verify the corrected estimate through their own toolchain** —
+my own render-check (D-60/D-62) was a rough scratch sanity check, not the real pipeline. Asked
+directly, including Dean's own "red density" observation from viewing the rough render (checked
+myself first: stage 4 spans 7 distinct TTFT buckets across 2430 requests, a plausible density
+effect of more requests over the same bucket count rather than an obviously distinct bug — not
+declared resolved, handed to viz to judge through the real panel).
