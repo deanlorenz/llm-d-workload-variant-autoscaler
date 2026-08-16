@@ -279,3 +279,57 @@ holds: no run without Dean's explicit approval.
 2. Dean approves the run. Coder runs it, then `post_run_analyze.sh` immediately.
 3. Dwell deep-dive session's own findings (§3 above) determine whether a longer run is the next
    experiment, or whether the forecast-gap work supersedes running more dwell attempts.
+
+---
+
+## state-park report — 2026-08-16/17
+
+```
+state-park — pokprod-benchmark-execution scope, end-of-session flush
+
+Subagent addresses recorded (2a):
+  - vLLM/EPP metric survey — id: a8351539ecd1d9127 — completed — asked: does vLLM or EPP
+    expose any per-request-granular TTFT/output-size signal beyond aggregate histograms
+    output: none (findings relayed via SendMessage reply, already fully folded into D-57
+    in ta-pokprod-history.md — nothing further to reference)
+Nudges sent (2b): none running — no agent of mine was in flight at park time.
+
+Sources read this pass:
+  - planning/ta-pokprod-history.md — checked tail against last commit to find the real gap
+  - planning/ta-pokprod-open-scenarios.md § Priority triage — checked item 11's actual state
+  - git log (this worktree) — confirmed last commit wasn't mine, isolated what's unflushed
+  - ListAgents — confirmed no subagent of mine is currently live
+
+Not read (and why):
+  - ta-pokprod-architecture-design.md / -execution-plan.md / -clean-recapture-plan.md /
+    -roadmap.md / envoy-per-request-recovery-tool-plan.md / workload-coverage.md /
+    scratch-tools-cleanup-plan.md — all already current as of their last commits this
+    session (D-58 through D-71), no new content found for them this pass
+  - Every session/status/*.md and session/handoffs/* shown modified/deleted in git status —
+    owned by other active sessions, out of scope to read or touch
+
+Written to:
+  - planning/ta-pokprod-history.md — new D-72 entry (handoff git-tracking finding, Dean's
+    ruling, hand-off-and-close outcome)
+  - planning/ta-pokprod-open-scenarios.md § Priority triage — new row 11, closed
+
+Handoffs emitted: none this pass (D-72's own handoff was already sent/consumed before park started)
+
+Committed:
+  - adf5d2e4 state(park): pokprod handoff-tracking finding — D-72 flushed to ledger, checklist item 11 closed
+
+Worktree exit: was never in a worktree this session — skipped, not performed.
+
+Verified from final location:
+  - planning/ta-pokprod-history.md — D-72 present (tail of file)
+  - planning/ta-pokprod-open-scenarios.md — row 11 present
+  - commit adf5d2e4 — visible in `git log -1`
+
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not touch any other session's modified/deleted files shown in git status, despite
+    the working tree being messy with their in-flight work — not mine to stage or clean up.
+  - Did not act on any of the still-open priority-triage items (1, 3, 4, 6, 7, 9, 10, 12/Stage B)
+    — all correctly remain open, awaiting Dean or another owner, not resolved by this park.
+  - Did not run /s-state-sweep despite the doc set being large — no drift suspected this pass,
+    all docs were already internally consistent as of their last commits.
+```
