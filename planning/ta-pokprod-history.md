@@ -1528,5 +1528,17 @@ explicit target on a specific NS should not block") is already true of `benchmar
 `env_guard.py` for anything routed through a Makefile target — traced the code directly. The real
 gap is exactly what the coder found above: bare verification/teardown calls that never go through
 the guard at all. Fix agreed: pin `--context` explicitly on every such call, formalized as a
-standing pattern (not just this session's ad-hoc fix) — not yet written into the architecture doc,
-next step.
+standing pattern (not just this session's ad-hoc fix) — written into the architecture doc §2 in
+[[D-69]], same pass.
+
+---
+
+## D-70 | 2026-08-16 | topic:parallelism-flag-name-closed | src:plan__harness-parallelism-flag-name-resolved-by-cell7.md
+
+**Closes the 3-day-old flag-name question from D-42.** No mismatch: `LLMDBENCH_PARALLELISM` →
+`--parallelism`/`-j` is the correct, working flag, confirmed both statically (`cli.py:822`) and
+live (Stage A cell 7's real 4-pod run, D-69). `LLMDBENCH_HARNESS_LOAD_PARALLELISM` remains a
+separate, report-layer-only value (`native_to_br0_1.py`/`native_to_br0_2.py`) — a different thing
+with a similar name, not an alias. No wiring proposed into `run_cell.sh`/`.env` — cell 7
+deliberately used a one-off wrapper per Dean's own scope call; first-class `--parallelism` support
+is a separate future ask if wanted.
