@@ -540,21 +540,38 @@ not a mechanical fixture fix, and they cover ground `main` currently has zero co
 generalization, plus the two corner cases above).
 
 **Q2 — is the suspected bug still live** (anticipated supply in the denominator, not counted toward
-achieved)? **Unresolved, and now with a documented contradiction.** The formula itself —
-`RequiredCapacity = TotalDemand/scaleUp − TotalAnticipatedSupply` in `applyUniversalThreshold`
-(`saturation/engine_v2.go`) — is **byte-identical across the dormant branch, `main`, and PR-2**;
-neither refactor touched it. The optimizer-side code this doc's D1 finding cited
-(`analyzer_helpers.go:307-354` on the dormant branch, the `achievedByRole` reconstruction) was
-rewritten away by `main`'s new `allocateForModelPaired`, so **that specific line-level citation is
-dead** — but the same conflation persists one layer up: `main`'s `demand` (denominator of
-`utilByRole`) is seeded from `RequiredCapacity`, which already has anticipated supply subtracted at
-the source, so anticipated supply still shrinks the remaining-demand target rather than adding to
-an achieved numerator — the same shape Open issue #2 describes, reached through a different path.
-**Countervailing evidence this may not be a bug at all:** `ta-anchor-dynamic-refresh-plan.md:1689-
-1695` states, from a separate investigation into this exact formula, *"The engine's threshold
-post-step is correct and is not the bug... do not 'fix' it... Recorded because the opposite
-conclusion was reached once and abandoned."* This is a genuine, unresolved disagreement between two
-planning threads, not a stale finding to quietly close.
+achieved)? **CORRECTED 2026-08-17 — Dean flagged the first pass as wrong; direct code diff against
+PR-2 confirms the bug is gone, not merely relocated.** The first pass claimed "the same conflation
+persists one layer up" in `main`'s rewritten code and cited `ta-anchor-dynamic-refresh-plan.md:1689-
+1695` as a contradicting counter-opinion. Both claims were wrong, from conflating two unrelated
+passages that each happen to use the word "denominator": line 1689 is about the k_sat/watermark
+separation (§2e.1, TA vs. saturation "full" definitions) — a different question entirely, not a
+ruling on this bug.
+
+**The actual, verified answer: D1's specific numerator/denominator construct no longer exists in
+either `main` or PR-2, and the successor code does not reproduce the drop.** D1
+(`optimizer-coordination-design.md:432-447`) is precisely about `achievedByRole := (supplyByRole +
+committed) / denom` (dormant branch `analyzer_helpers.go:353`), where the numerator used
+`TotalSupply` (current-only) instead of `TotalAnticipatedSupply` (current+pending) — so booting
+replicas were dropped from `achieved`. Direct diff of `analyzer_helpers.go` between `main` and the
+PR-2 branch (`ta-anchor-dynamic-refresh`) shows `allocateForModelPaired` was **further rewritten by
+PR-2 itself**, beyond `main`'s already-rewritten version this doc's first pass compared against:
+`roleAggRemaining` no longer returns a `max()` across all analyzers' `pickerState` (the shape D1's
+diagnosis assumed) — it now calls `combineVotes` to find the one analyzer actually winning the vote
+for that specific variant/role, and returns *that analyzer's own* remaining demand directly, no
+`achievedByRole`/`denom`/numerator reconstruction anywhere. A new `refreshAnchorSizing` function
+also re-syncs the anchor's sizing fields per-cycle from whichever analyzer is currently winning.
+None of this constructs the numerator D1 flagged as wrong, so there is nothing left for the "drops
+booting/pending supply" defect to apply to. **This is a real design change on PR-2 (labeled "Bug #2"
+in that plan doc, §2d — a different, unit-mixing fix, not a restatement of D1), and it happens to
+also retire D1's construct as a side effect**, not because PR-2 set out to fix D1 by name.
+
+**Practical consequence:** D1 does not need tracking as a live, open bug against current code —
+the code it describes doesn't exist anymore, on either `main` or PR-2. What remains genuinely open,
+if anyone wants to close the loop formally, is confirming PR-2's new `roleAggRemaining`/
+`refreshAnchorSizing` shape is itself correct (i.e., that finding the vote-winner and reading its
+remaining demand directly is equivalent to, or better than, the clean model's "achieved = current +
+anticipated + committed" framing) — that is a fresh design question, not a re-litigation of D1.
 
 **Q3 — does the clean-design model in `optimizer-coordination-design.md` still hold?**
 **Partially.** The supply taxonomy and its data-layer mapping (`aggregation.go`'s `SumTotalSupply`/
