@@ -124,6 +124,22 @@ printf 'transcript: %s\n' "$file" >&2
 [ -n "$since" ] && printf 'since: %s\n' "$since" >&2
 
 out=$(jq -r --arg since "$since" '
+  # Strip NUL bytes from the text before anything downstream sees them. Bash command
+  # substitution ($(...)) cannot represent a NUL byte -- it silently truncates the
+  # captured string at the first one, non-deterministically (a repro attempt saw 0 or
+  # all 124 heading matches for the identical input across different runs, timing-
+  # sensitive). A transcript with any binary tool-result content embedded (an image
+  # is the likely source) can carry NUL bytes in an otherwise-normal turn message
+  # field, and this scripts own output is captured via $(...) by every caller
+  # (session-snapshot.sh pass()). Sanitize here, once, at the source, rather than in
+  # every consumer. Found 2026-08-16 (plan__session-snapshot-nul-byte-content-corruption.md);
+  # a live re-check that day found the specific cited transcript no longer carrying
+  # any NUL bytes in message.content, so the mechanism is confirmed real (Bash
+  # command substitution genuinely truncates on NUL) but not re-confirmed as the
+  # actual cause of that report -- keeping the fix regardless, since it is a real,
+  # zero-cost hazard to close. No apostrophes in this comment block -- it lives
+  # inside a single-quoted bash string passed to jq.
+  def strip_nul: gsub("\u0000"; "");
   # Two record shapes carry what the user actually said, and missing the second one
   # silently drops whole decisions:
   #   type=="user" with a plain-string content  -> a normal turn
@@ -135,11 +151,11 @@ out=$(jq -r --arg since "$since" '
     if .type=="user"
        and ((.message|type)=="object")
        and ((.message.content|type)=="string")
-    then {ts: .timestamp, mid: false, text: .message.content}
+    then {ts: .timestamp, mid: false, text: (.message.content | strip_nul)}
     elif .type=="queue-operation" and .operation=="enqueue"
          and ((.content|type)=="string")   # some carry a null content; without this
                                            # guard startswith() below aborts the run
-    then {ts: .timestamp, mid: true,  text: .content}
+    then {ts: .timestamp, mid: true,  text: (.content | strip_nul)}
     else empty
     end
   # "dequeue" and "remove" also carry content: dequeue would duplicate the enqueue,
