@@ -10,3 +10,19 @@ session/status/main.md
 session/digests/*.raw.md
 session/digests/.*.mark
 session/digests/.*.log
+
+# Handoffs are ephemeral coordination, not permanent artifacts, per CONVENTIONS.md's own
+# framing: "need not be committed by the submitting session... the sync session reads
+# uncommitted handoff files directly," and .DONE files are meant to be git rm'd, not kept.
+# The .md/.WIP/.DONE state transitions happen via bare mv (never git mv), so a broad
+# git add/commit that happens to sweep this directory records an unrelated delete+add pair
+# rather than a tracked rename -- accidentally tracked, not deliberately. Dean's ruling
+# (2026-08-16, plan__handoff-git-tracking-inconsistency-found.md): "These are pointers
+# anyway. The sync__ handoff should track the important history" -- the durable record
+# belongs in CURRENT.md and each scope's own Type-3 docs, not in a handoff file's git log.
+# NOT retroactive: the ~439 handoff files already tracked as of 2026-08-16 stay tracked,
+# no history rewrite. This only stops NEW accidental tracking going forward.
+session/handoffs/*.md
+session/handoffs/*.md.WIP
+session/handoffs/*.md.DONE
+session/handoffs/*.md.RETRACTED
