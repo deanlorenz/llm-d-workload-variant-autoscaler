@@ -59,7 +59,40 @@ on two simultaneous launches (4/4) when this class of bug was present.
 explicit third argument — and must state the `$$` constraint explicitly rather than relying on a coder
 inheriting an unstated invariant from the original inline code.
 
-### Finding 2 (must fix, needs Dean) — the guard's lifetime is undecided, and everything downstream depends on the answer
+### Finding 2 — RESOLVED 2026-08-16, differently than either branch this finding offered
+
+**Original finding (below the line) assumed the pid-keyed premise; that premise is retracted, not
+just the lifetime question it raised.** Dean walked through the actual semantics directly rather than
+picking between this finding's two branches: *"what semantics do we want? exactly one script running
+per session? at least one? at most one? what are we protecting?"* — settled as **at most one**, per
+session for `session-snapshot.sh`, per logical role for `sync-main-watch.sh`/`tick-shared-scan.sh`.
+Root cause found by inspecting a real running process (pid `16342`, alive since 2026-08-13): it has
+**no `--origin-pid` at all**, confirming `--origin-pid` identifies a Claude *process*, not a Claude
+*session* — a pid-keyed lock cannot express "one copy per session, for its whole life," which is the
+actual semantic needed, regardless of which of this finding's two lifetime branches was chosen.
+
+**Resolved shape: the guard stays released-at-startup (this finding's first branch), but the entire
+pid-based staleness design is retracted, not merely "barely improving."** Once the identity key is
+`session_id` (or a fixed role constant for the two shared-instance scripts) instead of a pid, there is
+no "holder" whose pid could go stale to check in the first place — the running script is discovered
+via `pgrep` on the corrected key, not via anything the momentary lock tracks. This finding's second
+branch (hold the guard for the loop's lifetime) was **not adopted** — Dean's own restatement: *"the
+lock is only taken, per session, when checking if script is already running. multiple starts are
+bad."* Guard 2 (`pgrep`) is not redundant under the resolved design; it is the sole discoverability
+mechanism, corrected to match on the right key. Addendum 7's "No trap" ruling stands, unrevisited,
+since the guard was never going to be held long-lived under the resolved design either.
+
+Two mechanisms proposed as alternatives during this discussion — git-native leader election and Unix
+domain socket bind — were tested directly and set aside; a socket's stale file does not self-clean on
+SIGKILL and a naive liveness re-check produced a false positive (a real kernel-backlog subtlety, not
+fully chased down). Recorded in full in
+[`atomic-step-protocol-design-addendum-10.md`](atomic-step-protocol-design-addendum-10.md) § Corrected
+design, which supersedes both this finding and its own original content (retracted in place, not
+deleted). `checkpoint-capture-spec.md` and `sync-watchers-spec.md` have both been revised to match.
+
+---
+
+**Original finding, preserved for the record (assumed the now-retracted pid-keyed premise):**
 
 S0 says the guard directory holds the acquiring process's pid, *"since that pid is what the staleness
 check in a later acquisition attempt reads."* But all three current scripts release the guard
