@@ -89,6 +89,70 @@ ruling never got promoted), and whether `planning-map.md` itself should be corre
 
 ---
 
+## Step 7 source report (verbatim, per Step 8)
+
+```
+state-park — planner-llm-scaler-bootstrap (scope widened: doc-coverage audit + optimizer-pd-role-ceiling)
+
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session — ListAgents showed only peer sessions and the tooling planner's own
+    background reviewer, none spawned by this session)
+
+Nudges sent (2b — best effort, NOT a flush):
+  - (none running that belong to this session)
+
+Sources read this pass:
+  - session/handoffs/ (ls, filtered) — checked state of both handoffs sent to atomic-step-protocol:
+    both now .DONE
+  - git log --oneline (repo history) — confirmed sync-main generalization actually landed as code
+    (4c6f646b, 4aa81218, d036c054, b60cb935), not just plan-committed (bb38347e)
+  - git status --short — checked for concurrent edits before staging; found ~20 files modified/deleted
+    by other sessions, none mine
+  - session/status/planner-llm-scaler-bootstrap.md (own prior state) — read before overwriting, to
+    avoid misrepresenting the doc-coverage/revalidation work as still being the original bootstrap-doc
+    task
+
+Not read (and why):
+  - plan__call-stack-process-two-asks.md.DONE's actual outcome — Dean asked to review this one
+    himself; deliberately not read/relayed
+  - session/CURRENT.md's current text — the sync__ handoff for this topic disappearing (deleted, not
+    even .DONE) is a strong signal it was already folded in, but the actual CURRENT.md text was not
+    re-checked this pass
+  - planning/llm-scaler-workspace-bootstrap-design.md — unchanged since 2026-08-16's park, still
+    gated on R1, no reason to re-open
+
+Written to:
+  - session/status/planner-llm-scaler-bootstrap.md — full rewrite of the live-state section: scope
+    pivot noted, both handoff closures + what was verified about each, the Q2 correction pointer,
+    the sync-consumption signal, and an explicit not-done list
+
+Handoffs emitted:
+  - (none this pass — nothing needed a new handoff; both outstanding ones were already closed by
+    their recipient before this park started)
+
+Committed:
+  - 6f4b944b state(park): planner-llm-scaler-bootstrap -- both atomic-step handoffs closed, Q2
+    correction landed, sync already consumed the revalidation
+  (prior, this session, already committed before this park: c5e91514, 359f3c55, ecc33bd1)
+
+Worktree exit:
+  - was never in a worktree — CWD has been plans/ for the whole session, so no exit was needed
+
+Verified from final location:
+  - session/status/planner-llm-scaler-bootstrap.md — clean, present, matches what was written
+  - commit 6f4b944b — visible in git log
+
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not read the atomic-step planner's actual call-stack-process decision — Dean's call, not
+    relayed
+  - Did not re-verify CURRENT.md's text reflects the revalidation outcome — inferred from a deleted
+    sync__ handoff, not confirmed directly
+  - Did not touch any of the ~20 concurrently-modified files from other active sessions
+  - Did not reopen the llm-scaler bootstrap doc itself — still gated, nothing new affects the gate
+```
+
+---
+
 ## What this session did
 
 Authored `planning/llm-scaler-workspace-bootstrap-design.md` (DRAFT, ~75 KB) — a **design/discussion**
