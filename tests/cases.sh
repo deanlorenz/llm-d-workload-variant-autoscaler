@@ -207,3 +207,33 @@ case_register conv-rename-delete-succeeds \
     --cite-dirs tests/tmp/conv-rename-delete-succeeds/planning \
     --cite-dirs tests/tmp/conv-rename-delete-succeeds/roles \
     --delete lonely-name --force-approved
+
+# step-check — scope containment (S1). Each case builds its own throwaway git
+# repo via tests/git-run.sh + tests/step-check-scope-repo.sh rather than
+# touching a real worktree; step-check is found on PATH (see run.sh).
+case_register step-check-scope-clean \
+    ./tests/git-run.sh tests/tmp/step-check-scope-clean \
+    ./tests/step-check-scope-repo.sh clean -- \
+    step-check --scope src/a.md
+
+case_register step-check-scope-out-of-scope-modified \
+    ./tests/git-run.sh tests/tmp/step-check-scope-out-of-scope-modified \
+    ./tests/step-check-scope-repo.sh out-of-scope-modified -- \
+    step-check --scope src/a.md
+
+case_register step-check-scope-out-of-scope-untracked \
+    ./tests/git-run.sh tests/tmp/step-check-scope-out-of-scope-untracked \
+    ./tests/step-check-scope-repo.sh out-of-scope-untracked -- \
+    step-check --scope src/a.md
+
+# The scope path is a directory, and the mutation is two levels under it —
+# proves the beneath-a-declared-directory rule, not just exact-path matches.
+case_register step-check-scope-nested-in-scope \
+    ./tests/git-run.sh tests/tmp/step-check-scope-nested-in-scope \
+    ./tests/step-check-scope-repo.sh nested-in-scope -- \
+    step-check --scope src
+
+case_register step-check-scope-empty-scope-refused \
+    ./tests/git-run.sh tests/tmp/step-check-scope-empty-scope-refused \
+    ./tests/step-check-scope-repo.sh empty-scope -- \
+    step-check

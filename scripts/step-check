@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# step-check — post-step gate. Replaces a human eyeballing every write with a
+# mechanical check, run once a coder believes a step is finished.
+#
+#   step-check --scope <path> [--scope <path> ...] [--allow-untracked <glob>]...
+#
+# (--lineage and --ledger are added by later steps of the same spec; this file
+# grows in place rather than being rewritten per step.)
+#
+# Scope containment (this step): a changed path is in scope if it equals a
+# declared --scope path exactly, or sits beneath a declared --scope directory
+# — a path-prefix match on normalised paths, never a glob. "Changed" means
+# modified, staged, and untracked: an untracked file outside scope is exactly
+# the drift this exists to catch, so it counts the same as a tracked edit.
+#
+# Bias is toward refusal, deliberately: anything this script cannot place
+# inside scope counts as outside it, and a --scope list with nothing in it is
+# refused outright rather than treated as "everything is permitted" — an
+# empty scope is a spec defect, not a grant.
+#
+# Exit codes are the contract, and are additive across this spec's steps:
+#   0   clean
+#   2   usage error (bad arguments, not inside a git working tree)
+#   20  scope containment: a change landed outside every declared scope path
+#   21  scope containment: no --scope was given at all
+#
+# All violations found are reported before exiting; the exit code is the
+# lowest-numbered class present, so a caller can branch on the most
+# structural failure while stderr still shows everything else.
+set -uo pipefail
+
+die() {
+    local code=$1
+    shift
+    printf 'step-check: %s\n' "$*" >&2
+    exit "$code"
+}
+
+scopes=()
+allow_untracked=()
+
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --scope)
+            [ "$#" -ge 2 ] || die 2 '--scope needs a path argument'
+            scopes+=("$2")
+            shift 2
+            ;;
+        --scope=*)
+            scopes+=("${1#--scope=}")
+            shift
+            ;;
+        --allow-untracked)
+            [ "$#" -ge 2 ] || die 2 '--allow-untracked needs a glob argument'
+            allow_untracked+=("$2")
+            shift 2
+            ;;
+        --allow-untracked=*)
+            allow_untracked+=("${1#--allow-untracked=}")
+            shift
+            ;;
+        -h|--help)
+            printf 'usage: step-check --scope <path>... [--allow-untracked <glob>]...\n'
+            exit 0
+            ;;
+        --*)
+            die 2 "unknown option: $1"
+            ;;
+        *)
+            die 2 "unexpected argument: $1"
+            ;;
+    esac
+done
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 2 'not inside a git working tree'
+
+# Strip a leading ./ and any trailing /. Two scope arguments that normalise to
+# the same string are harmless duplicates, not an error. plan-lint reads this
+# same rule when it later validates a spec's own scope: fields, so a change
+# here is a change there too.
+normalise() {
+    local p=$1
+    p=${p#./}
+    while [ "${#p}" -gt 1 ] && [ "${p: -1}" = / ]; do
+        p=${p%/}
+    done
+    printf '%s' "$p"
+}
+
+exit_code=0
+note_class() {
+    local code=$1
+    if [ "$exit_code" -eq 0 ] || [ "$code" -lt "$exit_code" ]; then
+        exit_code=$code
+    fi
+}
+
+if [ "${#scopes[@]}" -eq 0 ]; then
+    printf 'step-check: [21] empty scope list refused: an empty scope is a spec defect, not permission\n' >&2
+    note_class 21
+    exit "$exit_code"
+fi
+
+norm_scopes=()
+for s in "${scopes[@]}"; do
+    norm_scopes+=("$(normalise "$s")")
+done
+
+in_scope() {
+    local path=$1 s
+    for s in "${norm_scopes[@]}"; do
+        [ "$path" = "$s" ] && return 0
+        case $path in
+            "$s"/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+is_allowed_untracked() {
+    local path=$1 g
+    for g in ${allow_untracked+"${allow_untracked[@]}"}; do
+        # A caller-supplied glob is matched with shell pattern rules, not
+        # regex — consistent with every --allow-untracked example in the
+        # spec being a plain */ext shape.
+        # shellcheck disable=SC2254
+        case $path in
+            $g) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+offenders=()
+
+while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    status=${line:0:2}
+    rest=${line:3}
+    # A rename/copy entry carries "old -> new"; both sides count as changed,
+    # since either one landing outside scope is drift.
+    case $rest in
+        *' -> '*)
+            paths=("${rest%% -> *}" "${rest#* -> }")
+            ;;
+        *)
+            paths=("$rest")
+            ;;
+    esac
+    for path in "${paths[@]}"; do
+        path=$(normalise "$path")
+        in_scope "$path" && continue
+        if [ "$status" = '??' ] && is_allowed_untracked "$path"; then
+            continue
+        fi
+        offenders+=("$path")
+    done
+done < <(git status --porcelain=v1)
+
+if [ "${#offenders[@]}" -gt 0 ]; then
+    printf 'step-check: [20] change outside declared scope: %s\n' "${offenders[@]}" >&2
+    note_class 20
+fi
+
+exit "$exit_code"

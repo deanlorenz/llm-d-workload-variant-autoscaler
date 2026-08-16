@@ -1,0 +1,4 @@
+exit: 20
+--- stdout ---
+--- stderr ---
+step-check: [20] change outside declared scope: stray.md

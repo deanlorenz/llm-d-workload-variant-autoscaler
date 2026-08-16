@@ -1,0 +1,4 @@
+exit: 21
+--- stdout ---
+--- stderr ---
+step-check: [21] empty scope list refused: an empty scope is a spec defect, not permission
