@@ -104,3 +104,106 @@ case_register conv-edit-missing-marker-refused \
 case_register conv-edit-roundtrip \
     ./tests/scratch-run.sh tests/fixtures/conventions tests/tmp/conv-edit-roundtrip -- \
     ./tests/conv-edit-roundtrip.sh tests/tmp/conv-edit-roundtrip archive-never-delete
+
+# conv-rename — mutates the conventions dir and the cite-dirs at once, so every
+# case passes four fixture/scratch pairs to scratch-run.sh: the conventions dir
+# holding the marker, and the three directories the citations live in. All four
+# are dumped, which is what makes a refusal provable: a case that must change
+# nothing shows every file exactly as the fixture has it.
+#
+# The pairs are flat, one per directory level, and a parent scratch dir is
+# always listed before a scratch dir nested inside it (scratch-run wipes each
+# one it is given). tests/fixtures/conv-rename/citations/planning/archive is
+# therefore its own pair even though conv-rename finds it by scanning
+# .../planning recursively — which is the point of having it: it proves both the
+# recursive cite-dir scan and the deliberate decision not to exempt archived
+# documents from a rename.
+#
+# So the "two files" of conv-rename-two-files is the spec's own phrasing for
+# two cite-dirs; the fixture has three citing files across them (a manifest
+# line in planning/, the same shape in planning/archive/, and two prose
+# mentions in roles/), and the golden shows the count per file.
+
+case_register conv-rename-two-files \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-two-files/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-two-files/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-two-files/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-two-files/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-two-files/conventions \
+    --cite-dirs tests/tmp/conv-rename-two-files/planning \
+    --cite-dirs tests/tmp/conv-rename-two-files/roles \
+    old-name new-name
+
+# lonely-name is cited nowhere, so this exercises the marker-only rewrite path:
+# the topic file changes, no cite-dir file does.
+case_register conv-rename-none \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-none/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-none/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-none/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-none/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-none/conventions \
+    --cite-dirs tests/tmp/conv-rename-none/planning \
+    --cite-dirs tests/tmp/conv-rename-none/roles \
+    lonely-name lonely-renamed
+
+case_register conv-rename-target-exists-refused \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-target-exists-refused/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-target-exists-refused/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-target-exists-refused/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-target-exists-refused/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-target-exists-refused/conventions \
+    --cite-dirs tests/tmp/conv-rename-target-exists-refused/planning \
+    --cite-dirs tests/tmp/conv-rename-target-exists-refused/roles \
+    old-name other-name
+
+# Registered for parity with conv-new's own invalid-name case: the rename half
+# of this tool's surface runs the same [a-z0-9-]+ check on <new>.
+case_register conv-rename-invalid-name-refused \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-invalid-name-refused/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-invalid-name-refused/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-invalid-name-refused/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-invalid-name-refused/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-invalid-name-refused/conventions \
+    --cite-dirs tests/tmp/conv-rename-invalid-name-refused/planning \
+    --cite-dirs tests/tmp/conv-rename-invalid-name-refused/roles \
+    old-name "Not_Valid"
+
+case_register conv-rename-delete-refused-cited \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-delete-refused-cited/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-delete-refused-cited/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-delete-refused-cited/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-delete-refused-cited/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-delete-refused-cited/conventions \
+    --cite-dirs tests/tmp/conv-rename-delete-refused-cited/planning \
+    --cite-dirs tests/tmp/conv-rename-delete-refused-cited/roles \
+    --delete old-name --force-approved
+
+case_register conv-rename-delete-refused-uncited-no-approval \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-delete-refused-uncited-no-approval/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-delete-refused-uncited-no-approval/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-delete-refused-uncited-no-approval/conventions \
+    --cite-dirs tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning \
+    --cite-dirs tests/tmp/conv-rename-delete-refused-uncited-no-approval/roles \
+    --delete lonely-name
+
+# The one case where --delete actually deletes. Without it every registered
+# deletion case is a refusal, and nothing would prove the section removal works
+# at all — the spec's own five cases leave that hole.
+case_register conv-rename-delete-succeeds \
+    ./tests/scratch-run.sh \
+    tests/fixtures/conv-rename/conventions tests/tmp/conv-rename-delete-succeeds/conventions \
+    tests/fixtures/conv-rename/citations/planning tests/tmp/conv-rename-delete-succeeds/planning \
+    tests/fixtures/conv-rename/citations/planning/archive tests/tmp/conv-rename-delete-succeeds/planning/archive \
+    tests/fixtures/conv-rename/citations/roles tests/tmp/conv-rename-delete-succeeds/roles -- \
+    ./scripts/conv-rename.sh --dir tests/tmp/conv-rename-delete-succeeds/conventions \
+    --cite-dirs tests/tmp/conv-rename-delete-succeeds/planning \
+    --cite-dirs tests/tmp/conv-rename-delete-succeeds/roles \
+    --delete lonely-name --force-approved

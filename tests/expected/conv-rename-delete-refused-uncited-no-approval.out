@@ -1,0 +1,92 @@
+exit: 9
+--- stdout ---
+--- tests/tmp/conv-rename-delete-refused-uncited-no-approval/conventions ---
+-- tests/tmp/conv-rename-delete-refused-uncited-no-approval/conventions/topic.md --
+# Rename fixtures
+
+Fixture file. The conventions below are illustrative, not authoritative.
+
+### convention: old-name
+description: A convention that exists to be renamed.
+scope: conv-rename test fixtures only
+trigger: running the conv-rename golden suite
+status: active
+origin: conv-rename S3 test fixture
+
+Cited from both cite-dirs, so a rename has to rewrite more than one file, and a
+deletion has more than one refusal to name.
+
+### convention: other-name
+description: The name a rename is refused for colliding with.
+scope: conv-rename test fixtures only
+trigger: running the conv-rename golden suite
+status: active
+origin: conv-rename S3 test fixture
+
+Renaming onto this name must be refused: two conventions sharing a name make
+every fetch of it ambiguous, which is the failure the whole no-index design
+rests on not happening.
+
+### convention: lonely-name
+description: A convention nothing cites.
+scope: conv-rename test fixtures only
+trigger: running the conv-rename golden suite
+status: probation
+origin: conv-rename S3 test fixture
+
+Nothing cites this one, so it carries the rename-with-no-citations case and both
+deletion cases, the refused one and the approved one.
+--- tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning ---
+-- tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning/spec-a.md --
+# Spec A
+
+Fixture file, standing in for a planning document that cites conventions from a
+step manifest line.
+
+## S1 — a step that cites two conventions
+
+**conventions** — old-name, other-name
+
+A manifest line is one of the two citation shapes: bare names in a
+comma-separated list, no markdown around them.
+
+## S2 — a step that cites a near-miss
+
+**conventions** — old-name-extended
+
+That is a different convention whose name merely begins with the same
+characters as the one S1 cites. Whole-token matching is the only thing standing
+between a rename and mangled neighbours, so this line has to come out
+unchanged.
+
+Old-Name, capitalized, is not a citation either: names are lowercase by
+construction and matching is case-sensitive, so a capitalized spelling is a
+typo for a reader to fix rather than a token for a tool to rewrite.
+--- tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning/archive ---
+-- tests/tmp/conv-rename-delete-refused-uncited-no-approval/planning/archive/old-doc.md --
+# Archived plan
+
+Fixture file, standing in for a document under planning/archive/. It sits one
+level below the cite-dir, so a scan that stops at the cite-dir's own depth never
+sees it.
+
+**conventions** — old-name
+
+Rewriting an archived document is a deliberate, documented consequence of not
+excluding archive/ from the scan: half a rename is the worse failure.
+--- tests/tmp/conv-rename-delete-refused-uncited-no-approval/roles ---
+-- tests/tmp/conv-rename-delete-refused-uncited-no-approval/roles/coder.md --
+# Coder role
+
+Fixture file, standing in for a role document that cites conventions in prose
+rather than from a manifest line, and in the second of the two cite-dirs.
+
+The coder honours old-name before every commit, and `old-name` in backticks is
+the same citation as the bare form: the markdown decoration around a name is not
+part of the token.
+
+Nothing here cites the third convention in the topic file, which is what makes
+the two deletion cases testable.
+--- stderr ---
+conv-rename: convention lonely-name has no citations, and is still not deletable without approval
+conv-rename: removal needs long probation and explicit approval; pass --force-approved to record it
