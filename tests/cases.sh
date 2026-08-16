@@ -308,3 +308,18 @@ case_register step-check-judgment-ledger-omitted \
     ./tests/git-run.sh tests/tmp/step-check-judgment-ledger-omitted \
     ./tests/step-check-judgment-repo.sh ledger-omitted -- \
     step-check --scope src --lineage plans --handoffs-dir handoffs
+
+# plan-lint — step schema (S4). clean-spec.md is a fixture copy of the real
+# conventions-tooling-spec.md (the spec's own suggestion for a clean case);
+# the other three are that same file with one defect each.
+case_register plan-lint-clean-spec \
+    ./scripts/plan-lint tests/fixtures/plan-lint/clean-spec.md
+
+case_register plan-lint-missing-field \
+    ./scripts/plan-lint tests/fixtures/plan-lint/missing-field.md
+
+case_register plan-lint-no-brief \
+    ./scripts/plan-lint tests/fixtures/plan-lint/no-brief.md
+
+case_register plan-lint-missing-intent-field \
+    ./scripts/plan-lint tests/fixtures/plan-lint/missing-intent-field.md

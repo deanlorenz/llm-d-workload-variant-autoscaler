@@ -1,0 +1,4 @@
+exit: 21
+--- stdout ---
+--- stderr ---
+plan-lint: [21] tests/fixtures/plan-lint/no-brief.md: step S3 has no brief in ## Step index

@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# plan-lint — turn a code spec's completeness into a machine check, instead
+# of something a reviewer has to notice by reading closely.
+#
+#   plan-lint <spec-file>
+#
+# (convention resolution/addressing and unresolved-judgment flags are added
+# by later steps of the same spec; this file grows in place per step.)
+#
+# Step schema: every `## S<n>` step section must carry all eight fields —
+# `**brief**`, `**scope**`, `**do**`, `**conventions**`, `**verify**`,
+# `**done_when**`, `**on_fail**`, `**record**` — as a bold marker anywhere in
+# its own section (from that heading to the next heading of level 2 or
+# shallower, same boundary rule sec.sh uses). The `## Intent` section must
+# carry `**intent**`, `**current call stack**`, `**planned call stack**`,
+# `**new components**`, `**new conventions**`. And every step section that
+# exists must have a matching `**S<n> — ...**` brief inside `## Step index`
+# — a step with detail but no brief is invisible to the narrative that a
+# coder or reviewer actually reads first.
+#
+# Clean input produces no output and exits 0. Bad input reports every
+# violation, then exits non-zero — never stops at the first, the same
+# philosophy conv-lint.sh already established for this worktree's tools.
+#
+# Exit codes are the contract, and are additive across this spec's steps:
+#   0   clean
+#   2   usage error
+#   3   spec file missing or unreadable
+#   20  step schema: a step is missing one or more of the eight fields
+#   21  step schema: no Step index section, or a step has no brief in it
+#   22  step schema: the Intent block is missing one or more of its five
+#       fields (including when the whole ## Intent heading is absent)
+#
+# The exit code is the lowest-numbered class present, so a caller can branch
+# on the most structural failure while stderr still shows everything else.
+set -uo pipefail
+
+die() {
+    local code=$1
+    shift
+    printf 'plan-lint: %s\n' "$*" >&2
+    exit "$code"
+}
+
+case ${1-} in
+    -h|--help)
+        printf 'usage: plan-lint <spec-file>\n'
+        exit 0
+        ;;
+esac
+
+[ "$#" -eq 1 ] || die 2 "usage: plan-lint <spec-file> (got $# argument(s))"
+spec=$1
+
+[ -f "$spec" ] || die 3 "no such spec file: $spec"
+[ -r "$spec" ] || die 3 "spec file is not readable: $spec"
+
+# Single parse pass over the whole file, emitting tab-separated records in
+# file order — the same shape conv-lint.sh uses, so a reader who already
+# knows that script recognises this one.
+#
+#   STEP           id
+#   FIELD          step-id  fieldname
+#   INTENT         1
+#   INTENTFIELD    fieldname
+#   STEPINDEXFOUND 1
+#   STEPINDEXBRIEF step-id
+records=$(awk '
+/^#+[[:space:]]/ {
+    rest = $0
+    sub(/^#+/, "", rest)
+    level = length($0) - length(rest)
+    gsub(/^[[:space:]]+/, "", rest)
+    gsub(/[[:space:]]+$/, "", rest)
+
+    # A heading at level 2 or shallower closes any step/Intent/Step-index
+    # section currently open — the same same-or-shallower rule sec.sh uses
+    # to decide where a section ends.
+    if (level <= 2) {
+        cur_step = ""
+        in_intent = 0
+        in_step_index = 0
+    }
+
+    if (level == 2 && rest ~ /^S[0-9]+([[:space:]]|$)/) {
+        step_id = rest
+        sub(/[[:space:]].*/, "", step_id)
+        cur_step = step_id
+        printf("STEP\t%s\n", step_id)
+    } else if (level == 2 && rest == "Intent") {
+        in_intent = 1
+        printf("INTENT\t1\n")
+    } else if (level == 2 && rest == "Step index") {
+        in_step_index = 1
+        printf("STEPINDEXFOUND\t1\n")
+    }
+    next
+}
+
+cur_step != "" && $0 ~ /^\*\*(brief|scope|do|conventions|verify|done_when|on_fail|record)\*\*/ {
+    field = $0
+    sub(/^\*\*/, "", field)
+    sub(/\*\*.*/, "", field)
+    printf("FIELD\t%s\t%s\n", cur_step, field)
+    next
+}
+
+in_intent == 1 && $0 ~ /^\*\*(intent|current call stack|planned call stack|new components|new conventions)\*\*/ {
+    field = $0
+    sub(/^\*\*/, "", field)
+    sub(/\*\*.*/, "", field)
+    printf("INTENTFIELD\t%s\n", field)
+    next
+}
+
+in_step_index == 1 && $0 ~ /^\*\*S[0-9]+ — / {
+    id = $0
+    sub(/^\*\*/, "", id)
+    sub(/ .*/, "", id)
+    printf("STEPINDEXBRIEF\t%s\n", id)
+    next
+}
+' "$spec")
+
+declare -a step_order=()
+declare -A step_seen=()
+declare -A field_seen=()
+declare -A intent_seen=()
+declare -A step_index_brief=()
+intent_found=0
+step_index_found=0
+
+while IFS=$'\t' read -r kind f1 f2; do
+    [ -n "$kind" ] || continue
+    case $kind in
+        STEP)
+            if [ -z "${step_seen[$f1]+set}" ]; then
+                step_seen[$f1]=1
+                step_order+=("$f1")
+            fi
+            ;;
+        FIELD)
+            field_seen["$f1|$f2"]=1
+            ;;
+        INTENT)
+            intent_found=1
+            ;;
+        INTENTFIELD)
+            intent_seen[$f1]=1
+            ;;
+        STEPINDEXFOUND)
+            step_index_found=1
+            ;;
+        STEPINDEXBRIEF)
+            step_index_brief[$f1]=1
+            ;;
+        *)
+            die 2 "internal: unrecognized parse record: $kind"
+            ;;
+    esac
+done <<<"$records"
+
+required_step_fields='brief scope do conventions verify done_when on_fail record'
+required_intent_fields=('intent' 'current call stack' 'planned call stack' 'new components' 'new conventions')
+
+report_fields=()
+for step in ${step_order+"${step_order[@]}"}; do
+    missing=''
+    for f in $required_step_fields; do
+        [ -n "${field_seen["$step|$f"]+set}" ] || missing="$missing $f"
+    done
+    [ -z "$missing" ] || report_fields+=("$spec: step $step is missing required field(s):$missing")
+done
+
+missing_intent_fields=()
+for f in "${required_intent_fields[@]}"; do
+    [ -n "${intent_seen[$f]+set}" ] || missing_intent_fields+=("$f")
+done
+intent_line=()
+if [ "${#missing_intent_fields[@]}" -gt 0 ]; then
+    joined=$(printf '%s, ' "${missing_intent_fields[@]}")
+    joined=${joined%, }
+    if [ "$intent_found" -eq 0 ]; then
+        intent_line=("$spec: no ## Intent section found (missing: $joined)")
+    else
+        intent_line=("$spec: ## Intent is missing required field(s): $joined")
+    fi
+fi
+
+report_stepindex=()
+if [ "$step_index_found" -eq 0 ]; then
+    report_stepindex+=("$spec: no ## Step index section found")
+else
+    for step in ${step_order+"${step_order[@]}"}; do
+        [ -n "${step_index_brief[$step]+set}" ] || report_stepindex+=("$spec: step $step has no brief in ## Step index")
+    done
+fi
+
+exit_code=0
+note_class() {
+    local code=$1
+    if [ "$exit_code" -eq 0 ] || [ "$code" -lt "$exit_code" ]; then
+        exit_code=$code
+    fi
+}
+
+emit() {
+    local code=$1
+    shift
+    [ "$#" -gt 0 ] || return 0
+    local line
+    for line in "$@"; do
+        printf 'plan-lint: [%d] %s\n' "$code" "$line" >&2
+    done
+    note_class "$code"
+}
+
+emit 20 ${report_fields+"${report_fields[@]}"}
+emit 21 ${report_stepindex+"${report_stepindex[@]}"}
+emit 22 ${intent_line+"${intent_line[@]}"}
+
+exit "$exit_code"

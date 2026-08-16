@@ -1,0 +1,4 @@
+exit: 22
+--- stdout ---
+--- stderr ---
+plan-lint: [22] tests/fixtures/plan-lint/missing-intent-field.md: ## Intent is missing required field(s): new conventions
