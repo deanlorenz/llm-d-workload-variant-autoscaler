@@ -480,12 +480,25 @@
   was REJECTED (`663a9624`) as the wrong fix; this finding, if verified, would be a different fix
   that landed independently, not that one. State: `planning/wva-analyzer-lifecycle-plan.md` +
   [`multi-analyzer-design.md`](../planning/multi-analyzer-design.md):506-511.
-- **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.**
-  *WIP — no session running; resumable from its plan. Untouched ~3½ weeks.* ⚠️ Dev-guide edits the planner made directly are still
-  **UNCOMMITTED** in the worktree (`M multi-analyzer-pipeline.md`). The active thread is Dean's
-  clean-design effort: 2 Phase-2 framing questions unanswered, Phase 3 (verify code vs the clean model)
-  not started, and a suspected real bug flagged — anticipated supply sits in the denominator rather than
-  counting toward achieved. Nothing pushed. State: `planning/optimizer-pd-role-ceiling-plan.md` +
+- **2026-07-15 — optimizer-pd-role-ceiling: code + all 10 tests landed (`0c33a3eb`), gates green.
+  Re-validated against the anchor refactor 2026-08-16 — updated 2026-08-17.** *WIP — no session
+  running; resumable from its plan.* ⚠️ Dev-guide edits the planner made directly are still
+  **UNCOMMITTED** in the worktree (`M multi-analyzer-pipeline.md`). The mission's original re-
+  validation ask (`plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md`, sent 2026-08-09) has
+  been answered: the suspected denominator bug (Q2) **does not exist in either `main` or PR-2's
+  code** — both independently rewrote `allocateForModelPaired`'s `roleAggRemaining` since this
+  mission's tip, and the specific numerator the bug report described is gone, not relocated. 4 of
+  the 10 tests are fixable but redundant with `main`'s own coverage; 6 test a formula neither
+  `main` nor PR-2 computes anymore. Rebase cost: small in file count but lands on the one function
+  both `main` and PR-2 rewrote — expect a real conflict, not a clean reapply; this branch also
+  hasn't re-verified `make lint` under the go 1.26/golangci-lint 2.10 bump. **No rebase attempted or
+  proposed** — documentation only, nothing pushed. **One fresh, genuinely open design question,
+  Dean's to judge:** PR-2's new find-the-winner/read-its-demand-directly shape for
+  `roleAggRemaining` is a different design than `optimizer-coordination-design.md`'s
+  achieved=current+anticipated+committed clean model — nobody has checked whether PR-2's shape is
+  equivalent, better, or a third approach. Full detail + file:line citations:
+  `planning/optimizer-pd-role-ceiling-plan.md` § "Re-validation against the anchor refactor
+  (2026-08-16)". State: `planning/optimizer-pd-role-ceiling-plan.md` +
   [`optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) § Resume.
 **Recently landed (1-liners; fuller entries in [`session/history.md`](history.md) → *Activity log*):**
 
@@ -508,7 +521,7 @@ rows stay here.
 | wva-analyzer-lifecycle | — | **PLAN — PARTIALLY REJECTED / re-scoping.** Config-driven analyzer activation + ManagedAnalyzer lifecycle. Splits into **Half A** (config-driven lifecycle + live-set refactor — Commits 1/3/4/5; ~1–2 days; `effectiveEnabled`/Commit 3g already on `main`; main risk = `NewEngine` ripple vs in-flight #1501) and **Half B** (genuinely disabling saturation — Commit 2c **REJECTED by Dean 2026-07-31**: "zero-signal" is a risky hack). ⚠️ **This row's "needs F1 pre-analysis extraction, unscoped" claim has new counter-evidence, found 2026-08-16 — see § Recent activity's sat_v2 entry. NOT confirmed resolved** — a `satVotes` gate exists on `main` via PR-1 #1516 that looks like it does what F1 asked for, but this needs verification in PR-2's own review before Half B's carve decision changes. Not re-scoped here. Warnings added to plan (`663a9624`). Supersedes `PR1266-fixup-effectiveEnabled.md`. Plan: [`planning/wva-analyzer-lifecycle-plan.md`](../planning/wva-analyzer-lifecycle-plan.md). | — |
 | ta-anchor-goldens | [#1513](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1513) | **OPEN but now a NO-OP — needs only a close call (Dean's; GitHub write).** Characterization "golden" gate (test-only, +409/−0, 1 file: `internal/engines/pipeline/optimizer_characterization_test.go`) freezing the saturation-only optimizer decision SET keyed by VariantName; was the land-first ship gate for the anchor refactor. **Its content is already in `main`:** PR-1 #1516 was rebased onto this branch's tip before opening, and #1516's **squash** merge (`57f3fe64`, 2026-08-07 17:48:05Z) therefore landed the file — `git diff 57f3fe64 a2f49ccf -- <that file>` is **empty**, so the PR has nothing left to contribute and its purpose was served. No code action; the coder must still **NOT** rewrite the goldens commits. Head `ta-anchor-goldens@a2f49ccf`, base `upstream/main@9906dac5`, reviewer ev-shindin, `origin/ta-anchor-goldens` pushed. Internal review FINAL (Finding 1 fixed; Finding 2 = `withSatEntry`-stability note, carried into PR-1 and landed there). Plan: [`planning/ta-anchor-goldens-plan.md`](../planning/ta-anchor-goldens-plan.md); review [`planning/ta-anchor-goldens-review.md`](../planning/ta-anchor-goldens-review.md). | `a2f49ccf` |
 | ta-anchor-dynamic-refresh | [#1523](https://github.com/llm-d/llm-d-workload-variant-autoscaler/pull/1523) | **OPEN, pushed, CI all-green.** Tip `14a5d6cc`, 28 commits on `main@a6b39809`; local ≡ origin ≡ PR head. `MERGEABLE` / `REVIEW_REQUIRED` — internal review clean (Findings 76/77/78), **no external review yet**. All decisions closed (`AD8` (b) → `C12`; `ceil`/`floor` retracted; §4a reword executed; rebase clean). Open, none blocking merge: `B2` (**UNCLAIMED**), and Dean's PR-body accuracy + 0.9 call + review request. ⚠️ The **"Unsigned commits detected!"** bot comment is stale — `signed-commits` passes. Detail: [`session/status/planner-ta-anchor-pr2.md`](status/planner-ta-anchor-pr2.md) (CLOSED). | `14a5d6cc` |
-| optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; clean-design discussion in progress** — 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). Clean-design capture: [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md) (Phase 2 drafted, awaiting Dean; suspected anticipated-supply-in-denominator bug flagged). Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
+| optimizer-pd-role-ceiling | — | **IMPLEMENTED; dev-guide edits UNCOMMITTED; re-validated against the anchor refactor 2026-08-16.** 6 commits (`a694012a`…`0c33a3eb`), all 10 tests landed, gates green. Planner made dev-guide edits directly (`M multi-analyzer-pipeline.md`, **not committed**). ⚠️ **The "suspected anticipated-supply-in-denominator bug" is RETIRED, not open** — verified by direct code diff that the numerator it described doesn't exist in `main` or PR-2, since both independently rewrote `allocateForModelPaired`'s `roleAggRemaining`. **New, genuinely open question:** whether PR-2's replacement shape is equivalent to, better than, or a third approach vs. [`optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md)'s clean model — Dean's to judge. Detail: `planning/optimizer-pd-role-ceiling-plan.md` § "Re-validation against the anchor refactor (2026-08-16)". Not pushed. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md). | `0c33a3eb` (+uncommitted) |
 | (upstream) rate-anchored k2 | #1501 | **Reviewed 2026-07-30 — COMMENTED posted** (deanlorenz, 15:54:47Z) — rate-anchored `k2` estimator for saturation-v2 (fixes #1500 shed-to-one on prefill-heavy traffic). 2 non-blocking asks: (1) gate `RegisterRateCapacityQueries` on `EnableRateAnchoredK2` (unconditional registration adds per-cycle Prometheus load in the default TA-off config — load-only, no correctness impact); (2) rebase onto current `main` (#1486 touches the same `NewEngine`). Estimator/tests sound, no blockers. Incoming PR — no worktree. Review FINAL: [`planning/PR1501-review.md`](../planning/PR1501-review.md). | (incoming) |
 
 ---
@@ -657,11 +670,23 @@ rows stay here.
   sat-v2 zero-replica `Cost=0` bug (`AD7`/`N5`); (g) mark the PR-1 review docs **FINAL** — the
   reviewer's commit half is **DONE** (`fe372ce8`), both remain `Status: DRAFT` and only Dean's FINAL
   call is left. **Unclaimed, for a new planner:** `B2` (discriminating
-  `fairShareRolePick` spec) as its own small test-only PR after #1523 merges; re-validating
-  `optimizer-pd-role-ceiling` against the landed refactor
-  (`plan__optimizer-pd-role-ceiling-revalidate-against-pr2.md`); and
+  `fairShareRolePick` spec) as its own small test-only PR after #1523 merges; and
   `plan__ta-anchor-dataflow-map-pr1-delta.md`, still open and deferred by Dean — **not sync's to consume**.
-- **optimizer-pd-role-ceiling (RESUME 2026-07-16 — clean-design discussion):** code + all 10 tests done (tip `0c33a3eb`); dev-guide edits made-but-UNCOMMITTED in the worktree. Active thread is Dean's clean-design effort in [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md): **(1)** answer the 2 Phase-2 framing questions (see that doc's § Resume), **(2)** lock the clean logical/data-flow, **(3)** Phase 3 — verify code vs. the clean model and resolve open issues 1–4 (notably the suspected anticipated-supply-in-denominator bug), **(4)** restructure the dev-guide into clean-design + implementation sections. Only after that: commit the dev-guide, act on the pending code-review trigger, propose the push. Do NOT commit/push until Dean directs. Plan: [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
+  (The `optimizer-pd-role-ceiling` re-validation ask this used to list is **answered** — see § Recent
+  activity's optimizer-pd-role-ceiling entry, 2026-08-16.)
+- **optimizer-pd-role-ceiling (RESUME — clean-design discussion, updated 2026-08-17 against the
+  2026-08-16 re-validation):** code + all 10 tests done (tip `0c33a3eb`); dev-guide edits
+  made-but-UNCOMMITTED in the worktree. **The suspected anticipated-supply-in-denominator bug is
+  RETIRED, not open** — see § Recent activity's entry above for detail. Active thread is Dean's
+  clean-design effort in [`planning/optimizer-coordination-design.md`](../planning/optimizer-coordination-design.md):
+  **(1)** answer the 2 Phase-2 framing questions (see that doc's § Resume), **(2)** lock the clean
+  logical/data-flow, **(3)** Phase 3 — verify code vs. the clean model, now against PR-2's actual
+  `roleAggRemaining` shape rather than the retired bug report, **(4)** restructure the dev-guide
+  into clean-design + implementation sections, **(5)** NEW — judge whether PR-2's
+  find-the-winner/read-its-demand-directly shape is equivalent to, better than, or a genuinely
+  different approach from the clean model. Only after that: commit the dev-guide, act on the
+  pending code-review trigger, propose the push. Do NOT commit/push until Dean directs. Plan:
+  [`planning/optimizer-pd-role-ceiling-plan.md`](../planning/optimizer-pd-role-ceiling-plan.md).
 - **analyzer-metric-interface (PR #1444 MERGED → issue [#1455](https://github.com/llm-d/llm-d-workload-variant-autoscaler/issues/1455)):** enhancement tracked (Phase 1 metric exposure → Phase 2 external PromQL wrapper → Phase 3 polish). **Implementation deprioritized** — do NOT start until higher-priority work clears and Dean scopes Phase 1. **Archive `analyzer-metric-proposal` branch/worktree ~2026-08-13** (`git boidem`), after confirming Evgeny has no further commits.
 - **Issues to file (at Dean's direction — do not file without confirmation):** Q1+Q2 from
   `planning/open-items-roadmap.md`; TA forward-plan I-1..I-25 (see [`planning/TA-forward-plan.md`](../planning/TA-forward-plan.md)).
