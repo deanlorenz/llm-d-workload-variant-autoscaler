@@ -152,6 +152,37 @@ write outside your sanctioned paths, the instruction is misrouted: hand it back.
 **To work on another branch**, use `EnterWorktree` per CONVENTIONS — not
 `cd`, not `git checkout` from your current worktree.
 
+**In `plans` specifically — never `git add`, commit with a pathspec.** Unlike a code branch (one
+coder per worktree), `plans` is routinely shared by several concurrent sessions with **one git
+index** — a shared piece of state `CONVENTIONS.md` does not otherwise call out, unlike CURRENT.md,
+handoffs, and status files, which all have explicit single-writer protocols. `git add` followed by
+a separate `git commit` leaves a window in which another session's own commit can sweep up your
+staged files — silently, with no error on the winning side, and a *"no changes added to commit"*
+on yours. The fix is a pathspec-only commit, which touches only the working-tree state of the
+exact paths named and never leaves anything in the index for anyone else to pick up:
+
+```
+git commit -s -m "..." -- <path> [<path> ...]
+```
+
+Never `git commit -a`, and never `git restore --staged` a file you did not stage yourself to "clean
+up" before committing — you cannot tell staged-by-someone-else from staged-by-mistake, and undoing
+it silently discards their in-progress staging.
+
+**Caveat: a brand-new file still needs `git add` first** — pathspec-only commit only reaches paths
+git already tracks, and errors with *"did not match any file(s) known to git"* otherwise. There is
+no way around staging an untracked file. Minimize the exposure window instead: chain the two
+commands in one shell invocation, `git add <paths> && git commit -s -m ... -- <paths>` — the
+trailing pathspec on the commit still stops your own commit from sweeping up anyone else's staged
+work in return, even though the initial `add` briefly exposes your own.
+
+(Found and reported 2026-08-16, coder session on `plans`: a `git add` + separate `git commit`
+landed 4 files inside another session's commit under a message describing only that session's own
+work — content was verified intact, but the mismatch is exactly what `CONVENTIONS.md` § Key
+Working Rules calls a hard reject. Not rewritten in place — that commit was still local and the
+other session might still have been working; splitting shared history is the planner's call, not a
+coder's, per §1's write-scope rule above.)
+
 ---
 
 ## 2. Local changes only — no pushes, no PRs, no GitHub actions
