@@ -153,6 +153,20 @@ Two alternative mechanisms were investigated directly (not just discussed) befor
   is re-derivable at any point the kill-switch needs to check; it is never used to *find* or *lock* the
   script, only to decide whether the owning session is still alive.
 
+### The identity key generalizes: not every script keys on a Claude session
+
+`session-snapshot.sh` keys on `session_id` because its own semantic is genuinely "one per session."
+`sync-main-watch.sh` and `tick-shared-scan.sh` do not share that semantic — both are run by whichever
+session currently acts as **sync**, and per Dean, verbatim: *"both sync-main and tier-2 tick are run by
+sync__ — that is a logical id not a Claude session id. Whoever runs, runs under that ID."* So
+`guard_acquire`'s key argument is not "always `session_id`" — it is **whatever logical identity
+actually needs 'at most one,'** and for these two scripts that identity is a fixed, project-defined role
+constant (e.g. `"sync"`), never derived from any particular Claude session at all. A different sync
+session resuming ownership recognizes "already running" by matching the same role constant, not by
+matching a session_id it never had in the first place. `guard_acquire`'s interface (`<name> <key>`)
+already supports this without modification — a role-constant key is not a degenerate/special case of
+the function, it is the same function applied to a different, equally valid identity axis.
+
 ### Still open, carried forward from the retracted content where still relevant
 
 - The handle-registry idea (external cleanup without parsing `ps`) may still have value, but its

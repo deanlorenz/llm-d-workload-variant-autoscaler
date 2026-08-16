@@ -4,19 +4,25 @@
 
 ## At a glance
 
-**Mission:** document the six checkpoint-capture scripts as they exist, and specify the new shared
-guard library (Addendum 10) they should be rewritten to use.
+**Mission:** document the six checkpoint-capture scripts as they exist, and specify the shared guard
+library (Addendum 10, **retracted-then-corrected** 2026-08-16) they should be rewritten to use — keyed
+on logical identity (session_id, or a fixed role constant), never on a process pid.
 
 **Approach:**
-- S0/S0b — new: `scripts/lib/single-instance-guard.sh` (pid-based staleness + mtime fallback) and an
-  additive handle registry. Build first; everything else depends on it.
+- S0/S0b — new: `scripts/lib/single-instance-guard.sh` (momentary mkdir+pgrep lock, keyed on whatever
+  logical identity the caller needs — a session_id for per-session scripts, a fixed role constant like
+  `"sync"` for shared-instance scripts) and an additive handle registry (needs re-keying, not yet
+  designed in detail). Build first; everything else depends on it.
 - S1 `session-extract.sh` — unchanged, no defect.
-- S2 `session-snapshot.sh` — Tier-1, free. Guard block forward-looking (must source S0).
+- S2 `session-snapshot.sh` — Tier-1, free, one per **session**. Needs a new `--session-id` argument;
+  guard block must source S0, keyed on `session_id`.
 - S3 `tick-consolidate.sh` — Tier-2, cheap-model. No defect.
-- S4 `tick-shared-scan.sh` — shared Tier-2. Guard block forward-looking (must source S0). Never run
-  live yet.
+- S4 `tick-shared-scan.sh` — shared Tier-2, one instance **system-wide** regardless of which sync
+  session owns it. Guard block must source S0, keyed on the fixed role constant `"sync"`, not any
+  session_id. Never run live yet.
 - S5 `tick-live-index.sh` — session identity snapshot. No defect.
-- S6 `tier1-session-start.sh` — `SessionStart` hook. Contains Defect 1.
+- S6 `tier1-session-start.sh` — `SessionStart` hook. Contains Defect 1; also needs to start passing
+  `--session-id` once S2 requires it.
 
 **Needs you:** nothing blocking. Defect 1 (hook omits a required flag, would fail every invocation if
 ever wired up) is documented for whoever picks this up; the hook itself still needs your explicit
@@ -24,8 +30,10 @@ approval before it's wired into `container-settings.json` at all (per Addendum 7
 list), separate from fixing the bug.
 
 **Checklist:**
-- [ ] Build S0/S0b (`single-instance-guard.sh` + handle registry).
-- [ ] Migrate S2 and S4 to source it.
+- [ ] Build S0/S0b (`single-instance-guard.sh`, keyed on logical identity; handle registry re-keyed,
+  not yet designed).
+- [ ] Migrate S2 (session_id key) and S4 (fixed `"sync"` key) to source it.
+- [ ] Add `--session-id` to S2 and S6's launch of it.
 - [ ] Fix Defect 1 in S6 (`--origin-pid "$PPID"`), verify `$PPID` is really the session's own pid in a
   `SessionStart` hook context.
 - [ ] Fix S6's stale header comment (still describes the superseded flock mechanism).
@@ -127,37 +135,50 @@ mechanism specifically. No Go, no DCO, no `make test` — this is shell tooling 
 
 ## Step index
 
-**S0 — `scripts/lib/single-instance-guard.sh` (new, forward-looking).** Extracts the guard logic
-currently duplicated in `session-snapshot.sh` and `tick-shared-scan.sh` (and, out of this spec's
-scope, `sync-main-watch.sh`) into two shared functions, per
-[`atomic-step-protocol-design-addendum-10.md`](atomic-step-protocol-design-addendum-10.md):
+**S0 — `scripts/lib/single-instance-guard.sh` (new, forward-looking, corrected 2026-08-16).**
+Extracts the guard logic currently duplicated in `session-snapshot.sh` and `tick-shared-scan.sh` (and,
+out of this spec's scope, `sync-main-watch.sh`) into two shared functions, per the **corrected design**
+in [`atomic-step-protocol-design-addendum-10.md`](atomic-step-protocol-design-addendum-10.md) — that
+addendum's original pid-keyed design is **retracted**; do not build against it.
 
 ```
-guard_acquire <name> <origin-pid>   # mkdir-based atomic dedup + pgrep liveness check, unchanged from
-                                     # Addendum 7 for the instant-race case; on finding an existing
-                                     # guard, checks its recorded holder pid via kill -0 first
-                                     # (immediate reclaim if genuinely dead), falling back to the
-                                     # existing 1-week mtime-age threshold only if the pid check is
-                                     # inconclusive (pid reused by an unrelated process) -- retries
-                                     # acquisition once after a reclaim, returns non-zero with a clear
-                                     # stderr message if still held after that.
-guard_release <name>                 # rmdir, idempotent if already gone.
+guard_acquire <name> <key>          # pgrep liveness check on <key> + mkdir-based atomic dedup, both
+                                     # keyed on whatever logical identity actually needs "at most one"
+                                     # for this caller -- a Claude session_id for session-snapshot.sh
+                                     # (stable across resume/reload/wake), or a fixed project-defined
+                                     # role constant like "sync" for scripts that are meant to have
+                                     # exactly one shared instance regardless of which session started
+                                     # it (tick-shared-scan.sh, sync-main-watch.sh -- see
+                                     # sync-watchers-spec.md). NEVER a process pid, in either case. The
+                                     # lock is momentary: mkdir is taken only for the instant it takes
+                                     # to decide "am I the one starting this," and released immediately
+                                     # after (whether starting or standing down) -- it is never held by
+                                     # the running script itself. There is no staleness check to design
+                                     # here: since the guard is never held long, there is no "holder"
+                                     # that can go stale mid-run.
+guard_release <name>                 # rmdir, idempotent if already gone. Called at the same startup
+                                     # moment as guard_acquire, not on exit -- see the note below on
+                                     # why this is not a lifetime-held lock.
 ```
+
+**Discoverability** (whether a copy is already running, for `guard_acquire` to check) is `pgrep -f
+"<script>[.]sh .*<key-bearing-flag> <key>"` — same shape as the existing `pgrep` check, corrected to
+match on the caller's actual identity key (`session_id`, or a fixed role constant) instead of
+`$origin_pid`. `--origin-pid` is **not removed** from any script's own argument list — it stays
+exactly as designed, but it now does exactly one job (the kill-switch's
+`kill -0` check in each script's main loop), fully decoupled from this guard's identity key.
 
 Must build first — S2 and S4 both source this file rather than inlining their own copies. **This is the
-one step in this spec that is pure new code, not a fix to something shipped.** Also owns writing the
-holder's own pid into the guard directory at acquisition time (a small file inside it), since that pid
-is what the staleness check in a later acquisition attempt reads.
+one step in this spec that is pure new code, not a fix to something shipped.**
 
-**S0b — handle registry (new, forward-looking, additive).** Per the same addendum: each script sourcing
-`single-instance-guard.sh` also drops a small file naming its own pid and origin-pid into a known
-directory (exact path/naming not finalized in the addendum — coder's call, document the choice made) on
-start, removed on clean exit. **Does not replace or weaken the existing `--origin-pid`/`kill -0`
-dead-man's-switch** (each loop still self-checks its own origin session, unchanged) — this is a second,
-independent mechanism so an external cleanup pass or a human can find and reap running instances without
-parsing `ps`/`pgrep` output for script-specific argv patterns. No reaper script is specified by this
-step — building one (or deciding it's a manual `ls` + `kill` command instead) is explicitly left open by
-Addendum 10 and not required for S0/S0b to be considered done.
+**S0b — handle registry (new, forward-looking, additive, needs re-keying).** The original sketch (a
+small file per running instance, naming `<origin-pid>.<own-pid>`) inherited the same wrong identity
+key as S0's original design and needs re-keying on `session_id` before it is built — not designed in
+detail here. Purpose is unchanged: a second, independent mechanism so an external cleanup pass or a
+human can find and reap running instances without parsing `ps`/`pgrep` output for script-specific argv
+patterns. **Does not replace or weaken the existing `--origin-pid`/`kill -0` dead-man's-switch** — that
+stays exactly as designed, in every script, unchanged by any of this. No reaper script is specified by
+this step; building one is left open, not required for S0/S0b to be considered done.
 
 **S1 — `session-extract.sh` (mechanical read-side, unchanged, no defect found).** Pulls genuine
 user-authored turns (plain-string `user` records and mid-turn `queue-operation`/`enqueue` records,
@@ -175,13 +196,18 @@ turns to a raw sidecar (`session/digests/<topic>.raw.md`), advances its own mark
 crash or sleep loses nothing already written). Self-registers `(transcript, digest)` pairs into
 `session/.tier2-registry` for the shared Tier-2 scanner to discover — best-effort, must never block
 Tier-1's free-path guarantee (a registry-write failure is swallowed, not raised). `--origin-pid <pid>`
-dead-man's-switch (checked with `kill -0` each pass) stays exactly as designed, unchanged. **Guard
-mechanism changes**: today this script inlines its own `mkdir`/`pgrep`/mtime-only staleness block;
-per S0, it must be rewritten to source `single-instance-guard.sh` and call `guard_acquire`/
-`guard_release` instead, gaining the pid-based staleness check and the handle-registry drop as a
-byproduct. **Consumer of Defect 1 above** — this script's own contract (require `--origin-pid` unless
+dead-man's-switch (checked with `kill -0` each pass) stays exactly as designed, unchanged — it
+identifies whether the *owning Claude process* is still alive, nothing else. **Guard mechanism
+changes, corrected 2026-08-16**: today this script inlines its own `mkdir`/`pgrep` block keyed on
+`$origin_pid` — the wrong identity key, since a session's pid can change across a resume while the
+logical session persists. Per S0's corrected design, this script needs a **new required argument,
+`--session-id <session_id>`** (the Claude session's own stable UUID, separate from and in addition to
+`--origin-pid`), and must be rewritten to source `single-instance-guard.sh`, calling
+`guard_acquire "session-snapshot" "$session_id"` / `guard_release` — keyed on session_id, never on any
+pid. **Consumer of Defect 1 above** — this script's own contract (require `--origin-pid` unless
 `--once`) is correct and unchanged; the defect is entirely in its caller, `tier1-session-start.sh`
-(S6), not here.
+(S6), not here. Same caller also needs to start passing `--session-id`, since the hook payload
+already carries `session_id` (confirmed in S6's own code).
 
 **S3 — `tick-consolidate.sh` (Tier-2, per-session, cheap-model).** Invoked by S2 (via
 `--consolidate-every`) or by the shared scanner S4. Sends only the new-since-marker turns to a small
@@ -196,13 +222,25 @@ this tier's job, not Tier-1's). No defect found.
 loops with one shared scanner reading `session/.tier2-registry`, retiring transcripts stale beyond
 `--retire-days` (default 7, with self-healing wake-up if a retired transcript's mtime moves again), and
 tracking a combined daily token cap (`--daily-cap`, default 50000) in `session/.tier2-usage.log` as a
-backstop against a runaway loop, not a tight budget. Same `--origin-pid` dead-man's-switch as S2,
-unchanged. **Same guard-mechanism change as S2**: must be rewritten to source
-`single-instance-guard.sh` (S0) rather than inlining its own copy of the guard block. Explicitly not yet
-started for real on this machine as of this writing (per `atomic-step-protocol-design-addendum-8.md`'s
-own tracking) — built and sandbox-verified, never run live; the S0 rewrite should land before its first
-real run, not after. No other defect found in the script's non-guard logic; its non-running status is
-an operational gap, not a code defect.
+backstop against a runaway loop, not a tight budget. Same `--origin-pid` dead-man's-switch as S2 for
+the *kill-switch* only, unchanged — tied to whichever sync session currently owns this instance.
+
+**Guard mechanism, corrected 2026-08-16 — a different identity axis from S2, and a general point
+worth stating once here.** This script and `sync-main-watch.sh` (out of this spec's scope, see
+`sync-watchers-spec.md`) are both **run by whichever session is currently acting as sync — a logical
+role ID, not a Claude session_id.** Per Dean, verbatim: *"both sync-main and tier-2 tick are run by
+sync__ — that is a logical id not a Claude session id. Whoever runs, runs under that ID."* This is not
+a degenerate "no key" case, and not the same fix as S2 — it is the same general principle
+(`guard_acquire`'s key is whatever logical identity actually needs "at most one") applied to a
+different identity than a Claude session: `guard_acquire "tick-shared-scan" "sync"` — a **fixed,
+project-defined role constant**, not derived from any session at all, so a different sync session
+resuming ownership recognizes "already running" without needing to match its own session_id or any
+other per-instance value. Must source `single-instance-guard.sh` (S0) rather than inlining its own
+copy of the guard block, same mechanism as S2, keyed differently. Explicitly not yet started for real
+on this machine as of this writing (per `atomic-step-protocol-design-addendum-8.md`'s own tracking) —
+built and sandbox-verified, never run live; the S0 rewrite should land before its first real run, not
+after. No other defect found in the script's non-guard logic; its non-running status is an operational
+gap, not a code defect.
 
 **S5 — `tick-live-index.sh` (session identity snapshot, standalone).** Scans `session/status/*.md` for
 the identity block (added to `CONVENTIONS.md` 2026-08-13), computing two staleness signals: absolute
