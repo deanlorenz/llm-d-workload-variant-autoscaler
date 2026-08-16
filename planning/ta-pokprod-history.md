@@ -1559,3 +1559,30 @@ notice if it recurs, not just accept it after the fact; doc-coverage cleanup (D-
 parked; the runbook fold-vs-stub call (execution plan §7.1 T6) waits for Stage A confidence.
 **Two items Dean asked to look up rather than decide now:** the controller-restart hold-policy
 question (pointer: D-40/D-46) and the doc-coverage cleanup plan (pointer: this doc + D-56).
+
+---
+
+## D-72 | 2026-08-16/17 | topic:handoff-git-tracking-inconsistency,process-finding-handed-off | src:plan__handoff-git-tracking-inconsistency-found.md
+
+**Process finding, not a pokprod-mission decision — recorded here because it surfaced from this
+scope's own work, but the fix belongs to the handoff-protocol design, not this scope.** While
+investigating an accidental broad commit (D-71's own `0b365072`, which swept in 109 files from
+other sessions' handoff-state churn), traced a real inconsistency: `session/handoffs/` state
+transitions happen via bare `mv` (or `Bash cp`/`mv`, per the isolation-guard workaround), never
+`git mv` — so a session that accidentally `git add`s the directory records every rename as an
+unrelated delete+add pair rather than a tracked rename. 439 files are currently tracked this way.
+This contradicts CONVENTIONS.md's own stated model (handoffs are ephemeral shared-filesystem
+coordination; `.DONE` files get `git rm`'d by the sync session, never meant to accumulate
+permanent git history).
+
+**Dean's ruling, verbatim:** "These are pointers anyway. The sync__ handoff should track the
+important history" — i.e. handoff files are coordination pointers; durable record lives in
+CURRENT.md (via `sync__`) and each scope's own ledger/Type-3 docs, never in a handoff file's own
+git log. **Explicitly not this scope's to fix** — "this is process planning — you don't own it,
+atomic-step planner is the owner... write a handoff to that planner." No retroactive git-history
+change authorized (439 existing tracked files stay exactly as they are).
+
+**Sent, consumed, closed on this side.** `plan__handoff-git-tracking-inconsistency-found.md`
+(finding + proposal: gitignore `session/handoffs/` going forward, no retroactive rewrite) — picked
+up and marked `.DONE` by the protocol-design scope, no reply needed or received. Nothing further
+pending here; whether/how it's actioned is that scope's call.

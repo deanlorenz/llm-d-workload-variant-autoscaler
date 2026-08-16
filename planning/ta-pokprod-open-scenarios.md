@@ -30,6 +30,7 @@ below is executed** — this is a tracking pass so nothing gets lost, per his di
 | 7 | Doc-coverage cleanup classification, 19 scratch scripts ([[D-54]]/[[D-56]]) — **merged with old item 8, same thing** | **Still parked, not a priority.** No classification decision made. |
 | 9 | Coder reply-routing pattern (replies landing on the wrong sibling scope) | Confirmed: yes, about handoffs. Should improve once the newer plan-tooling protocols land; watching whether it recurs, not a decision Dean needs to make now. |
 | 10 | §5.5-item-4 runbook fold-vs-stub call | Understood — **wait until Stage A's results are confirmed as expected** before touching the runbook question. |
+| 11 | Handoff-file git-tracking inconsistency (bare `mv`, not `git mv`, 439 files accidentally tracked) — found 2026-08-16 while investigating an unrelated broad commit | ✅ **CLOSED on this side** — not this scope's to fix; handed off to the handoff-protocol design owner with Dean's ruling attached (pointers only, no git history, sync__ carries the real record). Picked up, consumed, no reply needed. [[D-72]] |
 
 **Not re-numbered from the original 11-item scan** so the numbering stays stable across
 conversations — 5 and 8 are folded into 4 and 7 respectively, not deleted, so a future reader
