@@ -85,6 +85,20 @@ Two forks back this mission, with non-overlapping contents. [[D-4]]
 **Rule:** anything in the harness fork that is not a guard belongs in WVA `hack/`. The harness fork
 makes the tools installed on the cluster *safe*; it is not where tools live.
 
+**A concrete instance of this boundary, found the hard way (D-68, 2026-08-16).** The `benchmark`
+branch carries an *embedded clone* of `llm-d-benchmark` alongside `hack/benchmark/`. The embedded
+clone's own copy of a scenario file (`config/scenarios/guides/two-variant-wva.yaml`) looks
+editable and identical to the real source of truth
+(`hack/benchmark/scenarios/guides/two-variant-wva.yaml`, tracked on `benchmark` itself) — but
+`make benchmark-run`'s "Copying local scenario" step **silently overwrites the embedded clone's
+copy from the real source on every single invocation.** A fix applied directly to the embedded
+clone's file is real and verified on disk right up until the next run starts, then vanishes
+without any warning — cost two full cluster-run cycles before the pattern was traced via the
+Makefile rather than assumed to be the same bug recurring. **The rule above already covers this**
+(anything not a guard belongs in WVA `hack/`) — this is that rule's failure mode when someone
+edits the embedded clone directly instead of the tracked source, and the copy step's silent
+overwrite is what turns "wrong file" into "invisible until the next run."
+
 **Ownership boundary:** the WVA fork's tooling changes stay on Dean's fork for now — not upstream —
 until Dean scopes what belongs as issues/PRs on the public repos. [[D-14]]
 

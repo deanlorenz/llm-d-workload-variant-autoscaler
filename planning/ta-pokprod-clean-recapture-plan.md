@@ -1,6 +1,8 @@
 # TA on pokprod — Clean recapture campaign (Type 3)
 
-**Status:** Stage A LAUNCHED 2026-08-16 ("start it"), coder has it. Supersedes nothing — the
+**Status:** Stage A IN PROGRESS 2026-08-16 — 3 of 7 cells done (dwell-warmup trio, all clean),
+log-capture fix (D-63) landed and verified working, a real harness-OOM bug found+fixed along the
+way (D-68). Supersedes nothing — the
 existing 21-run-leaf dataset stays on disk and cited as-is; this is a fresh, deliberately staged
 re-run to get a clean dataset with warmup + fixed log capture, not a correction to prior results.
 

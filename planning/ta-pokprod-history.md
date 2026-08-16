@@ -1460,3 +1460,34 @@ wiring first (D-63 option (a)), prepend the 4-5 min warmup, rerun the gap-affect
 — dwell (3 configs), calibration-probe (3 configs), the p4 variant. Add exploratory
 instrumentation liberally. `dean-20260813-005321-943` is not re-run (already resolved via
 re-harvest, D-66) — Stage A is new cluster work only. Existing 21-leaf dataset untouched.
+
+---
+
+## D-68 | 2026-08-16 | topic:stage-a-progress,log-capture-fixed,harness-oom-found | src:plan__stage-a-progress-3of7-and-harness-oom-fix.md
+
+**Progress checkpoint, 3 of 7 Stage A cells done, all clean — dwell-warmup trio fully closed**
+(`m-sat/ta/satta-dwell-warmup`, commits `1d6ba2c4`/`73ceb160`/`4b67109a`). Two real fixes landed:
+
+1. **D-63's log-capture wiring fixed** — `capture_igw_from_follower()` reads the
+   gateway-log-follower's PVC copy directly, falling back to the old `kubectl logs` path only if
+   the window/metadata is unavailable. Verified: cell 1's IGW log has no `kubectl logs` pod-prefix,
+   confirming the follower path actually fired.
+2. **A real harness OOM found, cost 4 failed attempts, root-caused precisely.** The warmup stage
+   adds ~7,020 extra requests, and the scenario's harness pod was silently rendering at vLLM's
+   32Gi global default instead of the 96Gi this workload has needed for months (documented in the
+   workload's own docstring, never wired into the scenario file). **A second trap compounded it:**
+   the fix was applied correctly twice to the embedded `llm-d-benchmark` clone's scenario copy and
+   verified on disk both times — but `make benchmark-run`'s "Copying local scenario" step
+   overwrites that file from the real source of truth (`hack/benchmark/scenarios/guides/
+   two-variant-wva.yaml`, tracked on the `benchmark` branch) on every invocation, silently
+   discarding the fix before the next run. Found by tracing the Makefile rather than guessing a
+   5th time. Fixed in the correct file, `49ea6b42`.
+
+**Flagged, not yet acted on:** whether this wrong-file trap deserves its own note in the
+architecture doc or campaign runbook — the embedded clone's scenario copy looking identical to
+the real source but being silently clobbered every run is a real footgun for anyone editing that
+file directly.
+
+**Remaining:** cells 5-6 (calibration-probe TA/satTA-warmup), cell 7 (p4-warmup, needs
+`--parallelism 4` passed manually). Coder continuing autonomously per standing authorization for
+this campaign; will report completion or flag sooner if something needs a planner decision.
