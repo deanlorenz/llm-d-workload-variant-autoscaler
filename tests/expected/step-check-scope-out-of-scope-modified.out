@@ -2,3 +2,4 @@ exit: 20
 --- stdout ---
 --- stderr ---
 step-check: [20] change outside declared scope: other/c.md
+step-check: --ledger not given; judgment-mark checks skipped

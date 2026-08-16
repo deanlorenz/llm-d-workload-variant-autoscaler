@@ -273,3 +273,38 @@ case_register step-check-signoff-missing-lineage-refused \
     ./tests/git-run.sh tests/tmp/step-check-signoff-missing-lineage-refused \
     ./tests/step-check-signoff-repo.sh missing-lineage -- \
     step-check --scope README.md
+
+# step-check — judgment mark (S3). Branch demo, step S03, slug
+# fixture-count-ambiguous, scope src throughout; see
+# tests/step-check-judgment-repo.sh for exactly what each case builds.
+case_register step-check-judgment-clean \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-clean \
+    ./tests/step-check-judgment-repo.sh clean -- \
+    step-check --scope src --lineage plans --ledger ledger.md --step S03 --handoffs-dir handoffs
+
+case_register step-check-judgment-no-tag \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-no-tag \
+    ./tests/step-check-judgment-repo.sh no-tag -- \
+    step-check --scope src --lineage plans --ledger ledger.md --step S03 --handoffs-dir handoffs
+
+case_register step-check-judgment-shares-commit \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-shares-commit \
+    ./tests/step-check-judgment-repo.sh shares-commit -- \
+    step-check --scope src --lineage plans --ledger ledger.md --step S03 --handoffs-dir handoffs
+
+case_register step-check-judgment-unlogged-tag \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-unlogged-tag \
+    ./tests/step-check-judgment-repo.sh unlogged-tag -- \
+    step-check --scope src --lineage plans --ledger ledger.md --step S03 --handoffs-dir handoffs
+
+case_register step-check-judgment-no-handoff \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-no-handoff \
+    ./tests/step-check-judgment-repo.sh no-handoff -- \
+    step-check --scope src --lineage plans --ledger ledger.md --step S03 --handoffs-dir handoffs
+
+# No --ledger at all: judgment checks are skipped and announced; the repo's
+# only commit is unsigned, so lineage=plans still passes cleanly overall.
+case_register step-check-judgment-ledger-omitted \
+    ./tests/git-run.sh tests/tmp/step-check-judgment-ledger-omitted \
+    ./tests/step-check-judgment-repo.sh ledger-omitted -- \
+    step-check --scope src --lineage plans --handoffs-dir handoffs

@@ -1,0 +1,4 @@
+exit: 42
+--- stdout ---
+--- stderr ---
+step-check: [42] judgment S03/fixture-count-ambiguous: no handoffs/spec__*.md names this judgment

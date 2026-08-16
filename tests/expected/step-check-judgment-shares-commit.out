@@ -1,0 +1,4 @@
+exit: 41
+--- stdout ---
+--- stderr ---
+step-check: [41] judgment S03/fixture-count-ambiguous: tag points at the same commit recorded as step S03 work; a judgment cannot share a commit with required work

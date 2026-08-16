@@ -4,9 +4,7 @@
 #
 #   step-check --scope <path> [--scope <path> ...] --lineage code|plans
 #               [--allow-untracked <glob>]...
-#
-# (--ledger is added by a later step of the same spec; this file grows in
-# place rather than being rewritten per step.)
+#               [--ledger <file> --step <id> [--handoffs-dir <dir>]]
 #
 # Scope containment: a changed path is in scope if it equals a declared
 # --scope path exactly, or sits beneath a declared --scope directory — a
@@ -34,13 +32,64 @@
 # is otherwise clean: a run that also fails scope containment stays silent on
 # this point rather than mixing a success note into a failure report.
 #
+# Judgment mark (Addendum 1's proceed-and-mark obligations): --ledger <file>
+# is the coder's own session/status/<branch>.md, read for two line shapes
+# (everything else in that file is prose this script ignores):
+#
+#   S<n> · commit <sha> · verify pass · <one line>       (ordinary step work)
+#   S<n> · judgment <slug> · <ambiguous/assumed/why/revert/decision prose>
+#
+# --step <id> names which step this invocation is for (required together
+# with --ledger — the ledger accumulates across a whole run, and "at this
+# step" in the spec means only that step's own judgments are checked
+# forward; not in the Intent block's abbreviated call-stack diagram, added
+# here the same way --ledger itself was). Omitting --ledger skips every
+# judgment check and says so on stderr — silence would let a caller believe
+# they ran. Passing --step without --ledger is accepted and ignored.
+#
+# For each `judgment <slug>` entry naming --step's id:
+#   1. a tag `judgment/<branch>/<step>-<slug>` (branch via `git branch
+#      --show-current`) must exist and resolve to a commit — missing is 40.
+#   2. isolation: that commit's own changed paths (`git diff-tree --root`)
+#      must all be in scope, exactly like the scope-containment check above
+#      — and it must differ from every `commit <sha>` this ledger records
+#      for the same step, since a judgment sharing a commit with required
+#      work cannot be reverted without losing the work. No such `commit`
+#      line at all means isolation cannot be established either — this
+#      script never reports "isolated" without having checked it, so that
+#      case is refused too. Either failure is 41.
+#   3. surfacing: some `--handoffs-dir`/spec__*.md file's body must mention
+#      the slug as a whole token ([^a-z0-9-] or an edge on both sides,
+#      case-sensitive — the citation rule conv-rename's own S3 already
+#      established for this exact "conventions manifest or prose mention"
+#      shape). Absent is 42; this script cannot judge whether the content
+#      is adequate, only whether a match exists.
+# --handoffs-dir defaults per lineage, matching where a coder's write scope
+# actually puts these handoffs (CODER-CONVENTIONS.md §5.2): `plans` writes
+# session/handoffs/ in its own tree; every other (code) branch is a sibling
+# worktree of plans/, so the default is ../plans/session/handoffs. Override
+# for anything else, tests included.
+#
+# The reverse direction, independent of --step: every `judgment/<branch>/*`
+# tag must have a matching `judgment <slug>` ledger line for *some* step (any
+# step already checked in an earlier invocation still counts) — a tag with
+# none is 43, an unlogged judgment, which the spec calls worse than an
+# unmarked one because nothing about it is even visible without the tag
+# inventory.
+#
 # Exit codes are the contract, and are additive across this spec's steps:
 #   0   clean
 #   2   usage error (bad arguments, not inside a git working tree, no
-#       commits yet, --lineage missing or not code/plans)
+#       commits yet, --lineage missing or not code/plans, --ledger given
+#       without --step, or --ledger unreadable)
 #   20  scope containment: a change landed outside every declared scope path
 #   21  scope containment: no --scope was given at all
 #   30  sign-off policy: the tip commit violates the declared lineage's rule
+#   40  judgment mark: no tag for a ledger-named judgment
+#   41  judgment mark: tag not isolated (out-of-scope path, or shares a
+#       commit with recorded step work, or isolation cannot be established)
+#   42  judgment mark: no handoff surfaces the judgment
+#   43  judgment mark: a judgment/* tag has no ledger entry at all
 #
 # All violations found are reported before exiting; the exit code is the
 # lowest-numbered class present, so a caller can branch on the most
@@ -57,6 +106,9 @@ die() {
 scopes=()
 allow_untracked=()
 lineage=
+ledger=
+step=
+handoffs_dir=
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -87,8 +139,36 @@ while [ "$#" -gt 0 ]; do
             allow_untracked+=("${1#--allow-untracked=}")
             shift
             ;;
+        --ledger)
+            [ "$#" -ge 2 ] || die 2 '--ledger needs a file argument'
+            ledger=$2
+            shift 2
+            ;;
+        --ledger=*)
+            ledger=${1#--ledger=}
+            shift
+            ;;
+        --step)
+            [ "$#" -ge 2 ] || die 2 '--step needs an id argument (e.g. S03)'
+            step=$2
+            shift 2
+            ;;
+        --step=*)
+            step=${1#--step=}
+            shift
+            ;;
+        --handoffs-dir)
+            [ "$#" -ge 2 ] || die 2 '--handoffs-dir needs a directory argument'
+            handoffs_dir=$2
+            shift 2
+            ;;
+        --handoffs-dir=*)
+            handoffs_dir=${1#--handoffs-dir=}
+            shift
+            ;;
         -h|--help)
             printf 'usage: step-check --scope <path>... --lineage code|plans [--allow-untracked <glob>]...\n'
+            printf '                   [--ledger <file> --step <id> [--handoffs-dir <dir>]]\n'
             exit 0
             ;;
         --*)
@@ -105,6 +185,12 @@ case $lineage in
     code|plans) ;;
     *) die 2 "invalid --lineage value: $lineage (must be code or plans)" ;;
 esac
+
+if [ -n "$ledger" ]; then
+    [ -n "$step" ] || die 2 '--step is required (e.g. S03) when --ledger is given'
+    [ -f "$ledger" ] || die 2 "no such ledger file: $ledger"
+    [ -r "$ledger" ] || die 2 "ledger file is not readable: $ledger"
+fi
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 2 'not inside a git working tree'
 git rev-parse HEAD >/dev/null 2>&1 || die 2 'no commits yet: nothing to check sign-off against'
@@ -226,6 +312,142 @@ fi
 if [ "${#offenders[@]}" -gt 0 ]; then
     printf 'step-check: [20] change outside declared scope: %s\n' "${offenders[@]}" >&2
     note_class 20
+fi
+
+# Judgment mark. --ledger is optional; skip and announce rather than run
+# silently, so a caller cannot mistake "no flag" for "checked and clean".
+if [ -z "$ledger" ]; then
+    printf 'step-check: --ledger not given; judgment-mark checks skipped\n' >&2
+else
+    branch=$(git branch --show-current)
+    [ -n "$branch" ] || die 2 'cannot determine current branch (detached HEAD?); judgment tags are branch-scoped'
+
+    if [ -z "$handoffs_dir" ]; then
+        if [ "$lineage" = plans ]; then
+            handoffs_dir=session/handoffs
+        else
+            handoffs_dir=../plans/session/handoffs
+        fi
+    fi
+
+    # One pass over the ledger, in file order. Every other line in a real
+    # session/status/<branch>.md (identity block, notes, snapshot header) is
+    # prose this does not recognise and silently ignores.
+    ledger_records=$(awk '
+        /^S[0-9]+ · commit / {
+            line = $0
+            s = line; sub(/ .*/, "", s)
+            rest = line; sub(/^S[0-9]+ · commit /, "", rest)
+            sha = rest; sub(/[^A-Za-z0-9].*/, "", sha)
+            if (sha != "") printf "COMMIT\t%s\t%s\n", s, sha
+            next
+        }
+        /^S[0-9]+ · judgment / {
+            line = $0
+            s = line; sub(/ .*/, "", s)
+            rest = line; sub(/^S[0-9]+ · judgment /, "", rest)
+            slug = rest; sub(/[^a-z0-9-].*/, "", slug)
+            if (slug != "") printf "JUDGMENT\t%s\t%s\n", s, slug
+            next
+        }
+    ' "$ledger")
+
+    declare -a commit_step=() commit_sha=()
+    declare -a judgment_step=() judgment_slug=()
+    while IFS=$'\t' read -r kind f1 f2; do
+        [ -n "$kind" ] || continue
+        case $kind in
+            COMMIT)   commit_step+=("$f1");   commit_sha+=("$f2")  ;;
+            JUDGMENT) judgment_step+=("$f1"); judgment_slug+=("$f2") ;;
+        esac
+    done <<<"$ledger_records"
+
+    # Forward: every ledger judgment named for --step must have an isolated,
+    # tagged, surfaced commit.
+    if [ -n "$step" ]; then
+        for i in "${!judgment_step[@]}"; do
+            [ "${judgment_step[$i]}" = "$step" ] || continue
+            slug=${judgment_slug[$i]}
+            tag="judgment/$branch/$step-$slug"
+
+            tag_sha=$(git rev-list -n1 "$tag" -- 2>/dev/null)
+            if [ -z "$tag_sha" ]; then
+                printf 'step-check: [40] judgment %s/%s: no tag matching %s\n' "$step" "$slug" "$tag" >&2
+                note_class 40
+                continue
+            fi
+
+            isolated=1
+
+            changed=()
+            while IFS= read -r p; do
+                [ -n "$p" ] && changed+=("$p")
+            done < <(git diff-tree --no-commit-id --name-only -r --root "$tag_sha" 2>/dev/null)
+            for p in "${changed[@]}"; do
+                p=$(normalise "$p")
+                in_scope "$p" && continue
+                printf 'step-check: [41] judgment %s/%s: tagged commit touches a path outside scope: %s\n' \
+                    "$step" "$slug" "$p" >&2
+                isolated=0
+            done
+
+            step_work_shas=()
+            for i2 in "${!commit_step[@]}"; do
+                [ "${commit_step[$i2]}" = "$step" ] && step_work_shas+=("${commit_sha[$i2]}")
+            done
+            if [ "${#step_work_shas[@]}" -eq 0 ]; then
+                printf 'step-check: [41] judgment %s/%s: no ordinary-work commit recorded for step %s; cannot confirm isolation\n' \
+                    "$step" "$slug" "$step" >&2
+                isolated=0
+            else
+                for w in "${step_work_shas[@]}"; do
+                    if [ "$w" = "$tag_sha" ]; then
+                        printf 'step-check: [41] judgment %s/%s: tag points at the same commit recorded as step %s work; a judgment cannot share a commit with required work\n' \
+                            "$step" "$slug" "$step" >&2
+                        isolated=0
+                    fi
+                done
+            fi
+            [ "$isolated" -eq 1 ] || note_class 41
+
+            surfaced=0
+            if [ -d "$handoffs_dir" ]; then
+                shopt -s nullglob
+                spec_handoffs=("$handoffs_dir"/spec__*.md)
+                shopt -u nullglob
+                for f in ${spec_handoffs+"${spec_handoffs[@]}"}; do
+                    grep -qE "(^|[^a-z0-9-])$slug([^a-z0-9-]|\$)" "$f" 2>/dev/null && surfaced=1
+                done
+            fi
+            if [ "$surfaced" -eq 0 ]; then
+                printf 'step-check: [42] judgment %s/%s: no %s/spec__*.md names this judgment\n' \
+                    "$step" "$slug" "$handoffs_dir" >&2
+                note_class 42
+            fi
+        done
+    fi
+
+    # Reverse: any judgment/<branch>/* tag on this branch must have a
+    # matching ledger entry for some step — an unlogged judgment tag is its
+    # own violation, worse than an unmarked one.
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        rest=${tag#"judgment/$branch/"}
+        [ "$rest" != "$tag" ] || continue
+        tag_step=${rest%%-*}
+        tag_slug=${rest#"$tag_step"-}
+        logged=0
+        for i in "${!judgment_step[@]}"; do
+            if [ "${judgment_step[$i]}" = "$tag_step" ] && [ "${judgment_slug[$i]}" = "$tag_slug" ]; then
+                logged=1
+                break
+            fi
+        done
+        if [ "$logged" -eq 0 ]; then
+            printf 'step-check: [43] tag %s has no matching ledger entry (unlogged judgment)\n' "$tag" >&2
+            note_class 43
+        fi
+    done < <(git tag -l "judgment/$branch/*")
 fi
 
 if [ "$exit_code" -eq 0 ] && [ -n "$lineage_note" ]; then

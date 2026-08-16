@@ -1,0 +1,4 @@
+exit: 40
+--- stdout ---
+--- stderr ---
+step-check: [40] judgment S03/fixture-count-ambiguous: no tag matching judgment/demo/S03-fixture-count-ambiguous

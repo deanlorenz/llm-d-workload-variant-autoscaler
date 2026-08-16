@@ -2,3 +2,4 @@ exit: 0
 --- stdout ---
 step-check: lineage=plans: no Signed-off-by on the tip commit, as required
 --- stderr ---
+step-check: --ledger not given; judgment-mark checks skipped

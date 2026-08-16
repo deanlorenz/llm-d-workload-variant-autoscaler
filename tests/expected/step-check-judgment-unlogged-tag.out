@@ -1,0 +1,4 @@
+exit: 43
+--- stdout ---
+--- stderr ---
+step-check: [43] tag judgment/demo/S03-never-logged has no matching ledger entry (unlogged judgment)
