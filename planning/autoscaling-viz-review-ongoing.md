@@ -469,4 +469,16 @@ its visual result is legible, but did not independently judge whether one-stdev 
 for what counts as an outlier on this data — that's a Dean visual-call, matching the spec's own
 framing, not a correctness question this review can settle.
 
+**Update 2026-08-16 — the `SAT` finding above is FIXED, verified independently.** Commit `0aade22f`
+adds `SAT = 0.85` as a local module constant at `render_real_trace.py:102`, ahead of its use at line
+883 (line moved by the fix's own insertion). Value matches `extract_real_trace.py`'s own `SAT = 0.85`
+exactly — no silent mismatch introduced. **Independently reproduced the crash on the pre-fix code**,
+not just trusted the commit message's claim of having done so: obtained a read-only copy of `f92d3c19`
+via `git show f92d3c19:render_real_trace.py` into an isolated `/tmp` directory (never touching the
+shared worktree), fed it a bundle with `sat_band.threshold` synthetically set to `None`, and got the
+exact predicted `NameError: name 'SAT' is not defined. Did you mean: 'sat'?` at line 874. Re-ran the
+identical nulled-threshold bundle against the post-fix tip — renders clean, no crash. Both halves of
+the fix (bug was real and reachable; fix resolves it with the correct fallback value) independently
+confirmed. This finding is now CLOSED.
+
 [↑ TOC](#toc)
