@@ -46,6 +46,15 @@ Corollary: never `git commit -a`, and never `git restore --staged` someone else'
 This is `plans`-specific in practice — code branches get one coder per worktree — but the rule is
 cheap enough to state unconditionally.
 
+**One caveat, found by trying it:** a pathspec commit only reaches paths git already knows, so a
+**brand-new** file still needs `git add` first — the pathspec form errors with *"did not match any
+file(s) known to git"*. There is no way to commit an untracked file without staging it. The best
+available mitigation is to chain `git add <paths> && git commit -s -m ... -- <paths>` in a single
+shell invocation, so the window in which your files sit in the shared index is as short as possible,
+and the pathspec still stops *your* commit from sweeping up anyone else's staged work in return. Worth
+stating explicitly in whatever convention this becomes, since the obvious reading of the rule ("never
+`git add`") is impossible to follow for new files.
+
 ## What I did and did not do about `f9e1dba6`
 
 Content is intact and is exactly the version I tested (verified `git show HEAD:<path>` against the
