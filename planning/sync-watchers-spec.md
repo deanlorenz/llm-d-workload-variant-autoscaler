@@ -20,6 +20,9 @@ they actually exist.
 - S5 — generalize over (container, repo identity, tracked branch) — **CODED and behaviorally
   verified 2026-08-16.** Also fixes the `.WIP` cwd-match-silent-no-op handoff's root cause in the
   same pass (logs the actual cwd it saw on the no-op path now, instead of silence).
+- `sync-current-watch.sh` — different purpose, guard **migrated 2026-08-16** to the shared library,
+  kill-switch fixed (was checking "any Claude process," not the originating one), same status-lies
+  bug as Defect C found and fixed. See its own section below the step index.
 - `sync-current-watch.sh` is explicitly out of scope (different purpose, needs its own spec).
 
 **Needs you:** nothing blocking. `sync-current-watch.sh` still needs its own spec or a decision to
@@ -272,15 +275,31 @@ run against this repo's real config (should be a no-op behavior change, since `T
 `UPSTREAM_REMOTE=upstream` matches today's hardcoded values exactly) and a synthetic config with an
 empty `UPSTREAM_REMOTE` (should loudly no-op, not silently or with an error).
 
-## Explicitly out of scope — `sync-current-watch.sh` needs its own spec, not this one
+## `sync-current-watch.sh` — different purpose, own section, guard migrated 2026-08-16
 
-`sync-current-watch.sh` exists in the same `scripts/` directory and shares this family's naming
-convention (`sync-*`) but has a genuinely different purpose (watching for pending `sync__*.md` handoffs
-against `session/CURRENT.md`'s own last-sync commit — a CURRENT.md-freshness check, not an
-upstream/main fast-forward), so it is deliberately **not** folded into this spec under a shared title
-that would misdescribe it. **Confirmed still on the old flock + `anchor_alive()` pattern** (checked
-directly, 2026-08-13 and again 2026-08-16) — not migrated to Addendum 7's guard mechanism, and not
-named in Addendum 7's own "Still open" list either, so this is a real, currently-untracked gap: three
-scripts share one guard shape (soon four, once S2 above is fixed) and a fifth, closely-related script
-in the same directory still runs the superseded one. Flagged here so it is not lost; a fifth Type 3 (or
-an extension of this one, once written) is needed to cover it properly — not written in this pass.
+Genuinely different purpose from the rest of this family (watching for pending `sync__*.md`
+handoffs against `session/CURRENT.md`'s own last-sync commit — a CURRENT.md-freshness check, not an
+upstream fast-forward), so it does not get its own S-number in the step index above — but its guard
+mechanism is the same class of fix as S2/S4, so it's recorded here rather than left as a permanently
+untracked gap.
+
+**Was on the old flock + `anchor_alive()` pattern** (confirmed 2026-08-13, again 2026-08-16) — the
+one script in the family never migrated in the earlier guard-rework pass, and not named in Addendum
+7's own "Still open" list either. **Migrated 2026-08-16**: sources `lib/single-instance-guard.sh`,
+keyed on the fixed role constant `"sync"` (same reasoning as `sync-main-watch.sh`/
+`tick-shared-scan.sh` — this watcher belongs to whoever currently acts as sync, not to one session).
+Also gained a required `--origin-pid`/`kill -0` kill-switch, replacing `anchor_alive()`'s "any VS
+Code/Claude process anywhere in this WSL instance" check — found to be a **real behavioral
+difference**, not just stale wording the way `sync-main-watch.sh`'s comment turned out to be: this
+script had no `--origin-pid` at all, so it genuinely self-exited on any Claude/VS-Code process
+disappearing, not specifically the one that started it. Same `state`-hardcoding bug as Defect C
+(`write_status` always wrote `state: watching` regardless of actual liveness) found and fixed in the
+same pass. Behaviorally verified: 3-way simultaneous guard-acquire race → exactly one survivor; a
+real invocation correctly detected a genuine pending `sync__` handoff and reported `CONFLICT`
+against the real CURRENT.md tip; a `kill -0`-triggered exit correctly wrote `state: stopped`.
+
+**Note (Dean, 2026-08-16), not acted on in this pass:** this script's 30s poll loop is the concrete
+example `atomic-step-protocol-design-addendum-11.md` cites for the "bad monitor" failure shape —
+its own per-pass work is cheap shell (`ls`, `git log`), no model call, so it is not a live
+token-budget violation, but it is worth revisiting if that addendum's "no general bound yet on
+monitor cadence" gap is ever closed.
