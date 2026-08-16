@@ -13,14 +13,14 @@ writing this spec.
 ## TOC {#toc}
 
 - [Item X — anchor x=0 at warmup-end, not run-start {#item-x-anchor}](#item-x--anchor-x0-at-warmup-end-not-run-start-item-x-anchor) L25:60
-- [Item Y — panel 6: mild log scale with signed negatives {#item-y-panel6-log}](#item-y--panel-6-mild-log-scale-with-signed-negatives-item-y-panel6-log) L61:75
-- [Item Z — panel 4: move mean-KV legend off the colorbar {#item-z-panel4-legend}](#item-z--panel-4-move-mean-kv-legend-off-the-colorbar-item-z-panel4-legend) L76:88
-- [Item AA — panel 3: mean-running line color + secondary-axis direction {#item-aa-panel3-color}](#item-aa--panel-3-mean-running-line-color--secondary-axis-direction-item-aa-panel3-color) L89:106
-- [Item AB — panel 3: sort pods by scale-up order {#item-ab-panel3-sort}](#item-ab--panel-3-sort-pods-by-scale-up-order-item-ab-panel3-sort) L107:135
-- [Item AC — panel 3: add a per-pod color legend strip {#item-ac-panel3-colorlegend}](#item-ac--panel-3-add-a-per-pod-color-legend-strip-item-ac-panel3-colorlegend) L136:150
-- [Item AD — extractor: fall back to `per_request_estimated.json` when the real trace is absent {#item-ad-estimated-fallback}](#item-ad--extractor-fall-back-to-perrequestestimatedjson-when-the-real-trace-is-absent-item-ad-estimated-fallback) L151:177
-- [What NOT to change {#not-to-change}](#what-not-to-change-not-to-change) L178:189
-- [Verification {#verification}](#verification-verification) L190:222
+- [Item Y — panel 6: mild log scale with signed negatives {#item-y-panel6-log}](#item-y--panel-6-mild-log-scale-with-signed-negatives-item-y-panel6-log) L61:88
+- [Item Z — panel 4: move mean-KV legend off the colorbar {#item-z-panel4-legend}](#item-z--panel-4-move-mean-kv-legend-off-the-colorbar-item-z-panel4-legend) L89:101
+- [Item AA — panel 3: mean-running line color + secondary-axis direction {#item-aa-panel3-color}](#item-aa--panel-3-mean-running-line-color--secondary-axis-direction-item-aa-panel3-color) L102:119
+- [Item AB — panel 3: sort pods by scale-up order {#item-ab-panel3-sort}](#item-ab--panel-3-sort-pods-by-scale-up-order-item-ab-panel3-sort) L120:148
+- [Item AC — panel 3: add a per-pod color legend strip {#item-ac-panel3-colorlegend}](#item-ac--panel-3-add-a-per-pod-color-legend-strip-item-ac-panel3-colorlegend) L149:163
+- [Item AD — extractor: fall back to `per_request_estimated.json` when the real trace is absent {#item-ad-estimated-fallback}](#item-ad--extractor-fall-back-to-perrequestestimatedjson-when-the-real-trace-is-absent-item-ad-estimated-fallback) L164:190
+- [What NOT to change {#not-to-change}](#what-not-to-change-not-to-change) L191:202
+- [Verification {#verification}](#verification-verification) L203:237
 
 ## Item X — anchor x=0 at warmup-end, not run-start {#item-x-anchor}
 
@@ -70,6 +70,19 @@ the real (untransformed) replica-delta values**, not the transformed ones — us
 `FuncFormatter` (or matplotlib's own `symlog` scale with `linthresh` tuned to taste, if that reads
 equivalently once rendered — coder's call which mechanism, but the requirement is real-valued tick
 labels either way) so a reader sees "±2, ±4, ±8..." not "±1, ±2, ±3" (the log-space numbers).
+
+**Addendum, folded in per Dean's fold-in decision:** the coder's own verification of the
+extract-render-two-real-runs task (`plan__autoscaling-viz-extract-render-two-real-runs-done.md`)
+flagged a fresh cosmetic defect on the `m-satta-dwell` render: a `T2-default` marker-legend
+annotation lands directly on top of panel 6's own title text ("6 · signed replica-delta per
+analyzer") near x≈0-50s, because the underlying data point is very early and the label's vertical
+offset doesn't account for the title's position at that x-range. Fix as part of this same item
+since it touches the same panel-6 annotation code the log-scale change already modifies — adjust
+the offset/placement for labels landing in the title's x/y region, same general approach as the
+existing overlap fix from the prior round (Item 6,
+`autoscaling-viz-panel-review-20260815-fixes-plan.md`) staggered onto alternating positions when
+two labels are close; extend that same logic (or a similar one) to also avoid the title's own
+bounding box, not just other labels.
 
 [↑ TOC](#toc)
 
@@ -196,7 +209,9 @@ build that surfacing now, just don't paint yourself into a corner that makes it 
   before this spec (anchor stays at run-start).
 - Item Y: confirm panel 6's y-axis shows real replica-delta values on its ticks, and that a large
   excursion (if present in the test run) reads as visibly compressed relative to small values, not
-  linearly scaled.
+  linearly scaled. Also confirm the `T2-default`-on-title collision from the two-real-runs render
+  is fixed — re-render `m-satta-dwell` specifically (the run it was found on) and check the same
+  x≈0-50s region.
 - Item Z: confirm panel 4's mean-KV legend and colorbar no longer overlap.
 - Item AA: confirm panel 3's mean-running line is yellow; note in the report whether the
   axis-reversal experiment was tried and whether it was kept.
