@@ -82,3 +82,67 @@ explicit approval obtained for that specific settings.json edit.
 - The Step 0 mechanical test (synthetic `SessionStart` payload → live Tier-1 loop → cleaned up)
   left no residue: confirmed `session/digests/session-test-verify-hook-*` files removed, confirmed
   no orphaned `session-snapshot.sh` process for that test session-id still running.
+
+## state-park — overnight-restart-mechanism (source report)
+
+```
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session as background/resumable agents)
+  - 5 Agent-tool calls this turn (claude-code-guide x3, Explore x1, Plan x1) all ran
+    run_in_background: false, foreground, completed, and returned full output already
+    captured inline in this transcript and reflected in file writes — no resume address
+    exists to record because none is needed; nothing left running.
+Nudges sent (2b — best effort, NOT a flush):
+  - (none — nothing running)
+Sources read this pass:
+  - plans-tooling/planning/overnight-restart-mechanism-plan.md — confirmed current, matches
+    this report, both Step 0 update commits present
+  - plans-tooling git log — confirmed 21014e16 and da267eb8 both committed
+  - plans/.claude/settings.json — re-validated as syntactically correct JSON after edit
+  - plans git log (3-commit tail) — confirmed b7961000 present
+  - session/status/ (ls) — confirmed no prior status file existed for this mission before
+    this park
+  - ListAgents — confirmed no subagents from this session still tracked (4 unrelated peer
+    sessions listed, none spawned by this session)
+  - git status --short (plans) — read before staging; confirmed extensive concurrent
+    modification by other sessions, staged only my own file
+Not read (and why):
+  - plans-tooling/scripts/tick-consolidate.sh, tick-shared-scan.sh — Step 1's targets, not yet
+    started, nothing to verify there this pass
+  - roles/*.md, conventions/*.md — unrelated to this mission, unchanged
+Written to:
+  - plans/session/status/overnight-restart-mechanism.md — new, full mission state, mandatory
+    identity block, Step 0 detail, armed footguns, open items
+Handoffs emitted:
+  - (none this pass — no CURRENT.md-bound content yet, no other-owner task to route; this
+    mission's state is small enough that its own status file + the plans-tooling code spec
+    suffice for now)
+Committed:
+  - b7961000 fix(tier1-session-start): wire hooks into plans/.claude/settings.json directly
+    (plans, earlier this turn, before park started)
+  - 7aca9f47 state(park): overnight-restart-mechanism — Step 0 done, subagents, footguns,
+    open items (plans, this park)
+  - 21014e16, da267eb8 (plans-tooling, both earlier this turn, before park started — not
+    re-listed with full messages here to avoid duplicating what's already in the status file)
+Worktree exit:
+  - not applicable — this session was never inside a worktree via EnterWorktree; all
+    plans-tooling work was done via git -C / absolute-path commands from plans throughout.
+    Confirmed via pwd at park time: /home/dean/.../plans, unchanged all turn.
+Verified from final location:
+  - plans/session/status/overnight-restart-mechanism.md — present
+  - commit 7aca9f47 — visible in git log
+  - commit b7961000 — visible in git log
+  - no stray handoffs from this pass in session/handoffs/
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not push either branch's new commits (b7961000, 7aca9f47 on plans; 21014e16, da267eb8
+    on plans-tooling) — no push confirmation requested or given this pass.
+  - Did not attempt to verify the real SessionStart firing end-to-end — genuinely cannot,
+    this session can't start a fresh session on itself. Named as the one open verification
+    item in the status file instead of guessed at.
+  - Did not start Step 1 (real numbers into session/.tier2-usage.log) — Step 0 is done but
+    Steps 1-3 were not begun this pass; correctly left as "unblocked, not started."
+  - Noticed extensive concurrent drift in the shared plans/ tree (many other sessions' WIP)
+    but took no action on any of it — not this session's scope, not flagged as needing
+    /s-state-sweep since nothing here suggests those sessions' own state is inconsistent,
+    just concurrent.
+```
