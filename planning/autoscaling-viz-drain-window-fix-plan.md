@@ -103,3 +103,39 @@ t≈1073s (the real `desired` transition), not t≈615s.
   waiting + EPP-queue should still sum to total-in-system, per Task 2's own original invariant).
 
 [↑ TOC](#toc)
+
+## Outcome (committed `e188d244`) {#outcome}
+
+**First fix attempt was itself wrong — caught by re-verifying a cell the spec didn't name.** Clipping
+the backward scan to the nearest `desired` step-down `<=` the *matched drain event's own timestamp*
+seemed right and fixed `r2tnh` — but re-checking `m-satta-dwell` (already used for prior task
+verification, not named in this spec's own checklist) showed it had silently reduced 11 real drain
+windows down to 0. Root cause: `drain_events` comes from a coarser, independent poll than the per-pod
+metrics scrape and can report a `ready` decrease up to `DRAIN_MATCH_WINDOW_S` *after* a pod's own last
+sample — filtering by `<=` the drain event's timestamp let that poll lag admit a transition that, as
+of this pod's own last-observed instant, hadn't happened yet, so `t_start` got clipped past `last_t`
+and the window vanished.
+
+**Second, correct version**: filter candidate `desired` step-downs by `<=` the pod's own last sample,
+not the drain event. When *no* step-down precedes the pod's last sample at all (the original `r2tnh`
+case), fall back to the matched drain event itself, capped at `last_t` — which correctly resolves to
+"no window" for `r2tnh` specifically, since there's no time interval where it was both still
+reporting and past the transition.
+
+**Re-verified `m-satta-dwell` after the second version**: the 6 previously-short, correct windows
+(`6l685`, `8xx2f`, `2vxwj`, `mhrkh`, `9kb6w`, `gzvfj`) are back, unchanged from pre-fix. The 2
+over-extended ones (`njwp6` 336→724s, `l9s5k` 1160→1507s) are now correctly clipped to short tails.
+Two pods lost their windows under the corrected version too (`6l685`, `8xx2f`, in a run checked
+partway through) — **this loss is itself correct, not a regression**: cross-checked the replica
+trajectory directly and found `desired` was still climbing toward its peak throughout both pods'
+entire visible lifetime — no real scale-down was in progress when they vanished, so their original
+match to a nearby `drain_events` entry was a false positive on timing proximity alone (the matching
+step itself, out-of-scope/already-correct per this spec) rather than a defect this fix introduced.
+
+**Third cell spot-checked** (`m-sat-dwell`, SAT-only, no prior history with this bug): all windows
+short (47-157s) and plausible, no regression. **Invariant re-confirmed** on all three cells:
+running+draining+waiting+EPP-queue == total-in-system, 0 mismatches (612/441/185 samples
+respectively). **Backward-compat**: golden pre-panel-6 bundle (no `drain_windows` key at all) still
+renders clean. `make test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)

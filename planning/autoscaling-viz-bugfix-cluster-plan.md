@@ -132,3 +132,46 @@ was dropped by mistake."
   pod, and bar-top edges are visible.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `037106f2`) {#outcome}
+
+**Fix 1 (title `?`s).** `run_metadata.yaml` genuinely lacks `model`/`namespace` for the inference-perf
+dwell/staircase harness runs (confirmed, not an extractor field-name bug). Added `find_cell_config()`
+(globs `run_dir/../../config/*.env`, exactly one expected) and `find_workload_yaml()` (globs
+`run_dir/*.yaml` for one with an indented `model_name:` under `server:` — `read_flat_yaml`'s
+top-level-only regex can't see it) to `extract_real_trace.py`. Fallback chain: `model` =
+`run_metadata.yaml` → `.env BENCHMARK_MODEL_ID` → workload-yaml `model_name`; `namespace` =
+`run_metadata.yaml` → `.env BENCHMARK_NAMESPACE`; `workload` = `.env` basename (the actual cell name,
+e.g. `m-satta-dwell`) preferred over the raw `harness_workload` filename when both exist — found live
+during verification that one run's `run_metadata.yaml` *does* carry `harness_workload` but only as
+the profile YAML's filename (`ta_autoscale_staircase.yaml`), not the human cell name, so cell name
+wins. Renderer's title now shows `workload · run · model · harness · ns` instead of bare `?`s,
+degrading to the run dir basename (always present) if every fallback is exhausted.
+
+**Fix 2 (panel 1a triage — resolved as not a bug).** Confirmed by extracting a run known to have a
+real `per_request_lifecycle_metrics.json` (`dean-20260810-080708-371`, 4.2 GB, `--head 2000`): panel
+1a renders fully — arrival/departure curves, wait-band bars, real numbers. The review sample
+(`m-satta-dwell`) has no per-request file at all (`find` confirms), so its empty panel 1a is a
+**data-collection gap for that run, not a rendering or extraction defect**. No code changed for this
+item.
+
+**Fix 3 (panel 3 readability).** All three sub-fixes in `render_real_trace.py`: (a) legend now uses
+numeric `pod N running/waiting` labels instead of full pod-name suffixes, which overflowed with 15+
+pods, plus a compact `1=<suffix> 2=<suffix> ...` key line placed in the whitespace between panel 3's
+x-axis and panel 4's title — first attempt used full pod names in the key and it visibly overlapped
+the legend/next panel, caught by viewing the actual PNG, fixed by truncating to the short suffix
+(same convention the old inline labels used) and tightening the y-offset; (b) waiting-band hatch
+dropped its `alpha=0.55` reduction (full-saturation fill now) and switched `edgecolor` from `INK` to
+near-white `#f5f5f5`, so the hatch reads as texture rather than a second muddying layer — visibly
+cleaner on the 15-pod case; (c) running bars gained a thin `edgecolor=INK, linewidth=0.4` (previously
+`edgecolor='none'`), matching the waiting bars, so adjacent same-ish-colored segments separate
+visually.
+
+**Verification**: re-rendered and viewed 4 cells spanning the pod-count/analyzer-mix space:
+`m-satta-dwell` (15 pods, SAT+TA), `dean-20260810-080708-371` staircase (8 pods, SAT-only),
+`m-ta-staircase` (3 pods, TA-only — also confirms panel 6's "saturation analyzer absent" annotation
+fires correctly for a genuinely TA-only cell), and the shipped golden `staircase-20260803` bundle as
+a backward-compat regression check (pre-panel-6, pre-Fix-1 bundle — renders clean, no crash).
+`make test`/`lint`/`gofmt` N/A — Python-only worktree, no Makefile/test suite.
+
+[↑ TOC](#toc)

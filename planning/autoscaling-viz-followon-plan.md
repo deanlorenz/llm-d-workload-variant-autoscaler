@@ -127,6 +127,13 @@ already-authored table into a Type 4 (reference) doc under `autoscaling-viz/`, n
 Small, low-risk; can be folded into the same coder session as Item 1 or done separately. Not written
 up as its own Type 3 yet — flag for Dean whether to bundle with Item 1's coder session.
 
+**Outcome, committed `34afc197`.** New `COVERAGE-CHECKS.md` at the worktree root, cross-linked from
+README's "Read the coverage table" paragraph. Reconciled against current code, not copied verbatim:
+the Type 1's table predates panel 6 and only has 16 rows; live re-extraction (a staircase run and a
+`benchmark/runs/` campaign dir) confirmed the current code emits 17 — panel 6 inserted a new row 16
+("Scaling-decision log present") ahead of the old conditional row 16 ("Knee matches shape
+prediction"), which is now row 17. Doc reflects the verified order. `make test`/`lint`/`gofmt` N/A.
+
 [↑ TOC](#toc)
 
 ## Item 6 — folder-structure / make-target consistency {#item-6-folder-structure}

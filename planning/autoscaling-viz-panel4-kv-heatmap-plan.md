@@ -66,6 +66,18 @@ character (not just get "more of the same" color), matching Dean's own "100% is 
 was illustrative, not a literal requirement (confirm this reading with Dean if in doubt, but the
 explicit ask was to anchor at `k_sat`, and 30% was said before that decision was made).
 
+**Latent bug found and fixed later, committed `0aade22f` (a separate follow-up session, caught via
+internal review, not by this spec's own verification).** `render_real_trace.py:874`'s
+`k_sat = sat.get('threshold') or SAT` referenced a name (`SAT`) never defined anywhere in the file —
+found via an AST walk of top-level assignments, not just a grep. Never fired on any run tried so far
+because `extract_real_trace.py`'s own `sat_band()` unconditionally sets `'threshold': SAT` (0.85) in
+both return branches, so the `or SAT` branch was dead but not safely dead — any future bundle that
+ever omits the key would crash. Fixed by adding `SAT = 0.85` as a local module constant in
+`render_real_trace.py` (not an import of the extractor's own constant, since this file is designed to
+run standalone against just a `bundle.json`). Verified both directions: reproduced the exact
+`NameError` on the prior commit with a synthetically null-`threshold` bundle, then confirmed the same
+input renders clean after the fix.
+
 **Pods with no data at time `t`** (not yet live, or already dead — same ambiguity Item W already
 established can't be resolved from this data): render as a distinct neutral fill (e.g. a light gray,
 not white) so a dead/not-yet-live pod is visually distinguishable from a live pod at genuinely 0% KV.

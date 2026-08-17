@@ -168,3 +168,56 @@ before any code changes — do not let this Type 3's work bleed into fixing Item
   real and simulated renderers, without attempting to fix them here.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `fbecfe26`, on top of the bugfix cluster `037106f2`) {#outcome}
+
+**Panel 1b y-axis cap.** `y_max = 1.5 × max(offered-work peak, delivered-work peak)`; ceiling line
+and its sat-rate reference now clip at that line. Each off-chart step gets one annotation
+(`×N (X.Xk tok/s)`) — first attempt labelled every grid point where `ready` changed and produced an
+unreadable pile of overlapping text (a boot ramp on `m-satta-dwell` stepped through 8 replica counts
+in under 5 minutes), caught by viewing the PNG. Fixed by labelling only the last point of a run of
+off-chart values (one label per plateau) with a minimum time gap between labels. Guarded a real
+crash too: `total_w`/`offered_w` are only assigned inside `if reqs:`, so a run with no per-request
+trace (e.g. `m-satta-dwell` itself) hit `UnboundLocalError` on the very first test — both now default
+to `None` before the branch.
+
+**Extractor: `pod_drain_windows()`.** New derivation — only signal available is that a pod's scrape
+series stops. Correlates each pod's own last sample against the aggregate `ready`-decrease timestamps
+`lags()` already tracks, in **both time directions** (first version assumed the drain event always
+precedes the pod's death and matched zero pods on a real run — the aggregate `ready` poll can land
+*after* a pod's last raw scrape, a different, coarser cadence). Verified on `m-satta-dwell`: 11 of 15
+pods got a drain window, durations 0–347s. Running/draining split numerically exact (0/193 mismatches
+on a real bundle) — never double-counted or dropped.
+
+**Panel 3 redesign.** New draining band, dotted hatch, pod's own color — one legend entry total, not
+per-pod (first attempt gave every draining pod its own label and reproduced the legend-overflow
+problem, caught the same way). EPP-queue residual updated to subtract all three bands below it
+(`running+draining+waiting`). KV-ceiling line moves to a secondary y-axis when its max is >10% off
+the total-in-system max — verified the far case on real data (ceiling ~2.9x and ~10x the in-system
+max on two different runs, both correctly went secondary-axis) and the near case via one
+synthetically-adjusted bundle (forced to ~5% off, confirmed it stayed on the primary axis).
+
+**Convergence check.** `plots.py`'s own panel 3 draws work/s demand-vs-capacity per backend — a
+different concept in different units from the real renderer's request-domain breakdown. A real gap,
+not attempted to reconcile, per Item E's own out-of-scope boundary.
+
+**Fix-round 1 (committed `08927557`), found by the planner's own independent re-render.** Two real
+defects this session's own verification had missed: **(1) panel 1b cap no-op** — `work_peak`
+evaluates to 0 when `offered_w`/`total_w` are both `None`, so the `if work_peak > 0:` guard skipped
+the whole cap+annotate block, leaving the axis auto-scaled to ~50000, the pre-Task-2 look for a
+different (common) trigger than the `UnboundLocalError` crash already guarded. Fixed by falling back
+to `median(ceil)` as the anchor when there's no work stack at all. Found a second problem while
+fixing this: with several off-chart excursions spread across a 2000s+ run, the existing per-plateau
+dedup still let 5-6 labels land close together once compressed into the figure's pixel width — fixed
+by widening `min_gap` to 5% of span and staggering labels' vertical position. **(2) panel 3 legend
+density** — the earlier "fixed" claim only addressed draining's per-pod explosion; the pre-existing
+15 "pod N running" + up to 15 "pod N waiting" rows still bled into panel 4's title area once
+draining's extra row was added (21 total rows in one column). Fixed: above 6 pods, collapse running
+and waiting to one representative legend entry each — the per-pod number→name key already carries
+identification, nothing lost. Verified the ≤6-pod case (a 3-pod run) keeps its full per-pod legend.
+
+Both reproduced locally first, on the exact shipped commit, before touching any code — confirmed not
+environment-specific. Re-verified on the same 15-pod run after each fix; confirmed no regression on a
+3-pod run and the golden pre-panel-6 bundle. `make test`/`lint`/`gofmt` N/A throughout.
+
+[↑ TOC](#toc)

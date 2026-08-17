@@ -145,3 +145,33 @@ yourself, even to "match convention."
   `session/status/autoscaling-viz.md`, per this branch's existing verification-logging convention.
 
 [↑ TOC](#toc)
+
+## Outcome (Part 1/1b committed `870fff6d`) {#outcome}
+
+**Part 1/1b — footer + `coverage.json` + PNG-embedded metadata — landed clean.** Verified: footer
+legible, PNG metadata survives on an orphaned copy with no sidecar (checked via both `PIL.Image.info`
+and `identify -verbose`), stamped SHA matches `git rev-parse --short HEAD`, git-absent fallback
+tested (returns `'unknown'`, no crash).
+
+**Part 2 (regenerate 18 real runs' viz output) hit a real scope violation, self-caught mid-task.**
+All 18 regenerations were written into `benchmark/runs/<run>/results/<leaf>/viz/` — physically
+inside the `benchmark` worktree, a sibling to this one, from this `autoscaling-viz` session. Stopped
+as soon as `git -C benchmark status` confirmed the mistake; did not attempt any self-correcting
+deletes/moves in that worktree (surfacing beats chaining more git/filesystem surgery onto an already-
+wrong action). Filed a handoff with the exact file list (7 stale runs overwritten in place, 11
+never-rendered runs' new `viz/` dirs created — one is 4 leaves — plus 3 correctly-skipped
+empty/interrupted runs).
+
+**Resolution: Task counts as done, files stay where they are (Dean's call).** Part 1/1b is genuinely
+complete; Part 2's cross-worktree write is a closed incident, not a blocker on this task's own
+status — not redoing the regen inside this worktree. The gitignore/trackability gap this surfaced
+(`results/<leaf>/viz/` nests one level deeper than the `benchmark` worktree's existing gitignore
+exception reaches) was routed to the `benchmark` scope to fix on their own side.
+
+**New durable rule carried forward from this incident**: never write directly into `benchmark/runs/`
+or any other sibling worktree, full stop — this scope's output-location convention is exclusively
+`session-notes/review-samples/<label>/{bundle.json,coverage.json,panels.png}` inside this worktree. If
+canonical `benchmark`-side placement is also needed, that's a `benchmark`-scope pull/copy on their own
+side, flagged via handoff, never reached into directly.
+
+[↑ TOC](#toc)

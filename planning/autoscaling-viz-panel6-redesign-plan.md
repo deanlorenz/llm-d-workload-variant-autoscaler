@@ -146,3 +146,38 @@ unchanged:
   verified in the original Type 3.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `3f12aaa1`) {#outcome}
+
+**Extractor**: `by_analyzer` records now also carry the analyzer's aggregate `rc`/`sc` for that tick
+plus the reporting variant's `prc`, additive to the existing `t`/`reason`/`variant` fields.
+
+**Delta formula, derived not copied.** The spec's own suggested starting point (`sc/prc − rc/prc`)
+had the sign backwards — confirmed by reading the saturation engine's actual source
+(`applyUniversalThreshold` in `internal/engines/saturation/engine_v2.go`): `RequiredCapacity` is
+capacity deficit (scale-up pressure), `SpareCapacity` is capacity surplus (scale-down pressure), both
+independently `max(0, ...)`-clamped so never simultaneously positive. Used `rc/prc − sc/prc` instead.
+Hand-verified against 2 real controller.log ticks: a `throughput` tick immediately before a confirmed
+scale-up (`curr=1,tgt=2`) computed `rc/prc=+0.110`; a `saturation` tick at a confirmed scale-down
+(`curr=3,tgt=1`, `sc>0,rc=0`) computed negative. Both match the expected sign.
+
+**Panel redesign**: one signed line per analyzer (fixed `ANALYZER_COLORS`, a per-series-identity
+palette, deliberately not `GP_COLORS`/`BAND_SHADES` which are per-distinct-value categorical and
+would reassign colors across runs), zero-reference `axhline`, replica-count y-axis, reason code as a
+marker shape overlay with a compact text key (`markers: ^=P1-obs D=P2-hist ...`) rather than a second
+full legend column. Absent-but-still-reporting analyzer's line renders dashed + faded (confirmed real
+via a TA-only run: `saturation` genuinely absent from the configured list yet still logging real
+`rc`/`sc`/`prc` every tick).
+
+**One self-caught layout collision during verification**: the reason-marker text key first landed
+below the axis at y=-0.22, directly colliding with the figure's one x-axis label (panel 6 is the
+bottom-most panel and owns that label) — moved inside the axes, bottom-right corner, before commit.
+
+**Verification**: re-rendered and viewed `m-satta-dwell` (15-pod SAT+TA, both analyzer lines visible,
+signed values visually consistent with panel 2's replica trajectory — positive during the 0-350s
+scale-up, negative through the 350-1300s scale-down, rising back near 1600-2000s), `m-ta-staircase`
+(TA-only, saturation's line correctly dashed/faded, absent-annotation still fires), a
+`--controller-log /dev/null` degrade-path check, and the golden pre-panel-6 bundle (no `scaling_log`
+key at all — degrades cleanly, no crash). `make test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)

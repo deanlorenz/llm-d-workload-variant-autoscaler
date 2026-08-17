@@ -103,3 +103,29 @@ For each run in § Run list:
   don't hold the whole thing back waiting for 100% before saying anything.
 
 [↑ TOC](#toc)
+
+## Outcome (executed 2026-08-16, no code changes) {#outcome}
+
+**35/35 leaves succeeded, 0 crashes**, extracted+rendered fresh against tip `a1a815a7` (the
+panel3-stale-fill commit). Two runs (`dean-20260813-130251-004`, `dean-20260816-174704-649`) each
+have 4 parallel results leaves, not 1 — all 4 extracted+rendered separately per leaf, not one picked
+arbitrarily (31 runs named in § Run list → 35 actual leaves once these two are expanded).
+`cross-treatment-comparison/` subdirectories under those same two runs are CSV summaries, not results
+leaves, and were correctly skipped. The 5 genuinely-FAILED-collection runs named in § Excluded were
+excluded as instructed.
+
+Stamp match confirmed in **both** `coverage.json` and PNG-embedded metadata for all 35, not a sample —
+checked every one. Visually spot-checked 4 across different shapes: a 2-pod staircase, a 13-pod
+calibration probe with real saturation, a PARTIAL-collection run (included per § Run list's own
+instruction), and a 19-pod `_warmup` profile with no controller.log/no per-request data exercising
+several degrade paths at once — all clean, no defects.
+
+All 35 saved to `session-notes/review-samples/` as
+`<workload>-batchrefresh-a1a815a7[.png|-bundle.json|-coverage.json]`, disambiguated with the run ID +
+leaf number wherever a workload name collided across runs (9 names did, more than anticipated in
+§ Procedure's own "e.g. multiple `m-sat-dwell` runs" example).
+
+`make test`/`lint`/`gofmt` N/A. Not push-ready — pure data refresh, nothing to review beyond Dean
+spot-checking any of the 35. Reported via `plan__batch-refresh-all-success-runs-done.md`.
+
+[↑ TOC](#toc)

@@ -59,6 +59,18 @@ design a second visual tier for it, per Dean's own "keep the overlay simple" ins
 or reviewer later finds a genuine multi-tick run on some other bundle, flag it rather than silently
 extending the fill — this spec's forward-fill is capped at one tick by design, not by omission.
 
+**Post-implementation correction (found during the coder's own verification, not a contradiction of
+the above).** The 18/15 gap counts above use *each pod's own successive-sample deltas* as the gap
+definition. The shipped fill mechanism (`fill_one_tick()`) is *pgrid-relative* — it only fires where
+the shared union grid has a tick the pod itself is missing. These are different definitions: neither
+`m-satta-dwell` nor `m-sat-dwell-warmup` (the same two runs named above) actually has a *pgrid-relative*
+gap within any pod's own lifetime — traced by hand, confirmed zero fillable gaps on both. The 22–24s
+jitter gaps counted above have no other pod's sample landing inside them either, so pgrid has no tick
+there to be missing from in the first place. The fill mechanism itself was verified correct anyway via
+a synthetic-gap bundle (one sample deliberately deleted at a timestamp another pod really did sample) —
+renders clean, stale hatch appears, legend entry reads correctly — but could not be demonstrated on
+either named real run. Committed `a1a815a7`.
+
 [↑ TOC](#toc)
 
 ## Item AE — fix the missing-vs-zero conflation {#item-ae-zero-conflation}
@@ -108,6 +120,16 @@ actually scraped." Requirements:
   unrelated existing overlay).
 - No second/heavier treatment for "worse" staleness — per Dean, keep this simple; there is only one
   fill depth (one tick) to represent.
+
+**Real bug found and fixed during the coder's own verification, before shipping.** The first
+implementation forward-filled against the full shared `pgrid` (the union of every pod's own scrape
+timestamps) with no bound on a pod's own lifetime. Once a pod drained/was removed but other pods
+kept reporting afterward, every one of that pod's *trailing* `pgrid` ticks (sourced from other pods
+still running) got misread as consecutive multi-tick gaps — confirmed on a real run: one pod's last
+sample at `t=1786573222`, followed by 40+ more `pgrid` ticks from other pods, every one incorrectly
+flagged. Fixed by bounding `fill_one_tick()` to only operate between a pod's own first and last real
+sample; outside that range, ticks are plain non-stale zeros (matching the pre-fix "pod not yet live /
+pod gone" behavior, which was already correct). Committed `a1a815a7`.
 
 [↑ TOC](#toc)
 

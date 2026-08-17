@@ -180,3 +180,34 @@ Do not touch, as part of this Type 3:
   CONVENTIONS' status-file convention, coder-owned.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `cff4e4c0`) {#outcome}
+
+All four implementation steps done, all four verification checks done. Judgment calls: panel-6
+height ratio **2.2** (in the plan's suggested 2.0–2.5 range); bundle key
+`derived.scaling_log = {source, by_analyzer, decisions, saturation_absent_at}` (one sub-object per
+analyzer keyed by name, each a time-ordered list of `{t, reason, variant}`; `decisions` is a flat
+time-ordered list of `{t, variant, action, curr, tgt}` rather than per-analyzer, since decisions are
+per-model not per-analyzer); coverage row 17 **added** ("Scaling-decision log present"). Controller-log
+discovery checks `<run_dir>/controller.log` and `<run_dir>/logs/controller.log` before falling back
+to `--controller-log`; verified this auto-discovery actually fires on a real run. Reason-code palette
+is read from the data, not hardcoded — confirmed the throughput analyzer uses `T2-default` while
+saturation uses `P1-obs`/`P2-hist`/`P3-k2`/`P4-k1`, and confirmed a red herring along the way:
+`"reason":"OptimizationSucceeded"` also appears in controller.log but is a K8s Event reason on an
+unrelated log line shape, not from the `analyzer-result` JSON payload — the extractor's strict
+per-line-shape regex (`CTRL_LOG_LINE`) never matches that line, so it can't leak in.
+
+**Correction to this plan's own claim about tick frequency.** The analyzer-absent line fires
+**every ~60s tick**, not "zero or one per run, not per tick" — confirmed by direct count on
+`m-ta-dwell/controller.log` (8 occurrences). Doesn't change the implementation (a first-seen
+boolean/timestamp was already the right capture), just corrects the description for anyone reading
+this doc later.
+
+Verified against real 2026-08-10 campaign logs (not synthetic): `m-satta-dwell` (both analyzers, 9
+scale-up/down transitions visible in panel 2, reason codes track the dwell cycle), `m-ta-staircase`
+(TA-only, absent-analyzer annotation fires, early spurious saturation votes before the gate still
+captured not dropped), and a no-`controller.log` bundle (degrades to the `empty()` message, matching
+every other panel's convention). All three re-renders viewed as PNGs, not just exit-code-checked.
+`make test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)

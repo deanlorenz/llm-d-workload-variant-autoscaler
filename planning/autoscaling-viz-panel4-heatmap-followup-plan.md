@@ -94,6 +94,19 @@ underlying points are close together. Exact collision-avoidance approach at the 
 this doesn't need to be a general-purpose label-layout algorithm, just enough to fix the specific
 overlaps visible on this run.
 
+**A real infinite-loop bug, caught during verification, not by inspection (committed `f92d3c19`).**
+The first implementation used `-min_label_gap` as the "empty slot" default in its collision-avoidance
+`while` loop. A record timestamped before the bundle's own `t0` (`x=-116` against
+`min_label_gap≈14`) made every slot's default compare as "still colliding," so the loop never
+terminated. First symptom: a render that had taken ~5s suddenly hung past 3 minutes of pure CPU burn
+with zero progress — not a crash, not a gradual slowdown. Root-caused methodically: confirmed the
+prior commit still rendered in ~5s (ruling out environment/system slowness), then instrumented the
+actual `render()` call with print-and-flush statements at each panel's start — all four panels'
+drawing code completed in under 1 second combined, isolating the hang to code after panel 6's last
+print, further instrumentation pinned to the exact `while` loop. Fixed with `float('-inf')` as the
+sentinel, which no real `x - min_label_gap` value can ever exceed. Re-verified: `m-satta-dwell`
+rendered in ~4s after the fix, matching the pre-regression baseline.
+
 [↑ TOC](#toc)
 
 ## Verification {#verification}

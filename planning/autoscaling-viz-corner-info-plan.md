@@ -119,3 +119,32 @@ Resolving the two things Dean's own table left open:
   eyeballed off panel 2.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `062c1071`) {#outcome}
+
+Six additions, each using the pre-existing `loc='right'` title convention (confirmed every relevant
+panel already had this pattern before adding to it):
+- **1a**: cumulative % "good" (<30s), reusing `wait_band()`'s existing threshold.
+- **1b**: time per work unit, framed as seconds-per-1000-tokens (inverse of the tok/s curves already
+  on the panel, deliberately not a duplicate reading).
+- **2**: tightened per Dean's own "shorter text" ask; added a real drain-duration number (mean +
+  count) sourced from Task 4's now-correct `drain_windows`.
+- **3**: TTFT p50/p75/p90/p95, degrading to an explicit n/a note when there's no per-request trace.
+  Router imbalance moved OUT of this panel to make room — panel 3's corner was already dense
+  post-fix-round.
+- **4**: router imbalance's new home. Separate `text()` call, not folded into the existing INTERIM
+  note — matplotlib only allows one `loc='right'` title per axis and the two facts don't belong in
+  one string.
+- **5**: cost (replica-seconds, time-integrated over the real replica timeseries, not the resampled
+  grid) and utilization (mean served/slots, reusing series already computed for this panel's own
+  fill_between). Kept on panel 5 with the existing ITL/ρ note per the spec's own instruction not to
+  move it to panel 6.
+
+**Verification**: full per-request-data run (all six populate, TTFT percentiles legible, utilization
+18% sane against the panel's own unused-capacity shading) and a no-per-request run (1a/1b/3 degrade
+cleanly, panel 5 correctly omits utilization when no capacity model exists but still shows
+replica-seconds). Sanity-checked replica-seconds against a rough unweighted hand estimate (9480 vs.
+precise 9561 — consistent). Golden pre-panel-6 bundle backward-compat checked, no crash. `make
+test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)

@@ -56,6 +56,16 @@ negative, not clipped.
   high-load-start workloads instead of warming up from 0 — a distinct, bigger design question,
   explicitly not scoped here.
 
+**Real pre-existing bug found and fixed along the way, committed `deaf4886`.** `find_workload_yaml()`
+was matching inference-perf's own `config.yaml` (a fixed harness-dumped filename, same `model_name`
+and same `load.stages` content as the real profile) *before* the actual profile file, since
+`config.yaml` sorts alphabetically first — silently defeating the new `_warmup` filename check on any
+run where both files exist. Confirmed on `dean-20260816-121254-238`: returned `warmup_offset_s=0.0`
+when it should have been `270.0`. Fixed by excluding `config.yaml` explicitly, same way
+`run_metadata.yaml` was already excluded. Both `dean-20260816-121254-238` (warmup) and
+`dean-20260813-005321-943` (non-warmup) re-extracted+re-rendered fresh against the fix; non-warmup
+run's x-axis confirmed bit-for-bit unchanged (offset stays 0.0).
+
 [↑ TOC](#toc)
 
 ## Item Y — panel 6: mild log scale with signed negatives {#item-y-panel6-log}
@@ -114,6 +124,10 @@ Two related requests on the running-count average line added in the prior follow
    a firm requirement — try it (`ax.invert_yaxis()` on the secondary axis) and judge by the actual
    render whether it reads more clearly than the current bottom-up orientation; if it doesn't
    obviously help, it's fine to leave the axis as-is and note that in the verification report.
+
+**Outcome (committed `deaf4886`).** Tried and kept — reads more clearly against the stacked bars
+than the original bottom-up orientation. This is a judgment call, not a settled design decision:
+flagged for Dean to confirm rather than treated as final, per the "maybe" framing above.
 
 [↑ TOC](#toc)
 
@@ -175,6 +189,11 @@ that same pod's `kv` at each sample's own timestamp. This is a follow-up amendme
 of the already-verified original behavior (which correctly matched what this doc said before this
 correction was added).
 
+**Outcome, committed `a1a815a7`.** Reuses the same `sat.get('threshold') or SAT` fallback panel 4's
+heatmap already anchors on, so both panels agree on one threshold value. **Measured real effect on
+the warmup run: 5 pods' peaks drop substantially** once saturated samples are excluded (one pod
+411→238, another 196→29) — confirms the correction addresses a real, not hypothetical, distortion.
+
 [↑ TOC](#toc)
 
 ## Item AD — extractor: fall back to `per_request_estimated.json` when the real trace is absent {#item-ad-estimated-fallback}
@@ -201,6 +220,17 @@ requests (Envoy trace truncated at the window start) and stage 4 shows an unexpl
 rate-anomaly. Whatever label/caveat text this item adds should be able to accommodate those
 per-run caveats if the bundle's own coverage checks want to surface them later — not scoped to
 build that surfacing now, just don't paint yourself into a corner that makes it hard to add.
+
+**Outcome, committed `deaf4886`.** `read_per_request_estimated()` maps the estimation tool's schema
+(`arrival_epoch`/`e2e_duration_ms`/`outcome` real, `ttft_estimated_ms`/`output_tokens_estimated`
+estimated) onto the same record shape `read_guidellm`/`read_inference_perf` already produce, so every
+downstream panel needs no branching except a labeling flag (`meta.per_request_estimated`). Timestamps
+are already real epoch (like guidellm), so the inference-perf monotonic-clock anchor step is correctly
+skipped for this path too. **Measured impact on `dean-20260813-005321-943`: coverage jumped from
+9 PASS/7 FAIL to 12 PASS/4 FAIL** — panels 1a/1b (previously blank "no per-request trace" placeholders)
+and panel 3's TTFT title now show real content, all visibly labeled ESTIMATED (a corner annotation on
+1a, a title suffix on 1b/panel 3's TTFT line) rather than either silently treated as measured or left
+blank.
 
 [↑ TOC](#toc)
 

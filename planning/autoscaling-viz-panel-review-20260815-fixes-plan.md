@@ -136,3 +136,32 @@ signal.
   protocol — do not mark anything push-ready without Dean's review of the actual rendered output.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `9da9f7a2`) {#outcome}
+
+Five items, all resolved with Dean's exact wording, `render_real_trace.py` only:
+- **Item Q**: panel 1b's corner text now shows mean±std (was mean alone) of the delivered-work
+  series, converted to the same seconds-per-1000-tokens units.
+- **Item R — retracts part of the panel3-visual-scheme task.** Waiting's hatch reverts from
+  horizontal lines back to diagonal (`'////'`) — Dean confirmed the line width/color choices from
+  that task were already right, only the character was wrong.
+- **Item T**: panel 6's y-label → "replica-delta"; each reason code now gets annotated directly on
+  the plot at its first occurrence (reused `reason_markers`' own insertion-order dedup — no second
+  tracking structure needed), the compact text key stays as a secondary reference.
+- **Item U**: "WEAK TIME ANCHOR" moved out of the suptitle into the footer as a short marker ahead of
+  the caveats/FAIL lines — explicitly provisional per Dean, exact wording not treated as final.
+- **Item W — a real correction, not cosmetic.** The drain-window band's label/comment no longer claim
+  "finishing in-flight work." An investigation (a 6-pod / 7-drain-event sample) found every window
+  filled with normal, healthy, climbing/spiking scrapes right up to the pod's last sample — no
+  wind-down pattern anywhere. The underlying signal is two proxies (nearest fleet-level `desired`-drop,
+  "this pod's metrics disappeared soon after"), neither a real per-pod live/drain signal — confirmed
+  no kube-state-metrics pod-phase or EPP routing-exclusion signal exists in the current scrape set to
+  build a real one from. Relabeled to "pod removed near a scale-down event (not necessarily draining
+  -- see docs)." `pod_drain_windows()` itself is unchanged — only what the render claims about it. A
+  separate, unscoped TODO (finding a real per-pod drain signal) was opened by Dean.
+
+**Verification**: both required cells (`m-satta-dwell` for R/T/W, `m-ta-prefill-knee` for Q/U)
+extracted+rendered fresh against the exact committed tip, both stamps confirmed matching in
+`coverage.json` and the PNG's own embedded metadata. `make test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)

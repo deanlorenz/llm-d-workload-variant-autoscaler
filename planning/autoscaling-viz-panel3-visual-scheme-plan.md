@@ -86,3 +86,32 @@ and extend the outline treatment uniformly.
   panel, not just a cropped bar.
 
 [↑ TOC](#toc)
+
+## Outcome (committed `b7920cd3`) {#outcome}
+
+Four changes plus one stale-title fix, all in `render_real_trace.py` only:
+- **Draining hatch color, not just weight.** The ask was "thinner"; thinning alone wasn't enough —
+  the dotted hatch defaulted to a dark color with too little contrast against the darker end of
+  `BAND_SHADES` to actually read as dots. Caught this on a real multi-pod render, not in an isolated
+  single-color hatch test — the isolated test looked fine and would have shipped a fix that still
+  didn't work on the actual figure. Set an explicit light hatch color (`#f5f5f5`, matching what
+  waiting already used).
+- **Waiting hatch: `/` → `-`.** Checked matplotlib 3.11.1's actual supported hatch strings first
+  (`/,\,|,-,+,x,o,O,.,*` — no literal dash pattern exists) before picking `-` as the closest built-in
+  to "dashed lines."
+- **Uniform thin outlines, both mechanisms.** `linewidth=0.25` across all three bands for the bar's
+  own border, plus `set_hatch_linewidth(0.3–0.4)` on the hatch pattern itself — two independent
+  matplotlib mechanisms, both needed thinning; found the per-artist
+  `set_hatch_linewidth()`/`set_hatchcolor()` API exists in this matplotlib version by checking
+  `dir()` on a bar artist first rather than assuming only the global `rcParams['hatch.linewidth']`
+  was available (which would have also thinned panel 2's unrelated hatch, out of scope).
+- **Stale title fixed**: "running, waiting, router-side" → "running, draining, waiting, EPP queue".
+
+**Verification**: `m-satta-dwell` (15 pods, real draining + waiting both present) at normal viewing
+size and multiple zoom levels — the hatch-color fix's necessity was found precisely by this process
+(isolated test passed, real render didn't, re-diagnosed, fixed, re-verified). `m-ta-staircase`
+(3 pods, no draining/waiting in this run) as a smaller-scale regression check — no crash, thin
+outlines apply uniformly, confirms the ≤6-pod per-pod-legend path is unaffected. `make
+test`/`lint`/`gofmt` N/A.
+
+[↑ TOC](#toc)
