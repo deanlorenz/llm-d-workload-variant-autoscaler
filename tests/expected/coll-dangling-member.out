@@ -1,0 +1,4 @@
+exit: 4
+--- stdout ---
+--- stderr ---
+coll: member also-missing* of collection dangling-fixture matches no convention in tests/fixtures/conventions

@@ -1,0 +1,5 @@
+exit: 16
+--- stdout ---
+--- stderr ---
+coll-lint: [16] collection dangling-fixture references member 'no-such-convention', which is neither a declared collection nor a declared convention (--conv-dir tests/fixtures/conventions)
+coll-lint: [16] collection dangling-fixture references member 'also-missing*', which matches no convention name in --conv-dir tests/fixtures/conventions

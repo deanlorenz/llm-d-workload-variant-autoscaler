@@ -40,6 +40,23 @@ case_register conv-lint-status-value   ./scripts/conv-lint.sh --dir tests/fixtur
 case_register conv-lint-heading-level  ./scripts/conv-lint.sh --dir tests/fixtures/bad/levels
 case_register conv-lint-referenced-path ./scripts/conv-lint.sh --dir tests/fixtures/bad/paths
 
+# coll — collection expansion, against the same fixtures/conventions dir conv
+# uses, so a collection member resolves against real fixture convention names.
+case_register coll-flat-members   ./scripts/coll.sh --dir tests/fixtures/collections --conv-dir tests/fixtures/conventions coder-fixture
+case_register coll-nested         ./scripts/coll.sh --dir tests/fixtures/collections --conv-dir tests/fixtures/conventions nested-fixture
+case_register coll-prefix-member  ./scripts/coll.sh --dir tests/fixtures/collections --conv-dir tests/fixtures/conventions git-prefix-fixture
+case_register coll-unknown-name   ./scripts/coll.sh --dir tests/fixtures/collections --conv-dir tests/fixtures/conventions no-such-collection
+case_register coll-dangling-member ./scripts/coll.sh --dir tests/fixtures/bad-collections/dangling --conv-dir tests/fixtures/conventions dangling-fixture
+case_register coll-cycle          ./scripts/coll.sh --dir tests/fixtures/bad-collections/cycle --conv-dir tests/fixtures/conventions cycle-a
+
+# coll-list — the computed collection index.
+case_register coll-list-fixture ./scripts/coll-list.sh --dir tests/fixtures/collections
+
+# coll-lint — one clean run, then one fixture directory per violation class.
+case_register coll-lint-clean          ./scripts/coll-lint.sh --dir tests/fixtures/collections --conv-dir tests/fixtures/conventions
+case_register coll-lint-dangling       ./scripts/coll-lint.sh --dir tests/fixtures/bad-collections/dangling --conv-dir tests/fixtures/conventions
+case_register coll-lint-cycle          ./scripts/coll-lint.sh --dir tests/fixtures/bad-collections/cycle --conv-dir tests/fixtures/conventions
+
 # conv-new — mutates a topic file, so each case runs against a deterministic
 # scratch copy (see tests/scratch-run.sh) rather than the committed fixtures.
 # The golden captures both the tool's own stdout and the resulting file

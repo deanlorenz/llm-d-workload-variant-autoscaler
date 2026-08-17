@@ -1,0 +1,5 @@
+exit: 17
+--- stdout ---
+--- stderr ---
+coll-lint: [17] collection cycle-a has a cycle:  cycle-a cycle-b -> cycle-a
+coll-lint: [17] collection cycle-b has a cycle:  cycle-b cycle-a -> cycle-b

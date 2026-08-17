@@ -1,0 +1,4 @@
+exit: 4
+--- stdout ---
+--- stderr ---
+coll: no collection named no-such-collection in tests/fixtures/collections

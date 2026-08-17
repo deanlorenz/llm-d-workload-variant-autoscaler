@@ -1,0 +1,4 @@
+exit: 6
+--- stdout ---
+--- stderr ---
+coll: cycle detected:  cycle-a cycle-b -> cycle-a

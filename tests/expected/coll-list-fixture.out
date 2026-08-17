@@ -1,0 +1,6 @@
+exit: 0
+--- stdout ---
+coder-fixture | active | A coder's conventions, fixture version. | commit-message-shape, one-commit-per-step
+git-prefix-fixture | active | Exercises the '<prefix>*' member form against tests/fixtures/conventions/git.md. | no-push*, verify-cwd-before-commit
+nested-fixture | active | Wraps coder-fixture plus one direct convention, to exercise nesting. | coder-fixture, no-dco-on-plans
+--- stderr ---

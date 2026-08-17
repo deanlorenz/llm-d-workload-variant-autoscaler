@@ -1,0 +1,32 @@
+exit: 0
+--- stdout ---
+### convention: commit-message-shape
+description: Subject line is imperative, under 72 characters, no trailing period.
+scope: every commit on every branch
+trigger: writing a commit message
+status: active
+origin: long-standing practice in the plans lineage
+
+A commit subject names the change, not the act of changing. The body carries
+the why; the subject carries the what.
+
+### convention: one-commit-per-step
+description: Each spec step lands as exactly one commit.
+scope: spec-driven coding sessions
+trigger: finishing a step
+status: active
+origin: atomic-step protocol design
+
+One commit per step keeps the step boundary reviewable. A step that needs two
+commits is two steps.
+
+### convention: no-dco-on-plans
+description: The plans lineage takes no DCO sign-off.
+scope: plans and plans-tooling branches
+trigger: committing on a plans-lineage branch
+status: probation
+origin: observed practice, not yet ratified
+
+Code branches contributing upstream require a sign-off. The plans lineage is
+internal state and never leaves this repository, so it does not.
+--- stderr ---
