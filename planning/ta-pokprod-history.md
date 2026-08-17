@@ -1767,3 +1767,34 @@ space and un-pausing the ScaledObject "must happen before any arm, and neither h
 Stage A's 7/7 clean cells have since overtaken, and its § 6/§ 7 described a 2026-08-07 run plan and a
 "not yet committed at all" script list that are both long overtaken (those scripts are tracked; see
 D-74). The full prior narrative remains recoverable in `plans` git history before this commit.
+
+## D-78 | 2026-08-17 | topic:viz-refresh-committed,triage-item-13-closed | src:plan__viz-good-panels-benchmark-commit-needed.md
+
+**Closes triage item 13 / the [[D-75]] owed item.** The 83 uncommitted viz-refresh entries handed
+over by the autoscaling-viz scope are committed on `benchmark` as **`bd9c375b`** (DCO signed),
+103 files, +1100/−146. Branch is now **35 ahead of `origin/benchmark`, 0 behind — still unpushed**;
+no push proposed or approved.
+
+Content: 19 pre-existing runs refreshed (`bundle.json`/`coverage.json`/`panels.png`), 10 runs gaining
+`viz/` output for the first time (including the Stage-A warmup cells), and 16 `good-panels.png`
+relative symlinks marking the runs classified GOOD.
+
+**Verified before committing rather than trusting the handoff's claims** — worth recording because the
+verification is reusable for the next such pass:
+- **All 45 `panels.png` carry `render_sha=a1a815a7`** uniformly, read out of the PNG `tEXt` chunks
+  (`extractor_sha`/`render_sha`/`source_run`/`extracted_at`). No mixed batch, no unstamped stragglers.
+- **All 16 `good-panels.png` are relative symlinks** to `panels.png`, and staged as git mode
+  **`120000`** — i.e. committed as symlinks, not silently dereferenced into 16 duplicate PNG blobs.
+- **Nothing outside `runs/`** was touched.
+- The location is the canonical `runs/<id>/viz/` already covered by the worktree's `.gitignore`
+  allowlist (`!runs/*/viz/**`), so no gitignore change was needed — confirmed by `git add` picking the
+  files up normally.
+
+**A note for future stamp checks:** the git sha lives in the **PNG metadata**, not in `bundle.json`
+— the bundles carry only `extractor_version: 0.1.0` plus `harness_version`/`shape` under a `meta` key.
+Grepping the JSON for a version stamp finds nothing and can read as "unstamped" when the render is in
+fact correctly stamped.
+
+**Still open from [[D-75]]:** `dean-20260810-105211-685` remains MISSING-but-obtainable — its 54.5 MB
+raw Envoy log is on disk and re-running the estimation tool against it could re-classify it GOOD.
+Not done here; this scope's call, not urgent.
