@@ -31,16 +31,31 @@ Tools are built **only as needed per step**, not speculatively ahead of time.
 before proceeding.
 
 **Checklist:**
-- [ ] Step 1 — role specs (skip roles with no source material; note the skip, don't invent content).
-- [ ] Step 2 — harvest CONVENTIONS.md + CODER-CONVENTIONS.md + `feedback_*`/`project_*` memories +
-  `governance-follow-ups.md` incidents into the `conv` format.
-- [ ] Step 3 — `trigger:` field populated correctly for every harvested item.
-- [ ] Step 4.1 — role-collections.
-- [ ] Step 4.2 — common-step collections.
-- [ ] Step 4.3 — pre-packaged task/step prompts.
-- [ ] Step 5 — coverage check: every source rule reachable from at least one entry point.
-- [ ] Tools built only as each step actually needs them (§ Tooling below tracks what's built vs.
-  still using existing `conv`/`sec`/`conv-new`/`conv-list`/`conv-lint`).
+- [x] Step 1 — role specs (skip roles with no source material; note the skip, don't invent content).
+- [x] Step 2a — harvest CONVENTIONS.md + CODER-CONVENTIONS.md (independently verified).
+- [ ] Step 2b — harvest `feedback_*`/`project_*` memories + `governance-follow-ups.md` incidents
+  (in progress, background coder `42ce2f92`).
+- [x] Step 3 — `trigger:` field populated correctly for every harvested item (turned out free, a
+  side effect of Step 2's own `conv-new.sh` calls — verified across all 45+ Step-2a entries).
+- [x] Step 4 tooling — `coll.sh`/`coll-list.sh`/`coll-lint.sh` built, tested, pushed.
+- [~] Step 4.1 — role-collections: 2 of 11 done (`coder`, `sync`); remaining 9 deferred until
+  Step 2b lands.
+- [x] Step 4.2 — 8 common-step collections.
+- [x] Step 4.3 — 2 pre-packaged task/step prompts (more as recurring shapes are noticed).
+- [x] Step 5 tooling — `coverage-check.sh` built, tested, pushed. Run against both real tables
+  tonight: `harvest-classification.md` 59/62 covered (3 genuine citation-format gaps, not missing
+  harvests); `memory-harvest-classification.md` 23/59 covered so far (Step 2b still running).
+- [x] Tools built only as each step actually needed them — `coll*`/`coverage-check.sh` are the only
+  new tools; every convention-file operation still uses the pre-existing `conv`/`sec`/`conv-new`/
+  `conv-list`/`conv-lint`.
+
+**Coverage-check findings, not yet fixed (deliberately — the files are mid-edit by a running
+coder):** `harvest-classification.md` rows **C36**, **CC10**, **M1** each have real, verified
+content in `conventions/code-deletion.md` / `conventions/handoffs.md`, but their `origin:` lines
+cite a section name or memory filename that doesn't embed the row ID or (for M1) the memory's own
+filename — `coverage-check.sh`'s ID/filename matching can't see them as covered even though they
+are. Fix: add the missing ID/filename to each origin line once Step 2b's coder is done and those
+files are stable again. Not a re-harvest — a citation-completeness fix only.
 
 ---
 
