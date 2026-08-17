@@ -87,7 +87,51 @@ deleting. Done in that order.
   branch is 0-behind/34-ahead (`git rev-list --left-right --count`); the 83 uncommitted entries match
   the handoff's counts.
 
-**Not done, deliberately:** did not commit the `benchmark` worktree's 83 viz entries (triage item 13
-— separate action, Dean-visible, not part of a cleanup pass); did not act on any open triage item;
-did not touch other sessions' status files or handoffs; did not fix `reset_run.py` (coder's worktree,
-and it needs its own spec).
+**Not done, deliberately:** did not touch other sessions' status files or handoffs.
+
+**2026-08-17 (later) — viz refresh committed; Bob started as this scope's coder.**
+
+- **Triage item 13 closed.** The 83 uncommitted viz entries committed on `benchmark` as **`bd9c375b`**
+  (DCO signed, 103 files). Verified rather than trusted: all 45 `panels.png` stamped
+  `render_sha=a1a815a7` uniformly; all 16 `good-panels.png` staged as real symlinks (mode `120000`,
+  not dereferenced into duplicate blobs); nothing outside `runs/`. Recorded as [[D-78]]. Also committed
+  the D-53 campaign-report stub (`01d15cf4`), uncommitted since 2026-08-15.
+  ⚠️ **Reusable gotcha:** the render sha lives in the **PNG `tEXt` chunks**, not `bundle.json` (which
+  carries only `extractor_version`/`harness_version`/`shape` under `meta`). Grepping the JSON finds
+  nothing and can read as "unstamped" when the render is correctly stamped.
+
+## Coder: Bob (`coder-auto`), worktree `benchmark`
+
+**Started 2026-08-17** on Dean's instruction, replicating the autoscaling-viz planner's configuration.
+This scope's coder is now **Bob**, not a Claude session.
+
+**Setup, as installed:**
+- `benchmark/.bob/custom_modes.yaml` — local copy of the container-level definition, byte-identical to
+  `../.bob/custom_modes.yaml` (verified by `diff`). Present so `--mode coder-auto` resolves from inside
+  the worktree. Defines two slugs: `coder` (interactive) and `coder-auto` (persistent/unattended).
+- `benchmark/.gitignore` — `.bob-status.md` and `.bob/` ignored, committed as **`0ff5e884`** (DCO).
+  Mirrors the viz decision (`23c1bbb7`). This matters more here than on viz: `benchmark` is a code
+  branch that becomes PRs, so neither file may ever ride into a diff.
+- Launch: `bob run --mode coder-auto --workspace . --format stream-json --trust "$(cat <prompt>)"`
+  from the worktree, backgrounded by the harness. Transcript →
+  `plans/scratch/bob-benchmark-coder/bootstrap.jsonl`.
+- A persistent `Monitor` watches that transcript for `result`/`error` plus boundary violations
+  (`git push`, `git commit -`, `plans/planning`, `plans/session/status`, `--apply`, `kubectl`, `oc`).
+
+**`coder-auto`'s write scope is narrower than a normal coder's** — worktree **plus**
+`plans/session/handoffs/` only. It does **not** write `plans/session/status/benchmark.md` (keeps
+`./.bob-status.md` in its own worktree instead) and **never** commits inside `plans/`. So **mirroring
+its status into the shared copy is my job**, on request via a `plan__<branch>-status-refresh.md`
+handoff. That is a standing duty, not a one-off.
+
+**First task:** [`planning/reset-run-completeness-check-plan.md`](../../planning/reset-run-completeness-check-plan.md)
+(`Status: READY`, committed `cb6d65c2`) — triage item 14, the live `reset_run.py`
+existence-vs-completeness defect ([[D-74]]). Trigger `benchmark__reset-run-completeness-spec-ready.md`.
+Spec is deliberately **offline-only**: fixtures, no cluster, no `--apply` against real data, no push.
+Its load-bearing assertion is that `--apply` must be *proven* not to delete when the check fails, and
+it names one exception Bob must preserve rather than "fix" — the corrected reports whose host copies
+legitimately differ from the PVC originals.
+
+**Verified at startup:** clean stderr, transcript growing, and the task content greps for
+`reset_run`/`completeness`/`on_host` with **zero** `autoscaling-viz` contamination (the viz planner's
+own Bob is a separate live process — do not confuse the two when reading `pgrep`).
