@@ -95,5 +95,18 @@ role files they belong to, so they are not lost in a separate doc nobody re-read
 - `coder.md` — the benchmark-tester exception (not really a coder, needs its own role — undecided)
   and the still-open C44 posture-vs-checklist question.
 
+### Step 2 — harvest (in progress, 2026-08-17)
+
+Dispatched to a background coder (`ba4d7081`, `--add-dir` to `plans` for read access to the source
+files, `--permission-mode auto`) rather than done by hand inline — genuinely mechanical, judgment
+already made in `harvest-classification.md`'s own table, ~65 rows across ~20 `conv:<topic>`
+destinations. Scoped explicitly to `conv:` destinations only — `role:`/`model` destinations are out of
+scope for this pass (role content is Step 1's territory, already done thin; `model` destinations go to
+`doc-and-session-model.md`, not touched here). C44 (the cross-cutting, still-open posture-vs-checklist
+row) explicitly excluded from the batch, not silently skipped.
+
+Awaiting completion before touching `conventions/` further, to avoid a concurrent-edit collision with
+the coder's own work.
+
 Not yet committed to `roles/` structure decisions beyond what the frozen design already specifies —
 no new fields, no new format. Next: Step 2, the actual harvest.
