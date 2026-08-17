@@ -1606,3 +1606,164 @@ format, same gap — not a one-sided habit issue).
 — proposing a mandatory/recommended `from:` field on triggers, matching handoffs. Not decided
 here. Coder's own interim mitigation (check for `from:`, ask if absent) acknowledged as correct
 regardless of whether the format itself changes.
+
+## D-74 | 2026-08-17 | topic:harness-tooling-inventory-homed,design-c-shipped,reset_run-defect-still-live | src:session/status/benchmark.md §11/§12/§14.2, verified against code+git
+
+**Why this entry exists.** During the state-file cleanup pass the coder's status file was found to be
+the **sole home** for three tooling facts — `harvest_run.py`, `pvc_gate.py`, and the "design C" data
+pipeline had *zero* hits anywhere in `planning/`. Compressing the status file would have deleted them
+outright. Recorded here first, then compressed. Every claim below was **re-verified against the
+worktree and git as of 2026-08-17**, not copied from the status file's prose (which was stale on the
+committed/uncommitted question).
+
+**The design-C data pipeline SHIPPED — the status file's "NOT yet wired" / "not yet committed at all"
+lines are stale.** All four scripts are tracked on `benchmark`, and `make benchmark-reset-run` is in
+the Makefile:
+
+| Script | Path | Purpose |
+|---|---|---|
+| `harvest_run.py` | `hack/benchmark/` | replaces step_09 for the multi-GB per-request file; reclaims PVC space with a sidecar-recorded `bytes_scanned` estimate |
+| `pvc_gate.py` | `hack/benchmark/` | refuses to start a run the results PVC cannot hold |
+| `completion_tokens_scan.py` | `hack/benchmark/` | output-token scan |
+| `reset_run.py` | `hack/benchmark/` | per-run reset; `make benchmark-reset-run` |
+| `verify_pvc_vs_host.py` | `session-notes/scratch/` | the completeness check `reset_run.py` should be doing (also in the doc-coverage cleanup plan's promote-as-is list) |
+
+**⚠️ ARMED, LIVE, UNFIXED — `reset_run.py`'s existence-check-standing-in-for-completeness-check.**
+`reset_pvc_results()` at **`hack/benchmark/reset_run.py:270-272`** does `on_host =
+host_result_dirs(workspace)` then `if d in on_host:` → `rm -rf` of the PVC directory. It matches on
+directory **name**; it never compares file counts or sizes. Re-verified in the current source
+2026-08-17: still `if d in on_host`, and the file contains no size/byte/completeness logic. **This is
+not hypothetical** — a file-by-file comparison before letting it run once found **all four** host
+copies incomplete, and `--apply` would have made the loss permanent:
+
+| experiment | PVC files | missing from host |
+|---|---|---|
+| `guidellm-…6pckwk_1` | 105 | `analysis/summary.txt` |
+| `guidellm-…i6x2vj_1` | 110 | `analysis/summary.txt` |
+| `inference-perf-…41gfxn_1` | 424 | `benchmark_report,_stage_4_lifecycle_metrics.json.yaml` |
+| `inference-perf-…d5lhav_1` | 260 | 3 × `analysis/*.png` |
+
+Root cause is a **second, distinct step_09 defect**: the copy runs once, and `analysis/` is written
+into the experiment directory *afterwards*, so it exists on the PVC but never on the host for any run.
+Nothing re-syncs and nothing notices, because "the experiment directory exists locally" reads as "we
+have the results." That instance was closed by fetching the 6 missing files (264.6 KB) with size
+verification — **the defect in `reset_run.py` itself was never fixed.** Mitigation in force today is
+procedural: run `verify_pvc_vs_host.py` before any `reset_run.py --apply`. Fix belongs on the script.
+
+**A deliberate non-fix worth preserving:** one experiment still reports `NOT SAFE` on 3 files and that
+is **correct behavior, not loosened** — `benchmark_report_v0.2,_stage_{0,1,2}` differ because the host
+copies are the ones corrected in place (`output_len` mean 905.481 → 512.100, `inter_token_latency`
+mean 0.008998 → 0.015910, ×1.768 rescaled *up*, plus an `output_token_correction` provenance block).
+The PVC holds uncorrected originals; the host copy is the one to keep. `fetch_missing_from_pvc.py`
+uses `kubectl exec -- cat` with a byte-count check rather than `kubectl cp` (whose unverified tar is
+what truncated 3.4 GB on 08-03) and refuses to overwrite a size-mismatched host file — that refusal is
+what protects the corrected reports.
+
+**Pattern named, since it recurred four times in one day:** an *existence* check substituted for a
+*completeness* check — the step_09 truncation, both scripts' expired-token misreport, `harvest_run.py`'s
+pre-scan guard, and this. Worth treating as a review heuristic for any future harvest/reclaim code.
+
+## D-75 | 2026-08-17 | topic:benchmark-branch-unpushed-34-commits,uncommitted-viz-refresh | src:git verification + plan__viz-good-panels-benchmark-commit-needed.md
+
+**Two `benchmark`-branch git facts that lived only in transient places, recorded so they survive.**
+
+**1. `benchmark` is 34 commits ahead of `origin/benchmark`, 0 behind — all unpushed.** Verified
+`git rev-list --left-right --count origin/benchmark...HEAD` → `0	34`; local tip `590e8b91` (Stage A
+close), `origin/benchmark` at `eee20e33`. Everything through Stage A's 7/7 is committed locally and
+**nothing is pushed**. Not a hazard in itself (committed work is durable), but it means origin is a
+month stale and no push has been proposed or approved. Standing rule unchanged: no push without
+Dean's per-push confirmation.
+
+**2. Uncommitted viz refresh from the autoscaling-viz scope, handed to this scope to commit.**
+`plan__viz-good-panels-benchmark-commit-needed.md` (2026-08-17): 83 entries in `git status --short
+runs/` — 57 modified (19 runs × `bundle.json`/`coverage.json`/`panels.png`), 10 brand-new `viz/`
+directories (the Stage-A warmup runs plus 3 recent), 16 new `good-panels.png` relative symlinks
+(→ `panels.png`), one per run classified GOOD. Counts independently confirmed. Location is the
+canonical `runs/<run>/viz/` the worktree's own `.gitignore` allowlist already covers (`!runs/*/viz/**`)
+— no gitignore change needed. Content verified by the viz pass (stamps checked against tip `a1a815a7`
+for every modified/new `panels.png`). **The coder stood down with its worktree clean at `590e8b91`, so
+this arrived after it finished and no coder session will pick it up** — the commit is the benchmark
+planner's to shape. Classification detail: `planning/benchmark-runs-inventory.md`.
+
+**Related, separate:** `dean-20260810-105211-685` is MISSING-but-obtainable — its 54.5 MB raw Envoy
+log (`logs/igw_pods.log`) is on disk and is the estimation tool's own input, so running
+`estimate_per_request.py` against it could re-classify the run GOOD. Information only, this scope's
+call, not urgent (`plan__viz-good-panels-missing-obtainable-data.md`).
+
+## D-76 | 2026-08-17 | topic:two-upstream-defect-captures-homed,distinct-from-T10 | src:session/status/benchmark.md §13, files verified on disk
+
+**Un-homed before this entry.** Two written-up upstream defect captures existed only as a status-file
+section plus two files on disk, with no `planning/` reference. They are **not** execution-plan §7.1
+**T10** (which is the *harness-fork guard* violators) — different targets, different content. Both
+files verified present on `benchmark`: `session-notes/issues/inference-perf-output-token-inflation.md`
+(7,497 B) and `session-notes/issues/llm-d-benchmark-step09-silent-truncation.md` (9,861 B).
+
+Origin: Dean, 2026-08-07 — *"we will need to capture the root cause and exact behavior, so we can open
+an inference-perf issue later."* Kept deliberately **separate** because only one is inference-perf's.
+Neither has been filed upstream; filing is Dean's call (same standing rule as T10 — no GitHub writes).
+
+**1. inference-perf output-token inflation.** Pinned to the commit that actually ran,
+`e250731ce8944f8ab76ece860e0960c6fa39b606` (`harness_version` in `run_metadata.yaml`). ⚠️ **All five
+local inference-perf clones are older** and lack `server_usage`/`token_count_mismatches` — do not read
+source from them when working this issue. Root cause: `output_len =
+tokenizer.count_tokens(output_text)`, a detokenize→re-tokenize round-trip that is lossy for
+`data.type: random` + `ignore_eos: true`. The harness requests usage, receives it, stores it, reads
+`completion_tokens`, finds a mismatch on **7919 of 7919** requests, publishes the count as
+`token_count_mismatches` — and then still computes every metric from the re-tokenized value.
+Non-obvious finding that determines the fix location: `len(output_token_times) == output_tokens`
+**exactly**, so the ITL timeline is over-sampled in lockstep and **cannot be repaired downstream** —
+only upstream. (This is the defect `output_token_correction.py` compensates for; see D-74's corrected-
+copy note on why those host files must not be overwritten.)
+
+**2. llm-d-benchmark step_09 silent truncation.** Different target (`llm-d-benchmark`). Four links, all
+in `step_09_collect_results.py`: the copy is silent for ~10 min on a 7 GB file so it reads as a hang;
+`check=False` + `file_count > 0` is the only verification (a *count*, not a byte comparison);
+`should_skip` returns True on a non-empty dir so a retry cannot repair it; and downstream, "exists
+locally" reads as "we have the data" — the same existence-vs-completeness substitution named in D-74.
+**Corrects an earlier hypothesis:** step_08 did *not* race the harness. The log shows `All pods
+completed successfully` at 04:56:03, all small files landed by 04:56:15, then 9m33s of silence, with the
+per-request file's mtime at 05:05:48 and `make: *** [Makefile:504: benchmark-run] Terminated` as the
+last line. The truncated size is an exact multiple of 512 (7,749,539 blocks) — an interrupted tar
+stream. The next run copied byte-exact through the same path, so this is an **unguarded interruption,
+not systematic corruption.**
+
+## D-77 | 2026-08-17 | topic:state-file-cleanup-pass,park-reports-folded,coder-status-compressed | src:this session (benchmark planner)
+
+**A cleanup pass, recorded because it deleted things.** Per Dean's instruction ("record all relevant
+info in the proper documents and only then delete stale/duplicate entries you are sure about"), this
+scope's state files were consolidated. What was written before anything was removed: **D-74** (design-C
+tooling inventory + the live `reset_run.py` defect), **D-75** (branch 34-ahead-unpushed + the 83
+uncommitted viz entries), **D-76** (the two upstream defect captures). All three were **sole-home
+facts** — verified absent from `planning/` by grep before recording, and re-verified against code and
+git rather than copied from status-file prose, which was stale on the committed/uncommitted question.
+
+**Deleted from [`ta-pokprod-open-scenarios.md`](ta-pokprod-open-scenarios.md): the two verbose
+`/s-state-park` source reports** (2026-08-16/17 and 2026-08-17-second-call, ~90 lines). Their
+substance was already in the ledger (D-72, D-73) and the docs they named. The one fact they held
+uniquely is preserved here: the previous planner's **only spawned subagent** was a vLLM/EPP metric
+survey, id **`a8351539ecd1d9127`**, **completed**, asking whether vLLM or EPP exposes any
+per-request-granular TTFT/output-size signal beyond aggregate histograms — answer **none**, fully
+folded into [[D-57]]. Nothing further to reference; the address is spent, not live. Both reports also
+recorded that session was **never in a worktree** (no worktree-exit hazard) and that its state was
+**fully flushed** at commit `8533234f`.
+
+**The previous planner kept no status file.** Its self-identifier on handoffs was `plan (pokprod/
+benchmark-execution scope)`; its state went into the plan docs, and its park reports were appended to
+open-scenarios instead of a `session/status/*` file. That is compliant with "state lives in your owned
+doc" but skipped the mandatory identity block — the same missing-sender shape as [[D-73]]. This
+session created [`session/status/planner-pokprod-benchmark.md`](../session/status/planner-pokprod-benchmark.md)
+with a proper identity block to close that gap.
+
+**Two stale-doc corrections made in the same pass**, both of which would have misled a cold reader:
+the roadmap's § What's next still named the per-request extraction design as "next" **after it was
+built** ([[D-64]]/[[D-66]]); and the § Priority triage table had **no row 12** despite both park
+reports listing "12/Stage B" as still-open. Rows 12–14 appended (12 recovered, 13–14 surfaced by this
+pass). The coder status file's own § 0 cold-resume was likewise stale — see the compression note below.
+
+**`session/status/benchmark.md` compressed, 5411 lines → a pointer-table form.** It was 62 chronological
+session-log sections; every landed round's substance is in the ledger (D-1…D-73) and the campaign
+report. Its § 0 "read these four first" was **actively wrong** — it told a cold reader that freeing PVC
+space and un-pausing the ScaledObject "must happen before any arm, and neither has been done," which
+Stage A's 7/7 clean cells have since overtaken, and its § 6/§ 7 described a 2026-08-07 run plan and a
+"not yet committed at all" script list that are both long overtaken (those scripts are tracked; see
+D-74). The full prior narrative remains recoverable in `plans` git history before this commit.

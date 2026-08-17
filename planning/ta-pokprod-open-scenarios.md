@@ -31,10 +31,15 @@ below is executed** — this is a tracking pass so nothing gets lost, per his di
 | 9 | Coder reply-routing pattern (replies landing on the wrong sibling scope) | ✅ **ROOT CAUSE FOUND 2026-08-17** — the trigger format has no `from:` field at all (handoffs do, triggers don't), so a reply falls back to `refs:`-chain provenance, which diverges from "who actually sent this" exactly when a design doc is re-triggered by a different scope. Forwarded as a real format gap, not a habit fix, to the protocol-design owner. [[D-73]] |
 | 10 | §5.5-item-4 runbook fold-vs-stub call | Understood — **wait until Stage A's results are confirmed as expected** before touching the runbook question. |
 | 11 | Handoff-file git-tracking inconsistency (bare `mv`, not `git mv`, 439 files accidentally tracked) — found 2026-08-16 while investigating an unrelated broad commit | ✅ **CLOSED on this side** — not this scope's to fix; handed off to the handoff-protocol design owner with Dean's ruling attached (pointers only, no git history, sync__ carries the real record). Picked up, consumed, no reply needed. [[D-72]] |
+| 12 | **Stage B — the full clean-recapture campaign** | ⬜ **OPEN, NOT LAUNCHED.** Scoped in [`ta-pokprod-clean-recapture-plan.md`](ta-pokprod-clean-recapture-plan.md) § Stage B (all 6 workload templates × each workload's own config set). Stage A closed 7/7 clean 2026-08-16 and GPUs are freed, so nothing technical blocks it — it needs **Dean's explicit run approval** like any cluster run. *Row added 2026-08-17: the two `/s-state-park` reports below both list "12/Stage B" among the still-open items, but the table itself never had a row 12 — a real tracking gap, now closed.* |
+| 13 | **Commit the 83 uncommitted viz-refresh entries on the `benchmark` worktree** | ⬜ **OPEN, this scope's to do** — handed over by the autoscaling-viz scope, explicitly non-blocking and not time-sensitive. 57 modified + 10 new `viz/` dirs + 16 `good-panels.png` symlinks, at the canonical gitignore-allowlisted location. The coder stood down with a clean tree at `590e8b91`, so no coder session will pick this up. [[D-75]] |
+| 14 | **`reset_run.py`'s existence-check-not-completeness-check defect** | ⬜ **OPEN, LIVE, UNFIXED** — `hack/benchmark/reset_run.py:270-272` still `rm -rf`s a PVC directory on a name match with no size/count comparison; re-verified in source 2026-08-17. Procedural mitigation only (run `verify_pvc_vs_host.py` first). Once caught all four host copies incomplete; `--apply` would have made the loss permanent. [[D-74]] |
 
 **Not re-numbered from the original 11-item scan** so the numbering stays stable across
 conversations — 5 and 8 are folded into 4 and 7 respectively, not deleted, so a future reader
-tracing "item 5" back finds the merge note rather than a gap.
+tracing "item 5" back finds the merge note rather than a gap. Items 12–14 were appended 2026-08-17
+(12 recovered from the park reports, 13–14 surfaced by the state-file cleanup pass) — appended, never
+inserted, for the same numbering-stability reason.
 
 ---
 
@@ -280,95 +285,12 @@ holds: no run without Dean's explicit approval.
 3. Dwell deep-dive session's own findings (§3 above) determine whether a longer run is the next
    experiment, or whether the forecast-gap work supersedes running more dwell attempts.
 
+
 ---
 
-## state-park report — 2026-08-16/17
-
-```
-state-park — pokprod-benchmark-execution scope, end-of-session flush
-
-Subagent addresses recorded (2a):
-  - vLLM/EPP metric survey — id: a8351539ecd1d9127 — completed — asked: does vLLM or EPP
-    expose any per-request-granular TTFT/output-size signal beyond aggregate histograms
-    output: none (findings relayed via SendMessage reply, already fully folded into D-57
-    in ta-pokprod-history.md — nothing further to reference)
-Nudges sent (2b): none running — no agent of mine was in flight at park time.
-
-Sources read this pass:
-  - planning/ta-pokprod-history.md — checked tail against last commit to find the real gap
-  - planning/ta-pokprod-open-scenarios.md § Priority triage — checked item 11's actual state
-  - git log (this worktree) — confirmed last commit wasn't mine, isolated what's unflushed
-  - ListAgents — confirmed no subagent of mine is currently live
-
-Not read (and why):
-  - ta-pokprod-architecture-design.md / -execution-plan.md / -clean-recapture-plan.md /
-    -roadmap.md / envoy-per-request-recovery-tool-plan.md / workload-coverage.md /
-    scratch-tools-cleanup-plan.md — all already current as of their last commits this
-    session (D-58 through D-71), no new content found for them this pass
-  - Every session/status/*.md and session/handoffs/* shown modified/deleted in git status —
-    owned by other active sessions, out of scope to read or touch
-
-Written to:
-  - planning/ta-pokprod-history.md — new D-72 entry (handoff git-tracking finding, Dean's
-    ruling, hand-off-and-close outcome)
-  - planning/ta-pokprod-open-scenarios.md § Priority triage — new row 11, closed
-
-Handoffs emitted: none this pass (D-72's own handoff was already sent/consumed before park started)
-
-Committed:
-  - adf5d2e4 state(park): pokprod handoff-tracking finding — D-72 flushed to ledger, checklist item 11 closed
-
-Worktree exit: was never in a worktree this session — skipped, not performed.
-
-Verified from final location:
-  - planning/ta-pokprod-history.md — D-72 present (tail of file)
-  - planning/ta-pokprod-open-scenarios.md — row 11 present
-  - commit adf5d2e4 — visible in `git log -1`
-
-Deliberately NOT done (park is additive, and accepts no work):
-  - Did not touch any other session's modified/deleted files shown in git status, despite
-    the working tree being messy with their in-flight work — not mine to stage or clean up.
-  - Did not act on any of the still-open priority-triage items (1, 3, 4, 6, 7, 9, 10, 12/Stage B)
-    — all correctly remain open, awaiting Dean or another owner, not resolved by this park.
-  - Did not run /s-state-sweep despite the doc set being large — no drift suspected this pass,
-    all docs were already internally consistent as of their last commits.
-```
-
-## state-park report — 2026-08-17, second call
-
-```
-state-park — pokprod-benchmark-execution scope
-
-Subagent addresses recorded (2a):
-  - vLLM/EPP metric survey — id: a8351539ecd1d9127 — completed — already referenced in the
-    prior park's report and folded into D-57; no new agent spawned since.
-Nudges sent (2b): none running.
-
-Sources read this pass:
-  - git status (full working tree) — confirmed nothing of mine is uncommitted
-  - planning/ta-pokprod-architecture-design.md — confirmed the KUBECONFIG isolation recipe
-    (from the chat answer immediately before this park call) was already captured, from an
-    earlier commit (D-69) — nothing new to flush
-
-Not read (and why):
-  - All ta-pokprod-* docs besides architecture-design.md — no new content generated since
-    the last commit (8533234f), nothing to check against
-  - Every other session's modified/deleted files in git status — not mine, out of scope
-
-Written to: nothing this pass — state was already fully flushed before this park was invoked
-  (D-73 committed at 8533234f prior to this call).
-
-Handoffs emitted: none this pass.
-
-Committed: none this pass — nothing new to commit.
-
-Worktree exit: was never in a worktree this session — skipped, not performed.
-
-Verified from final location:
-  - planning/ta-pokprod-history.md — D-73 present, tail matches last commit
-  - commit 8533234f — visible in `git log -1`
-
-Deliberately NOT done:
-  - Did not touch any other session's modified/deleted files in git status.
-  - Did not act on any open priority-triage item — all correctly remain open.
-```
+**Process-report history.** Two verbose `/s-state-park` source reports (2026-08-16/17) that used to
+sit here were folded into [[D-77]] on 2026-08-17 — their substance was already in the ledger (D-72,
+D-73), and the one fact they held uniquely (the sole spawned subagent, id `a8351539ecd1d9127`,
+completed, findings in [[D-57]]) is preserved there. Park reports belong in a status file, not in a
+live scenario doc; this scope now has one at
+[`session/status/planner-pokprod-benchmark.md`](../session/status/planner-pokprod-benchmark.md).
