@@ -286,3 +286,65 @@ Deliberately NOT done (park is additive, and accepts no work):
   - Did not review any of the 35 batch-refresh renders myself — Dean's own next look, not mine
     to pre-empt
 ```
+
+## state-park — this session (2026-08-17 late)
+
+```
+state-park — autoscaling-viz-planner, bob setup + two dispatched tasks
+
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session — Bob is a separate CLI tool controlled via file handoffs, not a
+    Claude Agent-tool subagent; ListAgents/SendMessage resume mechanism does not apply to it)
+Nudges sent (2b — best effort, NOT a flush):
+  - (none — no in-process subagents to nudge)
+Sources read this pass:
+  - session/status/planner-viz-panels.md (this file, prior content) — confirmed prior park's
+    state before adding this session's own section
+  - planning/autoscaling-viz-panel-review-20260817-plan.md — confirmed Item 8's original wrong
+    framing ("10 of 18 pods, 55%") is still present, not yet corrected in the doc itself
+  - planning/autoscaling-viz-good-panels-classification-plan.md — confirmed committed, unchanged
+  - session/handoffs/ (full listing) — confirmed current .WIP/.DONE state of every handoff this
+    session touched or referenced, including two that changed state since I last checked in
+    conversation (plan__viz-good-panels-benchmark-commit-needed.md now .DONE,
+    plan__viz-inventory-ownership-transfer-to-benchmark.md now .WIP) — corrected the first draft
+    of this note before committing rather than let a stale claim stand
+  - autoscaling-viz git log (own worktree, read-only via git -C not needed — already in plans) —
+    confirmed tip 3818cab4, Bob's two commits (23c1bbb7, 3818cab4) both present
+  - plans git log — confirmed my own 5 commits this session (7a65d75c, b871b646, e540d67d,
+    5e3b196a, a90990e7) all present and in the right order
+Not read (and why):
+  - benchmark/ worktree's own commit history — out of scope; the ownership-transfer handoff is
+    theirs to act on, not mine to verify their commit landed
+  - The 12 stale (a1a815a7-stamped) good-panels.png targets — already characterized precisely
+    in this session's own chat exchange with Dean, re-verifying the exact same `readlink`+stamp
+    check again would be redundant; the fact is already correctly captured in this file's own
+    new section above
+Written to:
+  - session/status/planner-viz-panels.md — new top section covering Bob setup, both dispatched
+    tasks' outcomes, the Item 8 doc-correction still owed, the 12-stale-symlinks fact, and the
+    out-of-scope TA/PRC finding's routing
+Handoffs emitted:
+  - none new this pass — all handoffs from this session's two tasks were already filed during
+    the tasks themselves (autoscaling-viz__good-panels-classification-ready.md.DONE,
+    autoscaling-viz__panel-review-20260817-ready.md.DONE, plus the plan__/sync__ replies listed
+    in the new section above); park found nothing additional to file
+Committed:
+  - b921b679 state(park): autoscaling-viz-planner -- bob setup + two tasks, item 8 correction pending
+  - 3f57cc8e state(park): correct inventory-ownership-handoff state (now .WIP, benchmark picked it up)
+Worktree exit:
+  - not applicable — this session has been in `plans` throughout, never entered a worktree via
+    EnterWorktree
+Verified from final location:
+  - session/status/planner-viz-panels.md — present, both commits visible in git log
+  - session/handoffs/*panel-review-20260817* and *good-panels* — all present, states as
+    described above
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did NOT fold Item 8's correction into autoscaling-viz-panel-review-20260817-plan.md itself —
+    flagged as owed in the new status section, not fixed in passing; substantive enough that it
+    deserves its own deliberate edit, not a park-time drive-by
+  - Did NOT mark any handoff .WIP/.DONE — none were addressed to me to accept or finish
+  - Did NOT decide Item 8 on Dean's behalf, and did NOT schedule the full 16-run re-render sweep
+    — both are open decisions recorded, not resolved
+  - Did NOT verify benchmark scope's own commit of the 83-entry handoff actually landed — out of
+    scope, their worktree
+```
