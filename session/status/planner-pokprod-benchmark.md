@@ -204,3 +204,96 @@ the ladder-only stage-assignment limitation viz had identified. Viz was right on
 **Newly arrived, not yet processed (not claimed — park does not accept work):**
 `plan__panel-review-20260817-done.md`, `plan__panel-review-20260817-item8-findings.md` (item 8 pending
 **Dean's** decision), `sync__panel-review-20260817-done.md` (sync's, not mine).
+
+## state-park report — 2026-08-17
+
+```
+state-park — pokprod-benchmark (planner)
+
+Subagent addresses recorded (2a — the durable part):
+  - Bob (benchmark coder-auto) — id: c03ccf72163ab92c33841ec11a756eea — completed —
+    asked: implement planning/reset-run-completeness-check-plan.md (triage item 14)
+    output: plans/scratch/bob-benchmark-coder/bootstrap.jsonl — exists, 339,838 B
+            plans/scratch/bob-benchmark-coder/bootstrap.err — exists, 0 B (clean)
+            benchmark/.bob-status.md — exists, 3,461 B (worktree-local, gitignored)
+    reference added: this status file § "Bob's resume address" — was recorded NOWHERE on
+    disk before this park (grep-confirmed), existed only in the launching conversation.
+    NOTE: Bob is a CLI process, not a Claude subagent — ListAgents does not show it, and
+    the resume verb is `bob run --resume <task_id>`, not SendMessage.
+  - No Claude subagents were spawned this session (ListAgents showed only 4 peer sessions:
+    autoscaling-viz Planner, install-llm-scaler Chat, plans-ca, plans-95 — none mine).
+Nudges sent (2b — best effort, NOT a flush):
+  - (none running — Bob had already exited 0 before park was invoked)
+
+Sources read this pass:
+  - git status --short (plans) — confirmed which files are mine vs other sessions'
+  - grep for 'c03ccf72163ab92c33841ec11a756eea' across planning/ + session/ — NOT FOUND,
+    which is what made recording it the main finding of this park
+  - grep for '3818cab4' across planning/ + session/ — found; traced the 4 modified
+    panels.png in the benchmark worktree to viz's own committed work, not stray files
+  - grep for '36 commits ahead' — already in ta-pokprod-history.md D-79, no action
+  - session/handoffs/plan__panel-review-20260817-done.md — read in full; it states the
+    16-run re-render is a DEFERRED separate pass and 12 good-panels symlinks are
+    "technically stale," which explains the mixed render stamps
+  - ls of the bob transcript dir + benchmark/.bob-status.md — verified sizes, not assumed
+  - bootstrap.jsonl result record — extracted task_id/status/tool_calls/cost
+
+Not read (and why):
+  - ta-pokprod-{roadmap,open-scenarios,history,clean-recapture}.md — all written and
+    committed earlier THIS session (D-74…D-79); nothing new to check against
+  - session/status/benchmark.md — compressed and committed earlier this session
+  - Every other session's modified/deleted file in git status (autoscaling-viz docs,
+    multi-analyzer-dataflow-map, sync's watch file, other status files) — not mine
+  - plan__panel-review-20260817-item8-findings.md — pending DEAN's decision, not mine
+
+Written to:
+  - session/status/planner-pokprod-benchmark.md — Bob's resume address block; task-1
+    outcome + independent verification; a 4-item live footgun list; the handoff-sweep
+    table; newly-arrived-unprocessed list
+
+Handoffs emitted (earlier this session, verified present this pass):
+  - sync__pokprod-benchmark-state-cleanup-20260817.md — CURRENT.md refresh: ledger range
+    D-73→D-77, planner status file now exists, triage rows 12-14, 3 armed footguns
+  - plan__envoy-tool-scope-and-process-gap-answered.md — answers viz's 3 blocked questions
+  - benchmark__reset-run-completeness-spec-ready.md (→ .DONE by Bob) — the task trigger
+  - (none new this pass — park emits no work)
+
+Committed:
+  - 1dd19e83 state(park): pokprod-benchmark — Bob resume address, task-1 outcome,
+    footguns, handoff sweep
+  - (earlier this session: 48297284, 01d15cf4, b8eae2aa, 886cb6f3, cb6d65c2, ee5410e5,
+    c4b6f60b, f38e9c79 on plans; bd9c375b, 0ff5e884 on benchmark)
+
+Worktree exit:
+  - was never in a worktree — this session ran in plans/ throughout. Skipped, not
+    performed. (One `cd` into benchmark/ happened mid-session for read-only git queries;
+    CWD was restored to plans/ and re-verified by `pwd`.)
+
+Verified from final location (plans/):
+  - sync__pokprod-benchmark-state-cleanup-20260817.md — present
+  - plan__envoy-tool-scope-and-process-gap-answered.md — present
+  - benchmark__reset-run-completeness-spec-ready.md.DONE — present, correct state
+  - plan__benchmark-warmup-step-proposal.md.WIP — present, correct state
+  - plan__viz-inventory-ownership-transfer-to-benchmark.md.WIP — present, correct state
+  - commit 1dd19e83 — visible in git log
+  - planning/reset-run-completeness-check-plan.md — committed cb6d65c2
+
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did NOT commit the 4 modified panels.png in the benchmark worktree (render_sha
+    3818cab4) — they are the autoscaling-viz scope's in-flight output, deliberately left
+    per that scope's own deferred-re-render decision. Committing another scope's work is
+    not mine to do and not park's to decide.
+  - Did NOT claim or process the 3 newly-arrived viz handoffs
+    (plan__panel-review-20260817-done.md, ...-item8-findings.md,
+    sync__panel-review-20260817-done.md). Marking .WIP is a session ACCEPTING work; park
+    never does that. item8-findings is pending Dean's decision; the sync__ one is sync's.
+  - Did NOT act on any open triage item (1, 2, 3, 4, 6, 7, 10, 12) — all correctly open.
+  - Did NOT propose or perform any push, despite benchmark being 36 commits ahead.
+  - Did NOT assign Bob a next task — it is idle and available; candidates are triage
+    items 3 and 4, but that is Dean's call.
+  - Did NOT touch any other session's files shown in git status.
+  - Did NOT run /s-state-sweep. One thing worth a future sweep: `session/CURRENT.md`'s
+    pokprod entry is still the pre-cleanup ~187-line version; the sync__ handoff asking
+    for its replacement is emitted but UNCONSUMED, so CURRENT.md and the plan docs
+    currently disagree on this scope's state. Not park's to fix (single-writer model).
+```
