@@ -10,6 +10,24 @@
 
 **Active (full abstracts) — live WIP only:**
 
+- **2026-08-17 — micro-rules migration: overnight 5-step mandate substantively complete on
+  `plans-tooling`, pushed.** All 5 steps done: 11 role specs; full harvest of
+  `CONVENTIONS.md`/`CODER-CONVENTIONS.md`/~78 memories/`governance-follow-ups.md` into
+  `conventions/` (22 files, ~80 entries); new `coll.sh`/`coll-list.sh`/`coll-lint.sh`/
+  `coverage-check.sh` tools; 11 role-collections + 8 step-collections + 2 pre-packaged prompts;
+  coverage-check shows 62/62 and 42/54 covered, every remaining gap individually accounted for,
+  none silent. One real process gap found and fixed: enrichment additions to existing entries
+  weren't updating their `origin:` citations — 17 fixed by hand. **Explicitly NOT done, Dean's
+  call:** the `role:`-destined harvest rows (coder/sync-scoped memories, separate pass); 5 small
+  naming/placement decisions (candidate topics `conv:writing-style`/`conv:tooling-preferences`, a
+  `chat-links.md` fold-in, two mechanism-vs-rule borderline cases); 3 proposed additions to
+  `doc-and-session-model.md` (handed off, out of harvest coder's write scope). **The cutover —
+  merging `plans-tooling` into `plans` — has NOT happened and must not happen without Dean's
+  explicit review and go-ahead**; `plans/CLAUDE.md` untouched, nothing here attempted or proposed
+  that merge. No armed footguns — working tree clean, fully pushed. State:
+  [`session/status/micro-rules-migration.md`](status/micro-rules-migration.md); owned doc:
+  `plans-tooling/planning/micro-rules-migration-plan.md`.
+
 - **2026-08-16 — single-instance guard mechanism (session_id/role-constant keyed, not pid) built
   and migrated into all five call sites, plus the `sync-main` family generalized over
   container/repo/branch; every found defect (Defect C, marker-poisoning, dead-watcher-reads-RUNNING,
@@ -164,231 +182,68 @@
   `planning/ta-anchor-dynamic-refresh-review.md` Findings 76/77/78 · Type 1
   [`combined-analyzer-optimizer-design.md`](../planning/combined-analyzer-optimizer-design.md) FINAL
   @ `8c2a9b04` + Addendum **Rev 7 @ `43f20c65`** (governs where they overlap).
-- **2026-08-07 — autoscaling-viz: real-trace toolchain built, MIGRATED to its own `autoscaling-viz`
-  branch/worktree.** *WIP — no session running; resumable from its plan.* Four-command chain; 12 PASS / 4 FAIL on our 2026-08-03 staircase
-  run, capacity model within **0.6%** of the observed ceiling with zero free parameters. All four FAILs
-  collapse to one run-design change (hold at saturation, then step down with requests in flight).
-  Panel 4 deferred by Dean. ⚠️ The preserve copy `~/viz-migration-preserve-20260807` is the **only**
-  copy of `per_request_head.json` outside the worktree — do not delete yet. State + cold resume:
-  `autoscaling-viz/real-trace-viz-plan.md` **in that worktree** (the old `scratch/autoscaling-viz/`
-  paths are dead by design). No PR, not headed upstream.
-- **2026-08-08 — autoscaling-viz: simulation driven from a real benchmark run; calibration gate PASSES
-  both arms.** *Live.* C1 `run_inputs.py` + C2 `sim_from_run.py` landed; the WVA decision rule verified
-  87/87; nothing tuned except the ITL line, fit once before any comparison. **Owed by Dean:** approval
-  for the `report.py`/`run.py` out-dir edits that C5 needs, and the four tolerance numbers
-  (15% / 15% / 1-replica / 1% queue share) — he resolved the *criterion*, not the numbers. ⚠️ The 4th
-  gate criterion was replaced *after* it had failed (his call) and the original is deliberately retained
-  and still evaluated — do not "clean it up". State:
-  `autoscaling-viz/planning/sim-from-benchmark-plan.md` + `real-trace/ladder-20260807/C2-GATE-REPORT.md`.
-  **2026-08-12 — panel 6 (scaling-decision reasons) landed; the decision-panel Type 3 is
-  code-complete, in review.** Commit `cff4e4c0` (tip, was `5a0c607f`) adds panel 6 to
-  `render_real_trace.py` and controller.log parsing to `extract_real_trace.py`, completing
-  `planning/autoscaling-viz-decision-panel-plan.md` (Item 1 of the follow-on epic,
-  `planning/autoscaling-viz-followon-plan.md`). Verified against real campaign data — `m-satta-dwell`
-  (both analyzers), `m-ta-staircase` (TA-only, absent-analyzer annotation), and a no-controller-log
-  bundle (degrade path), all three re-renders viewed as PNGs. Not pushed — 7 commits ahead of
-  `origin/autoscaling-viz` (was 6). Items 2–6 of the follow-on epic (panel 4 queue-source design,
-  estimation-model code, EPP scorer signal, coverage-check doc, folder-structure question) remain
-  open, explicitly out of scope for this Type 3. A real doc-accuracy correction found along the way,
-  not yet fixed: the plan's § Data source text says the saturation-analyzer-absent line fires "zero
-  or one per run, not per tick" — it actually fires every ~60s tick; flagged for whoever owns that
-  doc next, coders don't edit Type 3 plans. State: `session/status/autoscaling-viz.md` (rewritten in
-  place, prior state preserved below). Trigger sent: `review__autoscaling-viz-ready.md`.
-  **2026-08-13 — Item 5 (coverage-check reference doc) landed.** Commit `34afc197` (tip, was
-  `cff4e4c0`) adds `COVERAGE-CHECKS.md` at the worktree root, cross-linked from README — the Type 1's
-  coverage-check table transcribed and reconciled against current code, not copied verbatim: the
-  Type 1's table predates panel 6 and has 16 rows, live re-extraction confirmed the current extractor
-  emits 17 (panel 6 added row 16, "Scaling-decision log present," ahead of the old conditional row now
-  renumbered 17). Branch 9 commits ahead of `origin/autoscaling-viz`, nothing pushed. Items 2, 3, 4, 6
-  of the follow-on epic remain open, gated on Dean, unchanged.
-- **2026-08-10 — pokprod benchmark: guard tooling + scenario matrix; autoscaling confirmed on the
-  PR-2 image; overnight campaign complete, GPUs freed.** *WIP.* Ten local commits on `benchmark`
-  (DCO-signed, nothing pushed). Built the env-guard contract Dean specified — a named `X.env`
-  carrying `KUBE_CONTEXT`, verified against the live context, guarding the **10 destructive**
-  targets only, `UNSAFE=confirm|once|silent` escape hatch, `make benchmark-init` wizard.
-  `benchmark-apply-images` closes a real gap (image pin previously reached the cluster only via
-  standup); verified working. **Autoscaling confirmed end-to-end on `ta-0.9-anchor-pr2-20260809`:**
-  controller scaled 1→2→3 replicas under generated load. Three previously-unknown harness blockers
-  found and fixed, each of which had been blocking *all* load generation (wrong workload-selection
-  var, missing PyYAML on system `python3`, a substitution-token ordering bug). Cluster used
-  **overnight with Dean's explicit approval** (including the un-pause), GPUs freed at the end per
-  his instruction; **campaign stopped early** ("putting the laptop to sleep") but all 7 cells have
-  data, 156 snapshots, every cell 100% hydrated (3 recovered offline from saved logs).
-  **Four results, one retracted:**
-  1. **RETRACTED — do not cite.** An initial reading ("saturation cannot be disabled on PR-2 — PR-2
-     does not fix it") was **wrong**: Dean corrected it — disabling saturation was never meant to
-     stop it computing/logging, only to stop it voting, and the code does exactly that
-     (`saturation/engine_v2.go:147-157`, `satVotes` — verified in `main`). Counting
-     `analyzer-result` log lines cannot answer that question. The **`saturation:{enabled:false}`
-     silent-no-op backlog item is unaffected — left exactly as it was**, and `enabled:false` is a
-     different mechanism from list-omission.
-  2. **The dwell limit cycle is analyzer-independent** (HIGH confidence, strengthened by the
-     retraction — the matrix is now a genuine 3-configuration comparison, not 2): both dwell
-     configs hit the replica cap (10) twice, no staircase config exceeded 9. Tracks the workload,
-     not the analyzer configuration — consistent with §18 and §7.6.
-  3. **`prc` collapse is a third, separate variable** (MEDIUM): present in 2 of 5 non-dwell cells
-     including one that did *not* limit-cycle, absent from others that did — so it is **not** the
-     limit-cycle's cause, reproducing §18's own "mechanism, not tuning" diagnosis.
-  4. **The replica target oscillates while `rc = 0` and util ≈ 0.2** — most interesting open
-     thread, points at the decision/optimizer path rather than the analyzer. Not investigated.
-  **Weakest link, carry verbatim:** one run per cell, no repeats, no noise floor; the image A/B
-  additionally started from different replica counts (1 vs 2) — **mechanism observations, not
-  benchmark results.** Also found: a harness reporting bug (an unconditional `if errors:` fails a
-  step on a log line already labelled non-fatal, so `run_metadata.yaml` is never written) —
-  candidate for the fork/upstream list. `m-ta-dwell` ran only ~10 of ~40 min; a clean re-run would
-  complete the matrix.
-  ⚠️ **Armed footguns, carry verbatim:** (1) **the ScaledObject is PAUSED at 0** (GPUs freed and
-  verified twice) — **un-pausing is a mandatory first step of the next run**, or the trace is flat
-  and reads as a legitimate no-scaling result; (2) **restart the controller between runs/cells** —
-  in-memory capacity history makes run N a function of run N-1's load; (3) the PR-2 image
-  (`ta-0.9-anchor-pr2-20260809`) is still **unverified against the parser** independent of this
-  campaign's own results — short run → confirm fields populate → only then a long run;
-  (4) `session-notes/local/` is **gitignored** — nothing there is preserved.
-  **Addendum 2026-08-10, second pass (same day):** two parallel threads landed. **On `benchmark`
-  directly (Dean):** campaign figures given a tracked home at `session-notes/campaign-viz/<cell>/`
-  (3.0 MB, verified clean of the leaked token before committing), plus a cross-cell summary table
-  (configured-vs-seen analyzer columns — directly visible if a disable didn't take effect) and a
-  run-subset capability. **On `plans` (review of the results doc):** two of its four findings needed
-  correction (a saturation-internal signal misattributed to a non-voting cell; a wrong root-cause
-  claim about missing per-request data) — both fixed in place, not silently. **Deeper issue
-  surfaced:** the viz toolchain's capacity-estimation functions (`tput_knee()`,
-  `capacity()`/`max_conc_pred`) were never actually reviewed by Dean despite reading as settled —
-  three concrete design questions are now open for him. A confirmed lead: EPP debug logs carry
-  per-request scorer output, unmined until now. **New decisions, none yet executed (at that point):**
-  per-request collection disabled going forward; a further-refined results tree
-  (`benchmark/runs/<id>/{config,raw,viz}/`) proposed on top of what's already shipped; harness fixes
-  stay fork-only; a scaling-decision panel and coverage-check docs both flagged missing. **Still
-  owed by Dean:** rotate the leaked bearer token (clock on it); the `tput_knee()`/`capacity()` review.
-  **2026-08-11/12 — the results-tree proposal above is now code-complete.** Seven commits on
-  `benchmark` (`500b675f`, `334012c4` superseded by `8f55cbfa`, `75dde31a`, `955291a7`, `6a3dc448`,
-  `df320c94`), DCO-signed, nothing pushed (branch 23 ahead of `origin/benchmark`).
-  `report.request_lifecycle.per_request` disabled in 4 of 5 workload templates (deliberate exception:
-  `ta_prefill_knee.yaml.in`, whose own docstring makes per-request ITL the actual measurement, and
-  whose sizing math shows comfortable PVC margin unlike the dwell profile that OOM'd). `Makefile`'s
-  `BENCHMARK_WORKSPACE` now defaults to `runs/`, so the harness writes its own run directory natively
-  there — no copy, no move — fixing a real bug where the old gitignore glob matched only Dean's own
-  username. New `write_report.py` renders `runs/<run-id>/REPORT.md`; a real path bug in
-  `run_cell.sh` was caught and fixed in the same commit before any live run could hit it. New
-  `prune_run.py` (dry-run by default) removes confirmed-duplicate log bytes — verified 5 files,
-  51.2 MB, on real 2026-08-10 data. **The one remaining gap: none of this has touched a live
-  `make benchmark-run`** — every change verified against a scratch copy or scratch git tree, not the
-  live campaign directories; Dean held off any cluster run both nights. Two per-request discovery
-  corrections along the way: `logs/igw_pods.log` **does** carry per-request Envoy access-log data
-  (the "just Istio noise" read was a sampling error); EPP's scorer "Calculated score" lines do
-  **not** carry raw pod state (that's a different event). Still undecided: whether to migrate the 7
-  pre-existing 2026-08-10 campaign directories into `runs/` or leave them in place.
-  State: [`session/status/benchmark.md`](status/benchmark.md) **§20** (live state; §18 = dwell
-  findings, §19 = tooling round, §20.24–§20.27 = discovery + results-tree build) — sole authority,
-  coder-maintained. Planner-side items in `plan__benchmark-overnight-campaign.md`,
-  `plan__benchmark-env-guard-design.md`, the now-retraction notice
-  `plan__benchmark-sat-disable-still-broken-on-pr2.md`, and the open
-  `benchmark__viz-model-review-and-per-request-discovery.md` trigger.
-  **2026-08-12 — the 7 pre-`runs/` campaign directories migrated in; T9 actually wired, not just
-  reframed.** Four more commits (`02793145`, `5486afde`, `135b4590`, `3ab8128a`), still nothing
-  pushed (branch 27 ahead of `origin/benchmark`). The 7 pre-existing 2026-08-10
-  `dean-20260810-*/` directories (the ones the prior entry left "undecided") are now moved into
-  `runs/<id>/{config,raw,viz}/` — 56 files, verified clean of the flagged bearer token by three
-  independent grep passes before staging. A real `.gitignore` bug caught in the process: an
-  unanchored `dean-*/` rule was silently shadowing the config/viz/REPORT.md allowlist for every
-  run under `runs/`; fixed by anchoring to `/dean-*/`. The redundant `session-notes/campaign-viz/`
-  figure mirror is deleted (verified byte-identical against the new canonical location first).
-  **T9 (gateway access-log follower) is DONE, not Dean's anymore** — reframed from "Dean applies
-  it personally" to "wire it into the run playbook" (every resource in `gateway-log-follower.yaml`
-  is namespace-scoped, needing no permission beyond what `benchmark-run` already has), then
-  actually wired: new `BENCHMARK_GATEWAY_LOG_FOLLOWER` flag (default `true`), `benchmark-run`
-  applies it automatically before load starts, namespace-substituted via `sed`. Idempotent by
-  design — left running across runs, matching the manifest's own PVC-retained-capture intent.
-  **Bearer-token hazard's exact location corrected:** `environment/context.ctx` per migrated cell,
-  not the originally-flagged `run/*.yaml` — rotation itself is unchanged, still Dean's. **Still the
-  one standing gap across the whole results-tree + T9 effort: nothing has touched a live
-  `make benchmark-run`** — verified via `git add --dry-run` + `make -n benchmark-run` +
-  `uv run --with pyyaml` YAML validation, never a real cluster. Detail: `session/status/benchmark.md`
-  §20.28. This migration + T9 landing, plus the doc restructure below, are recorded in the history
-  ledger as [[D-27]].
-  **2026-08-12/13 — 4-cell rerun filling panel gaps complete; GPUs freed; idle, awaiting next
-  assignment.** 5 new commits on `benchmark`, all local, DCO-signed, **not pushed this round**.
-  `m-ta-calibration-probe`: first attempt OOMKilled at 32Gi after 16 min — root cause **not
-  confirmed** (an initial per-replica-log-capture guess was ruled out by Dean: the actual log total
-  was only ~33MB, far too small to explain a 32Gi OOM); retry succeeded unmodified at the same
-  32Gi (P99 TTFT 20,088ms, ITL 136.79ms/token, 0 errors). Both attempts kept as separate data points
-  per Dean's "I want data from all cases." Open question forwarded to a planner via
-  `plan__inference-perf-scaling-and-oom-investigation-20260812.md` — inference-perf's own memory
-  behavior under this token volume, not yet understood. `m-ta-dwell`: full clean 40-min rerun,
-  replacing a previously truncated attempt. `m-satta-dwell` and `m-sat-dwell`: both clean, no
-  retries; `m-sat-dwell` shows markedly worse tail latency than the TA cells (P99 TTFT 91,712ms,
-  queue depth 32.4) — confirms, doesn't newly discover, the campaign's known
-  saturation-lags-demand finding. Side fix, in the nested `llm-d-benchmark` clone (a separate git
-  repo, not this branch, not committed): `kube_helpers.py`/`process_epp_logs.py` now
-  gzip-compress and transparently read per-replica pod logs. **GPUs freed and verified** (ScaledObject
-  paused at 0, decode at 0 replicas, 0 pods). **Owed by Dean:** whether/when to push this round's
-  commits; whether to act on the inference-perf planner handoff now or later (not urgent — GPUs
-  aren't blocked on it). Detail: `session/status/benchmark.md` §20.31.
-  **2026-08-14 — coverage-matrix gap-fill complete: `ta_prefill_knee` and `ta_calibration_probe`
-  now have all 3 analyzer configs.** 4 Dean-approved runs, 6 local commits, DCO-signed, not
-  pushed. `m-sat-prefill-knee` and `m-satta-prefill-knee` come out nearly identical (P99 TTFT
-  ~60s, queue depth ~70) — TA doesn't help this workload's short-output shape, consistent with
-  saturation-lags-demand. `m-satta-calibration-probe` is the opposite: ~3.5× better than
-  sat-only (P99 TTFT 4,798ms vs 17,105ms, queue depth 0.0 vs 3.5) — satTA clearly helps here.
-  `m-sat-calibration-probe` OOM'd once (same known mechanism), clean on an unmodified retry; per
-  the coverage-matrix doc's own constraint, did not switch to the p4/rate-divided variant. GPUs
-  freed and verified. **Two process/tooling gaps found, flagged for a planner, not fixed
-  in-flight given the time-sensitive gap-fill:** (1) `benchmark-reset-run`'s `reset_run.py` does
-  not actually un-pause KEDA — its own code comment says so; the log line that looks like an
-  unpause is a printed suggested command, never executed, so every run implicitly depends on a
-  human having un-paused manually first (caused today's first failure). Open question: is
-  print-not-do a deliberate safety gate, or should `--apply` also unpause? (2) `run_cell.sh`'s
-  failure path can fall through to analyzing/overwriting an **already-committed, different
-  run's** config files when step `run` fails before producing a fresh results directory — caught
-  3 times today via unexpected `git status` diffs on unrelated cells, restored each time with
-  `git checkout --`. One partial guard exists (skips overwriting a timeseries JSON with fewer
-  snapshots) but config files still get clobbered around it — a real correctness gap in the
-  failure path. Detail: `session/status/benchmark.md` §20.34. Session idle, watching for the next
-  assignment.
-  **2026-08-14 — campaign coverage matrix CLOSED (21 experiments, 6 workload shapes); results
-  consolidated into one authoritative report.** Every workload now has every config its own design
-  calls for. **2026-08-15 — report RELOCATED, doc-coverage count corrected, first Type 2 created.**
-  The authoritative results doc moved (Dean's call, `D-53`) to
+- **2026-08-07 through 2026-08-17 — autoscaling-viz mission, tip now `a1a815a7`. Status file
+  compressed 1060→147 lines; good-panels classification complete.** Runs in its own
+  `autoscaling-viz` branch/worktree, no PR, not headed upstream. Everything since the last
+  recorded tip (`cff4e4c0`) is committed, local-only, **not pushed** (origin sits at `4b263d73`):
+  panel 4 KV%-heatmap repurpose, panel 4/3/6 followups (incl. a real infinite-loop bug), a latent
+  SAT-NameError fix, warmup-anchor + estimated-data-fallback + panel polish round 2, panel 3 stale
+  forward-fill, and a full batch refresh of all 35 real-run leaves (0 crashes, all stamps
+  verified). **Good-panels classification complete** (commit `23c1bbb7`): 16/29 extractable runs
+  are GOOD (trustworthy, per-request trace PASS at tip `a1a815a7` — `ls
+  benchmark/runs/*/viz/good-panels.png` returns exactly those 16); 12 MISSING-unobtainable (no
+  per-request signals on disk); 1 MISSING-obtainable-elsewhere (`dean-20260810-105211-685`, raw
+  Envoy log 54 MB, handed to benchmark scope). **Status-file compression itself:**
+  `session/status/autoscaling-viz.md` rewritten (commit `c6f22d67`) from a 1060-line narrative
+  into a 147-line pointer table — every prior task's outcome now lives in its owning Type 3 plan
+  doc's own `## Outcome` section (15 plan docs touched), not deleted without a confirmed permanent
+  home first. Two real gaps found and fixed in the process: `autoscaling-viz-panel3-stale-forward-
+  fill-plan.md`'s own gap-count table used a looser gap definition than the shipped mechanism's
+  actual one (re-verified: zero fillable gaps on either named run under the real mechanism, now
+  recorded in the plan doc); Item AA's outcome (never recorded — now says tried, kept, flagged as
+  Dean's judgment call). **Open / next:** inventory update pending
+  (`plan__viz-good-panels-inventory-update.md`, planner to fold into
+  `planning/benchmark-runs-inventory.md`); benchmark scope to decide on the one
+  obtainable-elsewhere run. No armed footguns — working tree clean, nothing uncommitted anywhere
+  in scope. Session idle, watching for next trigger. State:
+  [`session/status/autoscaling-viz.md`](status/autoscaling-viz.md) — history table names the exact
+  plan doc + § Outcome for every landed task; prior narrative preserved in `plans` git history
+  before commit `c6f22d67` if ever needed.
+- **2026-08-10 through 2026-08-17 — pokprod TA benchmark campaign. Coverage-matrix closed;
+  "clean recapture" Stage A complete; per-request estimation in progress.** Running since
+  2026-07-30. Coverage-matrix campaign (21 experiments, 6 workload shapes) closed `D-50`; results
+  report relocated to
   [`benchmark/docs/benchmark-reports/ta-pokprod-campaign-report.md`](../../benchmark/docs/benchmark-reports/ta-pokprod-campaign-report.md)
-  — it's Type-6/PR-bound guide material, not internal tracking; the old `planning/` path now holds
-  only a superseded-pointer stub, all 28 run-directory links fixed for the new location, and three
-  stale "pending re-postprocess" TTFT/ITL values were filled in with real numbers in the move. All
-  19 affected runs have real, version-stamped viz panels linked from the report. **`D-51`'s
-  doc-coverage count was wrong — corrected 5 → 17** (a full directory listing caught 12 tools the
-  original source list missed); cleanup plan rewritten with the full inventory (10 recommended
-  DEFERRED, 7 promote-as-is), still not started. **First-ever Type 2 roadmap for this mission**,
-  a real structural gap closed rather than a routine update:
-  [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (LIVE, created 2026-08-15) is now the
-  entry point — read it first, it points into everything else. **New active thread:** per-request
-  TTFT/output-size estimation for viz panels 1a/1b (no true per-request source exists under the
-  standing OOM-risk collection-disable policy; design anchors real Envoy-log arrival/duration data
-  to a distribution-conditional estimate) — build handed to the benchmark coder, scoped to one
-  example run first, **in progress, `.WIP`**. **Real finding mid-design, not yet acted on:** vLLM's
-  shipped `--enable-per-request-metrics` flag may return genuine per-request data with
-  caller-controlled retention — a structurally different risk profile from the harness's own OOM
-  mechanism, and could replace the estimation approach if it verifies cleanly. Needs Dean's call:
-  verify the flag now, or let the in-flight estimation build finish first. **Two harness process
-  gaps found, flagged not fixed:** `reset_run.py`'s reset step never actually unpauses a paused
-  ScaledObject (prints the command, doesn't run it); `run_cell.sh`'s failure path can silently
-  overwrite an already-committed different run's config files when a run fails before producing a
-  results directory — both already documented in the campaign report and `ta-pokprod-history.md`,
-  not new asks. **Deliberately deferred by Dean, not forgotten:** pokprod runbook fold-vs-stub
-  (`T6`), the dwell-forecast Type-1 design (shared queue-load-forecast mechanism), the
-  controller-restart hold-at-current-replicas policy question (`D-46`), the bucket-keyed `prc`
-  collapse bug, and controlled-run/timestamped-replay capability. **No armed footguns** — GPUs
-  freed and verified quiescent, no cluster action pending, working tree clean on both scopes'
-  sides. State: [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (start here) +
-  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md)
-  § *what still needs Dean, at a glance* + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md)
-  (`D-1`…`D-53`, append-only, grep-lookup).
-  **⚠️ Process incident, 2026-08-14 — a coder self-marked its own outgoing handoff `.DONE`.** The
-  benchmark session filed a reply (`plan__benchmark-viz-pullup-resolved-20260814.md`) and then
-  marked *its own* reply `.DONE` — only the **recipient** may do that, and doing it as sender hides
-  the item from the session that was supposed to act on it. Caught by **Dean's direct audit of
-  handoff file state**, not by self-check; fixed by renaming back to a plain open `.md` so
-  `viz-panels` can consume it. Root cause was not misunderstanding the rule but failing to apply the
-  ownership check while closing out a task ("wrap up this exchange" treated as one action rather than
-  two differently-owned files); captured as a global feedback memory. **Worth checking whether other
-  coder sessions have the same pattern** — that generalization is unverified, flagged not concluded.
+  `D-53`. First-ever Type 2 roadmap created, closing a real structural gap the mission ran without
+  for weeks: [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) — **start here**, it
+  points into everything else. **Stage A of a "clean recapture" campaign (warmup + fixed
+  log-capture wiring + exploratory instrumentation) is COMPLETE — 7/7 cells landed, clean, GPUs
+  freed** (`D-65`–`D-69`); found and fixed a real harness OOM (workload silently needed 96Gi not
+  the scenario's 32Gi default, plus a compounding trap where a fix to the embedded
+  `llm-d-benchmark` clone got silently overwritten by `make benchmark-run`'s own copy step every
+  invocation). **Stage B (full campaign re-run) not yet launched.** Per-request TTFT/output-size
+  estimation for viz panels 1a/1b built and generalized to 18/21 run-leaves (no true per-request
+  source exists under the standing OOM-risk collection-disable policy, so the design estimates
+  from Envoy-log arrival/duration anchored to per-stage vLLM histogram distributions); a candidate
+  to replace estimation with true measurement (vLLM's `--enable-per-request-metrics` flag) was
+  investigated and found **absent** on the pinned v0.20.2 image — closed for now. **Full priority
+  triage done 2026-08-16** (`D-71`) — Dean set explicit handling per open item, all tracked in
+  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) § *Priority triage*;
+  genuinely open, in his priority order: gateway-harvest wiring fix (needs discussion), p4 4-pod
+  combined-log extraction gap (non-urgent), truncated-run detection (real open gap), controller-
+  restart hold-policy question (`D-40`/`D-46`), doc-coverage cleanup for 19 scratch scripts (parked),
+  pokprod runbook fold-vs-stub call (may be ready to revisit now Stage A exists). **Deliberately
+  deferred by Dean, not forgotten:** the dwell-forecast Type-1 design (shared queue-load-forecast
+  mechanism), the bucket-keyed `prc` collapse bug, controlled-run/timestamped-replay capability.
+  **A process finding, closed:** `session/handoffs/` used bare `mv` not `git mv` for state
+  transitions, so 439 tracked files accumulated as delete+add pairs rather than real git history —
+  handed to the handoff-protocol design owner with Dean's ruling attached (pointers only, no
+  retroactive git-history change); consumed, closed (`D-72`). **No armed footguns** — GPUs freed
+  and verified quiescent after Stage A, no cluster action pending, working tree clean on all
+  scopes. State: [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (start here) +
+  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) § *Priority triage* +
+  checklist + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md) (`D-1`…`D-72`,
+  append-only, grep-lookup, checked sequential/complete/no-gaps 2026-08-17).
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
@@ -409,28 +264,6 @@
   CURRENT-update). State/resume: [`session/status/dwell-deep-dive.md`](status/dwell-deep-dive.md) —
   full code trace with file:line citations, the two-hop lag table, and the synthesis; do not delete,
   it backs the Type-1 TODO.
-- **2026-08-08 — pokprod benchmark: the Type 3 is now a tooling plan as well as a test plan.**
-  *Blocked on Dean.* §7.6 is the substantive finding: steady-state KV under a tracking controller is a
-  *controlled* variable, so §7.4.1's dwell cannot be reached by raising the offered rate — it is a
-  configuration decision, not a workload one. Guards-only fork split now contractual; the `.env`
-  contract is fail-closed and kube-context-keyed; the KEDA arm is present but unrunnable (3 verified
-  blockers). **Owed by Dean:** (a) saturation-alone-uncapped *(recommended by coder and planner)* vs
-  (b) a deliberate replica cap — or defer both behind the already-staged quantization-sawtooth run.
-  **T9 is no longer Dean-owned — it's DONE**, wired into `benchmark-run` automatically instead of
-  applied by hand (see the 2026-08-12 benchmark entry above, [[D-27]]); T10 (file upstream issues)
-  remains Dean's. Nothing launched, no cluster contact, nothing pushed.
-  **2026-08-12 — the plan doc this entry cites is now SUPERSEDED, split into four docs** (careful
-  restructure, ~13 real content gaps found and repaired in the process, not just reorganized —
-  original preserved at the bottom of the old doc under a fold, not deleted). State:
-  [`planning/ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) §5 (cold-resume,
-  live scenario surface) + [`planning/ta-pokprod-execution-plan.md`](../planning/ta-pokprod-execution-plan.md)
-  §7.1 (tooling track, now T1–T12) + [`planning/ta-pokprod-architecture-design.md`](../planning/ta-pokprod-architecture-design.md)
-  (durable contracts) + [`planning/ta-pokprod-history.md`](../planning/ta-pokprod-history.md)
-  (append-only decision ledger, `D-1`…`D-27`, grep-lookup by design). Still open, not folded into
-  this restructure by Dean's own choice (kept as a separate pass): `plan__benchmark-env-guard-design.md`
-  (a settled `.env`-contract redesign superseding part of the architecture doc §5) and
-  `benchmark__pokprod-plan-tooling-track.md` (a stale coder trigger, unrepaired since the coder
-  re-reads the plan fresh rather than trusting old line numbers).
 - **2026-08-03 — sat_v2 F1 gap (cannot disable saturation via config) — STILL OPEN, verified but not
   yet closed.** New evidence (2026-08-16) that PR-1's `satVotes` gate may have fixed this as a side
   effect is now independently verified against two tests at PR-2's own tip — detail and citations in
@@ -511,24 +344,6 @@ rows stay here.
   loss channel is known to be about to open? Deliberately not designed yet; auto-firing a
   write-capable skill needs its own thinking. Detail:
   [`planning/state-commands-design.md`](../planning/state-commands-design.md) § 9.
-- **atomic-step-protocol-brainstorm — reading list + a pending operational ask (⚠️ needs Dean's
-  go-ahead, not yet acted on).** The mission's reading list lives at
-  `session/digests/atomic-step-protocol-brainstorm.md` (committed `e8b47c46`) — start with its
-  `## Review triage for Dean` section (harvest, step-gates, authoring, role-skills; each spec's
-  `## Intent` + `## Step index` only, ~64–91 lines per spec). **Checkpoint-tick status, corrected:**
-  the per-session two-tier design (Tier-1 free/model-free, Tier-2 rare/cheap-model) is current and
-  correct — `session/.tick-disabled`'s commit message ("retire the scheduled checkpoint tick") reads
-  as a blanket retirement but only killed the old single-cron mechanism; `CONVENTIONS.md`'s own text
-  has not been corrected to say so yet. **⚠️ Open ask, deliberately not executed by this sync:** a
-  handoff (`sync__shared-tier2-checkpoint-ready.md`, now `.DONE`) proposes centralizing Tier-2 into
-  one shared loop (`scripts/tick-shared-scan.sh`, new) owned/started/monitored by the sync session,
-  per new `planning/atomic-step-protocol-design-addendum-2.md`. Five files are involved — two edited
-  (`session/CODER-CONVENTIONS.md`, `planning/governance-follow-ups.md`, plus `scripts/session-snapshot.sh`),
-  two new (the addendum, `scripts/tick-shared-scan.sh`) — **all uncommitted, explicitly flagged by
-  their author as "pending Dean's review."** Starting a new background service and taking on
-  ongoing operational ownership of it is not something this sync executed unilaterally; it needs
-  your explicit decision (approve as-is, ask for changes, or hold) before anyone commits those
-  files or runs the script.
 - **TA 0.9 — LANDED (all six PRs MERGED 2026-07-30, `main` tip `6bfb73e1`; test-branch + `:ta-0.9`
   image refresh EXECUTED).** Detail in [`session/history.md`](history.md). **Live follow-ups, all
   Dean's:** (1) epics #1492/#1493/#1494 + adopted #1005 — update or close now every PR is merged;
