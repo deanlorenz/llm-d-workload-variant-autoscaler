@@ -78,4 +78,22 @@ before — per Dean's "build tools only as needed."
 
 ## Step log
 
-(Appended as each step executes — commit SHAs, what was found, what was skipped and why.)
+### Step 1 — role specs (2026-08-17)
+
+All 11 role files written to `roles/<name>.md` — owns/reads/token from `doc-and-session-model.md` §
+Roles, thin by design (the "what," not the "how"). Deliberately skipped rather than invented:
+`designer`, `epic`, `spec`, `confirm`, `verify`, `pr` all have zero-to-thin harvested kernel content —
+their files say so explicitly and cite the gap rather than filling it.
+
+Carried forward 5 real findings from `atomic-step-protocol-design-addendum-13.md` into the specific
+role files they belong to, so they are not lost in a separate doc nobody re-reads while harvesting:
+- `verify.md` — `s-design-review`'s step order is backwards for this role (code-first is the rule;
+  the skill reads design/plan first). Live defect, not just a design gap.
+- `triage.md` — `s-pr-triage` produces a review doc, not the fixup code spec this role owns.
+- `sync.md` — 0/302 handoffs use the `sync` token despite the richest skill coverage of any role.
+- `epic.md` / `spec.md` — the transient-vs-durable and code-spec-vs-PR read-scope discrepancies.
+- `coder.md` — the benchmark-tester exception (not really a coder, needs its own role — undecided)
+  and the still-open C44 posture-vs-checklist question.
+
+Not yet committed to `roles/` structure decisions beyond what the frozen design already specifies —
+no new fields, no new format. Next: Step 2, the actual harvest.
