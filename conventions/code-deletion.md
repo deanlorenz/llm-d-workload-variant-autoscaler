@@ -47,3 +47,13 @@ must classify the removal:
 The coder writes the classification in the handoff; the planner captures deferred items in
 the relevant Type 1 or Type 3 doc and in CURRENT.md Issues to Open. Nothing is silently
 deleted — a future session must be able to recover the intent from the plan docs alone.
+
+**Incident basis.** During #1250 TA3 development, several valuable features were silently
+removed with no classification at removal time: the ITL knowledge store, the GPS-mismatch
+SpareCapacity gate, the EPP-absent SC gate, the FreshnessStatus staleness wiring, and the
+`has*` throughput sentinels. None were documented as deprecated or deferred, so future sessions
+had no way to know what was intentionally gone versus what should come back. This rule applies
+equally to partial removals — removing a gate that was wired to produce real behavior counts as
+a deletion of that behavior and must be classified. "The code still compiles and the tests
+pass" is not the bar; the bar is "will a future developer know this feature existed and why it
+was removed?"

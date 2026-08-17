@@ -71,7 +71,12 @@ agents via handoff files.
 - **verify-or-copy-then-delete, per item.** Before removing any detail, confirm it already
   exists in its permanent home (design/plan doc, or git via a commit/PR ID). If it does,
   delete here; if not, copy it there and verify first. A forward-looking TODO with no other
-  home must never be dropped.
+  home must never be dropped. A handoff that says "drop this section" still requires the
+  verification — the planner doesn't drop on the coder/reviewer's say-so, only on confirmed
+  capture elsewhere. Items that have genuinely become irrelevant (a PR merged, a question
+  resolved, a blocker cleared) are fine to remove outright — but state why in the commit
+  message or leave a one-line history note; when in doubt, keep the content with a
+  "(historical, see X)" annotation rather than delete.
 - **Tidy by targeted edits, never a blind wholesale rewrite.** A full-file rewrite reconstructs
   from memory and silently loses items that don't fit the template. Edit section by section;
   if you must rewrite, diff old-vs-new and account for every removed line before committing.
@@ -101,3 +106,22 @@ origin: session/CONVENTIONS.md § Quick rule (C13)
 Before writing anything into the session state (Type 5, CURRENT.md), ask: does this belong in
 a design, roadmap, task plan, or reference (Types 1–4) instead? Only keep it in session state
 if it is not yet captured elsewhere. When it is captured, replace the content with a link.
+
+### convention: current-md-per-task-sections
+description: CURRENT.md is structured as per-task sections; never overwrite a sibling task's 'Last session' or other transient state when saving a different task's state.
+scope: sync session writing CURRENT.md
+trigger: about to edit CURRENT.md for one task while other tasks have their own sections
+status: active
+origin: feedback_current_md_per_task.md
+
+When updating CURRENT.md, never overwrite an existing semantic unit (a "Last session" heading
+or any task-scoped section) with a different task's content. Dean rotates between parallel
+tasks, and each task's session-level state is independent and must be preserved — to save state
+for the current task, add a new section or update a section that already belongs to that task;
+never repurpose a sibling task's slot. Erasing a sibling task's "Last session" entry destroys its
+continuity record between sessions even when long-form planning sections still exist below it —
+the session entries capture session-by-session decisions and reasoning that aren't duplicated in
+the plan docs, and resuming the other task cold on a later day requires that record to still be
+there. Before editing any file under session/, re-read this file's own bounded-shape section
+above rather than trusting recollection of "which section is mine." Treat overwriting an
+existing semantic unit as a substantial edit even when the bytes-changed count is low.

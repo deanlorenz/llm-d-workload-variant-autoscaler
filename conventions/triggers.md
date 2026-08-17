@@ -60,6 +60,22 @@ referenced docs and lets their own plan decide how to react.
 **Receiving a trigger** addressed to your branch: rename to `.WIP` before processing,
 `.DONE` when done. Same rule as for handoffs — mark before you act.
 
+**The note must describe what changed in the refs — never what the recipient should do.** Write
+it as ≤1 sentence answering "what is now different in refs?" (e.g. "Phase 4 addendum appended,"
+"PR rebased onto main@SHA," "review status flipped to FINAL"). Do not include verdict words
+("approved," "push-ready," "ready"), action verbs aimed at the recipient ("awaiting X," "now do
+Y"), or state-of-the-world summaries the recipient could mistake for "you must reflect this
+somewhere" — a multi-clause note that reads like a verdict has been mistaken for authorization
+to act on planner-owned shared state before. If the recipient needs to do something different,
+the right move is: edit the recipient's plan doc (planner) or status file (own), then ring the
+bell — the action goes in the doc, the trigger only points at the doc. Resist inventing a more
+"expressive" reason than the four documented categories; expressiveness in `reason:` leaks into
+the note.
+
+**Sanity check before writing a trigger:** read it as if you were the recipient with no other
+context. If you'd reach for any file outside your write scope after reading it, the note is too
+directive — trim it.
+
 From session/CODER-CONVENTIONS.md §9.3 Trigger to a sibling template (CC20, trigger fragment):
 
 **9.3 Trigger to a sibling** (plans/session/handoffs/<sibling>__<topic>.md)

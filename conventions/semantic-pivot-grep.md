@@ -22,3 +22,11 @@ change (rename, panic→error, sync→async, etc.), the plan will include a grep
 old search term and files to scan. Run that grep after implementation and update every hit
 in comments and docstrings. If the plan omits the grep step, do not infer scope — write a
 handoff to the planner noting the gap and what term to search.
+
+**Widen the grep to every `_test.go` file, not just the plan's declared file list.** A
+behavioral-contract change (e.g. a config default flipping) can break pre-existing tests whose
+fixtures relied on the old default as a shorthand ("absent config entry defaults to enabled")
+without those tests ever being in the plan's declared scope — they were found only because the
+coder searched broadly rather than trusting the declared list. When the plan specifies a
+behavioral-contract change, run the grep step as `grep -rl <old-term/default> -- '*_test.go'`
+across the whole tree, not only the files the plan names, then update every hit.

@@ -51,3 +51,55 @@ actionable for a coder and leads to stale docs after merge. If the planner is un
 sections are affected, that is a signal to re-read the current Type 4 doc before finalising
 the plan. A coder that cannot find the dev-guide section in the plan must write a handoff
 noting the gap rather than skipping the doc update.
+
+### convention: plan-authoring-no-other-role-actions
+description: A Type 3 task plan must never contain an imperative verb describing another role's action; the coder reading the plan executes every sentence as its own scope, even inside a 'deferred' section.
+scope: planner authoring or finalizing a Type 3 plan, or a trigger note field
+trigger: finalizing a Type 3 plan doc, or writing a trigger note field that quotes/summarizes plan content
+status: active
+origin: feedback_plan_doc_no_other_role_actions.md
+
+A Type 3 task plan doc is the coder's **sole authoritative scope** — every imperative sentence in
+it reads as "this is what I (the coder) should do." Writing a planner-owned or Dean-owned action
+item into the plan using action verbs ("launch a research agent," "run X," "do Y when coding
+starts") gets executed by the coder, even inside a section explicitly labeled "Deferred" or
+"NOT a blocker" — a deferred/non-blocking label only means "not gating," not "not mine." Before
+finalizing any Type 3 plan doc, scan every sentence for action verbs (launch, run, spawn, file,
+open, ping, notify, deploy, push, post) and ask "who is the subject?" If the answer is "me, the
+planner" or "Dean," that content does not belong in the plan doc at all — put it in CURRENT.md
+next-steps or a planner-only task list instead. If an out-of-scope fact/question must be
+*referenced* for context (so the coder understands why something is deferred), phrase it as inert
+prose with an explicit scope disclaimer: "recorded here for context only... the coder does not act
+on this — it is not a commit, not a test, not a research task for this worktree." Apply the same
+scan to kickoff/trigger `note:` fields — a note must describe what changed in the refs, never what
+should happen next, even when quoting or summarizing a plan section. This is a general Type 3
+authoring check, not specific to research agents — any planner/Dean-owned action (file an issue,
+notify a sibling, decide a threshold) is equally at risk if phrased as an instruction inside a
+coder's plan.
+
+### convention: plan-authoring-relative-links-worktree-boundary
+description: Links inside a doc should be relative for GitHub/clone portability, but a relative link can never cross into a different worktree; verifying the target exists on disk is not the same check as verifying the link resolves for a reader.
+scope: planner or coder writing a link inside any doc
+trigger: adding a link in a doc that could point at a file in a different worktree
+status: active
+origin: feedback_relative_links_within_docs.md
+
+Links written inside a document (not chat) should be relative paths, scoped to that doc's own
+location — this repo uses a bare-repo-plus-worktrees layout, and docs get cloned/browsed on
+GitHub, where an absolute local filesystem path is meaningless. But relative markdown links
+cannot walk `../../` across a worktree boundary the way a shell can, even when both worktrees
+share a parent directory and the resolved path is a real filesystem path — a renderer scoped to
+one repo/worktree (VSCode, GitHub) cannot follow it. **Checking that the resolved path exists on
+disk is not the same question as "does this link work when clicked from where the reader
+actually opens it."** A naive existence check can report zero broken links while every
+cross-worktree link is still broken.
+
+**How to apply:** before trusting a link-checker's "0 broken links" result, ask whether any
+linked target lives in a different worktree than the document itself. If so, there is no
+relative path that both resolves on disk *and* renders correctly in GitHub/VSCode across a
+worktree boundary — this is a genuine unsolved case in this repo's layout. Ask how it should be
+handled (a plain-text path for manual navigation, a documented convention, etc.) rather than
+assuming a scheme works because it exists on disk. Links that stay within the same worktree as
+the doc: relative, and a naive existence check is a reasonable verification. (Distinct from the
+already-settled chat-message case — see `conv:chat-links` — where the fix is a workspace-relative
+markdown link, not this unsolved cross-worktree case.)

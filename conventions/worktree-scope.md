@@ -79,6 +79,29 @@ The subagent brief for this pattern must state:
 Prerequisite: `EnterWorktree` requires the session to already be inside a git repository (any
 worktree). If the session starts in the container directory, `cd` into any worktree first.
 
+**This rule has been violated repeatedly, by every role, even by the agent that just named the
+risk.** Confirmed recurrences: a plan-agent chained `cd <sibling> && git log` then ran a later
+`git add` from that sibling tree (caught only by luck before commit); a reviewer bare-`cd`'d into
+a coder's active worktree mid-review, then — still inside that `cd`'d context — ran `git stash`
+and `git checkout` while the coder was actively editing (see `worktree-scope-git-write-verbs`);
+the same reviewer role repeated the bare-`cd` three more times in one later session despite
+active self-monitoring, self-catching the first, missing the second until an unrelated command
+failed, and repeating a third time immediately after adding a precautionary `pwd` check because
+of the second. **Conclusion: a written rule is a reminder, not a gate — it can be skipped under
+task pressure, especially when chained with an otherwise-harmless command.** The trigger pattern
+each time was `cd <dir> && <read-only-command>` — the `&&`-chaining habit is what needs to go, not
+just the eventual write. After `EnterWorktree`/`ExitWorktree`, do not add any `cd` at all, not even
+back to your own current worktree — the CWD is already correct; use plain commands or absolute
+paths. This is further evidence prose alone is insufficient for the reviewer role specifically,
+which routinely needs sibling-worktree reads — exactly the condition that makes the `cd` shortcut
+tempting — and is the standing case for a mechanical gate (hook/permission rule) rather than more
+prose.
+
+**Why `isolation: "worktree"` on the Agent tool doesn't substitute for this pattern:** that option
+creates a *new, throwaway* worktree, not a handle onto an *existing* one, and the Agent tool has no
+`cwd` parameter to target an existing worktree directly — the `cd` + immediately-following `Agent(...)`
+call is the only way to hand a subagent an existing worktree's CWD.
+
 ### convention: worktree-scope-git-write-verbs
 description: Git write-verbs (stash, checkout, reset, rebase, merge, commit, branch -D, clean) never run outside your own sanctioned scope, not even for a lookup.
 scope: every agent, any git command that mutates working tree/index/refs
@@ -120,6 +143,11 @@ cd <worktree> && claude -p "<task>" --allowed-tools "<tool1>,<tool2>" --no-sessi
 
 This subprocess starts fresh with the target worktree's CWD and its own settings, and
 `--allowed-tools` passes the exact permissions inline — no settings file required.
+
+The only permission this pattern needs granted in `plans` is `Bash(claude -p *)` in
+plans/.claude/settings.local.json. For a short task, run it blocking and report the
+result inline; for a long task, run it with `run_in_background: true` and pick up the
+result via the task notification / output file.
 
 ### convention: worktree-scope-coder-session-start-check
 description: A coder verifies CWD and branch at session start, re-verifies before every edit and before every commit; two non-negotiable gates.
@@ -232,8 +260,140 @@ outside your worktree where edits are allowed. See §5.
 If a task seems to require touching anything else outside your worktree,
 stop and write a handoff describing why — do not edit.
 
+**Mechanism: the Write/Edit tools are blocked on these two paths from an isolated worktree
+session even though the exception is sanctioned — Bash `cp`/`mv` are not blocked and are the
+working recipe.** Measured directly: `Write` (new file) and `Edit` (existing file) against
+session/handoffs/ are refused by the worktree-isolation guard, *even when* settings.json
+allowlists `Edit()` on that exact path — the file-tool guard is unconditional and preempts the
+permission allowlist, so the allowlist entry is inert. Bash `cp <worktree-file> <shared-dir>/`
+and `mv <shared-dir>/x.md x.md.WIP` both work. Working recipe: draft the file in your own
+worktree, Bash `cp` it into the shared directory (again to revise), `mv` to flip
+.md → `.WIP` → `.DONE`. (A terminal-launched coder worktree may instead find Write/Edit
+succeed in place on these two paths without the `cp` step — the launch model changes which
+tools are gated, not the write-exception itself; if a direct Write/Edit fails here, fall back
+to the `cp`/`mv` recipe rather than concluding the exception is inoperable.) **One refusal from
+one tool is not a fact about the filesystem or the protocol** — before asserting a
+protocol/infrastructure-level defect (e.g. "the state machine is inoperable across
+worktrees"), test the adjacent operations, since the untested ones may simply use a different
+tool. This does not widen write scope generally — default worktree locality and the
+cd-forbidden rule above still hold, and git write-verbs outside your own worktree are still
+never OK regardless of which tool would technically succeed.
+
+**A doc's own early shorthand can contradict its later correct instruction, and readers absorb
+the terse first version before ever reaching the fuller correct one.** CODER-CONVENTIONS.md
+§0 once described this write-exception's recipe as "just `cd` to session/... for status/handoff
+writes" — directly contradicting the no-bare-`cd` rule above and its own correct `cp`/`mv`
+recipe three sections later. Already fixed in the source doc; the lesson survives independent
+of that specific fix — when writing or reviewing a rule file, a compressed first-mention that
+gets the mechanism wrong is worse than no first mention, because it's what gets read and acted
+on first.
+
 (CC5's citation also covers the edit-boundary and pre-action-gate restatements in
 session/CODER-CONVENTIONS.md §1 — those duplicate `worktree-scope-boundary` (C14) and
 `worktree-scope-pre-action-gate` (C15) verbatim in substance and are not re-quoted here, per the
 classification table's own instruction to avoid duplicating text that already exists in the
 CONVENTIONS.md version.)
+
+### convention: worktree-scope-shared-git-index-pathspec-commit
+description: In a worktree shared by concurrent sessions, never git add alone or commit -a; commit with an explicit pathspec so you can't sweep in another session's staged files.
+scope: any session committing in a worktree shared by multiple concurrent sessions (e.g. plans)
+trigger: about to git commit in a shared worktree
+status: active
+origin: feedback_shared_git_index_pathspec_commits.md
+
+In a worktree shared by multiple concurrent sessions (e.g. `plans`), all of them share **one git
+index**. A plain `git add <file>` from one session can sit in the shared index and get swept into
+a totally unrelated commit by a *different* session, silently: the losing session's own
+`git commit` returns "no changes added to commit" (its file was already committed by the other
+session's commit), and the winning commit's message no longer accurately describes its diff — a
+hard-reject condition per `rebase-integrity-commit-message-vs-diff`, triggered here with no
+warning from git at all.
+
+**Rule: in a shared worktree, never `git add` alone, never `git commit -a`, and never
+`git restore --staged` someone else's staged file "to clean up."** Commit with a pathspec
+instead:
+
+```
+git commit -s -m "..." -- <path> [<path> ...]
+```
+
+**Caveat for brand-new (untracked) files:** a pathspec commit only reaches paths git already
+knows — it errors "did not match any file(s) known to git" on an untracked path. There is no way
+to commit a new file without staging it first. Mitigation: chain
+`git add <paths> && git commit -s -m ... -- <paths>` as one shell invocation, minimizing the
+window the new file sits in the shared index — the pathspec on the commit itself still protects
+against sweeping up *other* people's staged work.
+
+**How to apply:** before any `git commit` in a shared worktree, use the pathspec form. If
+`git status` shows staged files you don't recognize, don't `git restore --staged` them before
+your commit — that would silently discard another session's work in progress; leave them and let
+the pathspec do the isolating.
+
+### convention: worktree-scope-default-locality
+description: Default to your own worktree for every git operation; -C or an absolute path to a sibling is a deliberate exception for read-only history, never a reflex.
+scope: every agent or coding task
+trigger: reaching for -C, cd, or an absolute path to any worktree other than your own
+status: active
+origin: feedback_worktree_default_locality.md
+
+**Default rule: every git operation runs from your own worktree, against your own branch.**
+Exceptions are exceptions, not defaults:
+
+- `git -C <sibling-worktree> <read-only-cmd>` — fine when you genuinely need committed code or
+  history from another branch (comparing to a sibling's tip, reading a doc that exists only on
+  another branch). Use an absolute path when ambiguous.
+- `cd <sibling-worktree>` — almost never; see `worktree-scope-cd-forbidden` above.
+- `git -C <sibling-worktree> <write-cmd>` — never without explicit Dean instruction; see
+  `worktree-scope-git-write-verbs` above.
+
+Most "I need to look at the other branch" questions are answered by `git log <other-branch>` from
+your own CWD, or `Read` on the file by absolute path — neither needs `-C` or `cd`. Reaching for
+`-C` or `cd` should be a deliberate choice ("I need committed state from a sibling I cannot see
+from here"), not a reflex — before adding `-C` to a git command, ask whether it's answerable from
+your own worktree first. When you do use `-C` or an absolute path, say so in your reply and why
+the exception is needed — that keeps the discipline visible rather than silent.
+
+### convention: worktree-scope-write-confinement-mechanism
+description: How coder write-confinement is actually enforced (or not) at launch time: webview+multi-root-workspace does NOT confine; terminal-launch-from-worktree does, out of the box; bypassPermissions defeats both.
+scope: anyone launching or configuring a coder session
+trigger: deciding or reasoning about whether a coder session is actually confined to its worktree
+status: active
+origin: project_coder_write_confinement.md
+
+The write boundary is fixed **at launch**: launch CWD (project directory) plus
+`permissions.additionalDirectories`. `cd` never moves it — an out-of-scope `cd` auto-resets to
+the project directory.
+
+**The webview does NOT confine coders, contrary to the natural assumption.** A CC VSCode
+extension webview running in a multi-root workspace injects **every workspace folder as a
+writable `additionalDirectory`**. `EnterWorktree` only re-roots the *project directory* — it does
+not prune those injected directories. So a coder that `EnterWorktree`s into its branch can still
+Edit/Write into every sibling worktree listed in the workspace, with no prompt. Confinement
+observed under this setup is discipline (following the conventions), not enforcement.
+
+**Terminal-launch-from-worktree DOES confine, out of the box, zero setup.** The `claude` CLI
+never reads `.code-workspace`; the workspace-folder→additionalDirectory injection is
+webview-exclusive. /ide only wires diff/diagnostics/selection — it does not change the write
+boundary. So `claude` launched with CWD = a given worktree has a write scope of exactly that
+worktree, while reads still work globally via a broad `Read` allow-rule.
+
+**One setup cost of switching to terminal-launch: the sanctioned cross-worktree writes
+(`plans/session/handoffs/**`, plans/session/status/<branch>.md) need their own allow-rules
+copied into the user-global settings file** — otherwise they prompt, since `plans` is out of
+write scope from a worktree launch. Once copied (absolute paths — harmless in other projects),
+Write/Edit succeed prompt-free in those two paths from a terminal-launched coder worktree, making
+the `cp`-via-Bash workaround (see `worktree-scope-write-exception` above) unnecessary under this
+launch model specifically — write those two paths in place instead of staging in an in-worktree
+outbox directory.
+
+**Residual hole under both launch models: `bypassPermissions` drops the boundary entirely.**
+`acceptEdits` does not widen scope (still confined). So "coders never run in bypass" is the only
+discipline left once terminal-launch is in place. A global `PreToolUse` hook or sandbox
+filesystem-allow-write rule is the only thing that also survives bypass mode.
+
+**Terminal-launch has its own correctness gap: it loads no coder conventions at all**, unless
+the session invokes the `s-coder` skill (or equivalent) explicitly — CODER-CONVENTIONS.md is
+imported only by the file the terminal-launched worktree's own CLAUDE.md chain does not reach.
+A confinement fix that doesn't also carry the rulebook to the confined session is a regression
+disguised as a win: no worktree-scope rules, no handoff protocol, no DCO discipline, no pre-push
+checklist reach a coder that launched this way and never loaded them by hand.

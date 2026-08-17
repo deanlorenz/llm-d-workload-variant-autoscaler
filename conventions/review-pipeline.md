@@ -93,3 +93,36 @@ you **may** use `--fix` here; the review agent may not. Two rules:
 This is a self-check, not a review. It cannot see your plan, so it says
 nothing about whether the diff matches it — that is stages 2–3, and it is the
 review agent's job. Passing the checkers is not push-readiness.
+
+### convention: review-pipeline-verbal-request-is-internal
+description: "Do a code review before we push" means an internal plan-vs-diff read, not invoking the /code-review skill (which can write to GitHub or the working tree).
+scope: anyone interpreting a plain-English request for a code review before push
+trigger: Dean says "do a code review before we push" or similar
+status: active
+origin: feedback_code_review_internal.md
+
+When Dean says "do a code review before we push," he means an internal review — read the
+diff, check it against the plan, report findings. Do **not** invoke the built-in
+/code-review skill for this: its `--comment` mode posts inline comments to GitHub and its
+`--fix` mode modifies the working tree, and this request is about verifying coder work
+against the task plan before authorising a push, not about running the pipeline's stage-1
+checkers. Read each commit's diff, cross-check it against the plan doc's spec (file paths,
+before/after patterns, test requirements), and report deviations or correctness concerns —
+the same way a reviewer reads a PR diff against stated requirements.
+
+### convention: review-pipeline-unreachable-code-suspect
+description: Treat an unreachable code path as a suspect, not benign dead code, until you've verified why it's unreachable.
+scope: anyone reviewing code
+trigger: noticing a code path that appears unreachable in practice
+status: active
+origin: feedback_unreachable_code_review.md
+
+When a code path appears unreachable, verify the reason before concluding it is harmless.
+Ask: "Is this path unreachable because the precondition is correctly impossible, or
+because a caller is failing to produce the input that would reach it?" The second answer
+is a candidate bug upstream, not an independent quirk — trace back to the caller/producer
+and confirm the invariant holds intentionally before calling the path benign. (Concrete
+case: a review noted `math.MaxInt` handling in a resource-availability calculation as "dead
+code in practice, low priority" — the path was unreachable only because the caller was
+*omitting* unlimited entries, itself a bug that silently denied all scale-up for
+cluster-unlimited quota types.)

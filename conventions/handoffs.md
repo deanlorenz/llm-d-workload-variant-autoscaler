@@ -35,6 +35,12 @@ planner of their work item). A *mixed* handoff (planner-task plus suggested CURR
 stays `plan__`; the planner re-emits a clean `sync__` after folding, keeping sync
 single-purpose. (Incident 2026-08-03: 16 `plan__` handoffs wrongly consumed as sync input.)
 
+**If you already wrongly consumed handoffs, do not chain more git-surgery to self-correct.**
+Recover the content from the session transcript JSONL (the `tool_use` blocks that read/wrote
+the file, plus the following `tool_result`) rather than assuming it's lost, classify each
+recovered item by whether it actually asked to update CURRENT, and restore only the
+mis-consumed ones.
+
 From session/CODER-CONVENTIONS.md §5.2 (coder-facing restatement, with the split-before-naming fix):
 
 **5.2 Handoff — CURRENT-update (`sync__`) vs planner-task (`plan__`).**
@@ -175,6 +181,11 @@ Recipient tokens: `sync` (the sync session — CURRENT-update requests only), `p
 planner — tasks/decisions), short branch nicknames for coders, `review` for the review agent.
 The prefix must match the `to:` header; if they disagree the file is misfiled.
 
+**Address the recipient by its actual branch name.** A nickname invented by the sender
+does not route — nobody is polling for it. A handoff addressed to a made-up short name
+sat unread until Dean pointed the intended session at it by hand. If you don't know the
+exact branch/session name, use the full branch name rather than guessing an abbreviation.
+
 ### convention: handoffs-state-machine
 description: Three-state file machine (.md / .md.WIP / .md.DONE); recipient owns all transitions; sender never edits after sending.
 scope: sender and recipient of any handoff or trigger
@@ -198,6 +209,26 @@ Coders and the planner may write and rename files under plans/session/handoffs/ 
 plans/session/status/ from any worktree — this is the only sanctioned exception to
 "no edits outside your worktree."
 
+**Never mark your own outgoing handoff `.DONE` — only the recipient marks a handoff
+`.DONE`.** A file you write and file into the handoffs directory stays a plain .md —
+open, unconsumed — until the addressee acts on it, even if you are simultaneously
+closing out an incoming handoff you *did* just finish. Incident 2026-08-14: after
+resolving an incoming `plan__` handoff (correctly marking it `.DONE`), the same session
+also marked its own outgoing reply `.DONE` in the same breath — not from misremembering
+the rule (asked to state it, the session got it right immediately) but from treating
+"wrap up this exchange" as one mental action instead of two separate files with two
+different owners. Before any `mv ... .DONE` on a handoff, name out loud who sent the file
+and who is renaming it; if the answer is "I sent it," stop.
+
+**Handoffs stopped being git-tracked as of 2026-08-16.** `.gitignore` now excludes
+`session/handoffs/*.md`, `*.md.WIP`, `*.md.DONE`, `*.md.RETRACTED` — these are pointers,
+and the durable record belongs in CURRENT.md and each scope's own plan doc, not in a
+handoff file's git log. Not retroactive (files already tracked before that date stay
+tracked). Practical consequence: `git add` on a new handoff file now silently no-ops
+(with a `hint:` line, not an error) instead of staging it — check `git status --short`
+after, don't assume the add worked. The state machine above is otherwise unchanged; only
+what git records afterward changed.
+
 ### convention: handoffs-new-session-no-current-entry
 description: Starting a new session without an existing CURRENT entry is handled the same way as any other shared-state update: write a sync__ handoff with everything needed to create the section.
 scope: any new session with no existing CURRENT.md entry
@@ -209,3 +240,80 @@ origin: session/CONVENTIONS.md § Starting a new session without an existing CUR
 handoff that includes everything needed to create the section — session name, task,
 scope, initial work items. A new session is not structurally different from any other
 shared-state update.
+
+### convention: handoffs-poll-between-commits
+description: Poll session/handoffs/ for triggers addressed to you between every commit and whenever idle; the plan is a moving ref, not a snapshot read once.
+scope: any coder session
+trigger: before every git commit, and whenever idle waiting on a decision or blocked
+status: active
+origin: feedback_check_handoffs_between_commits.md
+
+**Poll session/handoffs/ for files named `<your-branch>__*.md` between every commit and
+again whenever idle** (waiting on a decision, blocked, mid-discussion). A file with no
+`.WIP`/`.DONE` suffix is unread. Most triggers say only `reason: re-read plan` — that is an
+instruction to re-read, not an FYI to skim later.
+
+**Why this is a gate, not an intention:** the plan is a moving ref, like a rebase target
+(see rebase-integrity's "target is the tip, not a SHA" entry) — reading it once at task
+start and working from that snapshot silently desyncs from the planner, who may commit
+many revisions during one coding session. Incident: a coder scoped a step against a
+snapshot while seven unread triggers accumulated over six hours tracking seven plan
+commits — it then wrote a handoff asking questions already answered, reported a settled
+item as a plan gap, and proposed a fix the current plan explicitly ruled out for a reason
+introduced two commits earlier. None of that was discoverable from the code, only from
+the plan.
+
+**How to apply:** before `git commit` and before reporting/handing off, list the handoffs
+dir, read anything addressed to you that isn't `.WIP`/`.DONE`, and re-read the plan
+sections it names by fetching the doc's **own current TOC line ranges**, not ranges quoted
+in an older trigger (those go stale as the plan grows). Line numbers in plan citations are
+as-of-authoring; function/section names are authoritative. While idle, re-check rather
+than assuming silence means nothing changed.
+
+### convention: handoffs-check-for-newer-commits
+description: A sync__ handoff is truthful as of its authoring moment only; check the branch's own newer commits before folding it into CURRENT.md.
+scope: sync session folding a handoff into CURRENT.md
+trigger: about to fold a sync__ handoff's contents into CURRENT.md
+status: active
+origin: feedback_handoffs_can_be_superseded.md
+
+**Before folding any `sync__` handoff into CURRENT.md, check the branch's git log for
+commits made *after* the handoff was written.** A handoff is truthful as of its authoring
+moment, not as of the moment you consume it, and unpushed/unconsumed work can pile up
+behind it. Incident: folding two `sync__` handoffs while the branch was 23 commits ahead
+of origin — 11 of those, already committed when the session began, described newer work
+on the same thread — published three wrong claims into CURRENT.md: a stale tip SHA,
+"nothing pushed" when origin already matched local, and "no PR open yet" when the PR was
+already open and green.
+
+**How to apply:** as part of consuming a batch, run `git log <handoff-author-date>..HEAD`
+(or `git log origin/<branch>..<branch> --oneline`) and scan subjects for the same thread.
+If newer commits touch it, treat the handoff as a *lower bound* on progress — verify the
+live facts directly (`git rev-parse` the branch, `gh pr view`) before writing them down,
+or ask the owner for a refresh. Cheap tells that a handoff has been overtaken: it cites a
+tip SHA that no longer matches the branch, says "nothing pushed" while origin has the
+branch, or predates a rebase.
+
+### convention: handoffs-sendmessage-caution
+description: SendMessage is unproven for inter-agent coordination on this project and bypasses the file-based handoff protocol; keep using handoffs/status/triggers.
+scope: any session considering SendMessage for planner/coder/reviewer/sync coordination
+trigger: about to use SendMessage instead of a handoff file
+status: active
+origin: feedback_sendmessage_vs_file_handoffs.md
+
+Sessions on this project have tried using a direct agent-to-agent messaging tool to talk
+to other agents (planner/coder/reviewer/sync) instead of writing a handoff file. Two
+separate problems: (1) it did not reliably work (cause undiagnosed), and (2) even when it
+might work, it bypasses the file-based handoff protocol this project deliberately set up —
+the .md/`.WIP`/`.DONE` state machine, the single-writer model for CURRENT.md, and the
+durable on-disk audit trail every other session can read later. It also does not fix the
+addressing ambiguity a misrouted handoff can have (wrong recipient among several sessions
+on the same topic) — it just removes the audit trail around that ambiguity too. Not a
+good fit for talking to a different AI chat tool at all, either — it addresses sessions of
+this same tool specifically, not a general cross-tool channel.
+
+**Not a flat prohibition** — "if it works, it could be a useful mechanism" — but until
+proven reliable, keep using the file-based handoff/status/trigger protocol for inter-
+session coordination on this project. If a direct-messaging option comes up, treat it as
+unproven and out of step with the standing protocol rather than a shortcut past writing a
+handoff file.

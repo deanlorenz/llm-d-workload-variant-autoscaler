@@ -39,3 +39,40 @@ rebases (multi-commit stack AND any touched file has been modified on the new ba
 The "Score field silently dropped during cross-rebase" incident on `multi-analyzer-optimizer` is
 the load-bearing example — the commit message claimed "Engine populates Score from
 AnalyzerScoreConfig.Score" across two commits while the diff showed neither populating it.
+
+### convention: rebase-integrity-no-rebase-live-pr
+description: Never rebase, amend, or otherwise rewrite the history of a branch that has an open PR without consulting Dean first, even when it seems needed for an adjacent task; merge un-rebased branches into a throwaway integration branch instead.
+scope: planner or coder about to rebase, amend, or otherwise rewrite history on a branch
+trigger: a task seems to require rewriting history on a branch that has an open PR
+status: active
+origin: feedback_no_rebase_live_pr_branches.md
+
+Open PRs do **not** chase main — rebasing happens only at reviewer request or just before final
+merge. Rewriting a live PR branch and/or pushing it confuses reviewers looking at the existing
+diff. To assemble an integration/test branch from open-PR branches, merge them un-rebased into a
+throwaway branch — never rebase the PR branches themselves. If a task genuinely seems to require
+rewriting a live PR branch, stop and ask Dean before doing it.
+
+**A plan doc asserting a rebase is "needed" does not itself authorize it.** This is the same
+pre-action-gate principle as worktree scope: documents describe what should happen; standing
+approval requirements govern who may do it and when. A written plan step, executed mechanically
+as delegated work, does not trigger the standing approval requirement on its own — auto mode does
+not relax this either. When a plan step would rewrite a live PR branch, treat that as a signal the
+plan is wrong, not as authorization to proceed.
+
+### convention: rebase-integrity-target-is-tip-not-sha
+description: A rebase instruction must target the moving ref (e.g. upstream/main), never a pinned commit SHA; any SHA in a doc is informational-as-of-authoring only.
+scope: planner writing a rebase instruction; coder executing one
+trigger: writing or reading a rebase step in a plan or handoff
+status: active
+origin: feedback_rebase_target_is_tip_not_sha.md
+
+When a plan or handoff tells a coder to rebase, the target must be the **moving ref**
+(`git fetch upstream && git rebase upstream/main`), never a specific commit SHA. Any SHA in the
+doc is informational-as-of-authoring only — say so explicitly and never present it as the literal
+target: no "rebase onto `<sha>`," no enumerated "the N commits `base..<sha>`" list framed as the
+destination. The tip advances between authoring and when the coder runs the rebase; a pinned SHA
+goes stale and reads as "rebase onto exactly this one commit," so coders either rebase onto a
+stale base or stall noticing the discrepancy. If churn context helps (renames, moved packages),
+give it as a **non-exhaustive** "expect this during conflict resolution; diff against your actual
+rebased base" note — never a definitive commit list.
