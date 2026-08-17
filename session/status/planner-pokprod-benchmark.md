@@ -135,3 +135,72 @@ legitimately differ from the PVC originals.
 **Verified at startup:** clean stderr, transcript growing, and the task content greps for
 `reset_run`/`completeness`/`on_host` with **zero** `autoscaling-viz` contamination (the viz planner's
 own Bob is a separate live process — do not confuse the two when reading `pgrep`).
+
+### Bob's resume address — the fragile part, record it before it is lost
+
+```
+tool:       bob (CLI, not a Claude subagent — ListAgents does NOT show it)
+task_id:    c03ccf72163ab92c33841ec11a756eea
+resume:     bob run --resume c03ccf72163ab92c33841ec11a756eea   (from the benchmark worktree)
+state:      completed (exit 0, status success, 31 tool calls, session cost ~$4.90)
+asked:      implement planning/reset-run-completeness-check-plan.md (triage item 14)
+transcript: plans/scratch/bob-benchmark-coder/bootstrap.jsonl (339,838 B) + bootstrap.err (0 B)
+own status: benchmark/.bob-status.md (3,461 B — gitignored, worktree-local, NOT the shared copy)
+```
+
+A new `bob run` starts fresh; `--resume <task_id>` retains history. The transcript persists on disk
+independently, so **the address is the fragile thing, not the state** — recorded here because it
+existed only in the launching conversation.
+
+### Task 1 outcome — reset_run.py completeness check
+
+**DONE, verified independently.** Commit `02d43f89` on `benchmark` (DCO), +124 in `reset_run.py` plus
+a new 439-line/19-test fixture suite. Planner verification (not accepted from Bob's report): ran
+`python3 -m unittest` → **19/19 OK, exit 0**; read the new predicate in source; audited every
+`execute_command` in the transcript → **4 total** (`pwd && git branch`, the sanctioned `.WIP` rename,
+a ledger `grep`, `git status && git log`), zero `kubectl`, zero `--apply` on real data, no writes under
+`plans/` outside `session/handoffs/`. Full record: [[D-79]]. Triage item 14 closed.
+
+**Bob is idle and available.** Next candidates: triage item 3 (p4 4-pod combined-log extraction gap) or
+item 4 (truncated-run detection). Neither started; Dean's call.
+
+## Live state — footguns and cross-scope facts
+
+1. **⚠️ `benchmark` is 36 commits ahead of `origin/benchmark`, 0 behind — all unpushed.** Durable
+   (committed) but origin is a month stale. No push proposed or approved. Standing rule: per-push
+   confirmation from Dean.
+2. **⚠️ The ScaledObject on `dhl-wva-209` is left PAUSED at 0.** KEDA holds it there indefinitely and
+   scaling the Deployment does not override it — a run launched without un-pausing traces flat at 0 and
+   **reads as a legitimate no-scaling result.** Precondition 5 in `ta-pokprod-open-scenarios.md` § 5.
+3. **Two Bobs write into the `benchmark` worktree.** Mine (this scope) and the autoscaling-viz
+   planner's, which renders viz output into `benchmark/runs/*/viz/`. Not a conflict so far — different
+   paths — but `git status` in that worktree can show another scope's in-flight work, so **never
+   `git add -A` there.**
+4. **Mixed render stamps in `runs/*/viz/`, by design, not drift.** 4 runs are at `render_sha=3818cab4`
+   (viz's 2026-08-17 panel-review tip); the other 12 GOOD runs remain at `a1a815a7`, which I committed
+   as `bd9c375b`. Viz's own handoff (`plan__panel-review-20260817-done.md`) states the full 16-run
+   re-render is a **deferred separate pass** and that those 12 `good-panels.png` symlinks are therefore
+   "technically stale." The 4 newer panels sit **uncommitted** in the worktree — deliberately left, as
+   committing another scope's in-flight output is not mine to do.
+
+## Handoff queue — swept 2026-08-17
+
+Prompted by Dean asking whether I had processed handoffs. I had not swept; I had only read the two I
+happened to see at session start. **Five were addressed to this scope**, one waiting weeks:
+
+| Handoff | State |
+|---|---|
+| `plan__envoy-per-request-tool-scope-and-process-gap` | **DONE** — answered via `plan__envoy-tool-scope-and-process-gap-answered.md` |
+| `plan__per-request-data-recovery-for-viz-1a-1b` | **DONE** — same reply (one subject) |
+| `plan__pokprod-benchmark-current-entry-too-large` | **DONE** — sync's ask was exactly this session's consolidation (D-74…D-78) |
+| `plan__benchmark-warmup-step-proposal` | **`.WIP`** — accepted, needs its own scoping pass + Dean's input on duration/shape/stage-renumbering |
+| `plan__viz-inventory-ownership-transfer-to-benchmark` | **`.WIP`** — accepted, unstarted: Dean wants `benchmark` to own its own runs inventory (probably `benchmark/RUNS.md`), reusing the good-panels manifest; on completion, `planning/benchmark-runs-inventory.md` gets retired |
+
+**Why the envoy one mattered:** viz had explicitly **stopped scheduling work pending a reply**, and no
+benchmark planner was running to send one. Its questions were overtaken — `envoy_per_request.py` was
+superseded by `hack/benchmark/estimate_per_request.py` ([[D-57]]/[[D-59]]/[[D-60]]), which fixed exactly
+the ladder-only stage-assignment limitation viz had identified. Viz was right on both counts.
+
+**Newly arrived, not yet processed (not claimed — park does not accept work):**
+`plan__panel-review-20260817-done.md`, `plan__panel-review-20260817-item8-findings.md` (item 8 pending
+**Dean's** decision), `sync__panel-review-20260817-done.md` (sync's, not mine).
