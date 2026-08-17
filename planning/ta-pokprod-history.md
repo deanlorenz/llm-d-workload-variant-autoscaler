@@ -1798,3 +1798,54 @@ fact correctly stamped.
 **Still open from [[D-75]]:** `dean-20260810-105211-685` remains MISSING-but-obtainable — its 54.5 MB
 raw Envoy log is on disk and re-running the estimation tool against it could re-classify it GOOD.
 Not done here; this scope's call, not urgent.
+
+## D-79 | 2026-08-17 | topic:reset_run-completeness-check-fixed,bob-as-benchmark-coder,triage-item-14-closed | src:plan__reset-run-completeness-done.md, independently verified
+
+**Closes triage item 14 / the [[D-74]] defect.** `reset_run.py`'s existence-check-standing-in-for-a-
+completeness-check is **fixed**: commit **`02d43f89`** on `benchmark` (DCO signed), +550/−13 across
+`hack/benchmark/reset_run.py` (+124) and a new `hack/benchmark/test_reset_run_completeness.py` (439
+lines, 19 tests). Spec: [`reset-run-completeness-check-plan.md`](reset-run-completeness-check-plan.md).
+
+**What replaced the predicate.** The old decision path (`on_host = host_result_dirs(workspace)` then
+`if d in on_host:` → `rm -rf`) is gone. The new check compares, per experiment directory, the full
+relative-path file inventory **and** byte size per file, refusing to delete on any missing file, any
+size difference, or any verification error. A count-only comparison was explicitly ruled out in the
+spec as the same class of substitution as the original bug.
+
+**The deliberate exception held, which was the main risk.** The corrected reports
+(`benchmark_report_v0.2,_stage_{0,1,2}`, host copies legitimately *larger* than the PVC originals after
+in-place correction) surface as `SIZE DIFFERS` mismatches with an explicit message that the host may
+hold a corrected copy that must not be overwritten — **not** auto-resolved, and not "fixed" into a
+pass. A naive fix here would have deleted the good copy; that is why the spec named it.
+
+**Verified independently by the planner, not accepted from the coder's report:** ran
+`python3 -m unittest` directly → **19/19 OK, exit 0**; read the new predicate in source; confirmed DCO
+sign-off; confirmed the worktree carried no stray files; confirmed via a full `execute_command` audit of
+the agent transcript that it ran exactly **4** shell commands — `pwd && git branch`, the sanctioned
+`.WIP` rename, a ledger `grep`, and `git status && git log` — with **zero** `kubectl`, zero `--apply`
+against real data, zero git writes outside its own worktree, and no write anywhere under `plans/`
+except `session/handoffs/`. Deletion classified **DEPRECATED** (existence-only gate, intentionally
+removed, no future work). Go gates correctly reported **N/A** (Python-only change) rather than silently
+skipped, per the spec's requirement.
+
+**Still not pushed.** `benchmark` is now **36 commits ahead of `origin/benchmark`, 0 behind**. No push
+proposed or approved.
+
+**Process: Bob is now this scope's coder** (`coder-auto` mode), replacing a Claude coder session, on
+Dean's instruction and replicating the autoscaling-viz planner's configuration. Setup: a worktree-local
+`benchmark/.bob/custom_modes.yaml` (byte-identical to the container copy, so `--mode coder-auto`
+resolves from inside the worktree) plus `.bob-status.md` and `.bob/` gitignored (commit **`0ff5e884`**,
+mirroring viz's `23c1bbb7`) — which matters more here than on viz because `benchmark` is a code branch
+that becomes PRs. Launched with `bob run --mode coder-auto --workspace . --format stream-json --trust`;
+transcript at `plans/scratch/bob-benchmark-coder/`.
+
+**Two operational notes for whoever runs Bob next.**
+1. **`coder-auto`'s write scope is narrower than a normal coder's** — worktree plus
+   `plans/session/handoffs/` only. It does **not** write `plans/session/status/benchmark.md` and never
+   commits inside `plans/`. **Mirroring its `./.bob-status.md` into the shared status file is the
+   planner's standing duty**, on request via a `plan__<branch>-status-refresh.md` handoff.
+2. **A naive transcript monitor cries wolf.** Grepping the stream for `--apply`/`kubectl`/`git commit`
+   matches the *edited script's own source text* and the agent's prose, not executed commands. Filter
+   on `"tool_name":"execute_command"` first, then on the dangerous verb — otherwise real violations
+   drown in false positives. (Learned by making the mistake: the first monitor fired repeatedly on
+   Bob's own source edits.)
