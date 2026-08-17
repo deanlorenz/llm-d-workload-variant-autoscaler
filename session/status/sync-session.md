@@ -70,3 +70,76 @@ Three defects, one shape: a guard released before the thing it protects exists. 
 Type 3 plan — code was written straight from conversation, so a review had nothing to check against.
 The addendum's § Verification required exists to stop testing the guard mechanism instead of the
 script's purpose.
+
+---
+
+## 2026-08-17 park — everything above this line is stale, left as-is (park is additive)
+
+The "Carry forward" section above is largely resolved by later work this session did not do
+directly — flagging the staleness rather than rewriting it (that's sweep/consolidate's job, not
+park's). Notably: the guard mechanism has been rebuilt at least twice since (addendum-7 →
+addendum-10, retracted same-day → session_id/role-constant keyed, per `single-instance-guard.sh`),
+`tier1-session-start.sh` ownership was transferred to the atomic-step-protocol-brainstorm planner
+(`plan__tier1-session-start-ownership-transfer.md`), and several production loops were restarted.
+Do not trust the specific pids/commit-SHAs above without re-verifying.
+
+### This session's actual current state
+
+**Uncommitted right now:** `.claude/skills/s-sync-current/SKILL.md` — real, substantive,
+already-Dean-approved edits (each carries a `user-approved-settings-change` marker): corrected
+Step 1a/4-6 to stop treating handoffs as git-preservable (they're gitignored at every state —
+`.md`/`.WIP`/`.DONE`/`.RETRACTED`, confirmed by reading `.gitignore` directly), and added a new
+Step 3a item 7 encoding the durable-vs-transient doc rule below. **This file has NOT been
+committed** — do that before treating this park as complete for this thread.
+
+**New rules established this session, previously undocumented anywhere, now encoded into
+`s-sync-current/SKILL.md`'s Step 3a item 7 (once that edit is committed):**
+1. Only Type 1/2/3/4/6 docs count as durable compression targets, and only once confirmed not
+   currently live (ask the owner if unsure). Type 5 (session state — CURRENT.md, `session/status/*.md`)
+   and session digests (`session/digests/*.raw.md`) are transient by construction and must never be
+   what a compressed CURRENT.md summary depends on for permanence — a status file may ride along as
+   "here's the live state right now," never as the sole citation.
+2. There is no formal "consolidate transient state into a doc" operation (Dean: don't call it
+   "digest" — that word already names the opposite, raw un-consolidated files; use "consolidate,"
+   matching `tick-consolidate.sh`'s own naming). It's manual, by whoever owns the durable doc.
+3. **Consolidation ownership is not tied to who produced the state.** A status file is often
+   coder-owned (sometimes a since-exited background job); folding its findings into a Type 1/2/3 is
+   the *owning planner's* job regardless. This corrected an assumption I was making implicitly in
+   three separate handoffs sent today before the rule was stated explicitly.
+
+**Separate correction, also not yet written anywhere before this park:** peeking at other sessions'
+handoffs (even ones addressed `to: planner`/`to: review`, not to sync) is fine for my own
+orientation/liveness-checking, but the content must never leak into CURRENT.md — only `sync__`
+traffic addressed to me, or a direct ask to the actual owner, may become CURRENT.md content. I
+violated the spirit of this once this session (stating a "ta-anchor/autoscaling-viz are dormant"
+conclusion to Dean that was actually wrong, derived from misreading the situation rather than from
+peeked content directly — no CURRENT.md leak occurred, verified by checking `git status`/`git log`
+before and after, but the near-miss is why this rule is now explicit).
+
+**Real, useful token-cost finding, not yet written anywhere:** investigated Dean's ~700M-token
+question by parsing every transcript's `usage` blocks directly (not file-size guessing) —
+`cache_read_input_tokens` totals ~13.1 **billion** across 83 transcripts, dwarfing output (64M) and
+input (22M). Confirmed directly, not assumed: none of the automated checkpoint tooling
+(`session-snapshot.sh`/Tier-1, `tick-shared-scan.sh`/Tier-2, `sync-main-watch.sh`) is the source —
+Tier-1 is pure shell by design, Tier-2's usage log was empty and its registry didn't even exist
+(zero real model calls made), main-sync never touches a model. The actual source is 7 concurrent
+long-lived `claude` processes (several 1+ day old at time of checking), each paying cache-read cost
+that compounds every turn as their own conversation grows. Discussed with Dean: park+`/clear`+
+cold-resume, and a `fork`+`/compact`+code pattern (pay the expensive read-in once, fork before
+coding work adds turns, compact each fork immediately so coding turns pay against a summary rather
+than full history) — with the caveat that `/compact` is lossy (54-compactions-in-one-session
+finding already in `doc-and-session-model.md`), so anything load-bearing from the shared read-in
+step should be written to a durable file **before** forking, not trusted to survive compaction.
+This finding and the mitigation discussion exist only in this conversation as of writing this park
+entry — no separate doc captures it yet, and none is proposed here (would need Dean's call on
+whether it's worth a standalone note or just this status-file record).
+
+**Two open handoffs sent by this session, unanswered as of this park:**
+- `session/handoffs/plan__state-commands-current-entry-too-large.md` → chat session (state-commands
+  port) — asking them to confirm/consolidate their CURRENT.md entry.
+- `session/handoffs/plan__pokprod-benchmark-current-entry-too-large.md` → whoever owns
+  `ta-pokprod-roadmap.md`/`ta-pokprod-history.md` — same ask, already corrected once this session to
+  stop citing `session/status/benchmark.md` as if it were durable.
+
+No armed footguns beyond the uncommitted `SKILL.md` edit above. CURRENT.md itself is clean —
+confirmed via `git status` immediately before writing this entry.

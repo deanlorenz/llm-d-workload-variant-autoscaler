@@ -7,10 +7,10 @@ allowed-tools: Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(git -C plans:*), Bas
 
 # Sync CURRENT.md
 
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
 Read all pending `sync__*.md` handoffs, apply their updates to CURRENT.md, mark each
-consumed file `.DONE`, remove them, and commit. **Preserve the batch first (Step 1a) — a
-handoff may exist only in the working tree, and consuming one that was never committed
-destroys it permanently.** No arguments.
+consumed file `.DONE`, and commit CURRENT.md. Handoffs themselves are gitignored at every
+state (Step 1a) — nothing to preserve via git; they simply live on disk. No arguments.
 
 **Consume `sync__*.md` only — never `plan__*.md`.** `sync__` handoffs are CURRENT-update
 requests addressed to this session; `plan__` handoffs are tasks/decisions for a **working
@@ -39,29 +39,15 @@ If nothing matches, report "No pending sync-handoffs" and stop.
 
 ---
 
-## Step 1a: Preserve the batch as received, before touching anything
+## Step 1a: Handoffs live in the working tree only — do not try to git-preserve them
 
-Senders are permitted to leave handoffs uncommitted (CONVENTIONS: *"Handoffs need not be
-committed by the submitting session"*), so a handoff may exist **only** in the working tree.
-Commit the batch before reading or applying any of it:
-
-```bash
-git -C plans add session/handoffs/sync__*.md
-git -C plans commit -m "session: preserve sync handoff batch as received"
-```
-
-This must be its **own commit, strictly earlier than the commit that removes the files.** A
-single commit that both adds and deletes a path leaves the content in no tree at all, so the
-handoff would be exactly as unrecoverable as before. With this commit in place, recovery is:
-
-```bash
-git -C plans log --diff-filter=D -- session/handoffs/     # find the removing commit
-git -C plans show <commit>^:session/handoffs/sync__<topic>.md
-```
-
-Preserving at intake rather than at consume time also means a session that dies mid-sync
-loses nothing. If `git add` finds nothing to stage, every handoff in the batch was already
-committed by its sender — proceed.
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
+**Corrected 2026-08-17: `session/handoffs/*.md` (and `.WIP`/`.DONE`/`.RETRACTED`) are gitignored.**
+Handoffs are not git-tracked at any state — this is deliberate, not an oversight to route around.
+Do not `git add` them, do not look for a preserving commit, do not try to recover one via
+`git show <commit>^:...` (that recipe no longer works — there is nothing to recover from git).
+A handoff's only home is the filesystem; renaming it (`.DONE`, `.RETRACTED`) is a plain `mv`, not
+a git operation. Read what's on disk now and proceed to Step 2.
 
 ---
 
@@ -135,6 +121,7 @@ fetch-on-demand — see CONVENTIONS Type 5).
    **stop and surface it** to the user rather than deleting. When moving items to
    `session/history.md`, copy + verify the content is present there **before** deleting from
    CURRENT.md, then run `bash plans/scripts/toc-refresh.sh session/history.md` to re-index.
+<!-- user-approved-settings-change: procedure-text addition, 2026-08-17, no allowed-tools/permission change -->
 6. **Plan docs are validate-only — never edit them from here.** Every in-flight Type 3 / Type 1 has
    an owner who may be editing it at this moment, so this skill may only *check* that content is
    present in that doc. If an item's detail has no home yet, **do not add it to the plan doc**:
@@ -142,53 +129,55 @@ fetch-on-demand — see CONVENTIONS Type 5).
    fold it in, then move on. Compression of that item waits for the owner. `session/history.md` is
    the sole exception, being sync-owned. The underlying model: the planner captures state in the
    Type 3 as the work proceeds, and **CURRENT.md points back to the plan rather than storing state.**
+7. **Only Type 1/2/3/4/6 count as durable — and only when not currently live.** A CURRENT.md
+   summary may point at a design, roadmap, task plan, reference, or review doc as its permanent
+   home, but only after checking it isn't being actively edited right now (ask the owner if
+   unsure). **Type 5 (session state — CURRENT.md itself, `session/status/*.md`) and session
+   digests (`session/digests/*.raw.md`) are transient by construction and are never a durable
+   home.** A status file may ride along as "here's the live state right now," but the compressed
+   summary must not *depend* on it — if the only citations in an oversized entry point at a
+   status file, that content has not actually landed anywhere durable yet.
+   **There is no formal "consolidate transient state into a doc" operation** (don't call it
+   "digest" — that word already names the opposite, un-consolidated raw files). It is manual, by
+   whoever owns the durable doc the findings belong in. Critically, **that owner is not
+   necessarily whoever produced the transient state** — a status file is often coder-owned
+   (sometimes a since-exited background job), while folding its findings into a Type 1/2/3 is the
+   *owning planner's* job, regardless of who wrote the state. When an oversized entry rests on
+   transient citations, write a `plan__<topic>.md` handoff to whoever owns the relevant durable
+   doc (not automatically the state's author) asking them to check whether consolidation has
+   already happened and, if not, do it — then reply with a short summary + the durable ref for
+   this skill to swap in. This is the same move as item 6, generalized past just Type 3 plan docs.
 
 ---
 
 ## Step 4: Mark processed handoffs `.DONE`
 
-For each handoff that was successfully applied, atomic-rename it:
+For each handoff that was successfully applied, atomic-rename it (plain filesystem `mv` —
+handoffs are gitignored, this is not a git operation):
 
 ```bash
 mv plans/session/handoffs/sync__<topic>.md plans/session/handoffs/sync__<topic>.md.DONE
 ```
 
-The .DONE marker indicates the file has been consumed; it stays on disk until the
-commit step removes it.
+The `.DONE` marker indicates the file has been consumed. It's fine to leave it on disk — it's
+gitignored, costs nothing, and other sessions rely on the `<recipient>__<topic>.md.DONE` shape as
+a signal. Delete it later only for tidiness, never as a required step.
 
 ---
 
-## Step 5: Stage CURRENT.md and remove .DONE files
+## Step 5: Stage and commit CURRENT.md
+
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
+`session/CURRENT.md` itself is git-tracked (unlike the handoffs) — stage and commit it normally:
 
 ```bash
 git -C plans add session/CURRENT.md
-```
-
-The `.DONE` suffix is a signalling marker for concurrent sessions, not an artifact worth
-keeping. Its content is already preserved by Step 1a's commit, so remove it and stage the
-deletion of the original path:
-
-```bash
-rm plans/session/handoffs/sync__<topic>.md.DONE
-git -C plans add -A session/handoffs/
-```
-
-`git add -A` stages the deletion of each original tracked path, which Step 4 renamed away.
-Removing the `.DONE` copy first is what keeps it from being staged as a new file.
-
-**Never resolve an untracked handoff with a bare `rm`.** That was this skill's previous
-behavior and it destroyed content that had never entered git — the "handoff deleted, we no
-longer know what happened and cannot recover" failure. Step 1a exists precisely so that no
-handoff is still untracked by the time you reach this step; if one is, go back and preserve
-it rather than deleting it.
-
----
-
-## Step 6: Commit
-
-```bash
 git -C plans commit -m "session: sync CURRENT.md pending handoffs"
 ```
+
+Nothing in `session/handoffs/` needs staging, `rm`ing, or `git rm`ing as part of this commit —
+they were never tracked, so there is nothing for git to know about them. Do not run
+`git add -A session/handoffs/` or any handoff-directory git command here.
 
 If CURRENT.md has no changes and no handoffs were processed, report "CURRENT.md
 already up to date" and skip the commit.
@@ -197,7 +186,8 @@ Print the commit SHA or the up-to-date message when done.
 
 ---
 
-## Step 6a: Push `plans` to origin, only if it is a clean fast-forward
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
+## Step 6: Push `plans` to origin, only if it is a clean fast-forward
 
 Dean's standing instruction (2026-08-12): push after every sync, but **only** when it is a
 plain fast-forward with no divergence — a fast-forward push is harmless and reversible from
@@ -252,7 +242,8 @@ current_sha=$(git -C plans log -1 --format=%H -- session/CURRENT.md)
 } > plans/session/status/sync-current-watch.md
 ```
 
-Skip this step if Step 6 made no commit (nothing changed, so the baseline is already correct).
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
+Skip this step if Step 5 made no commit (nothing changed, so the baseline is already correct).
 
 <!-- user-approved-settings-change: doc-only correction, 2026-08-12, no permission/allowed-tools touched -->
 **If the watcher is running, restart it after writing the new baseline.** It reads
@@ -268,11 +259,11 @@ step, because the old process outlived the edit). Kill it (`pgrep -f 'sync-curre
 
 ## Notes
 
+<!-- user-approved-settings-change: procedure-text correction, 2026-08-17, no allowed-tools/permission change -->
 - **Invoked only from the dedicated sync session.** Per CONVENTIONS "single-writer model,"
   only one designated session runs this skill; every other session (planner instances and
-  auto-mode included) submits handoffs instead of syncing. Handoffs need not be committed by
-  their sender — this skill reads uncommitted handoff files directly, which is exactly why
-  **Step 1a commits the batch as received before anything else touches it.**
+  auto-mode included) submits handoffs instead of syncing. Handoffs are never git-tracked
+  (gitignored at every state) — this skill always reads them directly off the filesystem.
 - Planner-tasks and triggers (`<recipient>__*.md` where recipient ≠ `sync` — i.e.
   `plan__*.md`, coder-branch triggers, `review__*.md`) are not the sync skill's business.
   Leave them alone; their recipients process them.
