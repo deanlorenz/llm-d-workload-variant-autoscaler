@@ -1,0 +1,4 @@
+exit: 3
+--- stdout ---
+--- stderr ---
+coverage-check: no --table given (need at least one classification table)

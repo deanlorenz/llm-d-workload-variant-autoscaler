@@ -57,6 +57,12 @@ case_register coll-lint-clean          ./scripts/coll-lint.sh --dir tests/fixtur
 case_register coll-lint-dangling       ./scripts/coll-lint.sh --dir tests/fixtures/bad-collections/dangling --conv-dir tests/fixtures/conventions
 case_register coll-lint-cycle          ./scripts/coll-lint.sh --dir tests/fixtures/bad-collections/cycle --conv-dir tests/fixtures/conventions
 
+# coverage-check — Step 5. One fixture table exercising all four dest classes
+# (conv covered, conv uncovered, model, SKIP) plus a role: row.
+case_register coverage-check-mixed ./scripts/coverage-check.sh --table tests/fixtures/coverage/table.md --conv-dir tests/fixtures/coverage/conventions --role-dir tests/fixtures/coverage/roles
+case_register coverage-check-no-table ./scripts/coverage-check.sh --conv-dir tests/fixtures/coverage/conventions --role-dir tests/fixtures/coverage/roles
+case_register coverage-check-missing-table ./scripts/coverage-check.sh --table tests/fixtures/coverage/no-such-file.md
+
 # conv-new — mutates a topic file, so each case runs against a deterministic
 # scratch copy (see tests/scratch-run.sh) rather than the committed fixtures.
 # The golden captures both the tool's own stdout and the resulting file

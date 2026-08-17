@@ -1,0 +1,5 @@
+exit: 4
+--- stdout ---
+coverage-check: 5 row(s) scanned, 2 out-of-scope (model/SKIP), 3 conv:/role: rows, 2 covered, 1 uncovered
+--- stderr ---
+coverage-check: [4] tests/fixtures/coverage/table.md: row X2 (dest: conv) has no citing origin: line under --conv-dir tests/fixtures/coverage/conventions or --role-dir tests/fixtures/coverage/roles
