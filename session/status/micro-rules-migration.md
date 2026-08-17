@@ -99,3 +99,60 @@ explicitely that an addition to an existing entry must also add its own citation
 - `./tests/run.sh` — 80/80 cases pass.
 - `./scripts/coverage-check.sh` against both real tables — numbers exactly as stated above,
   re-verified at park time, not just recalled from earlier in the session.
+
+## state-park — micro-rules-migration (source report)
+
+```
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session) — the one coder dispatched tonight (42ce2f92, Step 2b harvest)
+    completed and was independently verified BEFORE this park started; ListAgents at park time
+    shows no agents spawned by this session still tracked (only an unrelated peer session,
+    plans-a3, which this session did not spawn).
+Nudges sent (2b — best effort, NOT a flush):
+  - (none running)
+Sources read this pass:
+  - plans-tooling/planning/micro-rules-migration-plan.md — confirmed current, matches this report
+  - plans-tooling git log (last 12 commits) — confirmed all pushed, working tree clean
+  - plans/session/CURRENT.md (grep for plans-tooling/atomic-step-protocol-brainstorm) — confirmed
+    it does NOT reflect tonight's mandate, only the earlier state-commands port
+  - plans/session/status/ (ls) — confirmed no existing planner-side status file for this mission
+  - ListAgents — confirmed no subagents from this session still tracked
+  - re-ran ./scripts/conv-lint.sh, ./scripts/coll-lint.sh, ./tests/run.sh, ./scripts/coverage-check.sh
+    against both real tables, live, at park time — not recalled from earlier in the conversation
+Not read (and why):
+  - plans/session/status/plans-tooling.md — the coder's own status file, out of my write scope as
+    planner; already read in full earlier this session (see the conversation itself) for the Step
+    2b accounting this report summarizes
+  - roles/*.md, conventions/*.md individual files — already verified file-by-file earlier this
+    session via conv-lint/coverage-check; re-reading each individually at park time would duplicate
+    work the tools already did mechanically
+Written to:
+  - plans/session/status/micro-rules-migration.md — this file, new, full mission state
+Handoffs emitted:
+  - plans/session/handoffs/sync__micro-rules-migration-complete.md — asks sync to fold the mandate's
+    completion into CURRENT.md, with the four explicitly-still-open items named so none reads as
+    resolved
+Committed:
+  - 6e5dadd9 state(park): micro-rules-migration -- flush overnight mandate completion + sync handoff
+    (plans branch, no DCO needed)
+  - (plans-tooling's own commits, 3585b3b5 through 585fc823, were all made and pushed DURING the
+    session itself, not as part of this park — listed in the status file body above, not re-listed
+    here to avoid duplicating the same SHAs in two places)
+Worktree exit:
+  - not applicable — this session was never inside a worktree via EnterWorktree; all plans-tooling
+    work was done via git -C / absolute-path commands from plans throughout the session (one
+    narrow, explicitly Dean-granted cd exception used earlier for an unrelated, already-concluded
+    phase). "Was never in a worktree" — confirmed via pwd/git branch --show-current at park time.
+Verified from final location:
+  - plans/session/status/micro-rules-migration.md — present (this file)
+  - commit 6e5dadd9 — visible in git log
+  - plans-tooling working tree — clean, confirmed via git status --short at park time
+  - plans-tooling vs origin/plans-tooling — no diff, confirmed via git log at park time
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not fold the mandate's completion into CURRENT.md myself — filed the sync__ handoff instead,
+    per the single-writer model.
+  - Did not start the role: harvest pass, resolve the 5 flagged naming decisions, write the 3
+    proposed model-doc additions, or attempt the plans-tooling→plans cutover merge — all four are
+    explicitly Dean's call, named as open in the status file, not silently advanced.
+  - Noticed no drift needing /s-state-sweep this pass.
+```
