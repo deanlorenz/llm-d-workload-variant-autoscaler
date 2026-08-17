@@ -1,7 +1,67 @@
 {
   "permissions": {
     "allow": [
-      "mcp__fetch__fetch"
+      "mcp__fetch__fetch",
+      "Bash(mv session/handoffs/review__ta-anchor-dynamic-refresh-pr2-ready.md session/handoffs/review__ta-anchor-dynamic-refresh-pr2-ready.md.WIP)",
+      "Bash(git branch *)",
+      "Bash(echo \"gofmt exit: $?\")",
+      "Bash(bash scripts/toc-refresh.sh planning/autoscaling-viz-decision-panel-plan.md)",
+      "Bash(bash scripts/toc-refresh.sh planning/autoscaling-viz-followon-plan.md)",
+      "Skill(keybindings-help)",
+      "Skill(keybindings-help:*)",
+      "Bash(bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-status.sh)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "echo \"[worktree-gate] CWD=$(pwd) | branch=$(git branch --show-current 2>/dev/null || echo NOT-IN-GIT)\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/sync-main-session-start.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans/scripts/tier1-session-start.sh",
+            "statusMessage": "user-approved-settings-change: tier1-session-start.sh SessionStart hook merged from container-settings.json into plans/.claude/settings.json 2026-08-18, approved by Dean"
+          }
+        ]
+      }
     ]
   }
 }
