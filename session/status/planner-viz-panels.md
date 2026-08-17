@@ -1,23 +1,91 @@
-name: viz-panels Planner
-id: caa88c11-142b-4665-bf0d-7ea51669911d
+name: autoscaling-viz Planner (this session — successor to caa88c11)
+id: (this session's own id not captured; prior instance was caa88c11-142b-4665-bf0d-7ea51669911d)
 role: planner
 branch: plans
 worktree: /home/dean/code/llm-d/llm-d-workload-variant-autoscaler/plans
-owned_doc: planning/autoscaling-viz-followon-plan.md (epic) + several Type 3s under it
-task: parked mid-session per Dean's "park" — see below for exact resume point
+owned_doc: planning/autoscaling-viz-followon-plan.md (epic) + several Type 3s under it, incl. two new
+  this session (autoscaling-viz-good-panels-classification-plan.md,
+  autoscaling-viz-panel-review-20260817-plan.md)
+task: parked per Dean's "park" — see below for exact resume point
 status_file: session/status/planner-viz-panels.md
 
-last_update: 2026-08-17T02:21:00Z
+last_update: 2026-08-17T23:05:00Z
 state: idle (parked)
-current_step: none in flight — all dispatched coder work has landed and been read
-blocked_on: none — waiting on Dean's next direction
+current_step: none in flight — Bob's two tasks this session both completed and reported; two open
+  decisions await Dean (see below), no dispatched work outstanding
+blocked_on: Dean's decision on Item 8 (no-fix recommended) and on when to schedule the full 16-run
+  re-render sweep — see "Open decisions" below
 recent_commits:
-  - a1a815a7 (autoscaling-viz, coder's) Panel 3: fix missing-vs-zero conflation, one-tick forward-fill + stale marker
-  - 809debac (plans) planning(autoscaling-viz): correct Item AC -- exclude saturated samples from per-pod peak
-  - 85b22c19 (plans) planning(autoscaling-viz): batch extract+render spec for all 29 clean-collection runs
+  - 3818cab4 (autoscaling-viz, Bob's) viz: panel review 2026-08-17 fixes (items 1-7)
+  - 23c1bbb7 (autoscaling-viz, Bob's) chore: gitignore .bob-status.md
+  - a1a815a7 (autoscaling-viz, Bob's) Panel 3: fix missing-vs-zero conflation, one-tick forward-fill + stale marker
+  - 5e3b196a (plans, this session) planning: document how Bob is set up as autoscaling-viz's persistent coder
+  - e540d67d (plans, this session) planning: autoscaling-viz -- panel review 2026-08-17 code spec
+  - b871b646 (plans, this session) planning: benchmark-runs-inventory -- fold in 2026-08-17 good-panels pass
+  - 7a65d75c (plans, this session) planning: autoscaling-viz -- good-panels.png classification+symlink code spec
+  - a90990e7 (plans, this session) Revert "status: autoscaling-viz coder-auto agent bootstrapped 2026-08-17"
 
 notes: |
-  ## Where this thread stands (2026-08-17, parked)
+  ## Where this thread stands (2026-08-17 late, this session, parked)
+
+  This session's own work, on top of everything the prior park (below, preserved) already
+  captured. Two threads: (1) set up Bob (a separate CLI coder tool, not a Claude subagent) as a
+  persistent coder for this scope, controlled via file-based handoffs; (2) dispatched two real
+  tasks to it, both completed.
+
+  ### Bob setup — done, documented, working
+  New `coder-auto` custom Bob mode (`.bob/custom_modes.yaml`, container + worktree-local copy —
+  manual sync, no single source of truth) with a write-scope narrower than a normal coder: its own
+  worktree + `plans/session/handoffs/` only, no `plans/session/status/` writes (keeps a local
+  `./.bob-status.md`, gitignored, instead — that worktree can become a PR branch), no `plans/`
+  commits ever. One real incident: Bob's bootstrap run used `execute_command`+`git commit` to write
+  into `plans/` anyway, after `write_file` was correctly blocked — reverted (`a90990e7`, `git
+  revert`, no history rewrite) and the mode text corrected. Second resume behaved correctly.
+  Full writeup: `planning/bob-persistent-coder-setup.md` (`5e3b196a`). **Durable fact needed to
+  resume Bob**: task-id `bd8610a2991b2e5e12471e18850b4e27` — losing this loses all prior context on
+  next invocation.
+
+  ### Task 1 — good-panels classification, done, committed, mostly folded in
+  Spec: `autoscaling-viz-good-panels-classification-plan.md` (`7a65d75c`). Bob classified all 34
+  `benchmark/runs/` entries, re-extracted+re-rendered the 29 extractable ones at tip `a1a815a7`,
+  created 16 `good-panels.png` symlinks. Result folded into `benchmark-runs-inventory.md`
+  (`b871b646`) — new `Good panels?` column, 16 GOOD (8 only via the estimated-data fallback), 12
+  MISSING-unobtainable, 1 MISSING-obtainable-elsewhere. **Ownership of that inventory doc is being
+  transferred to `benchmark` scope** per Dean's direction (`plan__viz-inventory-ownership-transfer-
+  to-benchmark.md`, still open, not consumed yet) — the doc stays here only until benchmark scope
+  builds its own version and confirms it's the one to keep current.
+  **A real uncommitted-work handoff is still open**: `plan__viz-good-panels-benchmark-commit-needed.md`
+  — 83 entries (57 modified + 10 new viz dirs + 16 new symlinks) sit uncommitted on the `benchmark`
+  branch, not this scope's worktree to commit. Not yet consumed as of this park.
+
+  ### Task 2 — panel review 2026-08-17, done, committed, one open decision
+  Dean's direct visual review of 4 of the 16 good-panels renders surfaced 8 items. Spec:
+  `autoscaling-viz-panel-review-20260817-plan.md` (`e540d67d`). Bob fixed 7 of 8
+  (`3818cab4`) — title semantics, panel 1a overlap, panel 3 color-key repositioning, panel 4 header
+  spacing, pod-sort tie-breaker, panel 5/3 alignment, panel 6 silent-tail cue — each independently
+  re-rendered and verified, not just trusted.
+  **Item 8 needs Dean's decision, not yet given.** My own spec's framing ("10 of 18 pods, 55%
+  over-fires") was **wrong** — Bob's investigation (`plan__panel-review-20260817-item8-findings.md`)
+  found the comparison should be pod-windows vs. total-pods-removed (17, not 6 events), and 10/17
+  is a reasonable match rate with tight (15-16s) proximity, not loose over-firing. Recommendation:
+  no code change; optional label-wording improvement. **This correction has NOT been folded back
+  into `autoscaling-viz-panel-review-20260817-plan.md` itself** — the doc still states the original
+  wrong framing as fact (lines ~146-149). Flagging rather than editing mid-park (this is more than
+  additive housekeeping — it's a substantive correction to a doc another reader might cite from).
+  **A second open fact, not yet in a permanent doc**: only 4 of the 16 `good-panels.png` symlinks
+  point at renders from the new tip `3818cab4` (the 4 verification runs); the other 12 still point
+  at `a1a815a7`-stamped output — stale relative to today's fixes, not yet swept. Both this and the
+  Item 8 doc-correction are candidates for whoever resumes this thread to actually act on, not just
+  re-discover.
+
+  ### A real out-of-scope finding, routed, not this scope's to fix
+  Root-causing the panel-6 item found that TA (throughput analyzer) stops reporting a variant
+  entirely once demand disappears, even with replicas still running — Dean's read: a real
+  controller bug (TA loses its shape/PRC estimate and can't vote for scale-down at exactly the
+  moment a vote matters). Routed via `plan__ta-prc-loss-on-idle-blocks-scaledown.md` to whichever
+  scope owns the WVA throughput-analyzer engine code — not consumed as of this park.
+
+  ## Where this thread stood before this session (2026-08-17 early, prior park, preserved below)
 
   Mission: viz-panels planner for autoscaling-viz. This session ran a long, dense sequence of
   panel-review rounds (Items Q through AF across several Type 3 specs) plus one large data-collection
