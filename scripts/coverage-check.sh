@@ -13,11 +13,16 @@
 # `SKIP (...)` needs no conv/role entry at all — it is out of scope for this
 # check by design, not silently ignored (both are counted and reported).
 #
-# Table format expected: a markdown table row `| <ID> | ... | <dest> | ... |`
-# where <ID> matches [A-Z]+[0-9]+ (C1, CC6, FM12, PM6, GF4, M1, ...) and <dest>
-# is the second-to-last or a clearly-`conv:`/`role:`/`model`/`SKIP` cell — this
-# script does not parse column position, it scans every cell of every row for
-# a dest-shaped token, so table layout drift doesn't silently break coverage.
+# Table format expected: a markdown table row `| <ID> | <Source> | <dest> | <Why> |`
+# — a fixed four-cell shape, ID first, dest third. The dest CELL (not the whole
+# line) is scanned for a dest-shaped token. Scanning the whole line was tried
+# first and is deliberately not done: a Why cell that discusses a rejected
+# alternative destination (e.g. "considered conv:X, placed at model") makes a
+# whole-line scan pick up the alternative instead of the actual decision — a
+# tested, real false positive (memory-harvest-classification.md row FM14,
+# 2026-08-17), not a hypothetical. Confining the scan to the dest cell is the
+# fix; the tradeoff is this script now assumes the fixed column position
+# rather than tolerating table layout drift.
 #
 # origin: field matching: an ID is considered cited if it appears as a whole
 # word (word-boundary on both sides) anywhere in any origin: line. This
@@ -130,25 +135,31 @@ for table in "${tables[@]}"; do
         esac
 
         # A row's "Source" cell (third pipe-delimited field) may itself name a
-        # source file (a memory's filename, e.g. feedback_foo.md) rather than
-        # only a heading description — some harvest tables cite the memory
+        # source file (a memory's filename, e.g. feedback_foo.md, or the same
+        # name with the .md suffix dropped — both shapes are used across the
+        # tables this script has actually been run against) rather than only
+        # a heading description — some harvest tables cite the memory
         # filename in origin: instead of the row ID, since it is a more
         # concrete, independently resolvable reference. Either counts as a
-        # citation.
+        # citation; origin: lines are matched against both the with- and
+        # without-suffix forms so a table's inconsistency doesn't matter.
         source_cell=$(printf '%s' "$line" | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/, "", $3); print $3}')
         source_file=""
-        if printf '%s' "$source_cell" | grep -qoE '[A-Za-z_][A-Za-z0-9_.-]*\.md'; then
-            source_file=$(printf '%s' "$source_cell" | grep -oE '[A-Za-z_][A-Za-z0-9_.-]*\.md' | head -1)
+        if printf '%s' "$source_cell" | grep -qoE '(feedback|project)_[A-Za-z0-9_]+(\.md)?'; then
+            source_file=$(printf '%s' "$source_cell" | grep -oE '(feedback|project)_[A-Za-z0-9_]+(\.md)?' | head -1)
+            source_file=${source_file%.md}
         fi
 
+        dest_cell=$(printf '%s' "$line" | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/, "", $4); print $4}')
+
         dest=""
-        if printf '%s' "$line" | grep -qE '`conv:[a-z0-9-]+`'; then
+        if printf '%s' "$dest_cell" | grep -qE '`conv:[a-z0-9-]+`'; then
             dest="conv"
-        elif printf '%s' "$line" | grep -qE '`role:[a-zA-Z0-9_+-]+`'; then
+        elif printf '%s' "$dest_cell" | grep -qE '`role:[a-zA-Z0-9_+-]+`'; then
             dest="role"
-        elif printf '%s' "$line" | grep -qE '`model`'; then
+        elif printf '%s' "$dest_cell" | grep -qE '`model`'; then
             dest="model"
-        elif printf '%s' "$line" | grep -qE 'SKIP'; then
+        elif printf '%s' "$dest_cell" | grep -qE 'SKIP'; then
             dest="skip"
         else
             continue
