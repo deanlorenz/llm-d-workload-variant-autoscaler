@@ -51,12 +51,12 @@ notes: |
   created 16 `good-panels.png` symlinks. Result folded into `benchmark-runs-inventory.md`
   (`b871b646`) — new `Good panels?` column, 16 GOOD (8 only via the estimated-data fallback), 12
   MISSING-unobtainable, 1 MISSING-obtainable-elsewhere. **Ownership of that inventory doc is being
-  transferred to `benchmark` scope** per Dean's direction (`plan__viz-inventory-ownership-transfer-
-  to-benchmark.md`, still open, not consumed yet) — the doc stays here only until benchmark scope
-  builds its own version and confirms it's the one to keep current.
-  **A real uncommitted-work handoff is still open**: `plan__viz-good-panels-benchmark-commit-needed.md`
-  — 83 entries (57 modified + 10 new viz dirs + 16 new symlinks) sit uncommitted on the `benchmark`
-  branch, not this scope's worktree to commit. Not yet consumed as of this park.
+  transferred to `benchmark` scope** per Dean's direction
+  (`plan__viz-inventory-ownership-transfer-to-benchmark.md`) — **now `.WIP`, benchmark scope has
+  picked it up** (confirmed at park time: `plan__viz-good-panels-benchmark-commit-needed.md` is
+  already `.DONE`, and a `scratch/bob-benchmark-coder/` dir exists, implying benchmark scope has its
+  own Bob instance running now too). Not yet confirmed complete/landed — check its `.WIP`→`.DONE`
+  transition on resume rather than assuming either state.
 
   ### Task 2 — panel review 2026-08-17, done, committed, one open decision
   Dean's direct visual review of 4 of the 16 good-panels renders surfaced 8 items. Spec:
