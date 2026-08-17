@@ -30,32 +30,53 @@ Tools are built **only as needed per step**, not speculatively ahead of time.
 **Needs you:** review cold, correct what's wrong — Dean's own framing, not a request for approval
 before proceeding.
 
-**Checklist:**
-- [x] Step 1 — role specs (skip roles with no source material; note the skip, don't invent content).
+**Checklist — all five steps substantively complete as of 2026-08-17:**
+- [x] Step 1 — role specs, all 11 roles (`dean` needs no kernel — it's the human).
 - [x] Step 2a — harvest CONVENTIONS.md + CODER-CONVENTIONS.md (independently verified).
-- [ ] Step 2b — harvest `feedback_*`/`project_*` memories + `governance-follow-ups.md` incidents
-  (in progress, background coder `42ce2f92`).
+- [x] Step 2b — harvest `feedback_*`/`project_*` memories + `governance-follow-ups.md` incidents
+  (independently verified; role: rows and a handful of Dean-flagged borderline rows deliberately
+  left for a later pass — see below).
 - [x] Step 3 — `trigger:` field populated correctly for every harvested item (turned out free, a
-  side effect of Step 2's own `conv-new.sh` calls — verified across all 45+ Step-2a entries).
+  side effect of Step 2's own `conv-new.sh` calls).
 - [x] Step 4 tooling — `coll.sh`/`coll-list.sh`/`coll-lint.sh` built, tested, pushed.
-- [~] Step 4.1 — role-collections: 2 of 11 done (`coder`, `sync`); remaining 9 deferred until
-  Step 2b lands.
+- [x] Step 4.1 — all 11 roles have a collection (`dean` correctly excluded).
 - [x] Step 4.2 — 8 common-step collections.
-- [x] Step 4.3 — 2 pre-packaged task/step prompts (more as recurring shapes are noticed).
-- [x] Step 5 tooling — `coverage-check.sh` built, tested, pushed. Run against both real tables
-  tonight: `harvest-classification.md` 59/62 covered (3 genuine citation-format gaps, not missing
-  harvests); `memory-harvest-classification.md` 23/59 covered so far (Step 2b still running).
+- [x] Step 4.3 — 2 pre-packaged task/step prompts (more as recurring shapes are noticed — not an
+  exhaustive list to fill speculatively).
+- [x] Step 5 tooling — `coverage-check.sh` built, tested, one real bug found and fixed (whole-line
+  scan → dest-cell scan, after a Why-cell mention of a rejected alternative destination caused a
+  false uncovered reading).
+- [x] Step 5 run — **`harvest-classification.md`: 62/62 covered, 0 gaps.**
+  **`memory-harvest-classification.md`: 42/54 covered**, 12 remaining rows all individually
+  accounted for (5 `role:` rows out of this pass's `conv:`/`model` scope — a separate pass; 5
+  confirmed-redundant by the harvest coder itself; 2 explicitly skipped pending Dean's call on a
+  candidate new topic). Zero unexplained gaps.
 - [x] Tools built only as each step actually needed them — `coll*`/`coverage-check.sh` are the only
   new tools; every convention-file operation still uses the pre-existing `conv`/`sec`/`conv-new`/
   `conv-list`/`conv-lint`.
 
-**Coverage-check findings, not yet fixed (deliberately — the files are mid-edit by a running
-coder):** `harvest-classification.md` rows **C36**, **CC10**, **M1** each have real, verified
-content in `conventions/code-deletion.md` / `conventions/handoffs.md`, but their `origin:` lines
-cite a section name or memory filename that doesn't embed the row ID or (for M1) the memory's own
-filename — `coverage-check.sh`'s ID/filename matching can't see them as covered even though they
-are. Fix: add the missing ID/filename to each origin line once Step 2b's coder is done and those
-files are stable again. Not a re-harvest — a citation-completeness fix only.
+**Coverage-check findings — found and fixed tonight, not deferred:** 15 entries across 9 files had
+real, verified content whose `origin:` line never got the new citation added when the content was
+folded in as an *addition* to a pre-existing entry (as opposed to a brand-new one) — a gap in the
+harvest brief itself ("enrich the entry" without "and its citation"), not a coder execution fault.
+All 15 fixed by hand once Step 2b's coder finished and the files were stable (commit `d6ed57ac`).
+Two further real content gaps found the same way (GF3/GF4, `governance-follow-ups.md` rows with no
+`.md`-filename source to fall back on) — same fix, same commit.
+
+**Still open, explicitly deferred, not silently dropped:**
+- The `role:` harvest for `feedback_coder_no_current_edit.md`/`feedback_coder_no_unauthorized_subagents.md`
+  (both `role:coder`), `feedback_sync_single_writer_model.md` (`role:sync`),
+  `governance-follow-ups.md`'s 07-26 incident (`role:coder`, already captured by the memory above —
+  no separate action), and `project_sync_role_origin.md` (`role:sync`, rationale not a rule) — a
+  separate pass into `roles/coder.md`/`roles/sync.md`, not `conventions/`.
+- Five Dean-flagged candidate decisions from the memory-harvest table, none acted on: whether
+  `conv:writing-style`/`conv:tooling-preferences` are worth creating as topics (FM1/FM33); a
+  `chat-links.md` fold-in for a mission-narrow viz memory (FM49); whether `project_session_naming_mechanism.md`
+  is mechanism-context or a rule (PM23); the same question for `project_sync_role_origin.md` (PM25).
+- Three `model`-destined proposals (PM6/PM16/PM17) handed off in the Step 2b coder's own status
+  file rather than written to `doc-and-session-model.md` (out of that coder's write scope) —
+  Dean's call on whether they belong in the shared model doc at all vs. their own mission docs.
+- The cutover itself: merging `plans-tooling` into `plans`, only after Dean's review.
 
 ---
 
