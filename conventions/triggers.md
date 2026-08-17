@@ -5,7 +5,7 @@ description: Triggers are a doorbell, not a memo: the body carries only to/reaso
 scope: planner, coder, or review agent wanting a sibling to re-read something
 trigger: something changed that a sibling agent needs to react to
 status: active
-origin: session/CONVENTIONS.md § Triggers — 'go re-read X' notifications (C29); session/CODER-CONVENTIONS.md §5.3 Triggers to siblings (CC14); §9.3 template (CC20, trigger fragment)
+origin: session/CONVENTIONS.md § Triggers — 'go re-read X' notifications (C29); session/CODER-CONVENTIONS.md §5.3 Triggers to siblings (CC14); §9.3 template (CC20, trigger fragment); feedback_trigger_doorbell_only.md (FM47, read-as-the-recipient sanity check)
 
 **Cross-reference note (per the classification table's already-made judgment call on C30/C31, not
 re-decided here):** the flat-directory file-naming convention and the .md/.md.WIP/.md.DONE

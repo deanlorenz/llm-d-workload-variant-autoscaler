@@ -5,7 +5,7 @@ description: Every code deletion must be classified DEPRECATED or DEFERRED in th
 scope: any coder removing a file, function, struct, or significant code block
 trigger: removing or substantially neutering existing behavior
 status: active
-origin: session/CODER-CONVENTIONS.md §4b, session/CONVENTIONS.md "Document every deletion"
+origin: session/CODER-CONVENTIONS.md §4b, session/CONVENTIONS.md "Document every deletion" (C36, CC10); feedback_deletion_documentation.md (FM11, #1250 incident basis)
 
 This entry combines two rows that state the same rule from two sources with differing detail
 (the CODER-CONVENTIONS.md version is fuller, with a concrete example — quoted below as primary;

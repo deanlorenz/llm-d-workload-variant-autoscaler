@@ -72,7 +72,7 @@ description: A bug fix that also changes a plan-specified formula's output for a
 scope: coder fixing a bug in code that implements a plan-specified formula/algorithm
 trigger: a bug fix requires deviating from a plan's literal formula/algorithm
 status: active
-origin: governance-follow-ups.md § 2026-07-27 PR C silent formula-semantics fork; feedback_doc_accuracy_discipline.md § Design forks apply to coders too
+origin: governance-follow-ups.md § 2026-07-27 PR C silent formula-semantics fork (GF3); feedback_doc_accuracy_discipline.md § Design forks apply to coders too
 
 **Concrete case.** A coder fixed a genuine warm-up bug (a demand formula needed to read tracked
 shape data instead of live per-cycle data) and, as a side effect of that data-source fix, also

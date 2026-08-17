@@ -48,7 +48,7 @@ description: cd into a sibling worktree is forbidden for every agent, even for a
 scope: plan-agent, coder, reviewer — all agents
 trigger: considering cd into any worktree other than your own
 status: active
-origin: session/CONVENTIONS.md § Key Working Rules, cd to a sibling worktree is forbidden (C17)
+origin: session/CONVENTIONS.md § Key Working Rules, cd to a sibling worktree is forbidden (C17); feedback_no_cd_sibling.md (FM25, repeat-incident detail), feedback_subagent_cwd_pattern.md (FM42, why not EnterWorktree)
 
 **`cd` to a sibling worktree is forbidden — with one narrow exception.**
 This rule applies to all agents (plan-agent, coder, reviewer). Even for a read-only query, never
@@ -130,7 +130,7 @@ description: A subagent spawned from plans/ inherits shell CWD but not the sessi
 scope: plan-agent spawning a subagent that needs worktree-scoped permissions
 trigger: a subagent's task needs tool permissions scoped to a worktree other than plans/
 status: active
-origin: session/CONVENTIONS.md § Key Working Rules, cd to a sibling worktree is forbidden — subagent settings note (C19)
+origin: session/CONVENTIONS.md § Key Working Rules, cd to a sibling worktree is forbidden — subagent settings note (C19); project_claude_p_allowed_tools_pattern.md (PM9, short/long-task run pattern + permission detail)
 
 The subagent inherits the shell CWD but **not** the session's project settings. Settings
 for a spawned Agent are always loaded from the session's startup project (plans/), not from
@@ -249,7 +249,7 @@ description: The coder's one sanctioned write exception outside its own worktree
 scope: coder agent
 trigger: writing a handoff, trigger, or status file
 status: active
-origin: session/CODER-CONVENTIONS.md §1 Worktree scope — single sanctioned write exception (CC5, partial)
+origin: session/CODER-CONVENTIONS.md §1 Worktree scope — single sanctioned write exception (CC5, partial); feedback_shared_session_dirs_writable.md (FM41, Write/Edit-blocked-but-Bash-cp/mv-works mechanism); governance-follow-ups.md § CODER-CONVENTIONS.md self-contradiction incidents, item (a) (GF6, doc-self-contradiction lesson)
 
 **Single sanctioned write exception outside your worktree:** you may
 write and `mv` files under plans/session/handoffs/ (your handoffs to

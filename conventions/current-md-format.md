@@ -5,7 +5,7 @@ description: CURRENT.md holds live state only; bounded shape via history.md spli
 scope: sync session writing CURRENT.md; any session assessing what belongs there
 trigger: writing to, or deciding whether something belongs in, CURRENT.md
 status: active
-origin: session/CONVENTIONS.md § Document Taxonomy, Type 5 — session state (C8)
+origin: session/CONVENTIONS.md § Document Taxonomy, Type 5 — session state (C8); feedback_current_state_preservation.md (FM9, editing-discipline addition)
 
 **Type 5 — session state** (session/CURRENT.md)
 Living work tracker; lets any new session resume without prior memory. Holds **operational

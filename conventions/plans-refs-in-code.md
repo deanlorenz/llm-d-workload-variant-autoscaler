@@ -39,7 +39,7 @@ description: Mechanical grep gate for catching plans-branch identifier leaks (de
 scope: coder before push; reviewer during review
 trigger: before push, on the diff's added comment/test lines; during review, on code comments and It/Describe strings
 status: active
-origin: governance-follow-ups.md sec 2026-07-29 PR C sec4a leaks
+origin: governance-follow-ups.md sec 2026-07-29 PR C sec4a leaks (GF4)
 
 The 4a rule above is a vigilance rule with no gate of its own — it is violated by *transcription*,
 when a coder copies a plan/review sentence (which correctly uses plans-branch identifiers) into a

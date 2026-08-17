@@ -5,7 +5,7 @@ description: Ordered pre-push checklist: branch check, gofmt, tests, lint, DCO s
 scope: anyone about to git push or submit a PR
 trigger: before every git push or PR submission
 status: active
-origin: session/CONVENTIONS.md § Pre-push checklist (C37)
+origin: session/CONVENTIONS.md § Pre-push checklist (C37); feedback_dco_signoff.md (FM10, automated-hook + rebase-fix detail), feedback_git_commit_identity.md (FM18, no -c user.name override)
 
 **Pre-push checklist (run in order before every `git push` or PR submission).**
 1. **Check current branch** — `git branch --show-current`. Confirm you are on the intended branch before any commit, amend, or rebase.
@@ -38,7 +38,7 @@ description: Never run git push without Dean's explicit confirmation for that sp
 scope: anyone about to run git push
 trigger: about to push
 status: active
-origin: session/CONVENTIONS.md § No push without explicit confirmation (C38)
+origin: session/CONVENTIONS.md § No push without explicit confirmation (C38); feedback_no_push_without_confirmation.md (FM27, never-chain-commit-and-push detail)
 
 **No push without explicit confirmation.**
 Never run `git push` (or any variant) without Dean's explicit confirmation for that specific push.
@@ -65,7 +65,7 @@ description: History-rewrite pushes are used only after a rebase or amend, never
 scope: anyone about to push after a history rewrite
 trigger: about to push after a rebase or amend
 status: active
-origin: session/CONVENTIONS.md § Force-push only after history rewrite, and explain why (C41)
+origin: session/CONVENTIONS.md § Force-push only after history rewrite, and explain why (C41); feedback_force_push_owner_is_planner.md (FM15, planner-owns-force-push detail)
 
 **Force-push only after history rewrite, and explain why.**
 Use `git push --force-with-lease` only after a rebase or amend — never for new commits on top of a

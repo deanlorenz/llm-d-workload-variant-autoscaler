@@ -21,7 +21,7 @@ description: sync__ is exclusively for CURRENT-update requests; plan__ is for a 
 scope: every session writing a handoff
 trigger: about to name and write a handoff file
 status: active
-origin: session/CONVENTIONS.md § sync__ is exclusively for CURRENT-update requests (C25); session/CODER-CONVENTIONS.md §5.2 handoff destinations (CC13)
+origin: session/CONVENTIONS.md § sync__ is exclusively for CURRENT-update requests (C25); session/CODER-CONVENTIONS.md §5.2 handoff destinations (CC13); feedback_sync_consumes_only_current_updates.md (FM43, mis-consumption recovery procedure)
 
 From session/CONVENTIONS.md (planner/general statement):
 
@@ -158,7 +158,7 @@ description: Flat handoffs directory, <recipient>__<topic>.md filename prefix en
 scope: every session writing a handoff or trigger
 trigger: naming a new handoff or trigger file
 status: active
-origin: session/CONVENTIONS.md § File naming (C30) — folded into handoffs per the classification table's own judgment call, cross-referenced from conv:triggers
+origin: session/CONVENTIONS.md § File naming (C30) — folded into handoffs per the classification table's own judgment call, cross-referenced from conv:triggers; feedback_handoff_workflow.md (FM22, address-by-real-branch-name addition)
 
 **⚠️ Judgment call, flagged by the classification table, not re-decided here.** A real alternative
 existed — a fourth, dedicated convention (`conv:artifact-naming` or similar) holding just the
@@ -191,7 +191,7 @@ description: Three-state file machine (.md / .md.WIP / .md.DONE); recipient owns
 scope: sender and recipient of any handoff or trigger
 trigger: starting to process a handoff/trigger addressed to you, or finishing one
 status: active
-origin: session/CONVENTIONS.md § State machine (C31) — folded into handoffs per the classification table's own judgment call, cross-referenced from conv:triggers
+origin: session/CONVENTIONS.md § State machine (C31) — folded into handoffs per the classification table's own judgment call, cross-referenced from conv:triggers; feedback_handoff_own_reply_never_marked_done.md (FM20), feedback_handoff_wip_state.md (FM21, 2026-08-16 gitignore correction)
 
 *State machine — three states, recipient owns all transitions.*
 

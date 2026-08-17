@@ -5,7 +5,7 @@ description: A behavioral-contract change requires a companion grep step naming 
 scope: planner authoring a plan step that changes a behavioral contract; coder executing that step
 trigger: rename, panic-to-error, sync-to-async, or any other behavioral-contract change
 status: active
-origin: session/CONVENTIONS.md § Document Taxonomy, Type 3 (C7); session/CODER-CONVENTIONS.md §3 Semantic-pivot cross-reference check (CC8)
+origin: session/CONVENTIONS.md § Document Taxonomy, Type 3 (C7); session/CODER-CONVENTIONS.md §3 Semantic-pivot cross-reference check (CC8); governance-follow-ups.md § Plan-authoring process note (GF10, widen grep to all _test.go files)
 
 From session/CONVENTIONS.md § Document Taxonomy, Type 3 — task plan (the planner-authoring statement):
 
