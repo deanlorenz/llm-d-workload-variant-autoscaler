@@ -105,8 +105,70 @@ scope for this pass (role content is Step 1's territory, already done thin; `mod
 `doc-and-session-model.md`, not touched here). C44 (the cross-cutting, still-open posture-vs-checklist
 row) explicitly excluded from the batch, not silently skipped.
 
-Awaiting completion before touching `conventions/` further, to avoid a concurrent-edit collision with
-the coder's own work.
+**Complete and independently verified** (2026-08-17): 20 topic files, 45 entries, `conv-lint.sh` clean,
+source files byte-identical, verbatim-text spot-check passed (`pre-push.md` diffed word-for-word
+against `session/CONVENTIONS.md` § Pre-push checklist). One genuine table gap the coder flagged
+(CODER-CONVENTIONS.md §1's pathspec-commit paragraph, no row in the table) — resolved below via the
+memory pass: it's `feedback_shared_git_index_pathspec_commits.md`, already written down, just never
+cross-referenced into the table.
 
-Not yet committed to `roles/` structure decisions beyond what the frozen design already specifies —
-no new fields, no new format. Next: Step 2, the actual harvest.
+### Step 2b — memory + governance-incident harvest (2026-08-17)
+
+Scope: the `feedback_*`/`project_*` memories (78 files) plus `governance-follow-ups.md`'s incident
+list — the "separate, messier pass" `harvest-classification.md` itself deferred. Repo-scope axis
+stays explicitly out of scope, per that same doc's own design-now-run-later note.
+
+Built `planning/memory-harvest-classification.md` (committed `3585b3b5`) the same way Dean built the
+original table — read every memory (via a research agent doing bulk extraction, judgment calls made
+by the planner from that extraction, not delegated), classify `dest`. Findings: the volume is
+overwhelmingly restatement, not new rules — ~27 of 36 `project_*` memories are `SKIP (mission-local)`
+(mission state belongs in that mission's own doc, not the rules mechanism), and most `feedback_*`
+memories fold into the same handful of existing topic files (worktree-scope, handoffs, pre-push,
+git-remotes) as enrichment rather than new entries. Only 2 new topic files warranted
+(`conv:chat-links`, `conv:tool-authoring`); a few more flagged as Dean's call, not decided
+unilaterally (`conv:writing-style`, `conv:tooling-preferences`, a couple of `model`-doc placements).
+
+Dispatched to a background coder (`42ce2f92`, same pattern as Step 2a) to execute the table — read
+each memory, enrich or create the target file, skip everything `SKIP` or flagged. `model`-destined
+rows are explicitly NOT written by this coder (no write access to `doc-and-session-model.md` in
+scope) — it hands those off as proposed additions in its status file instead.
+
+### Step 3 — trigger: field coverage
+
+**Turned out to already be satisfied as a side effect of Step 2a**, not a separate pass: every
+`conv-new.sh` call requires `--trigger`, and the Step 2a coder supplied a specific, well-formed one
+for all 45 entries (verified: `grep -c` on marker vs. trigger-field count matches across every file,
+zero empty/placeholder values). Nothing further to build here — Step 3 is a verification checklist
+item on every future harvest batch (including Step 2b's), not its own implementation step.
+
+### Step 4 — entry points (design decided 2026-08-17, build next)
+
+**Decision: a sibling marker, not a separate mechanism.** `### collection: <name>` at the same
+heading level as `### convention: <name>`, living in a new `collections/` directory (not mixed into
+`conventions/` — collections reference conventions by name, mixing the two would make `conv-lint.sh`'s
+own path/name scanning ambiguous about which marker it's validating). Fields: `description`,
+`members` (comma-separated names — conventions and/or other collections, allowing nesting), `trigger`,
+`status`, `origin` — same five-field shape as a convention, since a collection is fetched the same way
+(on demand, by name) and needs the same lint guarantees (unique name, required fields). Body prose is
+optional framing text, not a rule restatement.
+
+Reuses every existing pattern rather than inventing one: `coll.sh` mirrors `conv.sh` (resolve name →
+print members' own `conv <name>` output in sequence, recursing through nested collections), `coll-
+list.sh` mirrors `conv-list.sh`, `coll-lint.sh` mirrors `conv-lint.sh` (plus one new check: every
+listed member name must resolve via `conv-list.sh`/`coll-list.sh`, catching a stale reference the way
+`conv-lint.sh`'s PATHREF check catches a stale path). Three small new scripts, not a rewrite of the
+existing three — kept separate because a collection and a convention are different fetch semantics
+(a convention prints itself; a collection prints what it points at), and conflating them into one
+tool with a mode flag would make both harder to read.
+
+- **4.1 role-collections**: one `### collection:` entry per role with real harvested content,
+  `members` = every convention that role's own file content or the classification table implies it
+  needs beyond its thin kernel (e.g. `role:coder` implies `worktree-scope`, `handoffs`, `pre-push`,
+  `code-deletion`, `dev-guide-updates`, `go-test-gates`, `plans-refs-in-code`, `review-pipeline`,
+  `semantic-pivot-grep`, `session-start`, `status-files`, `triggers`).
+- **4.2 step-collections**: `committing`, `pushing`, `writing-a-handoff`, etc. — named by the action,
+  cutting across roles.
+- **4.3 pre-packaged prompts**: same marker, `members` plus a fuller prose body (the "prompt" part) —
+  a collection with a task-shaped write-up rather than just a bare reference list.
+
+Not yet built — next action.
