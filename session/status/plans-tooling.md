@@ -1,6 +1,6 @@
-last_update: 2026-08-17T01:51:03Z
+last_update: 2026-08-17T06:30:00Z
 state: in-progress
-current_step: conventions-harvest-spec.md S2 (apply the table: conventions) executed for real against the actual harvest-classification.md. 20 topic files, 45 convention entries, conv-lint clean, sources byte-identical. Awaiting review — not marked done by my own hand.
+current_step: memory-harvest-classification.md Step 2b (micro-rules-migration-plan.md) executed against the conv:/model rows of the full feedback_*/project_*/governance-follow-ups.md table — 15 existing topic files enriched, 2 new topic files created, conv-lint clean. Model-doc additions handed off, not written. Awaiting review — not marked done by my own hand. (Prior line, kept for the record: conventions-harvest-spec.md S2 executed against the two CONVENTIONS.md-derived tables — 20 topic files, 45 convention entries.)
 
 ## Role and scope
 Coder session. Branch/worktree: `plans-tooling` only (this worktree is my full scope — I never write
@@ -208,6 +208,146 @@ session/CODER-CONVENTIONS.md planning/harvest-classification.md` and the matchin
 both empty, confirming copy-only. `git status --short roles/` in this worktree — empty, confirming the
 `roles/` pass from an earlier session was left untouched.
 
+## Step log — memory-harvest-classification.md Step 2b (this session, complete for the assigned scope)
+
+**Task, as assigned:** harvest every row from `planning/memory-harvest-classification.md` (the
+feedback_*/project_*/governance-follow-ups.md table, Step 2b of `micro-rules-migration-plan.md`,
+following Step 2a above) whose `dest` is `conv:<topic>` (existing or NEW) or `model` into this
+worktree's `conventions/`, reading each row's real source memory file (not just the table's
+one-line summary) and enriching existing entries rather than duplicating summaries where the rule
+already substantially exists. `role:` rows, `roles/`, and all four source files
+(`session/CONVENTIONS.md`, `session/CODER-CONVENTIONS.md`, the memory files themselves,
+`governance-follow-ups.md`) were read-only throughout. `model`-destined rows were **not** written
+to `planning/doc-and-session-model.md` — that file is out of this session's write scope entirely;
+proposed additions are handed off below instead.
+
+**Result:** `./scripts/conv-lint.sh` clean (exit 0), checked after every file and once more at the
+end. 15 existing topic files enriched, 2 new topic files created (`chat-links.md`,
+`tool-authoring.md`), holding 33 new `### convention:` entries plus additions to 14 pre-existing
+entries. `git status --short roles/` empty — untouched. The four source files were read via
+`--add-dir` only; no edits attempted against any of them. One pre-existing untracked file,
+`scripts/coverage-check.sh`, sat in the worktree throughout (evidently another session's S1 work
+on the same spec, per Step 2a's own "S1 (coverage-check)... remain entirely open" note below) —
+left completely alone, not staged, not inspected beyond `git status`.
+
+**Existing files enriched (additions to already-substantially-covered entries, or new sibling
+entries in the same file):**
+- `handoffs.md` — additions to `handoffs-state-machine` (FM20 never-mark-your-own-outgoing-.DONE,
+  FM21 2026-08-16 gitignore correction), `handoffs-file-naming` (FM22 address-by-real-branch-name),
+  `handoffs-sync-vs-plan-split` (FM43 mis-consumption recovery procedure); new entries
+  `handoffs-poll-between-commits` (FM3), `handoffs-check-for-newer-commits` (FM23),
+  `handoffs-sendmessage-caution` (FM38).
+- `review-pipeline.md` — new entries `review-pipeline-verbal-request-is-internal` (FM4),
+  `review-pipeline-unreachable-code-suspect` (FM48).
+- `worktree-scope.md` — additions to `worktree-scope-cd-forbidden` (FM25 repeat-incident detail +
+  `&&`-chaining habit, FM42 why-not-isolation-worktree), `worktree-scope-write-exception` (FM41
+  Write/Edit-blocked-but-Bash-cp/mv-works mechanism, GF6 doc-self-contradiction lesson),
+  `worktree-scope-subagent-permission-pattern` (PM9 short/long-task run pattern + permission
+  detail); new entries `worktree-scope-shared-git-index-pathspec-commit` (FM40 — **this is the
+  exact table gap this session's own Step 2a status-file entry below flagged as an open
+  question**, now resolved), `worktree-scope-default-locality` (FM50),
+  `worktree-scope-write-confinement-mechanism` (PM12).
+- `current-md-format.md` — new entry `current-md-per-task-sections` (FM8); addition to the
+  editing-discipline bullet (FM9 state-why-when-removing detail).
+- `pre-push.md` — addition to the DCO checklist step (FM10 automated-hook + rebase-fix detail,
+  FM18 no `-c user.name` override), addition to `pre-push-no-push-without-confirmation` (FM27
+  never-chain-commit-and-push), addition to `pre-push-force-push-explain` (FM15 planner-owns-
+  force-push); new entry `pre-push-scope-narrow-to-named-artifact` (FM32).
+- `code-deletion.md` — addition citing the #1250 incident basis (FM11).
+- `doc-ownership-boundary.md` — new entries `doc-ownership-boundary-design-decisions-belong-to-dean`
+  (FM12) and `doc-ownership-boundary-formula-fork-corollary` (GF3).
+- `github-actions.md` — new entries `github-actions-pr-edit-workaround` (FM16),
+  `github-actions-pr-assignee` (FM30), `github-actions-check-mergeable-first` (FM31).
+- `git-remotes.md` — new entries `git-remotes-never-push-upstream` and
+  `git-remotes-mirror-third-party` (both FM19, its two rules), `git-remotes-archive-not-delete`
+  (FM17).
+- `rebase-integrity.md` — new entries `rebase-integrity-no-rebase-live-pr` (FM28),
+  `rebase-integrity-target-is-tip-not-sha` (FM34).
+- `plan-authoring.md` — new entries `plan-authoring-no-other-role-actions` (FM29),
+  `plan-authoring-relative-links-worktree-boundary` (FM35).
+- `semantic-pivot-grep.md` — addition to the existing entry widening the grep to all `_test.go`
+  files, not just declared ones (GF10).
+- `session-start.md` — new entry `session-start-title-convention` (FM39).
+- `triggers.md` — addition to `triggers-format-and-behavior` (FM47 concrete sanity-check
+  heuristic + resist-inventing-a-more-expressive-reason).
+- `plans-refs-in-code.md` — new entry `plans-refs-in-code-grep-gate` (GF4, the mechanical §4a
+  grep pattern).
+
+**Confirmed-redundant, no change made (verified against the real memory, not just the table's
+summary):**
+- FM7 (`feedback_coder_worktree_discipline.md`) — this memory *is* the source of
+  `worktree-scope-coder-session-start-check`; near-verbatim already.
+- FM36 (`feedback_reviewer_writes_in_coder_tree.md`) — already folded into
+  `worktree-scope-git-write-verbs` in Step 2a, including the incident and the "do less there, not
+  neutral background information" language.
+- FM37 (`feedback_semantic_pivot_grep.md`) — this memory *is* the named source (with CC8) for the
+  existing `semantic-pivot-grep` entry; identical content.
+- GF1 (2026-07-14 reviewer-worktree incident in `governance-follow-ups.md`) — the table's own row
+  says "no separate harvest needed" since FM36 already is this incident's resulting memory;
+  confirmed, no duplicate entry added.
+- GF7 (CODER-CONVENTIONS §5.2 split-before-naming self-contradiction) — already explicit in
+  `handoffs-sync-vs-plan-split`'s existing "Before naming the file, split the content first" text.
+
+**Skipped, pending Dean (not decided here, per the table's own flag — same discipline as Step
+2a's genuine table gap):**
+- FM1 (`feedback_american_english.md`) — table flags a candidate NEW `conv:writing-style`; not
+  created.
+- FM33 (`feedback_python_use_uv.md`) — table flags a candidate NEW `conv:tooling-preferences`; not
+  created.
+- FM49 (`feedback_viz_render_symlinks.md`) — table flags a candidate fold-in to `chat-links.md`
+  (pairs with FM2's image-link finding) but calls it mission-narrow; not added.
+- PM23 (`project_session_naming_mechanism.md`) — table flags this as a genuine borderline
+  mechanism-vs-rule case; not added to `session-start.md`.
+- PM25 (`project_sync_role_origin.md`) — `dest: role:sync`, out of scope for this pass anyway
+  (this step only executes `conv:`/`model` rows); also independently flagged by the table as
+  rationale-not-a-rule.
+
+**Rows out of scope by `dest` (not executed, per the assignment):** FM5, FM6 (`role:coder`), GF2
+(`role:coder`, already fully captured by FM6 per the table's own note) — the `role:` harvest is a
+separate pass.
+
+**`model`-destined rows — handed off, NOT written to `planning/doc-and-session-model.md` (out of
+this session's write scope):**
+
+- **FM14** (`feedback_doc_names_not_numbers.md`) — checked `doc-and-session-model.md` directly
+  (grep for "epic plan", "code spec", "session digest", "policy"): its own § Contents / the
+  design/epic-plan/code-spec/reference/review/session-state/policy/channel/session-digest naming
+  table (around L66-96) **already fully covers this row's content**, in more detail than the
+  memory itself. No addition proposed — this row is superseded by the doc's current state, not a
+  gap.
+- **PM6** (`project_benchmark_harness_end_goal.md`) — genuinely absent (grepped for "benchmark
+  harness", no hits). Proposed content, if Dean wants it in this doc rather than the benchmark
+  mission's own design doc: a short paragraph under a new subsection of § Artifact types or a
+  benchmark-scoped policy note, stating the target architecture (clean WVA repo + Dean's benchmark
+  code as sole source of truth; env+YAML inputs to plain Makefile targets; the `llm-d-benchmark`
+  fork is a safeguarded, reproducible cache, never a place load-bearing inputs live only locally;
+  mandatory image-pin inputs except EPP; stack-creation and scaling-testing kept as separate
+  concerns; the `BENCHMARK_SCOPE` invasiveness-tier gate). **Flagging, not deciding:** this reads
+  as mission-specific architecture, the same category the table itself questions for this
+  row — plausibly belongs in the benchmark mission's own design/reference doc instead of the
+  shared model doc. Dean's call.
+- **PM16** (`project_llm_scaler_workspace_bootstrap.md`) — genuinely absent (grepped for
+  "llm-scaler", no hits). Proposed content: a short note under § Provenance or a new "Second
+  workspace" subsection, recording that a second container (`deanlorenz/llm-scaler`, "effort 2")
+  is planned with the same bare-repo+worktrees+plans-branch+conventions+skills construction,
+  gated on this migration completing first (bootstrapping early would mean migrating the new
+  container twice), and the load-bearing constraint that Claude Code memories are keyed by the
+  bare repo's absolute path — so no memory follows a new container, and the harvest-into-rules
+  work this migration is doing is a prerequisite, not a nice-to-have, for that second effort.
+  Same flag as PM6: arguably belongs in that bootstrap's own design doc
+  (`llm-scaler-workspace-bootstrap-design.md`) instead, since it's a single mission's setup state,
+  not a standing fact about the document/session model itself.
+- **PM17** (`project_plans_branch_purpose.md`) — genuinely absent (grepped for "plans branch is",
+  "Dean's internal", no hits). Proposed content: a short paragraph, likely under § Why this
+  exists or as a one-line clarification wherever the doc first describes the `plans` branch —
+  stating that `plans` is Dean's internal/private working state (design notes, roadmaps, task
+  plans, session state), needs no DCO sign-off or Co-Authored-By trailers on its own commits, and
+  that promotion to a coding branch (as a reference doc or proposal) is always an explicit,
+  Dean-directed move, never something a session nudges proactively. This one reads as a
+  standing structural fact about the model (same class as the doc's own existing description of
+  what `plans` and code branches are), not mission-specific — lower-friction to add than PM6/PM16
+  if Dean wants it in this doc.
+
 ## Not done / known limitations
 - Two S3 (`step-check`) isolation sub-checks are implemented but not exercised by any registered test
   case (out of the spec's own six): an out-of-scope path inside the tagged commit, and a judgment step
@@ -227,6 +367,18 @@ both empty, confirming copy-only. `git status --short roles/` in this worktree �
   (drive coverage to zero) remain entirely open, and S2 itself has one genuine table gap (the
   unclassified pathspec-commit paragraph, see this session's own step-log above) plus C44 and the
   ~30-memory pass still deliberately deferred.
+- **Superseded note (Step 2b, this session):** the "~30-memory pass still deliberately deferred"
+  line above and the unclassified-pathspec-commit open question two bullets below are no longer
+  accurate — Step 2b (see its own step-log section above) ran that pass for real against the full
+  ~78-memory `memory-harvest-classification.md` table and resolved the pathspec-commit gap as
+  `worktree-scope-shared-git-index-pathspec-commit`. Kept the original lines rather than deleting
+  them, per this worktree's own state-preservation discipline — they're historically accurate as
+  of Step 2a, just stale now.
+- Step 2b's own `role:` harvest (FM5, FM6, GF2, PM25) and the five Dean-flagged borderline/
+  candidate rows (FM1, FM33, FM49, PM23, PM25) remain open — see that step's own status-log
+  section above for the full accounting. The `model`-destined rows (FM14, PM6, PM16, PM17) were
+  resolved to either "already covered" or a handed-off proposal, not written to
+  `planning/doc-and-session-model.md` itself.
 
 ## Open questions for Dean
 - None for step-gates-spec.md. Every genuine interface gap in the spec's own text (citation syntax, the
@@ -238,4 +390,16 @@ both empty, confirming copy-only. `git status --short roles/` in this worktree �
   pathspec-commit paragraph (the shared-git-index rule) has no row in `harvest-classification.md` at
   all — is that an oversight in the table (needs a new row, likely `conv:worktree-scope`), or was it
   deliberately left out for some reason not stated in the table? Not harvested either way, per this
-  step's own "halt on an unclassified source item" instruction.
+  step's own "halt on an unclassified source item" instruction. **Resolved by Step 2b below** —
+  `memory-harvest-classification.md`'s own FM40 row answers this directly (it's the same rule,
+  sourced from `feedback_shared_git_index_pathspec_commits.md`, classified `conv:worktree-scope`) —
+  now harvested.
+- For `memory-harvest-classification.md` Step 2b (this session): three questions, none blocking —
+  (1) whether the four PM6/PM16/PM17/session-naming-mechanism-class rows genuinely belong in the
+  shared `doc-and-session-model.md` at all versus staying in their own mission docs (see that
+  step's own "model-destined rows" section above for the specific proposed content per row); (2)
+  whether FM1/FM33/FM49's candidate new topics (`conv:writing-style`, `conv:tooling-preferences`,
+  a `chat-links` fold-in for FM49) are worth creating; (3) whether PM23/PM25 are mechanism-context
+  worth a role-doc note or genuinely out of scope for the rules mechanism. All three were the
+  table's own flags, not new judgment calls introduced here — see the step-log's own
+  "skipped, pending Dean" list for the exact rows.
