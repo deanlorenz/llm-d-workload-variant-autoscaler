@@ -143,3 +143,48 @@ whether it's worth a standalone note or just this status-file record).
 
 No armed footguns beyond the uncommitted `SKILL.md` edit above. CURRENT.md itself is clean —
 confirmed via `git status` immediately before writing this entry.
+
+---
+
+## 2026-08-17, later same day — second park: full sync cycle done, size reduction confirmed
+
+**Prior park's open items, resolved:** the `SKILL.md` edit was committed (`ee5cb005`, same park).
+Both handoffs it flagged as unanswered got real replies and were consumed in the sync pass below.
+
+### This pass's work
+
+Ran a full `/s-sync-current` cycle. Five handoffs consumed: `sat-v2-f1-gap-compress-to-summary-
+and-ref` (already satisfied by an earlier edit — verified both target spots, no further change
+needed); `pokprod-benchmark-entry-compressed-20260817` (compressed a ~188-line block to ~24 lines
++ refs into `ta-pokprod-roadmap.md`/`ta-pokprod-open-scenarios.md`/`ta-pokprod-history.md`, the
+sender having independently verified the ledger D-1..D-72 sequential/complete/no-gaps first);
+`micro-rules-migration-complete` (new active-WIP entry, `plans-tooling`'s overnight 5-step
+mandate); `autoscaling-viz-good-panels-done` + `autoscaling-viz-status-compressed-and-current-
+refresh` (merged into one refreshed entry, tip `a1a815a7`, replacing a stale `cff4e4c0`-era
+block). During Step 3a reconciliation, found and removed two further blocks already fully
+superseded by content read this session (a stale shared-Tier-2 Next-steps entry; a stale
+2026-08-08 pokprod tooling-plan entry) — neither needed a handoff first, since their content was
+independently confirmed present in docs already read and cited elsewhere in this same pass.
+
+**Net result, Dean-verified:** CURRENT.md went 786 → 593 lines (−193, ~25%) despite two new
+entries being added. Committed `1ac5537b`, pushed to `origin/plans` (`553186b6..1ac5537b`).
+
+**A real process near-miss, caught and fixed correctly this time:** the concurrent-sync watcher
+(`sync-current-watch.sh`) raced its own baseline write again — the exact failure mode the skill's
+own Step 7 already documents (watcher holds `last_known_current_sha` in memory from its own
+startup read; editing the status file while it's still running gets silently overwritten on the
+next poll). Caught it happening live (a `git diff` write to the status file failed with "modified
+since read," then the watcher's own next poll visibly reverted my edit) instead of assuming the
+file write had taken effect. Fixed per the skill's prescribed order: `TaskStop` the watcher first,
+verified via a real `/proc` scan that no process remained, wrote the fresh baseline, then
+restarted via `Monitor`. Confirmed working by observing the new watcher's own first real poll
+report `SAFE` (not a stale `CONFLICT`) against a genuinely-pending handoff. Baseline commit
+`3b723ad2`, also pushed.
+
+**Two new handoffs arrived during/after this pass, correctly left for the next sync cycle, not
+folded in here:** `sync__pokprod-benchmark-state-cleanup-20260817.md`,
+`sync__panel-review-20260817-done.md`. Neither read in detail — deliberately, this park is not a
+sync pass.
+
+No corrections, no rejected approaches, no armed footguns from this pass. Working tree clean
+(`git status` shows nothing outstanding beyond what's about to be committed by this park itself).
