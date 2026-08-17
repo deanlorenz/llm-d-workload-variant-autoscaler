@@ -161,14 +161,21 @@ existing three — kept separate because a collection and a convention are diffe
 (a convention prints itself; a collection prints what it points at), and conflating them into one
 tool with a mode flag would make both harder to read.
 
-- **4.1 role-collections**: one `### collection:` entry per role with real harvested content,
-  `members` = every convention that role's own file content or the classification table implies it
-  needs beyond its thin kernel (e.g. `role:coder` implies `worktree-scope`, `handoffs`, `pre-push`,
-  `code-deletion`, `dev-guide-updates`, `go-test-gates`, `plans-refs-in-code`, `review-pipeline`,
-  `semantic-pivot-grep`, `session-start`, `status-files`, `triggers`).
-- **4.2 step-collections**: `committing`, `pushing`, `writing-a-handoff`, etc. — named by the action,
-  cutting across roles.
-- **4.3 pre-packaged prompts**: same marker, `members` plus a fuller prose body (the "prompt" part) —
-  a collection with a task-shaped write-up rather than just a bare reference list.
+- **4.1 role-collections**: `collections/roles.md` has `coder` and `sync` so far (commit `5da39780`,
+  built as the tool-verification fixture, both real) — the other 9 roles remain, deliberately
+  deferred until Step 2b's harvest coder finishes (its `conventions/` edits are additive-only per a
+  `git diff` check, so the two done so far are safe, but a full 11-role pass would keep needing
+  re-checks against a moving target; cheaper to wait for one clean base).
+- **4.2 step-collections — DONE** (`910b18dc`): 8 action-named collections (`committing`, `pushing`,
+  `writing-a-handoff`, `starting-a-session`, `reviewing-code`, `deleting-code`, `writing-a-plan`,
+  `updating-current-md`) in `collections/steps.md`, all using prefix members, `coll-lint.sh` clean.
+- **4.3 pre-packaged prompts — DONE**, first two instances: `rebase-a-live-branch` (drawn straight
+  from `conv:rebase-integrity`'s own existing procedure, not invented) and
+  `dispatch-and-verify-a-background-coder` (drawn from this session's own tonight's dispatch/verify
+  pattern, both Step 2a and Step 2b) in `collections/prompts.md`. Discovered the same PATHREF
+  false-positive Step 2a hit (a backtick-quoted `plans/planning/` token doesn't resolve from
+  `plans-tooling`) — same fix, strip the backticks, don't touch the words.
 
-Not yet built — next action.
+Remaining for Step 4: the other 9 role-collections (blocked on Step 2b), and optionally more
+pre-packaged prompts as recurring task shapes are noticed — not an exhaustive list to fill
+speculatively.
