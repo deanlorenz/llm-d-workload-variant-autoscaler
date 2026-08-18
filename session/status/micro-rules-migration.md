@@ -156,3 +156,74 @@ Deliberately NOT done (park is additive, and accepts no work):
     explicitly Dean's call, named as open in the status file, not silently advanced.
   - Noticed no drift needing /s-state-sweep this pass.
 ```
+
+## 2026-08-18 — discussion-only walkthrough session, no execution (Dean's explicit instruction)
+
+Dean's framing this session: "I want to keep this session only for the discussion; for the runs
+let's park, start [a] clear session, and do all the sweeps after that." Everything below is
+mechanism design/decisions from walking the harvest end to end together — real findings, all
+committed to `plans-tooling`, but **deliberately no execution of the queued tasks** (that happens
+in the next, fresh session).
+
+**Commits landed tonight, in order** (all on `plans-tooling`, local, not pushed — see that
+worktree's own git log for full messages):
+`ce72c625` (policy-writer kernel — how to write a convention) → `d0865c8f` (conv.sh tool changes:
+suppress origin) → `60859fcf` (suppress status: too; 20 old-file citations flagged) → `9f7eacb1`
+(rules-with-references model, Dean's 8 points) → `38e6612d` (`conventions/how-to-commit.md` —
+first rules-with-references trial, probation) → `7d9110f1` (re-fetch works only via Bash — tested
+live, load-bearing, undocumented) → `53e5cb40` (dedup mechanism feasible: `CLAUDE_CODE_SESSION_ID`
++ transcript line count, tested live) → `5450ec69` (conv.sh/sec.sh unified as one citation
+mechanism) → `fe3881cb` (model-destination gap found: C3/C6 never actually migrated) →
+`5f145c2c` (new `model/workspace-structure.md` created, fixes it) → `36c038aa` (plans:
+`harvest-classification.md` C3/C6 rows repointed) → `3b22eadf` (coverage redefined:
+source-line-verbatim, not table-row-cited) → `dfbaf642` (USER/repo genericization rule decided,
+not dispatched) → `7002b922` (points 3/6 closed, coverage scope extended past C3/C6, new "Tasks
+queued" section added).
+
+**What this session actually did, mechanism-wise** — the two biggest shifts from where the
+mandate stood at the last park:
+1. **`conv.sh`/`sec.sh` unified into one citation mechanism** ("call conv.sh `<name>`" / "call
+   sec.sh `<file>` `<heading>`"), confirmed live that re-fetch only works because both are Bash
+   (not `Read`/`@`, which suppress redundant fetches — tested directly, documented as a
+   load-bearing constraint nobody had checked before).
+2. **Rules-with-references may replace flat collections** — Dean's model where a rule cites its
+   own dependencies inline, conditionally, at the step where each applies, rather than a
+   `### collection:` bundling everything eagerly. One real trial built
+   (`conventions/how-to-commit.md`, `status: probation`) against the existing `committing`
+   step-collection for later comparison. **Whether it replaces collections is explicitly still
+   open** — decide only after more are authored, per Dean.
+
+**Real content gap found and partially fixed**: C3 (Repository Layout, 59 lines) and C6 (Document
+Taxonomy, 222 lines) were classified `dest: model` back in the original harvest but the actual
+text was never moved anywhere — it still only existed in `session/CONVENTIONS.md`, the exact file
+this migration exists to stop preloading. Fixed for these two: new
+`plans-tooling/model/workspace-structure.md`, byte-diffed clean against source, confirmed
+`sec.sh`-fetchable. **Coverage itself was redefined as a result** — no longer "does every
+classification-table row have a citing `origin:`" (which only certifies the table, and the table
+itself just proved it can have gaps) but **"does every line of every currently-loaded `.md` file
+appear verbatim in some fetchable micro-convention or micro-model file."** This is a stronger,
+different check than what `coverage-check.sh` does today.
+
+**Two tasks queued for the next (execution) session, design settled, not started:**
+1. Build the source-line coverage audit (per the redefinition above) and run it against
+   `session/CONVENTIONS.md`, `session/CODER-CONVENTIONS.md`, and any other currently-loaded `.md`
+   file; fix every gap found, not only the C3/C6 class.
+2. Dispatch the USER/repo genericization (`roles/policy-writer.md` point 7) across the ~26 files
+   already scoped there — `USER` (uppercase, substitutable-slot token) replaces the human's name;
+   `repo` (lowercase) replaces WVA/Workload-Variant-Autoscaler.
+
+Both are named by Dean as good candidates for the `dispatch-and-verify-a-background-coder` prompt.
+
+**⚠️ Genuinely unresolved, flagged and not answered before park — carry verbatim.** Near the end
+of this session Dean named a 5-item backlog review (from the pre-existing "still open" list in the
+plan doc) and called one item — "5" — **"critical, blocking of migration, this will need a
+separate session."** I asked directly which item he meant (offered the `role:`-destined memory
+harvest as my best guess) and Dean's next message was `park` rather than a confirmation or
+correction. **This is not confirmed either way.** The next session must not assume it was the
+`role:` harvest — that is only a guess that was never validated. Re-ask Dean directly before
+treating any specific backlog item as "the critical blocking one."
+
+**No armed footguns beyond the above.** `plans-tooling` working tree clean at park time, verified
+live (`git status --short` returns nothing). **15 commits ahead of `origin/plans-tooling`, not
+pushed** — normal per this project's push-confirmation rule, not a defect, but stated exactly so a
+cold resume doesn't assume they're already remote. No paused process, no sole-copy file at risk.
