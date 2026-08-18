@@ -227,3 +227,63 @@ treating any specific backlog item as "the critical blocking one."
 live (`git status --short` returns nothing). **15 commits ahead of `origin/plans-tooling`, not
 pushed** — normal per this project's push-confirmation rule, not a defect, but stated exactly so a
 cold resume doesn't assume they're already remote. No paused process, no sole-copy file at risk.
+
+## state-park — micro-rules-migration (2026-08-18 discussion session, source report)
+
+```
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session as background/resumable agents)
+  - 2 Agent-tool calls this turn (claude-code-guide x2, @-ref/dedup docs check and JSON
+    usage-field verification) both ran foreground, completed, output already captured
+    inline in this transcript and reflected in file writes — no resume address needed.
+Nudges sent (2b — best effort, NOT a flush):
+  - (none running)
+Sources read this pass:
+  - plans-tooling/planning/micro-rules-migration-plan.md — confirmed 14 tonight's commits
+    all present and in order
+  - plans-tooling git log — confirmed working tree clean, 15 commits ahead of
+    origin/plans-tooling (not zero — corrected before writing the report)
+  - plans/session/status/micro-rules-migration.md — read in full before editing, confirmed
+    it was the correct pre-existing file for this thread, not stale
+  - ListAgents — confirmed no subagents from this session still tracked
+  - plans git status --short — read before staging; confirmed extensive concurrent
+    modification by other sessions, staged only my own file
+Not read (and why):
+  - plans-tooling/conventions/*.md, roles/*.md individually — already verified via
+    conv-lint/live fetch tests throughout the session itself, re-reading each at park
+    time would duplicate work already done with tool verification
+Written to:
+  - plans/session/status/micro-rules-migration.md — appended a new dated section (not a
+    rewrite), covering tonight's 14 commits, the two real mechanism shifts, the C3/C6
+    content-gap fix, the two queued tasks, and — critically — the unconfirmed backlog-item
+    question, flagged verbatim rather than guessed at
+Handoffs emitted:
+  - (none this pass — nothing here is CURRENT.md-bound or another owner's task; this
+    thread's own status file + the plans-tooling plan doc are sufficient)
+Committed:
+  - bff20833 state(park): micro-rules-migration — 2026-08-18 discussion session (plans,
+    this park)
+  - 14 commits on plans-tooling from earlier in this session (ce72c625 through 7002b922,
+    full list in the status file body — not re-listed here to avoid duplicating the same
+    SHAs in two places), plus one commit on plans (36c038aa, harvest-classification.md
+    C3/C6 repoint) — all made during the session itself, before this park started
+Worktree exit:
+  - not applicable — this session was never inside a worktree via EnterWorktree; pwd
+    confirmed plans throughout the entire session, no cd used for plans-tooling work
+    (git -C / absolute paths only)
+Verified from final location:
+  - plans/session/status/micro-rules-migration.md — present
+  - commit bff20833 — visible in git log
+  - plans-tooling working tree — clean, confirmed via git status --short at park time
+  - plans-tooling vs origin/plans-tooling — 15 commits ahead, NOT pushed (corrected
+    in the report body after an initial draft under-stated this as "no footguns")
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not execute either queued task (source-line coverage audit; USER/repo dispatch) —
+    per Dean's explicit "keep this session discussion-only, run the work after park+clear"
+    instruction.
+  - Did not resolve which backlog item Dean meant by "critical, blocking" — asked directly,
+    got "park" as the reply, not a confirmation. Recorded as unresolved, not guessed at.
+  - Did not push either branch's new commits — no push confirmation requested or given.
+  - Noticed extensive concurrent drift in the shared plans/ tree (other sessions' WIP) but
+    took no action — not this session's scope.
+```
