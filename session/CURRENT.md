@@ -24,7 +24,23 @@
   `doc-and-session-model.md` (handed off, out of harvest coder's write scope). **The cutover —
   merging `plans-tooling` into `plans` — has NOT happened and must not happen without Dean's
   explicit review and go-ahead**; `plans/CLAUDE.md` untouched, nothing here attempted or proposed
-  that merge. No armed footguns — working tree clean, fully pushed. State:
+  that merge.
+  **2026-08-19 (overnight, auto mode) — checklist items 1/2/2a/3/5/9/10/25 closed; items 4/8
+  deliberately deferred; item 5's automated part (11-18) BLOCKED on Dean.** First run under
+  revised parallel-coder rules (isolated worktrees, merged back only after independent
+  verification) — 3 temp worktrees created and removed, their branches kept per this project's
+  archive-don't-delete convention. Real defects found and fixed before merging: 4 prefetch design
+  bugs caught by hand testing; 3 bugs in a dispatched coder's `source-coverage-check.sh` found by
+  an independent review agent (false-success on empty/unreadable files, a fenced-code-block
+  false-positive hiding 19 real lines, a duplicated rule); `conv-lint.sh` rule 15 extended to
+  resolve `../`-relative paths too. **⚠️ Genuinely open, needs Dean's decision:** the checklist's
+  own pre-A gate says items 1-10 "must all finish before Item 5's automated part starts" — tonight
+  named items 4/8 as deferrable but never said this waives the gate, so items 11-18 (the actual
+  Item 5 work) are **NOT started**, pending his read. Recorded as an open blockquote directly in
+  `plans-tooling/planning/micro-rules-checklist.md` § Pre-A gate (commit `b334e3dd`). No armed
+  footguns — `plans-tooling` clean, 101/101 tests pass, `conv-lint`/`coll-lint` exit 0; 54 commits
+  ahead of `origin/plans-tooling`, not pushed (no confirmation requested or given, per the
+  standing rule). State:
   [`session/status/micro-rules-migration.md`](status/micro-rules-migration.md); owned doc:
   `plans-tooling/planning/micro-rules-migration-plan.md`.
 
@@ -204,8 +220,14 @@
   Dean's judgment call). **Open / next:** inventory update pending
   (`plan__viz-good-panels-inventory-update.md`, planner to fold into
   `planning/benchmark-runs-inventory.md`); benchmark scope to decide on the one
-  obtainable-elsewhere run. No armed footguns — working tree clean, nothing uncommitted anywhere
-  in scope. Session idle, watching for next trigger. State:
+  obtainable-elsewhere run.
+  **2026-08-17 — panel review, 7/8 items done (commit `3818cab4`).** Items 1–7 (title fix, p1a
+  title overlap, p3 color strip, p4 header gap, pod sort tie-breaker, p5 L(t) alignment, p6
+  silent-tail cue) implemented and verified. Item 8 (drain over-firing) investigated — no actual
+  over-firing found on the named run; findings in `plan__panel-review-20260817-item8-findings.md`,
+  **decision pending Dean**. Full re-render of all 16 GOOD runs deferred as its own follow-up
+  pass. No armed footguns — working tree clean, nothing uncommitted anywhere in scope. Session
+  idle, watching for next trigger. State:
   [`session/status/autoscaling-viz.md`](status/autoscaling-viz.md) — history table names the exact
   plan doc + § Outcome for every landed task; prior narrative preserved in `plans` git history
   before commit `c6f22d67` if ever needed.
@@ -228,22 +250,36 @@
   to replace estimation with true measurement (vLLM's `--enable-per-request-metrics` flag) was
   investigated and found **absent** on the pinned v0.20.2 image — closed for now. **Full priority
   triage done 2026-08-16** (`D-71`) — Dean set explicit handling per open item, all tracked in
-  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) § *Priority triage*;
-  genuinely open, in his priority order: gateway-harvest wiring fix (needs discussion), p4 4-pod
-  combined-log extraction gap (non-urgent), truncated-run detection (real open gap), controller-
-  restart hold-policy question (`D-40`/`D-46`), doc-coverage cleanup for 19 scratch scripts (parked),
-  pokprod runbook fold-vs-stub call (may be ready to revisit now Stage A exists). **Deliberately
+  [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) § *Priority triage*,
+  now **items 1–14**; genuinely open, in his priority order: gateway-harvest wiring fix (needs
+  discussion), p4 4-pod combined-log extraction gap (non-urgent), truncated-run detection (real
+  open gap), controller-restart hold-policy question (`D-40`/`D-46`), doc-coverage cleanup for 19
+  scratch scripts (parked), pokprod runbook fold-vs-stub call (may be ready to revisit now Stage A
+  exists), **Stage B tracked as item 12** (previously cited only in park reports, no table row —
+  closed as a tracking gap), **83 uncommitted viz-refresh entries on `benchmark`** handed over
+  non-blocking from autoscaling-viz, planner's to commit (item 13, `D-75`), **`reset_run.py`'s
+  existence-check defect, LIVE and UNFIXED** — `hack/benchmark/reset_run.py:270-272` `rm -rf`s a
+  PVC directory on a name match with no size/count check (item 14, `D-74`). **Deliberately
   deferred by Dean, not forgotten:** the dwell-forecast Type-1 design (shared queue-load-forecast
   mechanism), the bucket-keyed `prc` collapse bug, controlled-run/timestamped-replay capability.
   **A process finding, closed:** `session/handoffs/` used bare `mv` not `git mv` for state
   transitions, so 439 tracked files accumulated as delete+add pairs rather than real git history —
   handed to the handoff-protocol design owner with Dean's ruling attached (pointers only, no
-  retroactive git-history change); consumed, closed (`D-72`). **No armed footguns** — GPUs freed
-  and verified quiescent after Stage A, no cluster action pending, working tree clean on all
-  scopes. State: [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (start here) +
+  retroactive git-history change); consumed, closed (`D-72`).
+  **⚠️ Armed footguns, carry verbatim:** (1) **the ScaledObject is left PAUSED at 0** on
+  `dhl-wva-209` — KEDA holds it indefinitely, and a future run launched without un-pausing first
+  traces flat at 0 replicas and reads as a legitimate no-scaling result; (2) **`reset_run.py` can
+  permanently delete incomplete PVC data** (item 14 above) — mitigation is procedural only, run
+  `session-notes/scratch/verify_pvc_vs_host.py` first; it once found all four host copies
+  incomplete, where `--apply` would have made the loss permanent; (3) **`benchmark` is 34 commits
+  ahead of `origin/benchmark`, 0 behind — all unpushed**, durable locally but origin a month
+  stale, no push proposed or approved (`D-75`). State:
+  [`ta-pokprod-roadmap.md`](../planning/ta-pokprod-roadmap.md) (start here) +
   [`ta-pokprod-open-scenarios.md`](../planning/ta-pokprod-open-scenarios.md) § *Priority triage* +
-  checklist + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md) (`D-1`…`D-72`,
-  append-only, grep-lookup, checked sequential/complete/no-gaps 2026-08-17).
+  checklist + [`ta-pokprod-history.md`](../planning/ta-pokprod-history.md) (`D-1`…`D-77`,
+  append-only, grep-lookup) + [`session/status/planner-pokprod-benchmark.md`](status/planner-pokprod-benchmark.md)
+  (new planner state file) + [`session/status/benchmark.md`](status/benchmark.md) (coder state,
+  compressed 5411→~130 lines).
 - **2026-08-11 — dwell limit cycle root-caused: replica-readiness lag, not a bookkeeping bug.**
   Dedicated deep-dive session traced `m-satta-dwell`/`m-sat-dwell` controller logs against the actual
   saturation_v2/optimizer code, not log inference. The ramp-to-cap excursions are saturation's
