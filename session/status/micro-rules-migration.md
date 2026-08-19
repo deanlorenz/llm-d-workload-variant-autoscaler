@@ -346,3 +346,55 @@ recorded here in full:**
 (`git status --short` returns nothing). **20 commits ahead of `origin/plans-tooling`, not
 pushed** (was 15 at the last park; +5 tonight) — normal per the no-push rule, stated exactly so
 tonight's run doesn't assume anything is remote yet.
+
+## state-park — micro-rules-migration (2026-08-19 discussion session, source report)
+
+```
+Subagent addresses recorded (2a — the durable part):
+  - (none ran this session — no Agent-tool calls made this turn at all)
+Nudges sent (2b — best effort, NOT a flush):
+  - (none running)
+Sources read this pass:
+  - plans-tooling/planning/micro-rules-migration-plan.md — confirmed all 5 tonight's commits
+    (0a0f073a through 8d9fdc77) present and in order
+  - plans-tooling/planning/micro-rules-checklist.md — confirmed exists, current, 25 items
+  - plans-tooling git log — confirmed working tree clean, 20 commits ahead of
+    origin/plans-tooling (was 15 at last park — checked live, not carried forward)
+  - plans/session/status/micro-rules-migration.md — read the actual tail before appending,
+    confirmed it was the correct pre-existing file, not stale
+  - ListAgents — confirmed no subagents from this session
+  - plans git status --short — read before staging; confirmed extensive concurrent
+    modification by other sessions, staged only my own file
+Not read (and why):
+  - plans-tooling/conventions/*.md, roles/*.md individually — no new edits to these this
+    session (only planning/ and checklist docs changed); nothing to re-verify beyond the
+    conv-lint checks already run inline during editing
+Written to:
+  - plans/session/status/micro-rules-migration.md — appended a new dated section covering:
+    item-5 resolution, the 5 correction commits, and — critically — tonight's verbal
+    operational handoff (permissions, auto mode, no EnterWorktree, fork-investigation
+    exclusion) that existed nowhere else on disk
+Handoffs emitted:
+  - (none this pass — nothing CURRENT.md-bound or another owner's task)
+Committed:
+  - b1b6a41c state(park): micro-rules-migration — 2026-08-19 discussion session (plans,
+    this park)
+  - 5 commits on plans-tooling from earlier this session (0a0f073a through 8d9fdc77, full
+    list already in the status file body — not re-listed here)
+Worktree exit:
+  - not applicable — never inside a worktree via EnterWorktree this session; pwd confirmed
+    plans throughout
+Verified from final location:
+  - plans/session/status/micro-rules-migration.md — present
+  - commit b1b6a41c — visible in git log
+  - plans-tooling working tree — clean, confirmed via git status --short at park time
+  - plans-tooling vs origin/plans-tooling — 20 commits ahead, NOT pushed
+Deliberately NOT done (park is additive, and accepts no work):
+  - Did not begin any of the 25 checklist items — that is tonight's run, in a new session,
+    per Dean's explicit instruction to park now and start fresh.
+  - Did not push either branch's commits — no push confirmation requested or given.
+  - Did not draft the actual permission/settings configuration for the auto-mode run —
+    Dean said permissions are already granted; nothing further requested of this session.
+  - Noticed the same extensive concurrent drift in the shared plans/ tree as before — no
+    action, not this session's scope.
+```
