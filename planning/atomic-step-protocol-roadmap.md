@@ -29,11 +29,21 @@ capture, sync watchers, doc tooling) needed to close a real governance gap: most
 tooling had no Type 3 spec at all.
 
 **Needs you, right now:**
-- Per Dean 2026-08-16: this mission's checkpoint/sync/guard work is a **safety mechanism, not the
-  highest priority** — it doesn't block other work. What's actually needed now: **missing tools,
-  missing roles, the harvest.** Phase 4's checkpoint/sync governance gap (below) is CLOSED as of
-  today; Phases 5-7 (review, harvest, coverage) are the live front. Reconcile Addendum 6 (`/s-park`)
-  with Addendum 9 (broadcast channel) whenever convenient — likely the same mechanism, not yet merged.
+- **Corrected by `/s-state-sweep`, 2026-08-19** — the line below is stale: Phases 5-7 are not the
+  live front, they landed (Phase 6 on 2026-08-17, Phase 7's audit tooling + the migration checklist
+  mechanism through the night of 2026-08-19). **The actual live decision point**: whether the
+  micro-rules-checklist's own pre-A gate stands as written ("must all finish") or items 4/8 are
+  genuine exceptions to it — see `plans-tooling/planning/micro-rules-checklist.md`'s blockquote
+  under `## Pre-A gate`, and `plans/session/status/micro-rules-migration.md`'s 2026-08-19 entry.
+  Items 11-18 (Item 5's actual root/role-entry-point work) are blocked on this answer, not on
+  anything below. Reconcile Addendum 6 (`/s-park`) with Addendum 9 (broadcast channel) whenever
+  convenient — likely the same mechanism, not yet merged; unrelated to the above, not re-verified
+  this pass.
+- *(superseded, kept for history per this doc's own no-delete rule)* Per Dean 2026-08-16: this
+  mission's checkpoint/sync/guard work is a **safety mechanism, not the highest priority** — it
+  doesn't block other work. What's actually needed now: **missing tools, missing roles, the
+  harvest.** Phase 4's checkpoint/sync governance gap (below) is CLOSED as of that day; Phases 5-7
+  (review, harvest, coverage) were the live front then.
 
 **Checklist — phases, in order:**
 - [x] Phase 0 — design frozen (`atomic-step-protocol-design.md`, 2026-08-10).
@@ -53,11 +63,21 @@ tooling had no Type 3 spec at all.
   All 10 findings closed: Finding 2 resolved against the corrected Addendum 10 design (was framed
   against a since-retracted premise); Findings 1/3/4/5/9 fixed in the specs and/or code; Findings 6-8/10
   were "worth noting," folded in.
-- [ ] Phase 6 — harvest itself (`conventions-harvest-spec.md`'s M1.2). The repo-scope/global
-  classification axis is now designed (`harvest-classification.md`, 2026-08-16) but the harvest pass
-  over the ~30 `feedback_*`/`project_*` memories and `governance-follow-ups.md` incidents has not
-  run — **per Dean, this is now a live priority, not a deferred one.**
-- [ ] Phase 7 — coverage audit (M1.3), stop loading old files (M1.4). Not started; depends on Phase 6.
+- [x] Phase 6 — harvest itself (`conventions-harvest-spec.md`'s M1.2). **Corrected by
+  `/s-state-sweep`, 2026-08-19: this ran the night of 2026-08-17**, per `session/CURRENT.md`'s own
+  "micro-rules migration: overnight 5-step mandate" entry — full harvest of
+  `CONVENTIONS.md`/`CODER-CONVENTIONS.md`/~78 memories/`governance-follow-ups.md` into
+  `conventions/` (now 25 files in `plans-tooling`), 11 role files. This checklist line was never
+  updated afterward — confirmed live via `coverage-check.sh` against
+  `plans-tooling/planning/memory-harvest-classification.md`, which runs successfully today (not
+  "has not run") and reports the same ~12 individually-accounted-for remaining gaps this mission's
+  own status docs already track (see `plans/session/status/micro-rules-migration.md`).
+- [~] Phase 7 — coverage audit (M1.3) exists and runs (`coverage-check.sh`,
+  `source-coverage-check.sh` — the latter built 2026-08-19, a stricter line-verbatim audit distinct
+  from the row-citation check M1.3 originally meant); **M1.4 (stop loading old files) genuinely NOT
+  done** — `plans/CLAUDE.md` still imports `session/CONVENTIONS.md`/`CODER-CONVENTIONS.md`
+  directly, confirmed untouched as of 2026-08-19. Marked `[~]` (partial), not `[x]`, per this
+  sweep's own reconciliation — do not read this as fully closed.
 - [ ] **New, not yet a phase**: missing roles (per Dean 2026-08-16, needed now, not designed yet —
   `role-skills-spec.md` covers role *skills* mechanics, not which roles exist or what's missing).
 - [ ] **Coverage-audit and step-gate tooling — specced but never built, absent from this roadmap's
