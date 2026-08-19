@@ -287,3 +287,62 @@ Deliberately NOT done (park is additive, and accepts no work):
   - Noticed extensive concurrent drift in the shared plans/ tree (other sessions' WIP) but
     took no action — not this session's scope.
 ```
+
+## 2026-08-19 — "item 5" resolved, full pre-A gate + checklist built, tonight's run handed off
+
+This session (also discussion-only, per Dean) resolved the prior park's open question directly:
+"item 5, critical, blocking of migration" was the root/per-role entry-point work — now fully
+designed and captured as a new, separate checklist document. **A real process gap was caught
+mid-session and corrected**: several decisions from this exact discussion had been recorded as
+prose in the plan doc without being checked against the real ~71 entries, so "decided" silently
+stood in for "applied" — Dean caught this directly ("please recheck the session's history...
+some stuff fell between the cracks") and it was corrected in full, not partially.
+
+**New durable checklist, this is now the source of truth for tonight's run**:
+`plans-tooling/planning/micro-rules-checklist.md` (commits `1bd2627b`, `8d9fdc77`) — 25 numbered
+items across 4 sections: a 9-item pre-A gate (item 9 closed, not blocking — see below), Item 5
+itself (items 11-18), a non-blocking review checklist (19-24), and one independent task (25,
+USER/repo dispatch). The file's own header states the standing rule Dean gave: anything raised in
+discussion and not immediately executed must be named on this list, never dropped silently.
+
+**Corrections landed this session, all in `plans-tooling/planning/micro-rules-migration-plan.md`**
+(commits `dc38cd46`, `a91326ca`, `1bd2627b`, `8d9fdc77`):
+- Prefetch reclassified from "nice to have, not now" to **load-bearing** — it is the actual
+  mechanism that replaces a monolithic per-role doc like `CODER-CONVENTIONS.md`. Decided: build
+  both output modes always (assembled-on-fetch AND a cached static doc), not either/or.
+- Real misunderstanding, not just an execution gap: per-role docs are **collections** (old term)
+  — pure groupings of already-harvested rules, nothing new to author. Step 2b's exclusion of
+  `role:`-classified content from harvesting was wrong from the start; reversed — harvest
+  everything, classify by role after.
+- `conv.sh` prefix-fetch **decided closed, will NOT be built** — corrected a wrong claim I made
+  earlier this same session that it was needed for the exception-discoverability problem. It
+  wasn't; that problem's two real remedies (trigger partition, forward pointer) are name-based.
+  **Standing policy recorded**: avoid speculative mechanism, implement only on concrete evidence
+  of need.
+- Candidate-policy harvesting (state-file naming, handoff cadence, "how to call Bob") scope
+  widened to include `session/status/*.md` and `planning/*-plan.md` themselves, not just
+  conversation — lower priority.
+- Dean's spot-check of the classification table (item 13) does **not** block items 14-18 —
+  fixes happen in parallel with continuing.
+
+**Tonight's run — operational instructions given verbally, not yet written anywhere else, so
+recorded here in full:**
+- Dean granted all permissions needed and will run the next session in **`auto` mode** — he is
+  going to sleep and will not be available interactively.
+- **`EnterWorktree` and any other command requiring interactive confirmation must NOT be used.**
+  Work happens via absolute paths / `git -C`, same pattern as every session in this mission has
+  used all along. Artifacts are written in `plans-tooling`.
+- Agents may be spawned as needed — the checklist's items 2/3/6/7 especially are
+  `dispatch-and-verify-a-background-coder`-shaped.
+- **The fork/restart-probe investigation (the separate `overnight-restart-mechanism-plan.md`
+  track) is explicitly NOT part of tonight's run.** Dean confirmed this directly after I raised
+  it as a possible ambiguity — "Decided — we DO NOT do the fork investigation tonight." Tonight
+  is the migration checklist only, items 1-25 in `micro-rules-checklist.md`.
+- **No push** — nothing tonight should reach `origin/plans-tooling`; this wasn't lifted, it's
+  just naturally satisfied by not attempting it, per the pre-existing no-push-without-confirmation
+  rule.
+
+**No armed footguns.** `plans-tooling` working tree clean, verified live at park time
+(`git status --short` returns nothing). **20 commits ahead of `origin/plans-tooling`, not
+pushed** (was 15 at the last park; +5 tonight) — normal per the no-push rule, stated exactly so
+tonight's run doesn't assume anything is remote yet.
