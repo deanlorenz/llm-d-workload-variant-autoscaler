@@ -398,3 +398,84 @@ Deliberately NOT done (park is additive, and accepts no work):
   - Noticed the same extensive concurrent drift in the shared plans/ tree as before — no
     action, not this session's scope.
 ```
+
+## 2026-08-19 (overnight, auto mode) — executed the checklist. 7 of 9 pre-A gate items done;
+## items 4/8 deferred; item 5 (11+) deliberately NOT started, pending Dean's decision
+
+Per Dean's operational handoff from the last discussion session (auto mode, no `EnterWorktree`,
+work via `git -C`/absolute paths, agents may spawn, fork-investigation excluded), executed
+`plans-tooling/planning/micro-rules-checklist.md` items 1-10 and 25. All work in `plans-tooling`;
+`plans/CLAUDE.md` untouched.
+
+**Closed this run**: items 1 (prefetch mechanism, both modes — new `scripts/lib/prefetch.sh`,
+`scripts/prefetch-materialize.sh`), 2 (source-line coverage audit — new
+`scripts/source-coverage-check.sh` — plus the harvest itself), 2a (the two genuine content gaps
+item 2's harvest flagged rather than silently filled), 3 (re-harvest without excluding
+`role:`-content — landed as `conventions/coder-permission-boundary.md`, flagged for the later
+role-classification pass), 5 (`skip-fetch-if-already-known` convention), 9 (already closed
+pre-run — `conv.sh` prefix-fetch, decided not to build), 10 (`sweep-produced-index-carries-
+regeneration-instructions` convention), 25 (USER/repo genericization, 58+10 substitutions, 24
+occurrences deliberately left with stated reasoning).
+
+**Not closed, explicitly**: item 4 (reasons.md — Dean's own instruction tonight: non-blocking,
+lower priority, embed inline only when an incident clarifies intent, defer the file itself);
+item 8 (candidate-policy sweep — Dean's own instruction tonight: lower priority). **Items 11+
+(the actual Item 5 automated part — classification heuristic, root/role entry points,
+reachability coverage) were deliberately NOT started** — see the gate-tension note below.
+
+**Real defects found and fixed along the way, not shipped and patched later:**
+- Two prefetch-mechanism design bugs caught by hand before any commit: a prefetch target
+  resolving against `conv.sh`'s default dir instead of the caller's own `--dir`; a chain
+  double-printing its leaf because a child process's own prefetch expansion collided with the
+  parent's walk over that already-expanded output; a `sec.sh`-shaped multi-word heading getting
+  word-split by unquoted shell expansion; a cycle back to the entry point itself going
+  undetected because only prefetch *targets* were pushed onto the cycle-detection chain, never
+  the entry point that started the walk. All four caught via direct manual testing against
+  purpose-built fixtures before any test suite update, not discovered later.
+- A dispatched harvest coder's work was independently reviewed by a second agent before
+  merging (per Dean's explicit "run background code-reviewers... fix the problems before
+  merging" instruction) — found and I fixed 3 real bugs: `source-coverage-check.sh` reported
+  false success (exit 0) on an empty or unreadable target file (reproduced both, not just
+  inferred); a fenced-code-block line that only *looked* like a heading was silently skipped
+  from coverage checking, hiding 19 real lines (all already correctly harvested, so this was a
+  tool-accuracy fix with zero follow-on content gaps — verified line by line, not assumed);
+  `conventions/git-remotes.md`'s `git-remotes-never-push-upstream` entry stated the same rule
+  twice (a pre-existing paraphrase plus a newly-added verbatim block, unflagged) — consolidated
+  without losing the paraphrase's distinct why-reasoning.
+- The harvest's own open question 2 ("should `conv-lint.sh`'s rule 15 gain an allowlist for
+  cross-repo paths") was answered and built: rule 15 now also resolves a backtick-quoted path
+  relative to `../` (the workspace container dir), not just CWD — this is what let a follow-up
+  backtick-restoration pass recover most of the harvest's gap count (66 → 52) instead of
+  permanently accepting dropped punctuation.
+
+**Process, since this is the first run under Dean's revised parallel-coder instructions
+(mid-session, given directly to this session)**: every dispatched background coder ran in its
+own isolated `git worktree` (`plans-tooling-harvest`, `plans-tooling-backtick`,
+`plans-tooling-genericize`), never sharing `plans-tooling` itself while working, to avoid the
+concurrent-edit collisions Dean specifically warned about. Each coder's output was independently
+verified (lint/tests re-run personally, source spot-checked, scope diff confirmed) before
+merging via `git merge --no-ff` into `plans-tooling`, never by trusting a commit message alone.
+All three temp worktrees removed after their content was safely merged and re-verified in
+`plans-tooling` itself. Nothing pushed to `origin/plans-tooling` at any point (54 commits ahead,
+confirmed at the end of this run) — no push confirmation requested or given, consistent with the
+standing no-push rule.
+
+**⚠️ Gate tension flagged, not resolved — carry verbatim, Dean's call.** The checklist's own
+pre-A gate section states "must all finish before Item 5's automated part starts." Tonight's
+verbal instruction named items 4 and 8 specifically as deferrable/lower-priority, but never said
+explicitly that this waives the gate's own stated rule. Recorded as an open blockquote directly
+under `## Pre-A gate` in `plans-tooling/planning/micro-rules-checklist.md` (commit `b334e3dd`)
+rather than silently deciding either reading. **Items 11-18 (the classification heuristic, the
+root + 11 role entry-point documents, the reachability traversal tool, the per-role verbatim-
+coverage test) are NOT started.** Whoever resumes this mission next should get Dean's explicit
+read on this before starting item 11 — either "items 4/8 are genuine exceptions to the gate,
+proceed" or "the gate stands, finish 4/8 first."
+
+**No armed footguns.** `plans-tooling` working tree clean, verified live (`git status --short`
+returns nothing) at the point this report was written. 54 commits ahead of
+`origin/plans-tooling`, not pushed — stated exactly so a cold resume doesn't assume anything is
+remote. All three temp coder worktrees removed; no dangling branches left registered
+(`plans-tooling-harvest-2`, `plans-tooling-backtick-3`, `plans-tooling-genericize-25` all still
+exist as branches — their content is fully merged into `plans-tooling`, they were not deleted,
+per this project's own "archive don't delete" convention; a future session may `git boidem` them
+once confirmed no longer needed for reference).
